@@ -24,7 +24,7 @@ thread_local! {
 /// Creates the controls on the main thread and routes their events to `player`.
 pub fn init<R: Runtime>(app: &AppHandle<R>, player: Player) {
     #[cfg(target_os = "windows")]
-    let hwnd = app.get_webview_window("main").and_then(|w| w.hwnd().ok()).map(|h| h.0 as *mut std::ffi::c_void);
+    let hwnd = app.get_webview_window("main").and_then(|w| w.hwnd().ok()).map(|h| h.0);
     #[cfg(not(target_os = "windows"))]
     let hwnd = None;
     let _ = app;

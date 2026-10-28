@@ -60,7 +60,10 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+      # the default package list asks for "tools", which newer SDK command-line tools no longer have
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - run: sdkmanager "ndk;29.0.14206865"
       - uses: dtolnay/rust-toolchain@stable
         with:
