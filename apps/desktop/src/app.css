@@ -1,0 +1,386 @@
+/* HomeFi desktop theme ("listening room"). Brand tokens: .claude/skills/ui-ux-pro-max/SKILL.md */
+
+/* registered so they animate when the album changes */
+@property --room-accent {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #5fd4ea;
+}
+@property --room-glow {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #0891b2;
+}
+@property --room-deep {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #06161d;
+}
+@property --room-ink {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #0e7490;
+}
+@property --room-paper {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #eef6f8;
+}
+
+:root {
+  transition: --room-accent 1.2s, --room-glow 1.2s, --room-deep 1.2s, --room-ink 1.2s, --room-paper 1.2s;
+  /* album color for text / icons, and the room background, per theme */
+  --accent-text: var(--room-accent);
+  --room-bg: var(--room-deep);
+  --viz-peak: #ffffff;
+  --viz-grid: rgb(255 255 255 / 0.08);
+  --glass: rgb(12 22 34 / 0.55);
+  --glass-strong: rgb(255 255 255 / 0.07);
+  --glass-border: rgb(255 255 255 / 0.1);
+  --hw-top: #2c3b4c;
+  --hw-bottom: #1a2534;
+  --brand-blue: #1d4ed8;
+  --brand-teal: #0891b2;
+  --brand-green: #10b981;
+  --gradient: linear-gradient(135deg, #1d4ed8 0%, #0891b2 55%, #10b981 100%);
+
+  --bg: #0a121d;
+  --sidebar: #0c1522;
+  --surface: #111c2b;
+  --surface-2: #172436;
+  --surface-3: #203047;
+  --border: #203047;
+  --text: #eef6fb;
+  --muted: #9db2c4;
+  --faint: #647a8e;
+  --primary: #67e3f5;
+  --primary-strong: #22c5dd;
+  --on-primary: #042b33;
+  --badge-bg: #0b4f70;
+  --badge-text: #d7f0fd;
+  --danger: #f87171;
+  --ok: #4ade80;
+  --shadow: 0 12px 32px rgb(0 0 0 / 0.45);
+
+  --radius: 10px;
+  /* skins (src/skins.css) cap every corner with this, and covers with --r-cover */
+  --r-max: 999px;
+  --on-primary-strong: #fff;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Roboto", "Helvetica Neue", Arial, sans-serif;
+  --font-display: ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme: dark;
+}
+
+/* light theme: follows the system unless the user picked one (Settings → Appearance) */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f7fbfc;
+    --sidebar: #eef5f7;
+    --surface: #ffffff;
+    --surface-2: #edf4f6;
+    --surface-3: #e1ecef;
+    --border: #dbe7eb;
+    --text: #0b1e3a;
+    --muted: #4c6276;
+    --faint: #8296a8;
+    --primary: #0e7490;
+    --primary-strong: #155e75;
+    --on-primary: #ffffff;
+    --badge-bg: #d7f0fd;
+    --badge-text: #07344a;
+    --shadow: 0 12px 32px rgb(11 30 58 / 0.16);
+    --glass: rgb(255 255 255 / 0.62);
+    --glass-strong: rgb(255 255 255 / 0.7);
+    --glass-border: rgb(11 30 58 / 0.1);
+    --hw-top: #ffffff;
+    --hw-bottom: #e3eef1;
+    color-scheme: light;
+    --accent-text: var(--room-ink);
+    --room-bg: var(--room-paper);
+    --viz-peak: var(--room-ink);
+    --viz-grid: rgb(11 30 58 / 0.1);
+    --ok: #15803d;
+    --danger: #dc2626;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f7fbfc;
+  --sidebar: #eef5f7;
+  --surface: #ffffff;
+  --surface-2: #edf4f6;
+  --surface-3: #e1ecef;
+  --border: #dbe7eb;
+  --text: #0b1e3a;
+  --muted: #4c6276;
+  --faint: #8296a8;
+  --primary: #0e7490;
+  --primary-strong: #155e75;
+  --on-primary: #ffffff;
+  --badge-bg: #d7f0fd;
+  --badge-text: #07344a;
+  --shadow: 0 12px 32px rgb(11 30 58 / 0.16);
+  --glass: rgb(255 255 255 / 0.62);
+  --glass-strong: rgb(255 255 255 / 0.7);
+  --glass-border: rgb(11 30 58 / 0.1);
+  --hw-top: #ffffff;
+  --hw-bottom: #e3eef1;
+  color-scheme: light;
+  --accent-text: var(--room-ink);
+  --room-bg: var(--room-paper);
+  --viz-peak: var(--room-ink);
+  --viz-grid: rgb(11 30 58 / 0.1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+input,
+select {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: min(8px, var(--r-max));
+  padding: 8px 10px;
+  outline: none;
+}
+
+input:focus-visible,
+select:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: min(999px, var(--r-max));
+  font-weight: 600;
+  transition: filter 0.15s, background 0.15s;
+}
+
+.btn.primary {
+  background: var(--primary-strong);
+  color: var(--on-primary-strong);
+}
+
+.btn.tonal {
+  background: var(--surface-3);
+}
+
+.btn:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: min(999px, var(--r-max));
+  color: var(--muted);
+  transition: background 0.15s, color 0.15s;
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.icon-btn.active {
+  color: var(--primary);
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: min(5px, var(--r-max));
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+h1 {
+  font: 800 30px/1.1 var(--font-display);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  font: 700 17px var(--font-display);
+  margin: 28px 0 10px;
+}
+
+/* The track that is playing in a list: a glass card lit by the album color.
+   While it plays, a sheen sweeps across the row and the title, like a skeleton
+   loader but slow; paused, it keeps the card and stops shining. */
+.now-row {
+  --shine: color-mix(in srgb, var(--text) 13%, transparent);
+  position: relative;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent-text) 24%, transparent),
+    color-mix(in srgb, var(--accent-text) 6%, transparent) 70%
+  ) !important;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent-text) 40%, var(--glass-border)),
+    0 6px 22px -10px color-mix(in srgb, var(--accent-text) 70%, transparent);
+}
+.now-row.live::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 38%, var(--shine) 50%, transparent 62%) 0 0 / 250% 100%;
+  animation: now-shine 3.6s ease-in-out infinite;
+}
+.now-title {
+  color: var(--text) !important;
+  font-weight: 650 !important;
+}
+.live .now-title {
+  background: linear-gradient(
+      100deg,
+      var(--text) 42%,
+      color-mix(in srgb, var(--accent-text) 55%, var(--text)) 50%,
+      var(--text) 58%
+    )
+    0 0 / 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent !important;
+  animation: now-shine 3.6s ease-in-out infinite;
+}
+@keyframes now-shine {
+  from {
+    background-position: 125% 0;
+  }
+  to {
+    background-position: -125% 0;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border-radius: min(10px, var(--r-max));
+  border: 2px solid var(--bg);
+}
+
+/* Motion (Settings → Look → Motion): lib/motion.ts sets <html data-motion>
+   to full, subtle or off ("auto" is full, or subtle when the system asks for
+   reduced motion). CSS animations take their pace from these, and the skin
+   gives them its character, like the Svelte transitions in lib/motion.ts. */
+:root {
+  --motion-speed: 1;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-pop: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* how small a picked control starts (hf-pick) */
+  --pick-from: 0.9;
+}
+:root[data-skin="aluminum"] {
+  --motion-speed: 0.8;
+  --ease-pop: cubic-bezier(0.22, 1, 0.36, 1);
+}
+:root:is([data-skin="luna"], [data-skin="web2000"]) {
+  --motion-speed: 0.6;
+  --ease-pop: ease-out;
+}
+:root[data-skin="retro_amp"] {
+  --motion-speed: 0.55;
+  --ease-out: steps(4, end);
+  --ease-pop: steps(3, end);
+}
+/* subtle: nothing travels or grows, and the looping sheens stand still */
+:root[data-motion="subtle"] {
+  --pick-from: 1;
+}
+:root[data-motion="subtle"] .now-row.live::after,
+:root[data-motion="subtle"] .live .now-title {
+  animation: none;
+}
+/* off: everything still */
+:root[data-motion="off"] *,
+:root[data-motion="off"] *::before,
+:root[data-motion="off"] *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* a control that was just picked (segmented buttons, the active place in the rail) */
+@keyframes hf-pick {
+  from {
+    transform: scale(var(--pick-from));
+  }
+}
+/* a choice that was just made pops into place: tabs, segmented options, chips */
+:is(.tabs, .segmented, .seg, .modes, .chips) > button:is(.active, .selected, .on),
+.web .tab.selected {
+  animation: hf-pick calc(0.32s * var(--motion-speed)) var(--ease-pop);
+}
+
+/* The window's own colours, kept for popups that live inside bars that
+   repaint themselves (a skin's deck can be blue with white text, but its
+   menus are ordinary surfaces). var() resolves here, on the root. */
+:root {
+  --window-text: var(--text);
+  --window-muted: var(--muted);
+  --window-surface: var(--surface);
+  --window-surface-2: var(--surface-2);
+  --window-border: var(--border);
+  --window-accent-text: var(--accent-text);
+}

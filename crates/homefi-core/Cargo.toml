@@ -1,0 +1,45 @@
+[package]
+name = "homefi-core"
+description = "HomeFi core: Tidal API client, download engine, tagging and path templating"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[features]
+# Shared control networking: the hub server and the guest client (`share::Hub`,
+# `share::GuestClient`). The protocol, permissions and fair queue are always
+# built. Off by default so the CLI does not carry an HTTP server.
+share = ["dep:axum", "dep:tokio-tungstenite", "dep:tower", "dep:tower-http", "tokio/net"]
+
+[dependencies]
+axum = { workspace = true, optional = true }
+base64.workspace = true
+chrono.workspace = true
+dirs.workspace = true
+futures.workspace = true
+lofty.workspace = true
+regex.workspace = true
+reqwest.workspace = true
+roxmltree.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-tungstenite = { workspace = true, optional = true }
+tower = { workspace = true, optional = true }
+tower-http = { workspace = true, optional = true }
+toml.workspace = true
+tracing.workspace = true
+unicode-normalization.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+wiremock = "0.6"
+
+[[test]]
+name = "share"
+required-features = ["share"]

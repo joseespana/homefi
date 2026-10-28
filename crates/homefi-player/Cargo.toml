@@ -1,0 +1,22 @@
+[package]
+name = "homefi-player"
+description = "HomeFi desktop audio engine: decoding (symphonia), output device selection (cpal) and resampling (rubato)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+homefi-core.workspace = true
+cpal.workspace = true
+rand.workspace = true
+ringbuf.workspace = true
+rubato.workspace = true
+serde.workspace = true
+symphonia.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

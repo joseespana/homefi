@@ -1,0 +1,113 @@
+# HomeFi configuration file.
+#
+# Save it as `config.toml` inside the app directory:
+#   macOS / Linux: ~/.homefi/config.toml
+#   Windows:       %USERPROFILE%\.homefi\config.toml
+# Set the `HOMEFI_PATH` environment variable to use another app directory.
+# `homefi config init` writes this file for you. Every key is optional.
+
+# Cache API responses on disk (`<app dir>/api_cache`). Most endpoints are
+# cached for one hour. Delete the folder (or run `homefi config clear-cache`)
+# to purge it.
+enable_cache = true
+
+# Save every Tidal API response to `<app dir>/api_debug` (for bug reports).
+debug = false
+
+
+[templates]
+# Path templates, see docs/templating.md.
+# Resources without their own template use `default`.
+default = "{album.artist}/{album.title}/{item.title}"
+
+# track = "tracks/{item.id}"
+# video = "videos/{item.title}"
+# album = "artists/{album.artist}/{album.title}/{item.number:02d}. {item.title}"
+# playlist = "{playlist.title}/{playlist.index}. {item.artist} - {item.title}"
+# mix = "mixes/{mix_id}/{item.artist} - {item.title}"
+
+
+[download]
+# low    - 96 kbps AAC (m4a)
+# normal - 320 kbps AAC (m4a)
+# high   - 16-bit 44.1 kHz FLAC
+# max    - up to 24-bit 192 kHz FLAC
+track_quality = "high"
+
+# sd - 360p, hd - 720p, fhd - 1080p
+video_quality = "fhd"
+
+# Skip files that already exist.
+skip_existing = true
+
+# How many items are downloaded at once. Keep it low.
+threads_count = 4
+
+# Base download directory, default: ~/Music/homefi
+# download_path = "~/Music/homefi"
+
+# Where to look for existing downloads (defaults to download_path).
+# scan_path = ""
+
+# Artist downloads: "none" = only albums, "only" = only EPs & singles,
+# "include" = both.
+singles_filter = "none"
+
+# "none" = no videos, "only" = only videos, "allow" = tracks and videos.
+videos_filter = "none"
+
+# Touch the modification time of files skipped because they exist.
+update_mtime = false
+
+# Rewrite tags of files that already exist.
+rewrite_metadata = false
+
+# Save synced lyrics as an .lrc file next to the track.
+write_lrc_file = false
+
+# Reuse the casing of existing folders ("FooBar" vs "foobar").
+match_existing_path_case = false
+
+# Dolby Atmos: "none" = only stereo, "only" = only Atmos, "allow" = both.
+atmos_filter = "none"
+
+# "original" keeps Tidal's file (FLAC / M4A); "flac" or "mp3" transcode
+# every track with ffmpeg.
+audio_format = "original"
+
+
+[metadata]
+# Write tags to downloaded files.
+enable = true
+# Embed lyrics.
+lyrics = false
+# Embed the album cover (from Tidal, up to 1280x1280).
+cover = true
+# Put the album review in the COMMENT tag (album downloads only).
+album_review = false
+
+
+[cover]
+# Save covers as separate .jpg files (not the embedded one).
+save = false
+# Cover size in pixels, max 1280 (playlists max 1080).
+size = 1280
+# Resources whose cover is saved: "track", "album", "playlist".
+allowed = []
+
+[cover.templates]
+# track = "covers/tracks/{item.id}"
+# album = "{album.artist}/{album.title}/cover"
+# playlist = "covers/playlists/{playlist.title}"
+
+
+[m3u]
+# Write .m3u playlists for downloaded albums / playlists / mixes.
+save = false
+allowed = ["album", "playlist", "mix"]
+
+[m3u.templates]
+# Extra field: {type} = album / playlist / mix
+album = "m3u/{type}/{album.artist} - {album.title}"
+playlist = "m3u/{type}/{playlist.title}"
+mix = "m3u/{type}/{mix_id}"

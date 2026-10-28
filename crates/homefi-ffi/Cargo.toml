@@ -1,0 +1,29 @@
+[package]
+name = "homefi-ffi"
+description = "UniFFI bindings of homefi-core for the Android and iOS apps"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["cdylib", "staticlib", "lib"]
+name = "homefi_ffi"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[features]
+bindgen = ["uniffi/cli"]
+
+[dependencies]
+homefi-core = { workspace = true, features = ["share"] }
+futures.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
+uniffi = { workspace = true, features = ["tokio"] }

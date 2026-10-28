@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shared control: network errors -->
+    <string name="share_net_no_wifi_direct">This device does not support Wi-Fi Direct</string>
+    <string name="share_net_permission">Allow HomeFi to find nearby devices</string>
+    <string name="share_net_wifi_off">Turn on Wi-Fi to share (no network needed, it only has to be on)</string>
+    <string name="share_net_location_off">Turn on location to connect with nearby phones</string>
+    <string name="share_net_busy">Wi-Fi Direct is busy, try again in a moment</string>
+    <string name="share_net_group_failed">Could not create the group</string>
+    <string name="share_net_not_on_wifi">Connect to a Wi-Fi network first</string>
+    <string name="share_net_join_failed">Could not join %1$s</string>
+    <string name="share_net_not_found">Could not find %1$s nearby</string>
+
+    <!-- Shared control: foreground service notification -->
+    <string name="share_service_channel">Shared control</string>
+    <string name="share_service_title">Sharing music</string>
+    <string name="share_service_stop">Stop</string>
+</resources>

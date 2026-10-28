@@ -1,0 +1,5 @@
+# generated: `xcodegen` and scripts/build-core.sh
+/HomeFi.xcodeproj/
+/Core/
+/build/
+xcuserdata/

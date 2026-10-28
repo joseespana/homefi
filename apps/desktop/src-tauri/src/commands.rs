@@ -1,0 +1,1078 @@
+//! Tauri commands used by the web UI (`src/lib/api.ts`).
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+
+use homefi_core::catalog::SearchResults;
+use homefi_core::download::{self, DownloadOptions, Downloader, Observer};
+use homefi_core::library::{self, TrackInfo};
+use homefi_core::resource::Resource;
+use homefi_core::session::{LoginPoll, Session};
+use homefi_player::{list_devices, OutputDevice, Player, RepeatMode, Snapshot};
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
+use tokio::sync::mpsc;
+
+use crate::settings::DesktopSettings;
+
+type CmdResult<T> = Result<T, String>;
+
+/// An error as the screen shows it: plain words, no URLs or codes (see
+/// `homefi_core::humane`). The technical text goes to the log.
+pub(crate) fn err<E: std::fmt::Display + 'static>(e: E) -> String {
+    use homefi_core::Error;
+    let any = &e as &dyn std::any::Any;
+    let humane = if let Some(e) = any.downcast_ref::<Error>() {
+        Some(e.humane())
+    } else if let Some(e) = any.downcast_ref::<reqwest::Error>() {
+        Some(homefi_core::humane::humane_http(e))
+    } else {
+        any.downcast_ref::<std::io::Error>().map(|e| Error::Io(std::io::Error::new(e.kind(), e.to_string())).humane())
+    };
+    match humane {
+        Some(text) => {
+            tracing::warn!("{e}");
+            text
+        }
+        // already worded (our own messages)
+        None => e.to_string(),
+    }
+}
+
+/// A library track as the UI sees it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackView {
+    pub path: String,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub album_artist: String,
+    pub track_number: u32,
+    pub disc_number: u32,
+    pub year: Option<u32>,
+    pub genre: String,
+    pub duration_ms: u64,
+    pub format: String,
+    pub sample_rate: Option<u32>,
+    pub bit_depth: Option<u8>,
+    pub lossless: bool,
+    /// `FLAC · 24-bit / 96 kHz`
+    pub quality: String,
+    pub isrc: Option<String>,
+}
+
+impl From<TrackInfo> for TrackView {
+    fn from(t: TrackInfo) -> Self {
+        Self {
+            quality: t.quality_label(),
+            path: t.path.to_string_lossy().into_owned(),
+            title: t.title,
+            artist: t.artist,
+            album: t.album,
+            album_artist: t.album_artist,
+            track_number: t.track_number,
+            disc_number: t.disc_number,
+            year: t.year,
+            genre: t.genre,
+            duration_ms: t.duration_ms,
+            format: t.format,
+            sample_rate: t.sample_rate,
+            bit_depth: t.bit_depth,
+            lossless: t.lossless,
+            isrc: t.isrc,
+        }
+    }
+}
+
+/// Player state + the track being heard.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerView {
+    #[serde(flatten)]
+    pub snapshot: Snapshot,
+    pub track: Option<TrackView>,
+}
+
+pub struct AppState {
+    pub session: Session,
+    pub player: Player,
+    pub library: Mutex<Vec<TrackView>>,
+    pub settings: Mutex<DesktopSettings>,
+    pub settings_path: PathBuf,
+    pub library_cache: PathBuf,
+    pub jobs: mpsc::UnboundedSender<Job>,
+    pub cancel: Mutex<Option<tokio::sync::watch::Sender<bool>>>,
+    /// Bumped by every `play`, so a running Tidal stream knows it was replaced.
+    pub stream_generation: AtomicU64,
+    /// Tidal tracks of the stream still to be fetched (they join the player's
+    /// queue just before they play), so the queue views can show them.
+    pub upcoming: Mutex<Vec<crate::stream::Upcoming>>,
+    /// Tags of played files outside the library (Tidal cache, opened folders).
+    pub outside: Mutex<HashMap<PathBuf, Option<TrackView>>>,
+}
+
+impl AppState {
+    pub fn settings(&self) -> DesktopSettings {
+        self.settings.lock().unwrap().clone()
+    }
+
+    fn save_settings(&self, update: impl FnOnce(&mut DesktopSettings)) -> CmdResult<DesktopSettings> {
+        let mut s = self.settings.lock().unwrap();
+        update(&mut s);
+        s.save(&self.settings_path).map_err(err)?;
+        Ok(s.clone())
+    }
+
+    /// Library entry for `path`, or its tags read from disk.
+    pub fn track(&self, path: &Path) -> Option<TrackView> {
+        let key = path.to_string_lossy();
+        if let Some(t) = self.library.lock().unwrap().iter().find(|t| t.path == key) {
+            return Some(t.clone());
+        }
+        self.outside
+            .lock()
+            .unwrap()
+            .entry(path.to_path_buf())
+            .or_insert_with(|| library::read_track(path).ok().map(TrackView::from))
+            .clone()
+    }
+}
+
+// ----------------------------------------------------------------- app / auth
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppInfo {
+    version: &'static str,
+    app_dir: String,
+    ffmpeg: bool,
+    platform: &'static str,
+}
+
+#[tauri::command]
+pub fn app_info(state: State<'_, AppState>) -> AppInfo {
+    AppInfo {
+        version: homefi_core::VERSION,
+        app_dir: state.session.app_dir().display().to_string(),
+        ffmpeg: homefi_core::ffmpeg::is_available(),
+        platform: std::env::consts::OS,
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Account {
+    user_id: String,
+    country_code: String,
+}
+
+#[tauri::command]
+pub fn account(state: State<'_, AppState>) -> Option<Account> {
+    let data = state.session.auth_data().ok().filter(|d| d.is_logged_in())?;
+    Some(Account { user_id: data.user_id.unwrap_or_default(), country_code: data.country_code.unwrap_or_default() })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceLogin {
+    device_code: String,
+    user_code: String,
+    url: String,
+    interval: i64,
+    expires_in: i64,
+}
+
+#[tauri::command]
+pub async fn start_login(state: State<'_, AppState>) -> CmdResult<DeviceLogin> {
+    let d = state.session.start_login().await.map_err(err)?;
+    Ok(DeviceLogin {
+        url: d.url(),
+        device_code: d.device_code,
+        user_code: d.user_code,
+        interval: d.interval.max(1),
+        expires_in: d.expires_in,
+    })
+}
+
+/// `pending`, `success` or `expired`.
+#[tauri::command]
+pub async fn poll_login(state: State<'_, AppState>, device_code: String) -> CmdResult<&'static str> {
+    Ok(match state.session.poll_login(&device_code).await.map_err(err)? {
+        LoginPoll::Pending => "pending",
+        LoginPoll::Success(_) => "success",
+        LoginPoll::Expired => "expired",
+    })
+}
+
+#[tauri::command]
+pub async fn logout(state: State<'_, AppState>) -> CmdResult<()> {
+    if let Err(e) = state.session.logout(true).await {
+        tracing::warn!("remote logout failed: {e}");
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn search(state: State<'_, AppState>, query: String) -> CmdResult<SearchResults> {
+    let api = state.session.api().map_err(err)?;
+    let results = api.search(&query).await.map_err(err)?;
+    Ok(SearchResults::from(&results))
+}
+
+// ----------------------------------------------------------------- my Tidal
+
+use homefi_core::api::all_pages;
+use homefi_core::catalog::{self, Hit};
+use homefi_core::models::MediaItem;
+
+/// Pages fetched at once when the rest of a list is wanted.
+const PARALLEL_PAGES: usize = 4;
+
+/// One page of a Tidal list, or everything from `offset` to the end.
+#[derive(Serialize)]
+pub struct HitPage {
+    items: Vec<Hit>,
+    /// Items in the whole list, as Tidal counts them.
+    total: i64,
+    /// Where the next page starts; `None` once the end was reached.
+    next_offset: Option<i64>,
+}
+
+/// The page at `offset` and, with `rest`, every page after it (a few at a
+/// time, in parallel), so the list ends there.
+async fn pages_from<T, F, Fut>(offset: i64, rest: bool, mut fetch: F) -> homefi_core::Result<(Vec<T>, i64, Option<i64>)>
+where
+    F: FnMut(i64) -> Fut,
+    Fut: std::future::Future<Output = homefi_core::Result<homefi_core::models::Page<T>>>,
+{
+    use futures::{stream, StreamExt, TryStreamExt};
+
+    let first = fetch(offset).await?;
+    let total = first.total_number_of_items;
+    let next = first.next_offset();
+    let step = if first.limit > 0 { first.limit } else { first.items.len() as i64 };
+    let mut items = first.items;
+    if !rest {
+        return Ok((items, total, next));
+    }
+    if let Some(start) = next {
+        let offsets = (0..).map(|i| start + i * step).take_while(|&o| o < total);
+        let pages: Vec<_> = stream::iter(offsets.map(&mut fetch)).buffered(PARALLEL_PAGES).try_collect().await?;
+        for page in pages {
+            items.extend(page.items);
+        }
+    }
+    Ok((items, total, None))
+}
+
+fn hit_page<T>(page: (Vec<T>, i64, Option<i64>), to_hits: impl FnOnce(Vec<T>) -> Vec<Hit>) -> HitPage {
+    let (items, total, next_offset) = page;
+    HitPage { items: to_hits(items), total, next_offset }
+}
+
+/// A page of the user's Tidal collection (`playlists`, `albums`, `artists` or
+/// `tracks`) from `offset`; `rest` returns everything from there to the end.
+#[tauri::command]
+pub async fn tidal_library_page(
+    state: State<'_, AppState>,
+    kind: String,
+    offset: i64,
+    rest: bool,
+) -> CmdResult<HitPage> {
+    let api = state.session.api().map_err(err)?;
+    Ok(match kind.as_str() {
+        "playlists" => {
+            hit_page(pages_from(offset, rest, |o| api.playlists_and_favorites(o)).await.map_err(err)?, |v| {
+                v.into_iter()
+                    .map(|e| {
+                        let own = e.is_own();
+                        let mut hit = catalog::playlist_hit(&e.playlist);
+                        hit.subtitle = format!("{} · {}", if own { "Yours" } else { "Following" }, hit.subtitle);
+                        hit
+                    })
+                    .collect()
+            })
+        }
+        "albums" => hit_page(pages_from(offset, rest, |o| api.favorite_albums(o)).await.map_err(err)?, |v| {
+            v.iter().map(|f| catalog::album_hit(&f.item)).collect()
+        }),
+        "artists" => hit_page(pages_from(offset, rest, |o| api.favorite_artists(o)).await.map_err(err)?, |v| {
+            v.iter().map(|f| catalog::artist_hit(&f.item)).collect()
+        }),
+        "tracks" => hit_page(pages_from(offset, rest, |o| api.favorite_tracks(o)).await.map_err(err)?, |v| {
+            v.iter().map(|f| catalog::track_hit(&f.item)).collect()
+        }),
+        other => return Err(format!("unknown collection `{other}`")),
+    })
+}
+
+#[derive(Serialize)]
+pub struct TidalDetail {
+    header: Hit,
+    /// A playlist the user created: tracks can be added / removed.
+    owned: bool,
+    description: Option<String>,
+    /// The first page (`lazy`) or every track.
+    tracks: Vec<Hit>,
+    albums: Vec<Hit>,
+    /// Tracks in the whole list (Tidal's count; may include videos, which are left out).
+    total: i64,
+    /// Length of the whole list, when Tidal says it.
+    duration_ms: Option<u64>,
+    /// Offset for [`tidal_detail_page`]; `None` when `tracks` is the whole list.
+    next_offset: Option<i64>,
+}
+
+fn tracks_of(items: Vec<homefi_core::models::ListedItem>) -> Vec<Hit> {
+    items
+        .into_iter()
+        .filter_map(|l| match l.item {
+            MediaItem::Track(t) => Some(catalog::track_hit(&t)),
+            MediaItem::Video(_) => None,
+        })
+        .collect()
+}
+
+fn seconds_ms(s: i64) -> Option<u64> {
+    u64::try_from(s).ok().filter(|&s| s > 0).map(|s| s * 1000)
+}
+
+/// Tracks of an album, playlist or mix from `offset`; `rest` returns everything from there to the end.
+async fn detail_tracks(
+    api: &homefi_core::api::TidalApi,
+    kind: &str,
+    id: &str,
+    offset: i64,
+    rest: bool,
+) -> CmdResult<HitPage> {
+    let page = match kind {
+        "album" => pages_from(offset, rest, |o| api.album_items(id, o)).await,
+        "playlist" => pages_from(offset, rest, |o| api.playlist_items(id, o)).await,
+        "mix" => pages_from(offset, rest, |o| api.mix_items(id, o)).await,
+        other => return Err(format!("`{other}` has no track list")),
+    };
+    Ok(hit_page(page.map_err(err)?, tracks_of))
+}
+
+/// Contents of an album, playlist, mix or artist on Tidal. With `lazy` only the
+/// first page of tracks comes back; [`tidal_detail_page`] brings the rest.
+#[tauri::command]
+pub async fn tidal_detail(
+    state: State<'_, AppState>,
+    kind: String,
+    id: String,
+    lazy: Option<bool>,
+) -> CmdResult<TidalDetail> {
+    let api = state.session.api().map_err(err)?;
+    let rest = !lazy.unwrap_or(false);
+    Ok(match kind.as_str() {
+        "album" => {
+            let (album, page) = tokio::try_join!(
+                async { api.album(&id).await.map_err(err) },
+                detail_tracks(&api, "album", &id, 0, rest)
+            )?;
+            TidalDetail {
+                header: catalog::album_hit(&album),
+                owned: false,
+                description: album.copyright.clone(),
+                total: page.total,
+                duration_ms: seconds_ms(album.duration),
+                next_offset: page.next_offset,
+                tracks: page.items,
+                albums: vec![],
+            }
+        }
+        "playlist" => {
+            let (playlist, page) = tokio::try_join!(
+                async { api.playlist(&id).await.map_err(err) },
+                detail_tracks(&api, "playlist", &id, 0, rest)
+            )?;
+            TidalDetail {
+                header: catalog::playlist_hit(&playlist),
+                owned: playlist.is_owned_by(api.user_id()),
+                description: playlist.description.clone(),
+                total: page.total,
+                duration_ms: seconds_ms(playlist.duration),
+                next_offset: page.next_offset,
+                tracks: page.items,
+                albums: vec![],
+            }
+        }
+        "mix" => {
+            let page = detail_tracks(&api, "mix", &id, 0, rest).await?;
+            let mut header = page.items.first().cloned().ok_or("empty mix")?;
+            header.title = "Mix".into();
+            TidalDetail {
+                header,
+                owned: false,
+                description: None,
+                total: page.total,
+                duration_ms: None,
+                next_offset: page.next_offset,
+                tracks: page.items,
+                albums: vec![],
+            }
+        }
+        "artist" => {
+            // the discography is a grid of covers: always whole
+            let artist = api.artist(&id).await.map_err(err)?;
+            let mut albums = Vec::new();
+            for filter in
+                [homefi_core::api::ArtistAlbumsFilter::Albums, homefi_core::api::ArtistAlbumsFilter::EpsAndSingles]
+            {
+                albums.extend(
+                    all_pages(|o| api.artist_albums(&id, o, filter)).await.map_err(err)?.iter().map(catalog::album_hit),
+                );
+            }
+            TidalDetail {
+                header: catalog::artist_hit(&artist),
+                owned: false,
+                description: None,
+                tracks: vec![],
+                albums,
+                total: 0,
+                duration_ms: None,
+                next_offset: None,
+            }
+        }
+        other => return Err(format!("unknown kind `{other}`")),
+    })
+}
+
+/// More tracks of an album, playlist or mix, from `offset` (see [`tidal_detail`]).
+#[tauri::command]
+pub async fn tidal_detail_page(
+    state: State<'_, AppState>,
+    kind: String,
+    id: String,
+    offset: i64,
+    rest: bool,
+) -> CmdResult<HitPage> {
+    let api = state.session.api().map_err(err)?;
+    detail_tracks(&api, &kind, &id, offset, rest).await
+}
+
+// ----------------------------------------------------------------- collection edits
+
+/// Ids of everything the user has in favorites, by kind.
+#[derive(Serialize)]
+pub struct FavoriteIds {
+    track: Vec<String>,
+    album: Vec<String>,
+    artist: Vec<String>,
+    playlist: Vec<String>,
+}
+
+/// Tidal ids of a recording (every release it is on), for local files: to like
+/// it or add it to a playlist.
+#[tauri::command]
+pub async fn tidal_tracks_by_isrc(state: State<'_, AppState>, isrc: String) -> CmdResult<Vec<String>> {
+    let api = state.session.api().map_err(err)?;
+    Ok(api.tracks_by_isrc(&isrc).await.map_err(err)?.iter().map(|t| t.id.to_string()).collect())
+}
+
+#[tauri::command]
+pub async fn tidal_favorite_ids(state: State<'_, AppState>) -> CmdResult<FavoriteIds> {
+    let f = state.session.api().map_err(err)?.favorites().await.map_err(err)?;
+    Ok(FavoriteIds { track: f.track, album: f.album, artist: f.artist, playlist: f.playlist })
+}
+
+/// Lyrics of what is playing: a local file's own (`.lrc` next to it or its
+/// tag) first, then Tidal's. None when neither has any.
+#[tauri::command]
+pub async fn lyrics(
+    state: State<'_, AppState>,
+    track_id: Option<String>,
+    path: Option<String>,
+) -> CmdResult<Option<homefi_core::lyrics::Lyrics>> {
+    // signed out still finds a file's own lyrics
+    let api = state.session.api().ok();
+    if let Some(id) = track_id.and_then(|id| id.parse::<i64>().ok()) {
+        if let Some(found) = path.as_deref().and_then(|p| homefi_core::lyrics::local(std::path::Path::new(p))) {
+            return Ok(Some(found));
+        }
+        let Some(api) = api else { return Ok(None) };
+        return homefi_core::lyrics::tidal(&api, id).await.map_err(err);
+    }
+    let Some(path) = path else { return Ok(None) };
+    homefi_core::lyrics::for_file(api.as_ref(), std::path::Path::new(&path)).await.map_err(err)
+}
+
+fn kind_of(kind: &str) -> CmdResult<homefi_core::resource::ResourceKind> {
+    kind.parse().map_err(|_| format!("unknown kind `{kind}`"))
+}
+
+/// Adds (`on`) or removes a track / album / artist / playlist from favorites.
+#[tauri::command]
+pub async fn tidal_favorite(state: State<'_, AppState>, kind: String, id: String, on: bool) -> CmdResult<()> {
+    let api = state.session.api().map_err(err)?;
+    let kind = kind_of(&kind)?;
+    if on {
+        api.add_favorite(kind, &id).await.map_err(err)
+    } else {
+        api.remove_favorite(kind, &id).await.map_err(err)
+    }
+}
+
+/// Playlists the user created (targets for "Add to playlist").
+#[tauri::command]
+pub async fn tidal_my_playlists(state: State<'_, AppState>) -> CmdResult<Vec<Hit>> {
+    let api = state.session.api().map_err(err)?;
+    Ok(all_pages(|o| api.playlists_and_favorites(o))
+        .await
+        .map_err(err)?
+        .into_iter()
+        .filter(|e| e.is_own())
+        .map(|e| catalog::playlist_hit(&e.playlist))
+        .collect())
+}
+
+/// Creates a playlist, optionally with tracks already in it.
+#[tauri::command]
+pub async fn tidal_create_playlist(
+    state: State<'_, AppState>,
+    title: String,
+    description: String,
+    track_ids: Vec<String>,
+) -> CmdResult<Hit> {
+    let api = state.session.api().map_err(err)?;
+    let playlist = api.create_playlist(title.trim(), description.trim()).await.map_err(err)?;
+    api.add_to_playlist(&playlist.uuid, &track_ids).await.map_err(err)?;
+    let mut hit = catalog::playlist_hit(&playlist);
+    hit.subtitle = format!("{} tracks", track_ids.len());
+    Ok(hit)
+}
+
+#[tauri::command]
+pub async fn tidal_playlist_add(state: State<'_, AppState>, uuid: String, track_ids: Vec<String>) -> CmdResult<()> {
+    state.session.api().map_err(err)?.add_to_playlist(&uuid, &track_ids).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn tidal_playlist_remove(state: State<'_, AppState>, uuid: String, index: usize) -> CmdResult<()> {
+    state.session.api().map_err(err)?.remove_from_playlist(&uuid, index).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn tidal_playlist_delete(state: State<'_, AppState>, uuid: String) -> CmdResult<()> {
+    state.session.api().map_err(err)?.delete_playlist(&uuid).await.map_err(err)
+}
+
+// ----------------------------------------------------------------- artwork
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtworkProgress {
+    done: usize,
+    total: usize,
+    fixed: usize,
+    current: String,
+}
+
+/// Looks up covers on Tidal for library files without one and embeds them.
+#[tauri::command]
+pub async fn fix_artwork<R: Runtime>(app: AppHandle<R>) -> CmdResult<ArtworkProgress> {
+    let state = app.state::<AppState>();
+    let api = state.session.api().map_err(err)?;
+    let http = api.client().http().clone();
+
+    let tracks: Vec<TrackView> = state.library.lock().unwrap().clone();
+    let missing: Vec<TrackView> = tokio::task::spawn_blocking(move || {
+        tracks.into_iter().filter(|t| library::read_cover(Path::new(&t.path)).is_none()).collect()
+    })
+    .await
+    .map_err(err)?;
+
+    // one lookup per album
+    let mut groups: Vec<(String, Vec<TrackView>)> = Vec::new();
+    for t in missing {
+        let key = format!("{}\u{0}{}", t.album_artist.to_lowercase(), t.album.to_lowercase());
+        match groups.iter_mut().find(|(k, _)| *k == key && !t.album.is_empty()) {
+            Some((_, list)) => list.push(t),
+            None => groups.push((key, vec![t])),
+        }
+    }
+
+    let total: usize = groups.iter().map(|(_, l)| l.len()).sum();
+    let mut progress = ArtworkProgress { done: 0, total, fixed: 0, current: String::new() };
+    for (_, list) in groups {
+        let first = &list[0];
+        progress.current =
+            format!("{} – {}", first.artist, if first.album.is_empty() { &first.title } else { &first.album });
+        let _ = app.emit("artwork", progress.clone());
+
+        let info = library::read_track(Path::new(&first.path)).map_err(err)?;
+        let cover = match homefi_core::artwork::find_cover_id(&api, &info).await {
+            Some(id) => homefi_core::artwork::fetch_cover(&http, &id).await,
+            None => None,
+        };
+        for t in &list {
+            if let Some(bytes) = &cover {
+                let (path, bytes) = (PathBuf::from(&t.path), bytes.clone());
+                let ok = tokio::task::spawn_blocking(move || homefi_core::metadata::embed_cover(&path, &bytes)).await;
+                match ok {
+                    Ok(Ok(())) => progress.fixed += 1,
+                    Ok(Err(e)) => tracing::warn!("{}: {e}", t.path),
+                    Err(e) => tracing::warn!("{}: {e}", t.path),
+                }
+            }
+            progress.done += 1;
+        }
+    }
+    progress.current.clear();
+    let _ = app.emit("artwork", progress.clone());
+    Ok(progress)
+}
+
+// ----------------------------------------------------------------- folders
+
+/// Tracks in any folder (not added to the library).
+#[tauri::command]
+pub async fn scan_folder(path: String) -> CmdResult<Vec<TrackView>> {
+    let root = PathBuf::from(path);
+    let tracks = tokio::task::spawn_blocking(move || library::scan(&[root], None)).await.map_err(err)?;
+    Ok(tracks.into_iter().map(TrackView::from).collect())
+}
+
+// ----------------------------------------------------------------- downloads
+
+pub struct Job {
+    pub label: String,
+    pub links: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum DownloadView {
+    JobStarted { label: String, pending: usize },
+    JobFinished { label: String, downloaded: u64, failed: u64 },
+    Queued { id: String, title: String },
+    Started { task: u64, id: String, title: String, quality: String },
+    Progress { task: u64, downloaded: u64, total: Option<u64> },
+    Finished { task: u64, id: String, title: String, quality: String, path: String },
+    Exists { id: String, title: String, path: String },
+    Skipped { id: String, title: String, reason: String },
+    Failed { id: Option<String>, context: String, message: String },
+}
+
+struct EmitObserver<R: Runtime>(AppHandle<R>);
+
+impl<R: Runtime> Observer for EmitObserver<R> {
+    fn on_event(&self, event: download::Event) {
+        use download::Event as E;
+        let view = match event {
+            E::Queued { id, title } => DownloadView::Queued { id, title },
+            E::Started { task, id, title, quality } => DownloadView::Started { task, id, title, quality },
+            E::Progress { task, downloaded, total } => DownloadView::Progress { task, downloaded, total },
+            E::Finished { task, id, title, quality, path, .. } => {
+                DownloadView::Finished { task, id, title, quality, path: path.display().to_string() }
+            }
+            E::Exists { id, title, path } => DownloadView::Exists { id, title, path: path.display().to_string() },
+            E::Skipped { id, title, reason } => DownloadView::Skipped { id, title, reason },
+            E::Failed { id, context, message } => DownloadView::Failed { id, context, message },
+            E::ExtraWritten { .. } => return,
+        };
+        let _ = self.0.emit("download", view);
+    }
+}
+
+#[tauri::command]
+pub fn download(state: State<'_, AppState>, label: String, links: Vec<String>) -> CmdResult<()> {
+    for link in &links {
+        Resource::parse(link).map_err(err)?;
+    }
+    state.jobs.send(Job { label, links }).map_err(err)
+}
+
+#[tauri::command]
+pub fn cancel_downloads(state: State<'_, AppState>) {
+    if let Some(tx) = state.cancel.lock().unwrap().as_ref() {
+        let _ = tx.send(true);
+    }
+}
+
+/// Runs download jobs one after another; rescans the library after each.
+pub async fn download_worker<R: Runtime>(app: AppHandle<R>, mut jobs: mpsc::UnboundedReceiver<Job>) {
+    while let Some(job) = jobs.recv().await {
+        let state = app.state::<AppState>();
+        let _ = app.emit("download", DownloadView::JobStarted { label: job.label.clone(), pending: jobs.len() });
+
+        let (cancel_tx, mut cancel_rx) = tokio::sync::watch::channel(false);
+        *state.cancel.lock().unwrap() = Some(cancel_tx);
+
+        let result = async {
+            state.session.refresh(600, false).await?;
+            let api = state.session.api()?;
+            let settings = state.settings();
+            let mut opts = DownloadOptions::from_config(state.session.config());
+            opts.download_dir = settings.download_dir.clone();
+            opts.scan_dir = settings.download_dir.clone();
+            opts.track_quality = settings.quality;
+            opts.skip_existing = settings.skip_existing;
+            opts.metadata.cover = settings.embed_cover;
+            opts.metadata.lyrics = settings.embed_lyrics;
+            let resources = job.links.iter().map(|l| Resource::parse(l)).collect::<homefi_core::Result<Vec<_>>>()?;
+            let downloader = Downloader::new(api, opts, Arc::new(EmitObserver(app.clone())));
+            tokio::select! {
+                summary = downloader.run(&resources) => summary,
+                _ = cancel_rx.wait_for(|c| *c) => Err(homefi_core::Error::Stream("cancelled".into())),
+            }
+        }
+        .await;
+
+        let (downloaded, failed) = match result {
+            Ok(s) => (s.downloaded, s.failed),
+            Err(e) => {
+                let _ = app
+                    .emit("download", DownloadView::Failed { id: None, context: job.label.clone(), message: err(e) });
+                (0, 1)
+            }
+        };
+        *state.cancel.lock().unwrap() = None;
+        let _ = app.emit("download", DownloadView::JobFinished { label: job.label, downloaded, failed });
+        if downloaded > 0 {
+            let _ = rescan(&app).await;
+        }
+    }
+}
+
+// ----------------------------------------------------------------- library
+
+pub async fn rescan<R: Runtime>(app: &AppHandle<R>) -> CmdResult<Vec<TrackView>> {
+    let state = app.state::<AppState>();
+    let roots = state.settings().library_roots();
+    let cache = state.library_cache.clone();
+    let tracks: Vec<TrackView> = tokio::task::spawn_blocking(move || library::scan(&roots, Some(&cache)))
+        .await
+        .map_err(err)?
+        .into_iter()
+        .map(TrackView::from)
+        .collect();
+    *state.library.lock().unwrap() = tracks.clone();
+    let _ = app.emit("library", tracks.len());
+    Ok(tracks)
+}
+
+/// An `.m3u` / `.m3u8` playlist found in the library folders (tiddl writes these).
+#[derive(Serialize)]
+pub struct LocalPlaylistView {
+    pub name: String,
+    pub path: String,
+    pub tracks: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn local_playlists(state: State<'_, AppState>) -> CmdResult<Vec<LocalPlaylistView>> {
+    let roots = state.settings().library_roots();
+    let found = tokio::task::spawn_blocking(move || homefi_core::m3u::find(&roots)).await.map_err(err)?;
+    Ok(found
+        .into_iter()
+        .map(|p| LocalPlaylistView {
+            name: p.name,
+            path: p.path.to_string_lossy().into_owned(),
+            tracks: p.tracks.iter().map(|t| t.to_string_lossy().into_owned()).collect(),
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub fn library(state: State<'_, AppState>) -> Vec<TrackView> {
+    state.library.lock().unwrap().clone()
+}
+
+/// Moves downloaded files to the Trash. Only files that are part of the
+/// library can be deleted. Returns the paths that were removed.
+#[tauri::command]
+pub async fn delete_tracks<R: Runtime>(app: AppHandle<R>, paths: Vec<String>) -> CmdResult<Vec<String>> {
+    let state = app.state::<AppState>();
+    let known: Vec<String> = {
+        let library = state.library.lock().unwrap();
+        paths.into_iter().filter(|p| library.iter().any(|t| &t.path == p)).collect()
+    };
+    if known.is_empty() {
+        return Ok(Vec::new());
+    }
+    let to_trash = known.clone();
+    let removed: Vec<String> = tokio::task::spawn_blocking(move || {
+        to_trash
+            .into_iter()
+            .filter(|p| match trash::delete(p) {
+                Ok(()) => true,
+                // already gone counts as deleted
+                Err(_) if !Path::new(p).exists() => true,
+                Err(e) => {
+                    tracing::warn!("could not move {p} to the trash: {e}");
+                    false
+                }
+            })
+            .collect()
+    })
+    .await
+    .map_err(err)?;
+    if removed.len() < known.len() && removed.is_empty() {
+        return Err("Could not move the files to the Trash".into());
+    }
+    state.library.lock().unwrap().retain(|t| !removed.contains(&t.path));
+    let _ = app.emit("library", removed.len());
+    Ok(removed)
+}
+
+/// Drops library entries whose file no longer exists (deleted or moved outside
+/// HomeFi) and returns their paths. Cheap: one `stat` per track.
+#[tauri::command]
+pub async fn prune_library<R: Runtime>(app: AppHandle<R>) -> CmdResult<Vec<String>> {
+    let state = app.state::<AppState>();
+    let paths: Vec<String> = state.library.lock().unwrap().iter().map(|t| t.path.clone()).collect();
+    let missing: Vec<String> =
+        tokio::task::spawn_blocking(move || paths.into_iter().filter(|p| !Path::new(p).exists()).collect::<Vec<_>>())
+            .await
+            .map_err(err)?;
+    if !missing.is_empty() {
+        state.library.lock().unwrap().retain(|t| !missing.contains(&t.path));
+        state.outside.lock().unwrap().retain(|p, _| p.exists());
+        let _ = app.emit("library", missing.len());
+    }
+    Ok(missing)
+}
+
+#[tauri::command]
+pub async fn rescan_library<R: Runtime>(app: AppHandle<R>) -> CmdResult<Vec<TrackView>> {
+    rescan(&app).await
+}
+
+// ----------------------------------------------------------------- player
+
+#[tauri::command]
+pub fn player_state(state: State<'_, AppState>) -> PlayerView {
+    let snapshot = state.player.snapshot();
+    let track = snapshot.current.and_then(|i| snapshot.queue.get(i)).and_then(|p| state.track(p));
+    PlayerView { snapshot, track }
+}
+
+#[tauri::command]
+pub fn play_tracks(app: AppHandle, paths: Vec<String>, index: usize, shuffle: bool) {
+    let state = app.state::<AppState>();
+    // sharing: the chosen song plays now, the rest joins the shared queue
+    if crate::share::host_play_files(&app, &paths, index) {
+        return;
+    }
+    state.stream_generation.fetch_add(1, Ordering::SeqCst);
+    crate::stream::clear_upcoming(&app);
+    state.player.set_shuffle(shuffle);
+    let start = if shuffle && !paths.is_empty() { rand_index(paths.len()) } else { index };
+    state.player.load(paths.into_iter().map(PathBuf::from).collect(), start, 0, true);
+}
+
+/// Tidal tracks still to come after the player's queue (see `stream::Upcoming`).
+#[tauri::command]
+pub fn stream_upcoming(state: State<'_, AppState>) -> Vec<crate::stream::Upcoming> {
+    state.upcoming.lock().unwrap().clone()
+}
+
+/// Plays Tidal tracks (from `index`), fetching each one just before it's needed.
+#[tauri::command]
+pub fn play_tidal(app: AppHandle, items: Vec<crate::stream::StreamItem>, index: usize, shuffle: bool) {
+    if crate::share::host_play_tidal(&app, &items, index) {
+        return;
+    }
+    let state = app.state::<AppState>();
+    state.player.set_shuffle(false);
+    let mut items: Vec<_> = items.into_iter().skip(index).collect();
+    if shuffle && items.len() > 1 {
+        use rand_shuffle::shuffle_tail;
+        shuffle_tail(&mut items);
+    }
+    crate::stream::play(app.clone(), items);
+}
+
+/// Library or local files to the queue: at the end, or after the current track.
+#[tauri::command]
+pub fn queue_add(app: AppHandle, paths: Vec<String>, next: bool) {
+    if crate::share::host_add_files(&app, &paths, next) {
+        return;
+    }
+    let state = app.state::<AppState>();
+    for (i, path) in paths.into_iter().enumerate() {
+        crate::stream::add_to_queue(&state.player, PathBuf::from(path), next, i);
+    }
+}
+
+/// Tidal tracks to the queue (fetched first; local copies when the library has them).
+/// Returns how many were added.
+#[tauri::command]
+pub async fn queue_tidal(app: AppHandle, items: Vec<crate::stream::StreamItem>, next: bool) -> CmdResult<usize> {
+    if crate::share::host_add_tidal(&app, &items, next) {
+        return Ok(items.len());
+    }
+    crate::stream::enqueue(&app, items, next).await
+}
+
+mod rand_shuffle {
+    /// Fisher-Yates over everything but the first item (the one clicked).
+    pub fn shuffle_tail<T>(items: &mut [T]) {
+        for i in (2..items.len()).rev() {
+            let j = 1 + super::rand_index(i);
+            items.swap(i, j);
+        }
+    }
+}
+
+#[tauri::command]
+pub fn player_move(app: AppHandle, from: usize, to: usize) {
+    if crate::share::host_move(&app, from, to) {
+        return;
+    }
+    app.state::<AppState>().player.move_track(from, to);
+}
+
+// ----------------------------------------------------------------- mini player
+
+const MINI: &str = "mini";
+
+/// Opens the always-on-top mini player (bottom-right corner) and minimizes the
+/// main window, or closes it and brings the main window back.
+#[tauri::command]
+pub fn mini_player<R: Runtime>(app: AppHandle<R>, open: bool) -> CmdResult<()> {
+    let main = app.get_webview_window("main");
+    if !open {
+        if let Some(mini) = app.get_webview_window(MINI) {
+            mini.close().map_err(err)?;
+        }
+        if let Some(main) = main {
+            let _ = main.unminimize();
+            let _ = main.show();
+            let _ = main.set_focus();
+        }
+        return Ok(());
+    }
+    if let Some(mini) = app.get_webview_window(MINI) {
+        return mini.set_focus().map_err(err);
+    }
+    let (w, h) = (380.0, 120.0);
+    let mini = tauri::WebviewWindowBuilder::new(&app, MINI, tauri::WebviewUrl::App("index.html?mini".into()))
+        .title("HomeFi")
+        .inner_size(w, h)
+        .resizable(false)
+        .decorations(false)
+        .always_on_top(true)
+        .visible_on_all_workspaces(true)
+        .skip_taskbar(true)
+        .shadow(true)
+        .build()
+        .map_err(err)?;
+    if let Ok(Some(monitor)) = mini.current_monitor() {
+        let scale = monitor.scale_factor();
+        let area = monitor.work_area();
+        let x = area.position.x as f64 / scale + area.size.width as f64 / scale - w - 24.0;
+        let y = area.position.y as f64 / scale + area.size.height as f64 / scale - h - 24.0;
+        let _ = mini.set_position(tauri::LogicalPosition::new(x, y));
+    }
+    if let Some(main) = main {
+        let _ = main.minimize();
+    }
+    Ok(())
+}
+
+/// Track info for queue entries (`None` when the file can't be read).
+#[tauri::command]
+pub fn tracks_for(state: State<'_, AppState>, paths: Vec<String>) -> Vec<Option<TrackView>> {
+    paths.iter().map(|p| state.track(Path::new(p))).collect()
+}
+
+fn rand_index(len: usize) -> usize {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.subsec_nanos() as usize % len).unwrap_or(0)
+}
+
+#[tauri::command]
+pub fn player_toggle(state: State<'_, AppState>) {
+    state.player.toggle()
+}
+
+#[tauri::command]
+pub fn player_next(state: State<'_, AppState>) {
+    state.player.next()
+}
+
+#[tauri::command]
+pub fn player_previous(state: State<'_, AppState>) {
+    state.player.previous()
+}
+
+#[tauri::command]
+pub fn player_seek(state: State<'_, AppState>, ms: u64) {
+    state.player.seek(ms)
+}
+
+#[tauri::command]
+pub fn player_jump(state: State<'_, AppState>, index: usize) {
+    state.player.jump(index)
+}
+
+#[tauri::command]
+pub fn player_shuffle(app: AppHandle, on: bool) {
+    // sharing: the hub decides what comes next
+    if on && crate::share::blocks_shuffle(&app) {
+        return;
+    }
+    app.state::<AppState>().player.set_shuffle(on)
+}
+
+#[tauri::command]
+pub fn player_repeat(state: State<'_, AppState>, mode: RepeatMode) {
+    state.player.set_repeat(mode)
+}
+
+#[tauri::command]
+pub fn player_volume(app: AppHandle, volume: f32) -> CmdResult<()> {
+    let state = app.state::<AppState>();
+    if !crate::share::on_volume(&app, volume) {
+        state.player.set_volume(volume);
+    }
+    state.save_settings(|s| s.volume = volume.clamp(0.0, 1.0)).map(drop)
+}
+
+/// One visualizer frame: spectrum, waveform and peaks of what is playing (in
+/// someone's room: the party played here, or the hub's levels).
+#[tauri::command]
+pub fn visual(app: AppHandle, bands: usize) -> homefi_player::Visual {
+    if let Some(v) = crate::share::guest_visual(&app, bands.clamp(1, 256)) {
+        return v;
+    }
+    app.state::<AppState>().player.visual(bands)
+}
+
+#[tauri::command]
+pub fn output_devices() -> Vec<OutputDevice> {
+    list_devices()
+}
+
+#[tauri::command]
+pub fn set_output(state: State<'_, AppState>, name: Option<String>) -> CmdResult<()> {
+    state.player.set_device(name.clone());
+    state.save_settings(|s| s.output_device = name).map(drop)
+}
+
+// ----------------------------------------------------------------- settings
+
+#[tauri::command]
+pub fn get_settings(state: State<'_, AppState>) -> DesktopSettings {
+    state.settings()
+}
+
+#[tauri::command]
+pub async fn set_settings(app: AppHandle, settings: DesktopSettings) -> CmdResult<DesktopSettings> {
+    let state = app.state::<AppState>();
+    let before = state.settings();
+    let saved = state.save_settings(|s| *s = settings)?;
+    crate::share::on_settings(&app, &before, &saved);
+    // every window follows (the mini player takes the skin and theme)
+    let _ = app.emit("settings", &saved);
+    if before.library_roots() != saved.library_roots() {
+        rescan(&app).await?;
+    }
+    Ok(saved)
+}

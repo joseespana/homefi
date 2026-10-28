@@ -1,0 +1,68 @@
+[workspace]
+resolver = "2"
+members = ["crates/homefi-core", "crates/homefi-player", "crates/homefi-cli", "crates/homefi-ffi", "apps/desktop/src-tauri", "xtask"]
+default-members = ["crates/homefi-core", "crates/homefi-player", "crates/homefi-cli"]
+
+[workspace.package]
+# Single source of truth for the release version (CLI, FFI and Android app).
+# Bump it with `cargo xtask bump <version>`.
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+authors = ["Perseusoft"]
+repository = "https://github.com/joseespana/homefi"
+
+[workspace.dependencies]
+homefi-core = { path = "crates/homefi-core" }
+homefi-player = { path = "crates/homefi-player" }
+
+anyhow = "1"
+# Shared-control hub server (HTTP/1 + WebSocket, no TLS: it only serves the local network).
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws", "query", "json"] }
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+cpal = "0.16"
+clap = { version = "4.5", features = ["derive", "env", "wrap_help"] }
+console = "0.15"
+dirs = "6"
+futures = "0.3"
+indicatif = "0.17"
+lofty = "0.22"
+open = "5"
+regex = "1"
+rand = "0.8"
+ringbuf = "0.4"
+rubato = "0.16"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "gzip"] }
+roxmltree = "0.20"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+symphonia = { version = "0.5", features = ["all"] }
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync", "time", "process", "io-util"] }
+toml = "0.8"
+tracing = "0.1"
+# Shared-control guest client; plain ws:// only, so no TLS stack (no OpenSSL on Android).
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect"] }
+tower = { version = "0.5", default-features = false, features = ["util"] }
+tower-http = { version = "0.6", default-features = false, features = ["fs"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+unicode-normalization = "0.1"
+url = "2"
+uniffi = "0.29"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+# Audio decoding / resampling must run in real time even in debug builds
+# (e.g. `tauri dev`), so dependencies and the engine are always optimized.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev.package.homefi-player]
+opt-level = 3

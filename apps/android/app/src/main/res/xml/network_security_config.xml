@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Shared control / party mode: guests fetch the hub's audio and covers over
+  plain HTTP from a local address (http://<hub ip>:47800/...). The address
+  changes (Wi-Fi Direct group, home Wi-Fi) and Android cannot whitelist IP
+  ranges, so cleartext is allowed; everything on the internet (Tidal) is HTTPS
+  anyway, and the core's own requests do not go through this setting.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

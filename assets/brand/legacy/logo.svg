@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7C3AED"/>
+      <stop offset="0.55" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#0EA5E9"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="512" cy="300" r="640" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="232" fill="url(#bg)"/>
+  <rect width="1024" height="1024" rx="232" fill="url(#glow)"/>
+  <path fill="#FFFFFF" fill-rule="evenodd" d="M543.7 233.8L775.7 437.7A48 48 0 0 1 792.0 473.7L792.0 770.0A48 48 0 0 1 744.0 818.0L280.0 818.0A48 48 0 0 1 232.0 770.0L232.0 473.7A48 48 0 0 1 248.3 437.7L480.3 233.8A48 48 0 0 1 543.7 233.8ZM366.0 642A22.0 22.0 0 0 1 388.0 664.0V720.0A22.0 22.0 0 0 1 366.0 742A22.0 22.0 0 0 1 344.0 720.0V664.0A22.0 22.0 0 0 1 366.0 642ZM439.0 566A22.0 22.0 0 0 1 461.0 588.0V720.0A22.0 22.0 0 0 1 439.0 742A22.0 22.0 0 0 1 417.0 720.0V588.0A22.0 22.0 0 0 1 439.0 566ZM512.0 470A22.0 22.0 0 0 1 534.0 492.0V720.0A22.0 22.0 0 0 1 512.0 742A22.0 22.0 0 0 1 490.0 720.0V492.0A22.0 22.0 0 0 1 512.0 470ZM585.0 590A22.0 22.0 0 0 1 607.0 612.0V720.0A22.0 22.0 0 0 1 585.0 742A22.0 22.0 0 0 1 563.0 720.0V612.0A22.0 22.0 0 0 1 585.0 590ZM658.0 668A22.0 22.0 0 0 1 680.0 690.0V720.0A22.0 22.0 0 0 1 658.0 742A22.0 22.0 0 0 1 636.0 720.0V690.0A22.0 22.0 0 0 1 658.0 668Z"/>
+</svg>

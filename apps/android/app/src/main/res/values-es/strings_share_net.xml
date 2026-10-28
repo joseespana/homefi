@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="share_net_no_wifi_direct">Este dispositivo no tiene Wi-Fi Direct</string>
+    <string name="share_net_permission">Permite a HomeFi encontrar dispositivos cercanos</string>
+    <string name="share_net_wifi_off">Activa el Wi-Fi para compartir (no hace falta una red, solo que esté encendido)</string>
+    <string name="share_net_location_off">Activa la ubicación para conectar con teléfonos cercanos</string>
+    <string name="share_net_busy">Wi-Fi Direct está ocupado, inténtalo de nuevo en un momento</string>
+    <string name="share_net_group_failed">No se pudo crear el grupo</string>
+    <string name="share_net_not_on_wifi">Conéctate primero a una red Wi-Fi</string>
+    <string name="share_net_join_failed">No se pudo unir a %1$s</string>
+    <string name="share_net_not_found">No se encontró %1$s cerca</string>
+
+    <string name="share_service_channel">Control compartido</string>
+    <string name="share_service_title">Compartiendo música</string>
+    <string name="share_service_stop">Detener</string>
+</resources>

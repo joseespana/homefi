@@ -1,0 +1,8 @@
+[bindings.kotlin]
+package_name = "com.perseusoft.homefi.core"
+cdylib_name = "homefi_ffi"
+
+[bindings.swift]
+module_name = "HomefiCore"
+ffi_module_name = "HomefiCoreFFI"
+ffi_module_filename = "HomefiCoreFFI"

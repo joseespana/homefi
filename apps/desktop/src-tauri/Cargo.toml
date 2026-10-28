@@ -1,0 +1,43 @@
+[package]
+name = "homefi-desktop"
+description = "HomeFi desktop app (macOS, Windows, Linux)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "homefi-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+homefi-core = { workspace = true, features = ["share"] }
+homefi-player.workspace = true
+anyhow.workspace = true
+base64.workspace = true
+dirs.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+url.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+# OS media controls: Now Playing (macOS), SMTC (Windows), MPRIS (Linux, pure Rust D-Bus)
+souvlaki = { version = "0.8", default-features = false, features = ["use_zbus"] }
+# "Delete download" moves files to the system Trash / Recycle Bin
+trash = "5.2"
+# Shared control on the LAN: announce / find hubs (`_homefi._tcp`), pure Rust on every OS
+mdns-sd = { version = "=0.21.6", default-features = false }
+
+[dev-dependencies]
+tempfile.workspace = true
