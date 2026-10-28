@@ -7,6 +7,13 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-28
+
+Sound you set up by talking: an equalizer per output with measured headphone corrections,
+an AI assistant (your own key, many providers) or guided questions, taste layers that follow
+what's playing, loudness normalization and crossfade. Surround output fixes playback on 7.1
+systems, album versions are grouped, and the app no longer freezes on big Tidal lists.
+
 ### Added
 - Taste layers: a bass / treble / clarity tilt for one genre, playlist, artist, album or track,
   on top of each output's equalizer profile (the most specific one plays: track > album >
