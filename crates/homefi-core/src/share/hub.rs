@@ -1223,12 +1223,19 @@ async fn write_guest(mut sink: futures::stream::SplitSink<WebSocket, Message>, m
     match reason {
         Some(reason) => {
             let _ = sink.send(close_frame(&reason)).await;
+            // let the guest read it before the socket goes: Windows resets a socket closed
+            // with unread data, and the reset loses the close frame on the way
+            let _ = sink.flush().await;
+            tokio::time::sleep(CLOSE_GRACE).await;
         }
         None => {
             let _ = sink.close().await;
         }
     }
 }
+
+/// How long a closing guest connection stays open so its close frame arrives.
+const CLOSE_GRACE: Duration = Duration::from_millis(300);
 
 fn close_frame(reason: &str) -> Message {
     Message::Close(Some(CloseFrame { code: CLOSE_BY_HUB, reason: reason.into() }))
