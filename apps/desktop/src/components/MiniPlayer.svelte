@@ -12,7 +12,14 @@
   import Icon from "./Icon.svelte";
 
   $effect(() => {
-    app.init().then(() => share.init());
+    // only what this window shows, then it appears (see `mini_ready`)
+    app
+      .initMini()
+      .catch((e) => console.warn("[homefi] mini player", e))
+      .finally(() => {
+        requestAnimationFrame(() => api.miniReady().catch(() => {}));
+        share.init();
+      });
   });
 
   const skin = $derived(app.settings ? skinOf(app.settings.room) : "classic");

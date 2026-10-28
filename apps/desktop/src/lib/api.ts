@@ -1,5 +1,5 @@
 // Typed wrappers around the Rust commands (apps/desktop/src-tauri/src/commands.rs).
-import { invoke as call } from "@tauri-apps/api/core";
+import { Channel, invoke as call } from "@tauri-apps/api/core";
 import { busy } from "./busy.svelte";
 
 /** Calls that make the user wait: they light the loading bar while they run. */
@@ -8,6 +8,8 @@ const SLOW = new Set([
   "tidal_library_page",
   "tidal_detail",
   "tidal_detail_page",
+  "tidal_library_stream",
+  "tidal_detail_stream",
   "tidal_tracks_by_isrc",
   "tidal_my_playlists",
   "tidal_favorite_ids",
@@ -18,7 +20,32 @@ const SLOW = new Set([
   "play_tidal",
   "tracks_for",
   "queue_tidal",
+  "autoeq_search",
+  "autoeq_profile",
+  "ai_list_models",
+  "ai_test_key",
+  "taste_suggest",
 ]);
+
+/** A command that sends its pages through a channel as they arrive. */
+async function streamPages(cmd: string, args: Record<string, unknown>, onPage: (page: HitPage) => void): Promise<void> {
+  // the command answers with how many pages it sent; big pages can reach the
+  // channel after that answer, so the stream ends once all of them are in
+  let got = 0;
+  let want = Infinity;
+  let done: () => void = () => {};
+  const all = new Promise<void>((r) => (done = r));
+  const channel = new Channel<HitPage>();
+  channel.onmessage = (page) => {
+    onPage(page);
+    if (++got >= want) done();
+  };
+  want = await invoke<number>(cmd, { ...args, onPage: channel });
+  if (got >= want) done();
+  // never wait forever on a page that can't come (the window reloaded under it...)
+  else setTimeout(done, 15_000);
+  await all;
+}
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!SLOW.has(cmd)) return call<T>(cmd, args);
@@ -63,6 +90,23 @@ export interface StreamInfo {
   output_channels: number;
   resampled: boolean;
   device: string;
+  /** How a stereo / mono track is spread over a surround device (more
+   * speakers than the track's channels); null otherwise. */
+  surround?: SurroundMode | null;
+  /** The resampler's quality, when `resampled`. */
+  resampler?: ResamplerQuality | null;
+}
+
+/** A crossfade being heard (homefi-player's `Fading`): not bit-perfect while it lasts. */
+export interface Fading {
+  /** Paths of the outgoing and incoming tracks. */
+  from: string;
+  to: string;
+  /** 0..1 */
+  progress: number;
+  seconds: number;
+  /** The short fade of a skip or a pick. */
+  manual?: boolean;
 }
 
 export interface PlayerState {
@@ -78,6 +122,18 @@ export interface PlayerState {
   stream: StreamInfo | null;
   error: string | null;
   track: Track | null;
+  /** The equalizer changes what reaches the device (not bit-perfect). Sent by
+   * the engine; absent in views built by the UI (a shared room). */
+  eq_active?: boolean;
+  /** Name of the equalizer profile in use, when `eq_active`. */
+  eq_profile?: string | null;
+  /** Id and label of the taste rule playing (when `eq_active`). */
+  taste_rule?: string | null;
+  taste_label?: string | null;
+  /** Loudness normalization gain on this track (dB; 0 = none, bit-perfect). */
+  loudness_db?: number;
+  /** A crossfade is playing (null otherwise; absent in views built by the UI). */
+  fading?: Fading | null;
 }
 
 export interface OutputDevice {
@@ -101,6 +157,40 @@ export interface Hit {
   quality: string | null;
   isrc: string | null;
   duration_ms: number | null;
+  /** Albums shown as one card: every release of it (this one is `primary`). Absent otherwise. */
+  versions?: VersionHit[];
+}
+
+/** One release of an album (homefi_core::catalog::VersionHit), for the version picker. */
+export interface VersionHit {
+  id: string;
+  title: string;
+  cover_url: string | null;
+  explicit: boolean;
+  quality: string | null;
+  year: number | null;
+  tracks: number;
+  /** Deluxe / box set / expanded: tracks over the standard edition. */
+  extra_tracks: number | null;
+  /** Dolby Atmos: needs an Atmos device. */
+  atmos: boolean;
+  /** The one shown by default (Settings → Tidal → Album versions). */
+  primary: boolean;
+  /** `explicit`, `clean`, `dolby_atmos`, `hi_res`, `lossless`, `remastered`, `deluxe`, `box_set`, `expanded`, `anniversary`, `live`, `original`. */
+  label_codes: string[];
+  /** Chip texts, same order as `label_codes`. */
+  labels: string[];
+  /** `Explicit · Hi-Res 24-bit · 12 tracks · 2023`. */
+  description: string;
+}
+
+/** Which release of an album a card shows (homefi_core::album_versions::VersionPrefs). */
+export interface AlbumVersionPrefs {
+  /** One card per album; off lists every release as Tidal does. */
+  group: boolean;
+  explicit: "explicit" | "clean";
+  spatial: "stereo" | "atmos";
+  edition: "original" | "remaster";
 }
 
 /** An .m3u / .m3u8 file in the music folders; `tracks` are absolute paths (some may be missing). */
@@ -143,6 +233,10 @@ export interface ArtworkProgress {
 
 export interface RoomSettings {
   signal_chain: boolean;
+  /** `compact`: small stages joined by a flowing signal, details on hover; `detailed`: the big boxes. */
+  signal_style?: "compact" | "detailed";
+  /** The links of the signal chain flow while the music plays. */
+  signal_animate?: boolean;
   vu_meters: boolean;
   visualizer: boolean;
   halo: boolean;
@@ -239,7 +333,238 @@ export interface Settings {
   tidal_terms_accepted: number;
   /** When it was accepted (epoch ms). */
   tidal_terms_accepted_at: number | null;
+  /** Equalizer (off by default); camelCase inside, like homefi-core's JSON. */
+  eq: EqSettings;
+  /** Which AI the assistants use (never the key: that is in the OS keychain). */
+  ai: AiSettings;
+  /** The user's saved equalizer presets ("Save as preset"). */
+  eq_presets: EqProfile[];
+  eq_ui: EqUiSettings;
+  /** Taste layers (camelCase inside, like `eq`); off until the first rule. */
+  taste: TasteSettings;
+  /** Loudness normalization from ReplayGain; off keeps playback bit-perfect. */
+  loudness: LoudnessSettings;
+  sound_ui: SoundUiSettings;
+  /** One card per album on Tidal lists, and which release it shows. */
+  album_versions: AlbumVersionPrefs;
+  /** Crossfade between songs (off: gapless, bit-perfect); the same JSON as Android. */
+  crossfade: CrossfadeSettings;
+  /** Stereo on surround devices and the resampler's quality. */
+  output: OutputOptions;
 }
+
+// ---------------------------------------------------------------- playback
+// homefi-core's dsp::crossfade and homefi-player's OutputOptions; camelCase like their JSON.
+
+export type CrossfadeMode = "off" | "on";
+export type FadeCurve = "equalPower" | "linear" | "sCurve";
+
+export interface CrossfadeSettings {
+  mode: CrossfadeMode;
+  /** 1..12 */
+  seconds: number;
+  curve: FadeCurve;
+  /** Skip the silence at the end of a song and the start of the next. */
+  smart: boolean;
+  /** Consecutive songs of one album, in order, stay gapless. */
+  skipAlbumRuns: boolean;
+  /** A short fade on next / previous / picking a song. */
+  onManualSkip: boolean;
+  /** 0.5..3 */
+  manualSeconds: number;
+  /** Shorter songs never fade; 0 = twice the fade. */
+  minTrackSeconds: number;
+  /** Android only: off on phones that can't keep up. */
+  lowPowerFallback: boolean;
+}
+
+export type SurroundMode = "frontOnly" | "allSpeakers" | "upmix";
+export type ResamplerQuality = "high" | "fast";
+
+export interface OutputOptions {
+  surround: SurroundMode;
+  resampler: ResamplerQuality;
+}
+
+/** "How does it sound?" and taste layers in the interface (Settings → Sound). */
+export interface SoundUiSettings {
+  /** The "How does it sound?" button in the player bar... */
+  react_deck: boolean;
+  /** ...and in the listening room. */
+  react_room: boolean;
+  /** "HD 650 + Electronic" next to the EQ button. */
+  layer_chip: boolean;
+  /** Suggestion cards (a taste layer for what you listen to most). */
+  suggestions: boolean;
+}
+
+/** How the equalizer screen looks and behaves (Settings → Sound). */
+export interface EqUiSettings {
+  /** An "EQ" button next to the output in the player bar. */
+  deck_button: boolean;
+  /** "Hear without EQ": while pressed, or click on / click off. */
+  ab_mode: "hold" | "toggle";
+  /** Band numbers on the handles of the curve. */
+  band_labels: boolean;
+  /** Bass / treble / clarity sliders. */
+  taste_sliders: boolean;
+}
+
+// ---------------------------------------------------------------- equalizer
+// Types of homefi-core's `dsp` module (src-tauri/src/eq.rs); camelCase like
+// its JSON, the same format Android stores.
+
+export type EqBandKind = "peak" | "lowShelf" | "highShelf" | "lowPass" | "highPass";
+
+/** One filter. `gainDb` is unused by `lowPass` / `highPass`. */
+export interface EqBand {
+  kind: EqBandKind;
+  freqHz: number;
+  gainDb: number;
+  /** Width: higher is narrower (0.707 is a gentle, standard slope). */
+  q: number;
+  enabled: boolean;
+}
+
+export type EqSource =
+  | { kind: "manual" }
+  /** A headphone correction: `model` as AutoEq lists it, `source` = who measured it. */
+  | { kind: "autoEq"; model: string; source: string }
+  | { kind: "assistant" }
+  | { kind: "guided" };
+
+export interface EqProfile {
+  name: string;
+  /** Gain before the filters (dB), usually negative to leave room for boosts. */
+  preampDb: number;
+  bands: EqBand[];
+  source: EqSource;
+}
+
+export interface EqSettings {
+  enabled: boolean;
+  /** Compute the preamp from the curve instead of each profile's own. */
+  autoPreamp: boolean;
+  /** For outputs without a profile of their own. */
+  defaultProfile: EqProfile | null;
+  /** Profile per output device name (`OutputDevice.name`). */
+  perOutput: Record<string, EqProfile>;
+}
+
+/** Taste adjustments applied on top of a profile (dB). */
+export interface Tilt {
+  bassDb: number;
+  trebleDb: number;
+  clarityDb?: number | null;
+}
+
+// ---------------------------------------------------------------- taste layers, loudness
+// homefi-core's dsp::taste / dsp::loudness (src-tauri/src/sound.rs); camelCase like their JSON.
+
+/** What a taste rule applies to. `id` is Tidal's (a playlist's uuid, a local track's path) or empty: then names are compared. */
+export type TasteScope =
+  | { kind: "genre"; name: string }
+  | { kind: "playlist" | "artist" | "album" | "track"; id: string; name: string };
+export type TasteScopeKind = TasteScope["kind"];
+export type TasteCreator = "manual" | "ai" | "guided" | "reaction";
+
+/** A tilt for some music, on top of the output's profile. The most specific rule plays: track > album > playlist > artist > genre. */
+export interface TasteRule {
+  id: string;
+  scope: TasteScope;
+  tilt: Tilt;
+  label: string;
+  createdBy: TasteCreator;
+  enabled: boolean;
+}
+
+export interface TasteSettings {
+  enabled: boolean;
+  rules: TasteRule[];
+}
+
+export type LoudnessMode = "off" | "track" | "album" | "auto";
+
+export interface LoudnessSettings {
+  mode: LoudnessMode;
+  /** -24..-8 LUFS (default -14). */
+  targetLufs: number;
+  /** Never boost a song past its peak. */
+  preventClipping: boolean;
+}
+
+export interface ItemRef {
+  id: string;
+  name: string;
+}
+
+/** Where the queue came from (taste layers for playlists, album loudness). */
+export interface SourceContext {
+  kind: "album" | "playlist" | "artist" | "mix" | "library" | "folder" | string;
+  id: string;
+  name: string;
+}
+
+export interface NowPlayingContext {
+  trackId: string | null;
+  path: string | null;
+  title: string | null;
+  album: ItemRef | null;
+  artists: ItemRef[];
+  genres: string[];
+  source: SourceContext | null;
+}
+
+/** The track playing and what taste layers can say about it. */
+export interface NowSound {
+  context: NowPlayingContext | null;
+  /** Scopes to offer, most specific first. */
+  scopes: TasteScope[];
+  /** The rule that plays now. */
+  rule: TasteRule | null;
+}
+
+export type SoundReaction = "needsBass" | "tooBoomy" | "tooBright" | "dull" | "vocalsBuried" | "tooQuiet" | "tooLoud" | "perfect";
+
+/** What a reaction changed (already saved and applied by the backend). */
+export interface ReactionResult {
+  rule: TasteRule | null;
+  taste: TasteSettings;
+  loudness: LoudnessSettings;
+  /** One line for the toast. */
+  message: string;
+  /** For `soundUndo`; empty when nothing changed. */
+  undoToken: string;
+  byAi: boolean;
+}
+
+export interface ListeningSummary {
+  top_genres: string[];
+  top_artists: ItemRef[];
+  playlists: ItemRef[];
+}
+
+/** One headphone measurement in AutoEq. */
+export interface HeadphoneEntry {
+  name: string;
+  /** Who measured it: `oratory1990`, `crinacle`, `Rtings`, ... */
+  source: string;
+  /** `over-ear`, `in-ear` or `earbud`. */
+  kind: string;
+  /** Measurement rig when the source used several (`711`, `GRAS 43AG-7`). */
+  rig: string | null;
+  /** Folder in AutoEq's results (`oratory1990/over-ear/Sennheiser HD 650`). */
+  path: string;
+}
+
+/** Ranges the core clamps to (values outside are brought in). */
+export const EQ_LIMITS = {
+  maxBands: 10,
+  freqHz: [20, 20_000],
+  gainDb: [-24, 24],
+  q: [0.1, 10],
+  preampDb: [-60, 24],
+} as const;
 
 // ---------------------------------------------------------------- shared control
 // Types of homefi-core's share protocol and the desktop's share module
@@ -487,11 +812,90 @@ export interface StreamItem {
   id: string;
   title: string;
   local: string | null;
+  /** Where it was played from (album, playlist...), for taste layers. */
+  source?: SourceContext | null;
   artist?: string;
   album?: string;
   cover_url?: string | null;
   duration_ms?: number | null;
   explicit?: boolean;
+}
+
+// ---------------------------------------------------------------- AI (bring your own key)
+// homefi-core's `ai` module and src-tauri/src/ai.rs. Keys go to the backend
+// (save / test) but never come back: only "set / not set".
+
+export type AiProviderId = "anthropic" | "openai" | "gemini" | "openrouter" | "mistral" | "groq" | "xai" | "deepseek" | "ollama" | "openai_compatible";
+
+export interface AiProviderInfo {
+  id: AiProviderId;
+  name: string;
+  /** Where to create a key; empty for the custom server. */
+  key_url: string;
+  needs_key: boolean;
+  default_base_url: string;
+  /** The user may (Ollama) or must (custom) type the server's address. */
+  custom_base_url: boolean;
+  /** Only Anthropic has one; the rest pick from the model list. */
+  default_model: string | null;
+  /** 1 = the best pick; the list comes sorted by it. */
+  rank: number;
+  badge: AiProviderBadge | null;
+  /** One line on why to pick it. */
+  hint: string;
+}
+
+export type AiProviderBadge = "recommended" | "cheapest" | "one_key_for_all" | "private_local";
+
+export interface AiModel {
+  id: string;
+  name: string;
+  /** What "Automatic" picks. */
+  recommended: boolean;
+  /** Small by its id (8b, nano, lite…): cheap, but makes more mistakes. */
+  small: boolean;
+  /** The provider's cheaper tier that still works well (Claude Haiku). */
+  economical: boolean;
+}
+
+export interface AiSettings {
+  /** Empty: no AI, the EQ assistant runs as the guided wizard. */
+  provider: AiProviderId | "";
+  /** Empty: the provider's default or the best one it lists. */
+  model: string;
+  /** Ollama / custom server address; empty = the provider's. */
+  base_url: string;
+}
+
+/** @deprecated the same as `EqBand`. */
+export type AssistantEqBand = EqBand;
+/** @deprecated the same as `EqProfile`. */
+export type AssistantEqProfile = EqProfile;
+
+/** A profile the assistant proposes for one output (validated, boosts capped, automatic preamp). */
+export interface EqProposal {
+  /** Output device name (the key of the EQ settings' perOutput). */
+  output_id: string;
+  profile: EqProfile;
+  /** Why, in plain words and the user's language. */
+  explanation: string;
+}
+
+/** One answer of the EQ assistant (AI) or the guided wizard: the same screen draws both. */
+export interface AssistantTurn {
+  text: string;
+  /** Short answers to offer as buttons (the user may still type). */
+  quick_replies: string[];
+  /** The profile on the table, to preview. */
+  proposal: EqProposal | null;
+  /** The user said yes: the backend already saved and applied `proposal`. */
+  confirmed: boolean;
+  /** The conversation is over. */
+  done: boolean;
+  /** Taste rules changed this turn (already saved and applied). */
+  taste?: TasteSettings | null;
+  /** Loudness changed this turn (already saved and applied). */
+  loudness?: LoudnessSettings | null;
 }
 
 export type StreamEvent = { status: "loading"; title: string } | { status: "ready" } | { status: "failed"; title: string; message: string };
@@ -508,6 +912,16 @@ export const api = {
   tidalLibrary: (kind: LibraryKind) => invoke<HitPage>("tidal_library_page", { kind, offset: 0, rest: true }).then((p) => p.items),
   tidalDetail: (kind: Kind, id: string, lazy = false) => invoke<TidalDetail>("tidal_detail", { kind, id, lazy }),
   tidalDetailPage: (kind: Kind, id: string, offset: number, rest = false) => invoke<HitPage>("tidal_detail_page", { kind, id, offset, rest }),
+  /** Every release of an album (itself included), for "Other versions". */
+  tidalAlbumVersions: (id: string) => invoke<VersionHit[]>("tidal_album_versions", { id }),
+  /** Every page of a collection from `offset`, each sent to `onPage` as it arrives (cancel with `tidalCancel(load)`). */
+  tidalLibraryStream: (kind: LibraryKind, offset: number, onPage: (page: HitPage) => void, load: number) =>
+    streamPages("tidal_library_stream", { kind, offset, load }, onPage),
+  /** Every track of an album / playlist / mix from `offset`, page by page (see `tidalLibraryStream`). */
+  tidalDetailStream: (kind: Kind, id: string, offset: number, onPage: (page: HitPage) => void, load: number) =>
+    streamPages("tidal_detail_stream", { kind, id, offset, load }, onPage),
+  /** Stops a page stream (the user went elsewhere). */
+  tidalCancel: (load: number) => invoke<void>("tidal_cancel", { load }),
   tracksByIsrc: (isrc: string) => invoke<string[]>("tidal_tracks_by_isrc", { isrc }),
   favoriteIds: () => invoke<Record<"track" | "album" | "artist" | "playlist", string[]>>("tidal_favorite_ids"),
   favorite: (kind: Kind, id: string, on: boolean) => invoke<void>("tidal_favorite", { kind, id, on }),
@@ -527,9 +941,10 @@ export const api = {
   deleteTracks: (paths: string[]) => invoke<string[]>("delete_tracks", { paths }),
   pruneLibrary: () => invoke<string[]>("prune_library"),
   playerState: () => invoke<PlayerState>("player_state"),
-  play: (paths: string[], index = 0, shuffle = false) => invoke<void>("play_tracks", { paths, index, shuffle }),
+  /** `source`: where the songs come from (an album, a playlist...), for taste layers and album loudness. */
+  play: (paths: string[], index = 0, shuffle = false, source: SourceContext | null = null) => invoke<void>("play_tracks", { paths, index, shuffle, source }),
   streamUpcoming: () => invoke<Upcoming[]>("stream_upcoming"),
-  playTidal: (items: StreamItem[], index = 0, shuffle = false) => invoke<void>("play_tidal", { items, index, shuffle }),
+  playTidal: (items: StreamItem[], index = 0, shuffle = false, source: SourceContext | null = null) => invoke<void>("play_tidal", { items, index, shuffle, source }),
   queueAdd: (paths: string[], next: boolean) => invoke<void>("queue_add", { paths, next }),
   queueTidal: (items: StreamItem[], next: boolean) => invoke<number>("queue_tidal", { items, next }),
   tracksFor: (paths: string[]) => invoke<(Track | null)[]>("tracks_for", { paths }),
@@ -539,6 +954,8 @@ export const api = {
   seek: (ms: number) => invoke<void>("player_seek", { ms: Math.max(0, Math.round(ms)) }),
   jump: (index: number) => invoke<void>("player_jump", { index }),
   miniPlayer: (open: boolean) => invoke<void>("mini_player", { open }),
+  /** The mini player's page has drawn: show its window and minimize the main one. */
+  miniReady: () => invoke<void>("mini_ready"),
   moveTrack: (from: number, to: number) => invoke<void>("player_move", { from, to }),
   shuffle: (on: boolean) => invoke<void>("player_shuffle", { on }),
   repeat: (mode: Repeat) => invoke<void>("player_repeat", { mode }),
@@ -550,6 +967,25 @@ export const api = {
   lyrics: (trackId: string | null, path: string | null) => invoke<Lyrics | null>("lyrics", { trackId, path }),
   getSettings: () => invoke<Settings>("get_settings"),
   setSettings: (settings: Settings) => invoke<Settings>("set_settings", { settings }),
+
+  /** Equalizer settings (also in `Settings.eq`). */
+  eqGet: () => invoke<EqSettings>("eq_get"),
+  /** Saves and applies them live to the player; returns them clamped. */
+  eqSet: (settings: EqSettings) => invoke<EqSettings>("eq_set", { settings }),
+  /** "Hear without EQ": the player runs flat while `on` (nothing is saved). */
+  eqBypass: (on: boolean) => invoke<void>("eq_bypass", { on }),
+  /** Response of the profile's bands in dB at `freqs` (preamp not included). */
+  eqResponse: (profile: EqProfile, freqs: number[], sampleRate = 48_000) => invoke<number[]>("eq_response", { profile, freqs, sampleRate }),
+  /** `n` log-spaced frequencies, 20 Hz to 20 kHz, for drawing curves. */
+  eqLogFreqs: (n: number) => invoke<number[]>("eq_log_freqs", { n }),
+  /** Preamp (dB, ≤ 0) that keeps the profile's largest boost from clipping. */
+  eqAutoPreamp: (profile: EqProfile) => invoke<number>("eq_auto_preamp", { profile }),
+  /** The profile with bass / treble / clarity adjustments applied. */
+  eqWithTaste: (profile: EqProfile, tilt: Tilt) => invoke<EqProfile>("eq_with_taste", { profile, tilt }),
+  /** Headphones in AutoEq matching `query`, best first (offline from the cache). */
+  autoeqSearch: (query: string) => invoke<HeadphoneEntry[]>("autoeq_search", { query }),
+  /** The AutoEq correction profile of a headphone (downloaded once, then cached). */
+  autoeqProfile: (entry: HeadphoneEntry) => invoke<EqProfile>("autoeq_profile", { entry }),
 
   shareStatus: () => invoke<ShareStatus>("share_status"),
   shareStart: (party: boolean) => invoke<HubView>("share_start", { party }),
@@ -566,6 +1002,43 @@ export const api = {
   sharePlayAlong: (on: boolean) => invoke<void>("share_play_along", { on }),
   shareProbe: (host: string, port: number) => invoke<Nearby | null>("share_probe", { host, port }),
   shareParseLink: (link: string) => invoke<JoinLink | null>("share_parse_link", { link }),
+  // AI: the key is read from the OS keychain by the backend
+  aiProviders: () => invoke<AiProviderInfo[]>("ai_providers"),
+  /** Which providers have a key saved. */
+  aiKeyStatus: () => invoke<Record<AiProviderId, boolean>>("ai_key_status"),
+  aiKeySet: (provider: AiProviderId, key: string) => invoke<void>("ai_key_set", { provider, key }),
+  aiKeyClear: (provider: AiProviderId) => invoke<void>("ai_key_clear", { provider }),
+  aiListModels: (provider: AiProviderId, baseUrl: string | null = null) => invoke<AiModel[]>("ai_list_models", { provider, baseUrl }),
+  /** Checks `key` (before saving it) or, without it, the saved one; rejects with a plain message. */
+  aiTestKey: (provider: AiProviderId, baseUrl: string | null = null, key: string | null = null) => invoke<void>("ai_test_key", { provider, baseUrl, key }),
+  /** The model used when the settings name none. */
+  aiDefaultModel: (provider: AiProviderId, baseUrl: string | null = null) => invoke<string>("ai_default_model", { provider, baseUrl }),
+  /** Opens the EQ assistant with the AI of the settings, or the guided wizard (`guided`, or no provider). */
+  eqAssistantStart: (guided: boolean, language: string, notes: string | null = null) => invoke<AssistantTurn>("eq_assistant_start", { guided, language, notes }),
+  eqAssistantReply: (text: string) => invoke<AssistantTurn>("eq_assistant_reply", { text }),
+  eqAssistantClose: () => invoke<void>("eq_assistant_close"),
+
+  // taste layers, loudness and "How does it sound?" (src-tauri/src/sound.rs)
+  tasteGet: () => invoke<TasteSettings>("taste_get"),
+  /** Saves and applies the rules (tilts brought in range). */
+  tasteSet: (taste: TasteSettings) => invoke<TasteSettings>("taste_set", { taste }),
+  loudnessGet: () => invoke<LoudnessSettings>("loudness_get"),
+  loudnessSet: (loudness: LoudnessSettings) => invoke<LoudnessSettings>("loudness_set", { loudness }),
+  crossfadeGet: () => invoke<CrossfadeSettings>("crossfade_get"),
+  /** Saves and applies it from the next transition; returns it in range. */
+  crossfadeSet: (crossfade: CrossfadeSettings) => invoke<CrossfadeSettings>("crossfade_set", { crossfade }),
+  outputOptionsGet: () => invoke<OutputOptions>("output_options_get"),
+  /** Saves the surround / resampler options; the song playing restarts where it is. */
+  outputOptionsSet: (options: OutputOptions) => invoke<OutputOptions>("output_options_set", { options }),
+  /** The track playing, the scopes it offers and the rule that plays. */
+  soundNow: () => invoke<NowSound>("sound_now"),
+  /** A reaction to what plays (AI when set up, else fixed safe steps); saved and applied. */
+  soundReact: (reaction: SoundReaction, scope: TasteScope | null = null, language = "en") => invoke<ReactionResult>("sound_react", { reaction, scope, language }),
+  /** Puts back what a reaction changed; false when already undone. */
+  soundUndo: (token: string) => invoke<boolean>("sound_undo", { token }),
+  /** A proactive suggestion (a card); answers go to `eqAssistantReply`. */
+  tasteSuggest: (language: string) => invoke<AssistantTurn>("taste_suggest", { language }),
+  listeningSummary: () => invoke<ListeningSummary>("listening_summary"),
 };
 
 export const on = {

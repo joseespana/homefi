@@ -1,7 +1,29 @@
 package com.perseusoft.homefi.data
 
 import android.content.Context
+import com.perseusoft.homefi.core.AlbumEditionPref
+import com.perseusoft.homefi.core.AlbumExplicitPref
+import com.perseusoft.homefi.core.AlbumSpatialPref
+import com.perseusoft.homefi.core.AlbumVersionPrefs
 import com.perseusoft.homefi.core.AudioQuality
+import com.perseusoft.homefi.core.EqProfile
+import com.perseusoft.homefi.core.EqSettings
+import com.perseusoft.homefi.core.eqDefaultSettings
+import com.perseusoft.homefi.core.eqSettingsFromJson
+import com.perseusoft.homefi.core.eqSettingsToJson
+import com.perseusoft.homefi.core.LoudnessSettings
+import com.perseusoft.homefi.core.CrossfadeSettings
+import com.perseusoft.homefi.core.crossfadeDefaultSettings
+import com.perseusoft.homefi.core.crossfadeSettingsFromJson
+import com.perseusoft.homefi.core.crossfadeSettingsToJson
+import com.perseusoft.homefi.core.TasteSettings
+import com.perseusoft.homefi.core.loudnessDefaultSettings
+import com.perseusoft.homefi.core.loudnessSettingsFromJson
+import com.perseusoft.homefi.core.loudnessSettingsToJson
+import com.perseusoft.homefi.core.tasteDefaultSettings
+import com.perseusoft.homefi.core.tasteSettingsFromJson
+import com.perseusoft.homefi.core.tasteSettingsToJson
+import org.json.JSONObject
 import com.perseusoft.homefi.core.ShareAddMode
 import com.perseusoft.homefi.core.ShareEditMode
 import com.perseusoft.homefi.core.SharePermissions
@@ -40,6 +62,16 @@ enum class ImmersiveShade { AUTO, STRONG, SOFT, OFF }
 enum class LyricsMode { NORMAL, KARAOKE }
 
 enum class LyricsSize { SMALL, MEDIUM, LARGE }
+
+/** How the player's signal chain reads: one line of nodes, or nodes with a caption above. */
+enum class SignalStyle(val key: String) {
+    COMPACT("compact"),
+    DETAILED("detailed");
+
+    companion object {
+        fun of(key: String?): SignalStyle = entries.firstOrNull { it.key == key } ?: COMPACT
+    }
+}
 
 /** Colour of the mascot's arms and legs; OFF draws none. */
 enum class MascotLimbs { WHITE, NAVY, ACCENT, OFF }
@@ -124,6 +156,19 @@ data class ShareSettings(
     )
 }
 
+/**
+ * Bring-your-own-key AI: the provider picked (its `aiProviders()` id, blank = none, the
+ * guided wizard) and, per provider, the model and server address. Never the key: that
+ * lives in [KeyVault].
+ */
+data class AiSettings(
+    val provider: String = "",
+    /** Provider id → model id; missing or blank = the provider's default. */
+    val models: Map<String, String> = emptyMap(),
+    /** Provider id → server address (Ollama, custom); missing = the provider's. */
+    val baseUrls: Map<String, String> = emptyMap(),
+)
+
 data class AppSettings(
     val quality: AudioQuality = AudioQuality.HIGH,
     val embedCover: Boolean = true,
@@ -165,6 +210,12 @@ data class AppSettings(
     val mascotScale: Float = 1f,
     /** Tidal lists show their first page at once and load the rest while scrolling; off loads them whole. */
     val lazyLists: Boolean = true,
+    /** One card per album on Tidal lists (explicit / clean, Atmos, remasters... behind a "versions" chip). */
+    val albumVersionsGroup: Boolean = true,
+    /** Which release the card shows, when both exist. */
+    val albumExplicit: AlbumExplicitPref = AlbumExplicitPref.EXPLICIT,
+    val albumSpatial: AlbumSpatialPref = AlbumSpatialPref.STEREO,
+    val albumEdition: AlbumEditionPref = AlbumEditionPref.ORIGINAL,
     val lyricsMode: LyricsMode = LyricsMode.NORMAL,
     val lyricsSize: LyricsSize = LyricsSize.MEDIUM,
     /** Open the lyrics by themselves when the song has some. */
@@ -174,11 +225,27 @@ data class AppSettings(
     /** Lyrics timing, −2000..2000 ms; positive shows them later (Bluetooth delay). */
     val lyricsOffsetMs: Int = 0,
     val share: ShareSettings = ShareSettings(),
+    val ai: AiSettings = AiSettings(),
+    /** "How does it sound?" button in the player (it stays in the player's menu either way). */
+    val soundReactButton: Boolean = true,
+    /** The signal badge names the active layers ("EQ · HD 650 + Electronic") instead of "not bit-perfect". */
+    val soundLayerChip: Boolean = true,
+    /** The player shows the signal chain (source → processing → output) instead of the badges. */
+    val signalChain: Boolean = true,
+    val signalStyle: SignalStyle = SignalStyle.COMPACT,
+    /** The chain's links flow while playing (motion settings still win). */
+    val signalAnimate: Boolean = true,
+    /** A taste suggestion card in the equalizer's taste rules. */
+    val soundSuggestions: Boolean = true,
     /** Version of the personal-use notice accepted before connecting Tidal; 0 = never. */
     val tidalTermsAccepted: Int = 0,
     /** When it was accepted (epoch ms); 0 = never. */
     val tidalTermsAcceptedAt: Long = 0L,
 ) {
+    /** How the core groups album lists (the same preferences as the desktop's). */
+    val albumVersions: AlbumVersionPrefs
+        get() = AlbumVersionPrefs(group = albumVersionsGroup, explicit = albumExplicit, spatial = albumSpatial, edition = albumEdition)
+
     /** The current personal-use notice ([TIDAL_TERMS_VERSION]) was accepted. */
     val termsAccepted: Boolean get() = tidalTermsAccepted >= TIDAL_TERMS_VERSION
 }
@@ -208,6 +275,10 @@ class SettingsStore(context: Context) {
         skipExisting = prefs.getBoolean("skip_existing", true),
         threads = prefs.getInt("threads", 3),
         lazyLists = prefs.getBoolean("lazy_lists", true),
+        albumVersionsGroup = prefs.getBoolean("album_versions_group", true),
+        albumExplicit = enumPref("album_explicit", AlbumExplicitPref.EXPLICIT),
+        albumSpatial = enumPref("album_spatial", AlbumSpatialPref.STEREO),
+        albumEdition = enumPref("album_edition", AlbumEditionPref.ORIGINAL),
         template = prefs.getString("template", "") ?: "",
         downloadDir = prefs.getString("download_dir", "") ?: "",
         theme = prefs.getString("theme", null)
@@ -254,9 +325,25 @@ class SettingsStore(context: Context) {
         lyricsMascot = prefs.getBoolean("lyrics_mascot", true),
         lyricsOffsetMs = prefs.getInt("lyrics_offset_ms", 0).coerceIn(LYRICS_OFFSET_RANGE),
         share = loadShare(),
+        ai = AiSettings(
+            provider = prefs.getString("ai_provider", "").orEmpty(),
+            models = stringMap("ai_models"),
+            baseUrls = stringMap("ai_base_urls"),
+        ),
+        soundReactButton = prefs.getBoolean("sound_react_button", true),
+        soundLayerChip = prefs.getBoolean("sound_layer_chip", true),
+        signalChain = prefs.getBoolean("signal_chain", true),
+        signalStyle = SignalStyle.of(prefs.getString("signal_style", null)),
+        signalAnimate = prefs.getBoolean("signal_animate", true),
+        soundSuggestions = prefs.getBoolean("sound_suggestions", true),
         tidalTermsAccepted = prefs.getInt("tidal_terms_accepted", 0),
         tidalTermsAcceptedAt = prefs.getLong("tidal_terms_accepted_at", 0L),
     )
+
+    private fun stringMap(key: String): Map<String, String> = runCatching {
+        val o = JSONObject(prefs.getString(key, null) ?: return emptyMap())
+        o.keys().asSequence().associateWith { o.getString(it) }
+    }.getOrDefault(emptyMap())
 
     private inline fun <reified E : Enum<E>> enumPref(key: String, default: E): E =
         prefs.getString(key, null)?.let { runCatching { enumValueOf<E>(it) }.getOrNull() } ?: default
@@ -312,6 +399,10 @@ class SettingsStore(context: Context) {
             .putBoolean("skip_existing", next.skipExisting)
             .putInt("threads", next.threads)
             .putBoolean("lazy_lists", next.lazyLists)
+            .putBoolean("album_versions_group", next.albumVersionsGroup)
+            .putString("album_explicit", next.albumExplicit.name)
+            .putString("album_spatial", next.albumSpatial.name)
+            .putString("album_edition", next.albumEdition.name)
             .putString("template", next.template)
             .putString("download_dir", next.downloadDir)
             .putString("theme", next.theme.name)
@@ -340,6 +431,15 @@ class SettingsStore(context: Context) {
             .putBoolean("lyrics_mascot", next.lyricsMascot)
             .putInt("lyrics_offset_ms", next.lyricsOffsetMs.coerceIn(LYRICS_OFFSET_RANGE))
             .putShare(next.share)
+            .putString("ai_provider", next.ai.provider)
+            .putString("ai_models", JSONObject(next.ai.models).toString())
+            .putString("ai_base_urls", JSONObject(next.ai.baseUrls).toString())
+            .putBoolean("sound_react_button", next.soundReactButton)
+            .putBoolean("sound_layer_chip", next.soundLayerChip)
+            .putBoolean("signal_chain", next.signalChain)
+            .putString("signal_style", next.signalStyle.key)
+            .putBoolean("signal_animate", next.signalAnimate)
+            .putBoolean("sound_suggestions", next.soundSuggestions)
             .putInt("tidal_terms_accepted", next.tidalTermsAccepted)
             .putLong("tidal_terms_accepted_at", next.tidalTermsAcceptedAt)
             .apply()
@@ -385,6 +485,75 @@ class SettingsStore(context: Context) {
 
     /** The user accepted the current personal-use notice. */
     fun acceptTerms() = update { it.copy(tidalTermsAccepted = TIDAL_TERMS_VERSION, tidalTermsAcceptedAt = System.currentTimeMillis()) }
+
+    fun updateAi(transform: (AiSettings) -> AiSettings) = update { it.copy(ai = transform(it.ai)) }
+
+    // ------------------------------------------------------------ equalizer
+
+    private val _eq = MutableStateFlow(prefs.getString("eq_settings", null)?.let(::eqSettingsFromJson) ?: eqDefaultSettings())
+    /** On/off, automatic preamp and the profiles per output (the core's JSON, as on the desktop). */
+    val eq: StateFlow<EqSettings> = _eq.asStateFlow()
+
+    /** In memory at once (the audio follows); [saveEq] writes it. */
+    fun setEq(settings: EqSettings) {
+        _eq.value = settings
+    }
+
+    fun saveEq() = prefs.edit().putString("eq_settings", eqSettingsToJson(_eq.value)).apply()
+
+    private val _eqPresets = MutableStateFlow(loadPresets())
+    /** Profiles the user saved by name. */
+    val eqPresets: StateFlow<Map<String, EqProfile>> = _eqPresets.asStateFlow()
+
+    // kept in the settings' own JSON (its per-output map, by name), so profiles have one format
+    private fun loadPresets(): Map<String, EqProfile> =
+        prefs.getString("eq_presets", null)?.let { eqSettingsFromJson(it).perOutput } ?: emptyMap()
+
+    fun setEqPresets(presets: Map<String, EqProfile>) {
+        _eqPresets.value = presets
+        val holder = eqDefaultSettings().copy(perOutput = presets)
+        prefs.edit().putString("eq_presets", eqSettingsToJson(holder)).apply()
+    }
+
+    // ------------------------------------------------- taste layers, loudness
+
+    private val _taste = MutableStateFlow(
+        prefs.getString("taste_settings", null)?.let { runCatching { tasteSettingsFromJson(it) }.getOrNull() }
+            ?: tasteDefaultSettings(),
+    )
+    /** Taste rules (a tilt per genre, artist, album, playlist or track), the core's JSON as on the desktop. */
+    val taste: StateFlow<TasteSettings> = _taste.asStateFlow()
+
+    fun setTaste(taste: TasteSettings) {
+        _taste.value = taste
+        prefs.edit().putString("taste_settings", tasteSettingsToJson(taste)).apply()
+    }
+
+    private val _loudness = MutableStateFlow(
+        prefs.getString("loudness_settings", null)?.let { runCatching { loudnessSettingsFromJson(it) }.getOrNull() }
+            ?: loudnessDefaultSettings(),
+    )
+    /** Loudness normalization (off by default: bit-perfect). */
+    val loudness: StateFlow<LoudnessSettings> = _loudness.asStateFlow()
+
+    fun setLoudness(loudness: LoudnessSettings) {
+        _loudness.value = loudness
+        prefs.edit().putString("loudness_settings", loudnessSettingsToJson(loudness)).apply()
+    }
+
+    // ------------------------------------------------------------ crossfade
+
+    private val _crossfade = MutableStateFlow(
+        prefs.getString("crossfade_settings", null)?.let { runCatching { crossfadeSettingsFromJson(it) }.getOrNull() }
+            ?: crossfadeDefaultSettings(),
+    )
+    /** Crossfade between songs (off by default: gapless, bit-perfect); the desktop's `crossfade` JSON. */
+    val crossfade: StateFlow<CrossfadeSettings> = _crossfade.asStateFlow()
+
+    fun setCrossfade(crossfade: CrossfadeSettings) {
+        _crossfade.value = crossfade
+        prefs.edit().putString("crossfade_settings", crossfadeSettingsToJson(crossfade)).apply()
+    }
 
     /** Shortcut for the share section. */
     fun updateShare(transform: (ShareSettings) -> ShareSettings) = update { it.copy(share = transform(it.share)) }

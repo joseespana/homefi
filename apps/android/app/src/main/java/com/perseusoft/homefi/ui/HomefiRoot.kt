@@ -1,5 +1,9 @@
 package com.perseusoft.homefi.ui
 
+import com.perseusoft.homefi.player.EqPanel
+import com.perseusoft.homefi.ui.eq.AssistantScreen
+import com.perseusoft.homefi.ui.eq.EqualizerScreen
+
 import com.perseusoft.homefi.ui.haptics
 import android.Manifest
 import com.perseusoft.homefi.ui.home.HomeScreen
@@ -79,6 +83,13 @@ import com.perseusoft.homefi.ui.share.JoinDialog
 import com.perseusoft.homefi.ui.share.NearbySessions
 import com.perseusoft.homefi.ui.share.ShareNotices
 import kotlinx.coroutines.flow.Flow
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.key
+import com.perseusoft.homefi.ui.sound.HowSoundsSheet
+import com.perseusoft.homefi.ui.sound.SoundForDialog
+import com.perseusoft.homefi.ui.sound.SoundNotices
 
 enum class Tab(val label: Int, val icon: ImageVector) {
     /** Reached with the logo in the top bar, not from the navigation bar. */
@@ -99,7 +110,9 @@ enum class Destination { DOWNLOADS, PLAYER }
 @Composable
 fun HomefiRoot(destinations: Flow<Destination>) {
     val app = LocalContext.current.homefi
-    var loggedIn by rememberSaveable { mutableStateOf(app.engine.account() != null) }
+    // read once off the main thread, again after logging in or out
+    val loggedIn = app.account.account.collectAsStateWithLifecycle().value != null
+    val accountKnown by app.account.loaded.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
     var playerOpen by rememberSaveable { mutableStateOf(false) }
     val downloads by app.downloads.state.collectAsStateWithLifecycle()
@@ -111,7 +124,7 @@ fun HomefiRoot(destinations: Flow<Destination>) {
     val guestUi by app.share.guest.collectAsStateWithLifecycle()
     val inRoom = guestUi.status == GuestStatus.CONNECTED
     val scope = rememberCoroutineScope()
-    val roomPlayer = remember(app.share) { GuestPlayer(app.share, loggedIn = app.engine.account() != null, scope = scope) }
+    val roomPlayer = remember(app.share) { GuestPlayer(app.share, loggedIn = app.account.account, scope = scope) }
     val ownPlayer = playerSource()
     val openPlayer = { if (app.share.guest.value.status == GuestStatus.CONNECTED) app.share.openGuest(true) else playerOpen = true }
     val joinRequest by app.share.joinRequest.collectAsStateWithLifecycle()
@@ -213,7 +226,8 @@ fun HomefiRoot(destinations: Flow<Destination>) {
         ) { padding ->
             // destinations slide along the navigation bar's order (back = the other way);
             // logging in swaps the screen in place
-            val screen = Screen(tab, login = !loggedIn && (tab == Tab.SEARCH || tab == Tab.DOWNLOADS))
+            // not before the account is known: a signed-in user would see the login flash by
+            val screen = Screen(tab, login = accountKnown && !loggedIn && (tab == Tab.SEARCH || tab == Tab.DOWNLOADS))
             AnimatedContent(
                 targetState = screen,
                 modifier = Modifier.padding(padding),
@@ -227,7 +241,7 @@ fun HomefiRoot(destinations: Flow<Destination>) {
                 label = "tabs",
             ) { shown ->
                 when {
-                    shown.login -> LoginScreen(onLoggedIn = { loggedIn = true })
+                    shown.login -> LoginScreen(onLoggedIn = { if (!app.account.isLoggedIn) app.account.refresh() })
                     shown.tab == Tab.HOME -> HomeScreen()
                     shown.tab == Tab.LIBRARY -> LibraryScreen()
                     shown.tab == Tab.SEARCH -> SearchScreen(onQueued = { tab = Tab.DOWNLOADS })
@@ -235,7 +249,7 @@ fun HomefiRoot(destinations: Flow<Destination>) {
                     else -> SettingsScreen(
                         loggedIn = loggedIn,
                         onLogin = { tab = Tab.SEARCH },
-                        onLoggedOut = { loggedIn = false },
+                        onLoggedOut = { app.account.signedOut() },
                     )
                 }
             }
@@ -261,6 +275,46 @@ fun HomefiRoot(destinations: Flow<Destination>) {
                 GuestScreen(player = roomPlayer, onClose = { app.share.openGuest(false) })
             }
         }
+
+        // the equalizer and the sound assistant, over everything (player included)
+        val eqPanel by app.equalizer.panel.collectAsStateWithLifecycle()
+        AnimatedVisibility(
+            visible = eqPanel != null,
+            enter = motion.panelEnter(),
+            exit = motion.panelExit(),
+        ) {
+            // the last panel stays drawn while it slides away
+            var shown by remember { mutableStateOf(eqPanel ?: EqPanel.EQUALIZER) }
+            LaunchedEffect(eqPanel) { eqPanel?.let { shown = it } }
+            Box(Modifier.fillMaxSize().clickable(enabled = false) {}) {
+                AnimatedContent(
+                    targetState = shown,
+                    transitionSpec = { motion.screens(forward = targetState == EqPanel.ASSISTANT) },
+                    label = "eq-panel",
+                ) { panel ->
+                    when (panel) {
+                        EqPanel.EQUALIZER -> EqualizerScreen(
+                            onClose = app.equalizer::close,
+                            onAssistant = { app.equalizer.open(EqPanel.ASSISTANT) },
+                        )
+                        EqPanel.ASSISTANT -> AssistantScreen(
+                            onClose = app.equalizer::back,
+                            onEqualizer = { app.equalizer.open(EqPanel.EQUALIZER) },
+                        )
+                    }
+                }
+            }
+        }
+
+        // "How does it sound?" and "Sound for this…", from the player or any list
+        val howOpen by app.sound.howOpen.collectAsStateWithLifecycle()
+        if (howOpen) HowSoundsSheet(onDismiss = { app.sound.openHow(false) })
+        val soundFor by app.sound.soundFor.collectAsStateWithLifecycle()
+        soundFor?.let { req -> key(req) { SoundForDialog(req.scope, onDismiss = { app.sound.soundFor(null) }) } }
+        // what a reaction changed, with Undo, over everything (the player included)
+        val soundSnackbar = remember { SnackbarHostState() }
+        SoundNotices(soundSnackbar)
+        SnackbarHost(soundSnackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 72.dp))
 
         // the hub's discreet notices, over every screen
         ShareNotices(Modifier.align(Alignment.TopCenter))
@@ -288,7 +342,7 @@ fun HomefiRoot(destinations: Flow<Destination>) {
                 scope.launch {
                     app.downloads.cancelAll()
                     app.engine.logout()
-                    loggedIn = false
+                    app.account.signedOut()
                 }
             },
         )

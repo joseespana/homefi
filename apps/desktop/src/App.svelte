@@ -15,15 +15,20 @@
   import Folder from "./components/Folder.svelte";
   import Playlists from "./components/Playlists.svelte";
   import QueueMenu from "./components/QueueMenu.svelte";
+  import VersionPicker from "./components/VersionPicker.svelte";
   import Skeleton from "./components/Skeleton.svelte";
   import { busy } from "./lib/busy.svelte";
   import MyTidal from "./components/MyTidal.svelte";
   import Search from "./components/Search.svelte";
   import TidalItem from "./components/TidalItem.svelte";
   import Settings from "./components/Settings.svelte";
+  import Equalizer from "./components/eq/Equalizer.svelte";
+  import Assistant from "./components/eq/Assistant.svelte";
   import PlaylistPicker from "./components/PlaylistPicker.svelte";
   import NewPlaylist from "./components/NewPlaylist.svelte";
   import ConfirmDialog from "./components/ConfirmDialog.svelte";
+  import SoundFor from "./components/sound/SoundFor.svelte";
+  import { sound } from "./lib/sound.svelte";
   import Notifications from "./components/Notifications.svelte";
   import { fillsRoom, layoutOf, skinOf } from "./lib/layouts";
   import { share } from "./lib/share.svelte";
@@ -187,6 +192,10 @@
         <Downloads />
       {:else if app.view.name === "settings"}
         <Settings />
+      {:else if app.view.name === "eq"}
+        <Equalizer />
+      {:else if app.view.name === "assistant"}
+        <Assistant />
       {:else if app.view.name === "guest"}
         {#if share.inRoom}<GuestView />{:else}<Room />{/if}
       {:else}
@@ -203,10 +212,12 @@
 {:else if ready && app.account && app.settings && !app.termsAccepted}<TermsDialog />{/if}
 {#if app.playlistPicker}<PlaylistPicker />{/if}
 {#if app.queueMenu}<QueueMenu />{/if}
+{#if app.versionPicker}<VersionPicker />{/if}
 {#if app.newPlaylist}<NewPlaylist />{/if}
 {#if share.panelOpen}<SharePanel />{/if}
 {#if share.joinForm}<JoinDialog />{/if}
 {#if offerHere}<NearbyBanner />{/if}
+{#if sound.forScope}<SoundFor />{/if}
 {#if app.confirmDialog}<ConfirmDialog />{/if}
 <Notifications />
 

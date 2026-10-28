@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_playback">Playback</string>
+    <string name="crossfade_title">Crossfade</string>
+    <string name="crossfade_on">Crossfade between songs</string>
+    <string name="crossfade_on_hint">The next song starts while this one fades out. Off keeps every transition gapless and bit-perfect; during a fade the sound isn\'t bit-perfect.</string>
+    <string name="crossfade_keywords">crossfade, fade, transition, mix, gapless, overlap</string>
+    <string name="crossfade_seconds">Length: %1$s s</string>
+    <string name="crossfade_curve">Curve</string>
+    <string name="crossfade_curve_equal_power">Equal power</string>
+    <string name="crossfade_curve_s">S-curve</string>
+    <string name="crossfade_curve_linear">Linear</string>
+    <string name="crossfade_curve_equal_power_hint">Even loudness all the way through.</string>
+    <string name="crossfade_curve_s_hint">Stays on each song longer and swaps quickly in the middle.</string>
+    <string name="crossfade_curve_linear_hint">Straight lines: a slight dip halfway.</string>
+    <string name="crossfade_smart">Skip the silence</string>
+    <string name="crossfade_smart_hint">Fade from where the music really ends into where the next song starts (silence below −60 dB).</string>
+    <string name="crossfade_album_runs">Keep albums gapless</string>
+    <string name="crossfade_album_runs_hint">No fade between songs of the same album played in order (live albums, mixes).</string>
+    <string name="crossfade_manual">Fade when I skip</string>
+    <string name="crossfade_manual_hint">A short fade on next, previous or picking a song, instead of a cut.</string>
+    <string name="crossfade_manual_seconds">Skip fade: %1$s s</string>
+    <string name="crossfade_min_track">Shortest song that fades: %1$s</string>
+    <string name="crossfade_min_auto">Auto (%1$s s)</string>
+    <string name="crossfade_min_track_hint">Shorter songs (interludes, intros) play whole, with gapless transitions.</string>
+    <string name="crossfade_low_power">Turn off on slow phones</string>
+    <string name="crossfade_low_power_hint">Crossfade plays two songs at once. On phones with little memory, or when the phone can\'t keep up during fades, songs change as usual instead.</string>
+    <string name="crossfade_unavailable_memory">This phone has little memory: songs change without crossfade.</string>
+    <string name="crossfade_unavailable_lag">The phone couldn\'t keep up during fades: crossfade is paused until the app restarts.</string>
+    <string name="crossfade_summary_on">Crossfade %1$s s</string>
+    <string name="crossfade_summary_off">Gapless</string>
+    <string name="crossfade_now">Crossfading into %1$s</string>
+    <string name="crossfade_now_untitled">Crossfading</string>
+</resources>

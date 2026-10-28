@@ -28,12 +28,31 @@ fn ffprobe_bin() -> String {
     }
 }
 
-/// `true` when ffmpeg can be executed (checked once).
+static AVAILABLE: OnceLock<bool> = OnceLock::new();
+
+/// `true` when ffmpeg can be executed (checked once). The first call runs
+/// `ffmpeg -version` and blocks until it exits: never call it first from a UI
+/// thread or an async task; see [`warm_up`] and [`available`].
 pub fn is_available() -> bool {
-    static AVAILABLE: OnceLock<bool> = OnceLock::new();
     *AVAILABLE.get_or_init(|| {
         std::process::Command::new(ffmpeg_bin()).arg("-version").output().map(|o| o.status.success()).unwrap_or(false)
     })
+}
+
+/// Starts the check of [`is_available`] on its own thread, so later calls
+/// answer at once. Call it at startup.
+pub fn warm_up() {
+    if AVAILABLE.get().is_none() {
+        std::thread::spawn(is_available);
+    }
+}
+
+/// [`is_available`] for async code: the first check runs on the blocking pool.
+pub async fn available() -> bool {
+    match AVAILABLE.get() {
+        Some(known) => *known,
+        None => tokio::task::spawn_blocking(is_available).await.unwrap_or(false),
+    }
 }
 
 async fn run(program: &str, args: &[&std::ffi::OsStr]) -> Result<String> {

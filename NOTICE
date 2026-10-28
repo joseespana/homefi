@@ -16,6 +16,14 @@ commercial settings. You are responsible for complying with TIDAL's terms and
 your country's copyright laws. If you cancel your subscription, delete what you
 downloaded.
 
+Headphone correction profiles
+-----------------------------
+The equalizer can load headphone correction profiles from AutoEq
+(https://github.com/jaakkopasanen/AutoEq), Copyright (c) 2018-2022 Jaakko
+Pasanen, licensed under the MIT License. The profiles are downloaded from that
+repository when the user searches for them; the measurements belong to the
+sources credited there (oratory1990, crinacle, Rtings and others).
+
 Android APK
 -----------
 The Android app bundles the Media3 FFmpeg audio decoder built by the Jellyfin

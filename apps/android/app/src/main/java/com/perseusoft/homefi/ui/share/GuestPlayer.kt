@@ -1,5 +1,6 @@
 package com.perseusoft.homefi.ui.share
 
+import com.perseusoft.homefi.core.Account
 import com.perseusoft.homefi.core.LibraryTrack
 import com.perseusoft.homefi.core.ShareSkipMode
 import com.perseusoft.homefi.player.NowPlaying
@@ -16,7 +17,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 /**
@@ -26,7 +26,7 @@ import kotlinx.coroutines.flow.stateIn
  * jumping around the queue stay the hub's, and so does what it plays (a guest
  * adds songs from the hub's search, not from its own library yet).
  */
-class GuestPlayer(private val share: ShareManager, loggedIn: Boolean, scope: CoroutineScope) : PlayerSource {
+class GuestPlayer(private val share: ShareManager, loggedIn: StateFlow<Account?>, scope: CoroutineScope) : PlayerSource {
     /** The position moves on the hub's clock: look again a few times a second. */
     private val ticks = flow {
         while (true) {
@@ -38,10 +38,9 @@ class GuestPlayer(private val share: ShareManager, loggedIn: Boolean, scope: Cor
     override val state: StateFlow<PlayerUiState> = combine(share.guest, ticks) { ui, _ -> playerState(ui) }
         .stateIn(scope, SharingStarted.WhileSubscribed(5_000), playerState(share.guest.value))
 
-    override val capabilities: StateFlow<PlayerCapabilities> = share.guest
-        .map { ui -> capabilities(ui, loggedIn) }
+    override val capabilities: StateFlow<PlayerCapabilities> = combine(share.guest, loggedIn) { ui, account -> capabilities(ui, account != null) }
         .distinctUntilChanged()
-        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), capabilities(share.guest.value, loggedIn))
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), capabilities(share.guest.value, loggedIn.value != null))
 
     private fun playerState(ui: GuestUi): PlayerUiState {
         val s = ui.state ?: return PlayerUiState()
@@ -111,7 +110,7 @@ class GuestPlayer(private val share: ShareManager, loggedIn: Boolean, scope: Cor
     override fun skipTo(index: Int) = Unit
     override fun toggleShuffle() = Unit
     override fun cycleRepeat() = Unit
-    override fun play(tracks: List<LibraryTrack>, startIndex: Int) = Unit
+    override fun play(tracks: List<LibraryTrack>, startIndex: Int, source: com.perseusoft.homefi.core.SourceContext?) = Unit
     override fun queueTracks(tracks: List<LibraryTrack>, next: Boolean) = Unit
 
     private companion object {

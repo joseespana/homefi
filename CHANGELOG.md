@@ -7,6 +7,53 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Added
+- Taste layers: a bass / treble / clarity tilt for one genre, playlist, artist, album or track,
+  on top of each output's equalizer profile (the most specific one plays: track > album >
+  playlist > artist > genre). Applied on every track change with a 20 ms glide, at the track's
+  first sample when playing gapless. Desktop: an EQ tab "Taste rules", "Sound for this…" on
+  albums, playlists, artists and tracks, the layers playing next to the EQ chip.
+- "How does it sound?": one tap (needs bass, too bright, can't hear the vocals, perfect...)
+  makes or adjusts the rule for the music playing, with a one-line note and Undo. With an AI key
+  the model picks where it goes and words the note; without, fixed safe steps (±2 dB, capped at
+  ±6). Built-in speakers never get deep bass: a gentle lift around 200 Hz and a high-pass.
+- Loudness normalization (off by default, so playback stays bit-perfect): per song, per album or
+  automatic, to a target loudness, never clipping, from Tidal's ReplayGain (now written to
+  downloaded and streamed files as `REPLAYGAIN_*` tags) or the file's own (`R128_*` for Opus).
+- The EQ assistant offers taste layers for what you listen to most, can set loudness, and
+  suggests one on a card; the guided setup offers one for your top genre.
+- Album versions: the same album listed several times on Tidal (explicit / clean, stereo / Dolby
+  Atmos, 16 / 24-bit, remasters, deluxe box sets) is one card on artist pages, search and favorite
+  albums, with an "E" badge for explicit and a "N versions" chip that lists every release with its
+  labels and a short description (Play / Open / Download each). Album pages show their labels and
+  "Other versions". Grouped in `homefi-core` (`album_versions`: same main artist and kind, base title
+  without version suffixes, live and studio apart, years and track counts as tie-breakers). Settings,
+  desktop and Android: one card per album on / off, explicit or clean, stereo or Atmos, original or
+  latest remaster.
+- Crossfade (off by default: gapless and bit-perfect stay the default), desktop and Android with
+  the same settings (`crossfade`, camelCase JSON in `homefi-core::dsp::crossfade`): 1–12 s,
+  equal-power / S-curve / linear, smart trim of trailing and leading silence (below -60 dBFS),
+  albums in order kept gapless, a short fade (0.5–3 s) on next / previous / picking a song, a
+  minimum song length (twice the fade by default). Each song keeps its own equalizer, taste and
+  loudness while they overlap. Desktop: the engine reads each song's end ahead, mixes the next
+  one in the audio thread (resampled to the open device rate when it differs) with a soft limiter
+  so overlapping peaks never clip; a "Fade" tag in the player bar, `fading` in the player state.
+  Android: a second player for the overlap that becomes the session's player when the fade
+  starts (notification, lock screen and queue follow), with a low-memory / lag fallback.
+  Settings → Playback on both.
+- Surround devices on the desktop: stereo on 5.1 / 7.1 speakers plays on the front pair, on all
+  speakers (-3 dB) or upmixed (center, subwoofer below 120 Hz, rears at -6 dB); 5.1 and 7.1 files
+  map 1:1 in the standard speaker order, and fold down on smaller layouts. Settings → Playback,
+  shown when the device has more than two channels.
+- Resampler quality on the desktop: High (default) or Fast, for computers where resampling is tight.
+
+### Fixed
+- Desktop: the sound broke up on 7.1 devices (Windows "Speakers (7.1 Surround Sound)", WASAPI shared
+  mode at 48 kHz): every track was spread to 8 channels before resampling, so the sinc filter ran on
+  6 silent channels too. It now resamples at the track's own channel count and then maps the
+  channels (about a quarter of the CPU), and the output buffer is 1 s on Windows and surround
+  devices (0.5 s elsewhere).
+
 ## [1.0.0] - 2026-10-28
 
 First public version: the desktop app (macOS, Windows, Linux), the Android app and the CLI, on

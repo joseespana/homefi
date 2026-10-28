@@ -501,3 +501,32 @@ async fn party_mode_serves_the_song_and_shares_the_clock() {
     assert_eq!(http.get(&url).send().await.unwrap().status(), 404);
     hub.stop().await;
 }
+
+#[tokio::test]
+async fn a_slow_guest_app_misses_levels_but_not_messages() {
+    let (hub, _host) = start(Permissions::default()).await;
+    let (_guest, _welcome, mut rx) =
+        GuestClient::join("127.0.0.1", hub.local_addr().port(), "Slow", "#123456", &hub.code()).await.unwrap();
+    // the app does not take events while the hub streams levels
+    for _ in 0..500 {
+        hub.send_levels(1, 2, vec![3; 8]);
+    }
+    hub.notify(None, "still here");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(rx.len() <= homefi_core::share::GUEST_EVENT_QUEUE);
+
+    let mut levels = 0;
+    let text = tokio::time::timeout(WAIT, async {
+        loop {
+            match rx.recv().await.unwrap() {
+                GuestEvent::Message(HubMessage::Levels { .. }) => levels += 1,
+                GuestEvent::Message(HubMessage::Notice { text }) => return text,
+                _ => {}
+            }
+        }
+    })
+    .await
+    .expect("the notice arrives");
+    assert_eq!(text, "still here");
+    assert!(levels < 500, "levels were dropped, not queued ({levels})");
+}

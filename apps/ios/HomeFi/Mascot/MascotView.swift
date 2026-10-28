@@ -36,6 +36,17 @@ private let RX: CGFloat = 584
 private let RY: CGFloat = 600
 private let EYE_R: CGFloat = 34
 
+// the guitar (keep in sync with the desktop and Android): body across the
+// belly on the picking hand's side (the left of the picture), neck slanting up
+// towards the fretting hand, `GUITAR_AHEAD` in front of the house
+private let GUITAR_X: CGFloat = 410
+private let GUITAR_Y: CGFloat = 712
+private let GUITAR_AHEAD: CGFloat = 150
+private let GUITAR_NECK: CGFloat = 22
+private let GUITAR_SCALE: CGFloat = 1.2
+/// How far an arm stretches to reach the guitar.
+private let ARM_MAX: CGFloat = 175
+
 // turning sideways (keep in sync with the desktop and Android)
 private let HEAD_R: CGFloat = 270
 private let BEHIND: CGFloat = -0.3
@@ -78,6 +89,13 @@ private enum Ink {
     static let silver = Color(hex: 0xCBD5E1)
     static let green = Color(hex: 0x22C55E)
     static let darkGreen = Color(hex: 0x15803D)
+    static let guitarRed = Color(hex: 0xDC2626)
+    static let pickguard = Color(hex: 0xF8FAFC)
+    static let pickup = Color(hex: 0x111827)
+    static let bridge = Color(hex: 0x9CA3AF)
+    static let fretboard = Color(hex: 0xA16207)
+    static let fretWire = Color(hex: 0xFDE68A)
+    static let strings = Color(hex: 0xE5E7EB)
     static let beret = Color(hex: 0x1E3A8A)
 }
 
@@ -196,6 +214,14 @@ private enum Art {
 
     /// A "z" for the sleeping mascot, in a unit square.
     static let zed = Path(svg: "M0 0H1L0 1H1")
+
+    // the guitar, neck along +x, centred on its body
+    static let headOutline = Path(svg: "M352 -36L446 -46Q458 0 446 46L352 36Z")
+    static let head = Path(svg: "M358 -30L440 -38Q450 0 440 38L358 30Z")
+    static let pickguard = Path(svg: "M-70 -40Q-10 -66 60 -30L60 30Q-10 66 -70 40Z")
+    static let frets = Path(svg: [110, 150, 186, 220, 252, 282, 310, 336].map { "M\($0) -17V17" }.joined())
+    static let strings = Path(svg: "M-64 -12H372M-64 0H372M-64 12H372")
+    static let pick = Path(svg: "M-22 0L22 0L0 40Z")
 
     static let uvTeal = Neon(0x5EEAD4)
     static let uvPink = Neon(0xE879F9)
@@ -416,8 +442,18 @@ private func drawMascot(
             .forEach { drawLeg(body, $0.0, CGFloat($0.1), fillColor, outline) }
     }
     let tilt = rotated(body, TILT, around: TILT_PIVOT)
-    let arms: [Turn.Limb] = fillColor == nil ? [] :
-        [turn.limb(SHOULDER_L, CGFloat(p.armL), 1), turn.limb(SHOULDER_R, CGFloat(p.armR), -1)].sorted { $0.depth < $1.depth }
+    let g: CGFloat = fillColor == nil ? 0 : min(1, max(0, CGFloat(p.guitar)))
+    let guitar = Guitar(turn)
+    let arms: [Arm] = fillColor == nil ? [] :
+        [Arm(turn.limb(SHOULDER_L, CGFloat(p.armL), 1), .pick), Arm(turn.limb(SHOULDER_R, CGFloat(p.armR), -1), .fret)]
+            .map { arm in
+                guard g > 0 else { return arm }
+                return arm.reaching(arm.hold == .pick ? guitar.pickAt(CGFloat(p.strum), turn.side) : guitar.fretAt(CGFloat(p.fret), arm.at), g)
+            }
+            .sorted { $0.depth < $1.depth }
+    // with the guitar on, the fretting arm stays in front of the house (it reaches round to the neck)
+    let isBehind = { (a: Arm) in a.depth < BEHIND && !(g > 0.5 && a.hold == .fret) }
+    let pick: CGFloat? = g > 0.5 ? -GUITAR_NECK + 14 * CGFloat(p.strum) : nil
     let cups = turn.cups()
     let band = turn.bandHalves(cups)
     let bandPen = Pen.round(BAND_W * (1 - 0.45 * abs(turn.side)))
@@ -429,7 +465,7 @@ private func drawMascot(
             stroke(tilt, half, Art.uvTeal.at(hue), StrokeStyle(lineWidth: 10, lineCap: .round, dash: [6, 34], dashPhase: chase))
         }
     }
-    if let fillColor { arms.filter { $0.depth < BEHIND }.forEach { drawArm(tilt, $0, fillColor, outline) } }
+    if let fillColor { arms.filter(isBehind).forEach { drawArm(tilt, $0, fillColor, outline) } }
     // cups and the band half reaching them go behind as soon as they face away
     band.filter { $0.depth < 0 }.forEach { drawBand($0.path) }
     cups.filter { $0.depth < 0 }.forEach { drawCup(tilt, $0, mood) }
@@ -453,7 +489,9 @@ private func drawMascot(
     top = scaled(top, turn.topScale, 1, around: CGPoint(x: 512, y: 0))
     drawTopDecor(top, mood)
     // arms in front, so raised arms don't hide behind the headphones
-    if let fillColor { arms.filter { $0.depth >= BEHIND }.forEach { drawArm(tilt, $0, fillColor, outline) } }
+    // in front of the body, behind the hands
+    if g > 0 { drawGuitar(tilt, guitar, min(1, g * 2)) }
+    if let fillColor { arms.filter { !isBehind($0) }.forEach { drawArm(tilt, $0, fillColor, outline, pick: $0.hold == .pick ? pick : nil) } }
 }
 
 /**
@@ -462,8 +500,9 @@ private func drawMascot(
  * wide as its front) and the limbs on the far side go behind the body.
  */
 private struct Turn {
+    let th: CGFloat
     let side: CGFloat
-    private let across: CGFloat
+    let across: CGFloat
     let narrow: CGFloat
     // headphones sit a little behind the middle of the head when seen from the side
     private let back: CGFloat
@@ -473,7 +512,8 @@ private struct Turn {
     let topScale: CGFloat
 
     init(_ turn: CGFloat) {
-        side = sin(turn * .pi / 2)
+        th = turn * .pi / 2
+        side = sin(th)
         across = cos(turn * .pi / 2)
         narrow = 1 - 0.2 * abs(side)
         back = -46 * side
@@ -551,11 +591,118 @@ private func drawCup(_ ctx: GraphicsContext, _ c: Turn.Cup, _ mood: Mood) {
     if mood == .salsa { stroke(g, circle(CGPoint(x: c.home, y: 738), 26), Ink.gold, Pen.w9) }
 }
 
-/// One arm from its shoulder, rotated clockwise by `rot` from hanging down.
-private func drawArm(_ ctx: GraphicsContext, _ arm: Turn.Limb, _ fillColor: Color, _ outline: Color?) {
+/// An arm to draw: where it joins, its angle (clockwise from hanging down) and length, and what it holds on the guitar.
+private struct Arm {
+    enum Hold { case pick, fret }
+    let at: CGPoint
+    let rot: CGFloat
+    let len: CGFloat
+    let depth: CGFloat
+    let hold: Hold
+
+    init(_ limb: Turn.Limb, _ hold: Hold) {
+        self.init(at: limb.at, rot: limb.rot, len: ARM, depth: limb.depth, hold: hold)
+    }
+
+    init(at: CGPoint, rot: CGFloat, len: CGFloat, depth: CGFloat, hold: Hold) {
+        self.at = at
+        self.rot = rot
+        self.len = len
+        self.depth = depth
+        self.hold = hold
+    }
+
+    /// Points it at `target`, stretching up to `ARM_MAX`; `g` blends from its dance angle.
+    func reaching(_ target: CGPoint, _ g: CGFloat) -> Arm {
+        let dx = target.x - at.x
+        let dy = target.y - at.y
+        let aim = atan2(-dx, dy) * 180 / .pi
+        let by = ((aim - rot).truncatingRemainder(dividingBy: 360) + 540).truncatingRemainder(dividingBy: 360) - 180
+        return Arm(at: at, rot: rot + by * g, len: ARM + (min(ARM_MAX, hypot(dx, dy)) - ARM) * g, depth: depth, hold: hold)
+    }
+}
+
+/// Where the guitar is when turned: it sits in front of the house, so it
+/// slides round towards where the mascot faces and is seen a little edge-on
+/// (it turns less than the body, so its face stays in view).
+private struct Guitar {
+    let x: CGFloat
+    let y: CGFloat
+    let sx: CGFloat
+    private let cosN = cos(GUITAR_NECK * .pi / 180)
+    private let sinN = sin(GUITAR_NECK * .pi / 180)
+
+    init(_ turn: Turn) {
+        x = 512 + (GUITAR_X - 512) * turn.across + GUITAR_AHEAD * turn.side
+        y = GUITAR_Y - 16 * abs(turn.side)
+        sx = cos(turn.th * 0.7)
+    }
+
+    /// A point on the guitar, `u` along the neck and `v` across it, from the middle of its body.
+    func at(_ u: CGFloat, _ v: CGFloat) -> CGPoint {
+        CGPoint(x: x + (u * cosN + v * sinN) * sx * GUITAR_SCALE, y: y + (v * cosN - u * sinN) * GUITAR_SCALE)
+    }
+
+    /// Picking hand: a short stroke across the strings over the pickups; turned, it flicks more along the face.
+    func pickAt(_ strum: CGFloat, _ side: CGFloat) -> CGPoint {
+        at(-24 - 8 * strum * strum + 16 * strum * abs(side), -6 + 16 * strum * (1 - 0.4 * abs(side)))
+    }
+
+    /// Fretting hand: on the neck, as far up as the arm reaches from `shoulder`.
+    func fretAt(_ fret: CGFloat, _ shoulder: CGPoint) -> CGPoint {
+        var u = 230 + 70 * fret
+        while u > 120 {
+            let p = at(u, 0)
+            if hypot(p.x - shoulder.x, p.y - shoulder.y) <= ARM_MAX - 15 { break }
+            u -= 10
+        }
+        return at(u, 0)
+    }
+}
+
+/// An electric guitar: red body, pickups, a neck with frets and a headstock with its pegs.
+private func drawGuitar(_ ctx: GraphicsContext, _ guitar: Guitar, _ alpha: CGFloat) {
+    var g = translated(ctx, guitar.x, guitar.y)
+    g.scaleBy(x: guitar.sx * GUITAR_SCALE, y: GUITAR_SCALE)
+    g.rotate(by: .degrees(Double(-GUITAR_NECK)))
+    g.opacity = Double(alpha)
+    // outline first, then the parts on top
+    fill(g, circle(CGPoint(x: -38, y: 0), 92), Ink.navy)
+    fill(g, circle(CGPoint(x: 46, y: 0), 72), Ink.navy)
+    fill(g, roundRect(70, -25, 300, 50, 12), Ink.navy)
+    fill(g, Art.headOutline, Ink.navy)
+    stroke(g, Art.headOutline, Ink.navy, Pen.w12)
+    fill(g, circle(CGPoint(x: -38, y: 0), 82), Ink.guitarRed)
+    fill(g, circle(CGPoint(x: 46, y: 0), 62), Ink.guitarRed)
+    fill(g, Art.pickguard, Ink.pickguard, alpha: 0.9)
+    fill(g, roundRect(-24, -34, 18, 68, 5), Ink.pickup)
+    fill(g, roundRect(18, -34, 18, 68, 5), Ink.pickup)
+    fill(g, roundRect(-72, -30, 14, 60, 4), Ink.bridge)
+    fill(g, circle(CGPoint(x: -88, y: 44), 9), Ink.yellow)
+    fill(g, circle(CGPoint(x: -62, y: 62), 9), Ink.yellow)
+    fill(g, roundRect(76, -17, 290, 34, 6), Ink.fretboard)
+    stroke(g, Art.frets, Ink.fretWire, StrokeStyle(lineWidth: 4))
+    fill(g, Art.head, Ink.pickup)
+    for x: CGFloat in [376, 402, 428] {
+        fill(g, circle(CGPoint(x: x, y: -44), 9), Ink.steel)
+        fill(g, circle(CGPoint(x: x, y: 44), 9), Ink.steel)
+    }
+    stroke(g, Art.strings, Ink.strings, StrokeStyle(lineWidth: 3))
+}
+
+/// One arm from its shoulder, rotated clockwise by `rot` from hanging down; `pick` is the angle of a guitar pick in its hand.
+private func drawArm(_ ctx: GraphicsContext, _ arm: Arm, _ fillColor: Color, _ outline: Color?, pick: CGFloat? = nil) {
     let a = arm.rot * .pi / 180
     let shoulder = arm.at
-    let hand = CGPoint(x: shoulder.x - ARM * sin(a), y: shoulder.y + ARM * cos(a))
+    let hand = CGPoint(x: shoulder.x - arm.len * sin(a), y: shoulder.y + arm.len * cos(a))
+    if let pick {
+        // held tip down towards the strings, flicking with the wrist
+        var g = translated(ctx, hand.x, hand.y)
+        g.rotate(by: .degrees(Double(pick)))
+        g.translateBy(x: 0, y: 34)
+        fill(g, Art.pick, Ink.yellow)
+        stroke(g, Art.pick, Ink.navy, Pen.w6)
+    }
     if let outline {
         stroke(ctx, line(shoulder, hand), outline, StrokeStyle(lineWidth: ARM_W + 2 * OUTLINE, lineCap: .round))
         fill(ctx, circle(hand, HAND + OUTLINE), outline)

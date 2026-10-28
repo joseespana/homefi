@@ -74,7 +74,7 @@ async fn search(app: &AppHandle, q: String) -> homefi_core::Result<SearchResults
     let state = app.state::<AppState>();
     let (local, albums, artists) = tracks::local_search(&state.library.lock().unwrap(), &q);
     let tidal = if logged_in(&state) && !q.trim().is_empty() {
-        match state.session.api() {
+        match state.api() {
             Ok(api) => api.search(q.trim()).await.ok().map(|s| catalog::SearchResults::from(&s)),
             Err(_) => None,
         }
@@ -120,7 +120,7 @@ async fn browse(app: &AppHandle, kind: BrowseKind, id: String) -> homefi_core::R
     if id.starts_with(LOCAL_COLLECTION) {
         return tracks::local_page(&state.library.lock().unwrap(), kind, &id).ok_or_else(none);
     }
-    let api = state.session.api()?;
+    let api = state.api()?;
     let header = |hit: &catalog::Hit| Collection {
         kind,
         id: id.clone(),
@@ -505,7 +505,7 @@ impl HubSession {
                 let dir = crate::stream::cache_dir(&state);
                 let result = async {
                     state.session.refresh(600, false).await?;
-                    let api = state.session.api()?;
+                    let api = state.api()?;
                     homefi_core::stream_cache::fetch(api, state.session.config(), &dir, id, state.settings().quality)
                         .await
                 }

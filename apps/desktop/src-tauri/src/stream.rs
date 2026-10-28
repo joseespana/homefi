@@ -15,7 +15,10 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::commands::AppState;
 
-/// Tracks fetched ahead of the one playing.
+/// Tracks fetched ahead of the one playing. The next one is in the queue
+/// while the current one plays, so a crossfade finds it ready when the
+/// engine reads the end of the current track ahead (~16 s before it is
+/// heard); if it isn't there yet, the transition is a normal one.
 const AHEAD: usize = 2;
 pub(crate) const CACHE_LIMIT: u64 = 3 * 1024 * 1024 * 1024;
 
@@ -36,6 +39,9 @@ pub struct StreamItem {
     pub duration_ms: Option<u64>,
     #[serde(default)]
     pub explicit: bool,
+    /// Where it was played from (album, playlist...), for taste layers.
+    #[serde(default)]
+    pub source: Option<homefi_core::dsp::SourceContext>,
 }
 
 /// A Tidal track of the stream that is not in the player's queue yet.
@@ -98,8 +104,8 @@ pub fn play(app: AppHandle, items: Vec<StreamItem>) {
                 return;
             }
             // the player's queue holds exactly the tracks fetched so far
-            let queued = state.player.snapshot().queue.len();
-            let current = state.player.snapshot().current.unwrap_or(0);
+            let snapshot = state.player.snapshot();
+            let (queued, current) = (snapshot.queue.len(), snapshot.current.unwrap_or(0));
             if next > 0 && (queued < next || next > current + AHEAD) {
                 tokio::time::sleep(Duration::from_millis(500)).await;
                 continue;
@@ -163,6 +169,29 @@ pub async fn enqueue<R: Runtime>(app: &AppHandle<R>, items: Vec<StreamItem>, nex
     }
 }
 
+/// Several files at once: one look at the queue, one append (not one of each per file).
+pub fn add_all_to_queue(player: &homefi_player::Player, paths: Vec<PathBuf>, next: bool) {
+    if paths.is_empty() {
+        return;
+    }
+    let snapshot = player.snapshot();
+    if snapshot.queue.is_empty() {
+        player.load(paths, 0, 0, true);
+        return;
+    }
+    let len = snapshot.queue.len();
+    let n = paths.len();
+    player.append(paths);
+    if next {
+        let to = (snapshot.current.unwrap_or(0) + 1).min(len);
+        for i in 0..n {
+            if to + i < len + i {
+                player.move_track(len + i, to + i);
+            }
+        }
+    }
+}
+
 /// `nth` is how many tracks this request added before, so "play next" keeps their order.
 pub fn add_to_queue(player: &homefi_player::Player, path: PathBuf, next: bool, nth: usize) {
     let snapshot = player.snapshot();
@@ -181,6 +210,12 @@ pub fn add_to_queue(player: &homefi_player::Player, path: PathBuf, next: bool, n
 }
 
 async fn resolve<R: Runtime>(app: &AppHandle<R>, item: &StreamItem) -> Result<PathBuf, String> {
+    let path = fetch_or_local(app, item).await?;
+    crate::sound::remember(app, &path, item.source.clone(), Some(item.id.clone()));
+    Ok(path)
+}
+
+async fn fetch_or_local<R: Runtime>(app: &AppHandle<R>, item: &StreamItem) -> Result<PathBuf, String> {
     if let Some(local) = item.local.as_ref().map(PathBuf::from).filter(|p| p.exists()) {
         return Ok(local);
     }
@@ -196,6 +231,6 @@ async fn resolve<R: Runtime>(app: &AppHandle<R>, item: &StreamItem) -> Result<Pa
 /// (see [`stream_cache::fetch`]).
 async fn fetch(state: &AppState, dir: &Path, id: &str) -> homefi_core::Result<PathBuf> {
     state.session.refresh(600, false).await?;
-    let api = state.session.api()?;
+    let api = state.api()?;
     stream_cache::fetch(api, state.session.config(), dir, id, state.settings().quality).await
 }

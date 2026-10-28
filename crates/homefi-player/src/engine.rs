@@ -1,28 +1,37 @@
 //! The audio thread: queue, decoding, output (re)configuration and events.
 
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cpal::traits::DeviceTrait;
+use homefi_core::dsp::crossfade::{CrossfadeSettings, TrackInfo, MAX_TRIM_SECONDS};
+use homefi_core::dsp::{
+    self, EqDesign, EqSettings, LoudnessSettings, ReplayGain, SoundPlan, TasteSettings, TrackSound,
+};
 use rand::seq::SliceRandom;
 use ringbuf::traits::{Observer, Producer};
-use rubato::{Resampler as _, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
+use crate::deck::{music_end, Deck, DeckFormat, Fade, FadeSpec, ResamplerQuality, SurroundMode};
 use crate::decoder::Source;
 use crate::error::{PlayerError, Result};
 use crate::output::{find_device, Meters, Output, Shared};
 
 /// How often position updates are emitted while playing.
 const TICK: Duration = Duration::from_millis(250);
-/// Resampler input chunk (frames).
-const RESAMPLE_CHUNK: usize = 1024;
 /// "Previous" restarts the track instead when past this point.
 const RESTART_THRESHOLD_MS: u64 = 3000;
+/// Decoding time per pass spent reading ahead for a crossfade (the ring
+/// buffer is always fed first).
+const LOOKAHEAD_BUDGET: Duration = Duration::from_millis(3);
+/// A fade shorter than this isn't worth it: a normal transition instead.
+const MIN_FADE_SECONDS: f32 = 0.25;
+/// Extra look-ahead past the fade and the trimmed silence.
+const HOLD_MARGIN_SECONDS: f32 = 0.5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -54,6 +63,33 @@ pub struct StreamInfo {
     /// `true` when the device could not be opened at the file's rate.
     pub resampled: bool,
     pub device: String,
+    /// How a stereo / mono track is spread over a surround device (more
+    /// speakers than the track has channels); `None` otherwise.
+    pub surround: Option<SurroundMode>,
+    /// The resampler's quality, when the track is resampled.
+    pub resampler: Option<ResamplerQuality>,
+}
+
+/// A crossfade the listener is hearing: the signal is not bit-perfect until it ends.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Fading {
+    /// The outgoing and incoming tracks.
+    pub from: PathBuf,
+    pub to: PathBuf,
+    /// 0..=1
+    pub progress: f32,
+    /// Length of the fade.
+    pub seconds: f32,
+    /// The short fade of a skip or a pick.
+    pub manual: bool,
+}
+
+/// How tracks reach a device with other channels or rates (desktop settings).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct OutputOptions {
+    pub surround: SurroundMode,
+    pub resampler: ResamplerQuality,
 }
 
 /// Player state sent to listeners.
@@ -72,6 +108,18 @@ pub struct Snapshot {
     pub preferred_device: Option<String>,
     pub stream: Option<StreamInfo>,
     pub error: Option<String>,
+    /// The equalizer is changing what reaches the device: the path is not
+    /// bit-perfect. `false` when it is off, flat, or nothing is playing.
+    pub eq_active: bool,
+    /// Name of the equalizer profile in use (when `eq_active`).
+    pub eq_profile: Option<String>,
+    /// Id and label of the taste rule playing (when `eq_active`).
+    pub taste_rule: Option<String>,
+    pub taste_label: Option<String>,
+    /// Loudness normalization gain applied to this track (dB; 0 = none).
+    pub loudness_db: f32,
+    /// A crossfade is playing (see [`Player::set_crossfade`]).
+    pub fading: Option<Fading>,
 }
 
 enum Command {
@@ -90,11 +138,22 @@ enum Command {
     Device(Option<String>),
     Shuffle(bool),
     Repeat(RepeatMode),
+    Eq(Box<EqSettings>),
+    Taste(Box<TasteSettings>),
+    Loudness(LoudnessSettings),
+    SoundSource(SoundSource),
+    Crossfade(CrossfadeSettings),
+    Output(OutputOptions),
     Stop,
     Shutdown,
 }
 
 pub type Listener = Arc<dyn Fn(&Snapshot) + Send + Sync>;
+
+/// Tells the engine what a file is (genre, album, artist, where the queue
+/// came from, known gains), for taste layers and loudness. Called on the
+/// audio thread once per track: keep it quick (no network).
+pub type SoundSource = Arc<dyn Fn(&Path) -> TrackSound + Send + Sync>;
 
 /// Handle to the audio thread. Cheap to clone; all methods are non-blocking.
 #[derive(Clone)]
@@ -197,6 +256,34 @@ impl Player {
     pub fn stop(&self) {
         self.send(Command::Stop)
     }
+    /// Equalizer settings: the profile for the device in use (or the default
+    /// one) applies right away, gliding from the previous one.
+    pub fn set_eq(&self, settings: EqSettings) {
+        self.send(Command::Eq(Box::new(settings)))
+    }
+    /// Taste layers: the rule for each track is found when it starts and
+    /// glides in at its first sample (also when the rules change).
+    pub fn set_taste(&self, settings: TasteSettings) {
+        self.send(Command::Taste(Box::new(settings)))
+    }
+    /// Loudness normalization (ReplayGain from [`TrackSound`] or the file's tags).
+    pub fn set_loudness(&self, settings: LoudnessSettings) {
+        self.send(Command::Loudness(settings))
+    }
+    /// Where the engine learns what each file is (see [`SoundSource`]).
+    pub fn set_sound_source(&self, source: SoundSource) {
+        self.send(Command::SoundSource(source))
+    }
+    /// Crossfade between tracks (off: gapless and bit-perfect). Applies from
+    /// the next transition.
+    pub fn set_crossfade(&self, settings: CrossfadeSettings) {
+        self.send(Command::Crossfade(settings))
+    }
+    /// Surround spreading and resampler quality; the track playing restarts
+    /// where it is to pick them up.
+    pub fn set_output_options(&self, options: OutputOptions) {
+        self.send(Command::Output(options))
+    }
 }
 
 impl Drop for Player {
@@ -204,63 +291,6 @@ impl Drop for Player {
         // last handle gone: stop the thread
         if Arc::strong_count(&self.snapshot) <= 2 {
             let _ = self.tx.send(Command::Shutdown);
-        }
-    }
-}
-
-/// Converts between sample rates with a high quality sinc filter.
-struct Resampler {
-    inner: SincFixedIn<f32>,
-    channels: usize,
-    input: Vec<Vec<f32>>,
-}
-
-impl Resampler {
-    fn new(from: u32, to: u32, channels: usize) -> Result<Self> {
-        let params = SincInterpolationParameters {
-            sinc_len: 256,
-            f_cutoff: 0.95,
-            interpolation: SincInterpolationType::Linear,
-            oversampling_factor: 256,
-            window: WindowFunction::BlackmanHarris2,
-        };
-        let inner = SincFixedIn::new(to as f64 / from as f64, 1.0, params, RESAMPLE_CHUNK, channels)
-            .map_err(|e| PlayerError::Resample(e.to_string()))?;
-        Ok(Self { inner, channels, input: vec![Vec::new(); channels] })
-    }
-
-    /// Feeds interleaved samples, appends resampled interleaved samples to `out`.
-    fn process(&mut self, interleaved: &[f32], out: &mut Vec<f32>) -> Result<()> {
-        for frame in interleaved.chunks_exact(self.channels) {
-            for (ch, s) in frame.iter().enumerate() {
-                self.input[ch].push(*s);
-            }
-        }
-        while self.input[0].len() >= RESAMPLE_CHUNK {
-            let chunk: Vec<Vec<f32>> = self.input.iter_mut().map(|c| c.drain(..RESAMPLE_CHUNK).collect()).collect();
-            let resampled = self.inner.process(&chunk, None).map_err(|e| PlayerError::Resample(e.to_string()))?;
-            interleave(&resampled, out);
-        }
-        Ok(())
-    }
-
-    /// Pads the tail with silence so the last samples come out.
-    fn flush(&mut self, out: &mut Vec<f32>) -> Result<()> {
-        if self.input[0].is_empty() {
-            return Ok(());
-        }
-        let pad = RESAMPLE_CHUNK - self.input[0].len();
-        let silence = vec![0.0; pad * self.channels];
-        self.process(&silence, out)
-    }
-}
-
-fn interleave(channels: &[Vec<f32>], out: &mut Vec<f32>) {
-    let frames = channels.first().map(Vec::len).unwrap_or(0);
-    out.reserve(frames * channels.len());
-    for i in 0..frames {
-        for ch in channels {
-            out.push(ch[i]);
         }
     }
 }
@@ -278,27 +308,23 @@ fn moved_index(i: usize, from: usize, to: usize) -> usize {
     }
 }
 
-/// Maps `src` channels onto `dst` (mono → both sides, extra channels dropped).
-fn map_channels(samples: &[f32], src: u16, dst: u16, out: &mut Vec<f32>) {
-    let (src, dst) = (src as usize, dst as usize);
-    if src == dst {
-        out.extend_from_slice(samples);
-        return;
-    }
-    for frame in samples.chunks_exact(src) {
-        for ch in 0..dst {
-            out.push(if src == 1 { frame[0] } else { frame.get(ch).copied().unwrap_or(0.0) });
-        }
-    }
-}
-
 /// A track whose samples were pushed starting at `start_frame`.
 struct Segment {
     order_pos: usize,
     start_frame: u64,
+    /// Frame where its filters take over (the middle of a crossfade into it).
+    eq_frame: u64,
     start_ms: u64,
+    /// Leading silence dropped (smart crossfade), counted into the position.
+    skipped_frames: u64,
     duration_ms: Option<u64>,
     info: StreamInfo,
+    path: PathBuf,
+    sound: TrackSound,
+    /// ReplayGain from the file's tags, read the first time loudness needs it.
+    tags_gain: Option<Option<ReplayGain>>,
+    /// What runs for it on the open output.
+    plan: SoundPlan,
 }
 
 struct Engine {
@@ -311,15 +337,22 @@ struct Engine {
     /// Position in `order` of the track being decoded.
     decoding: Option<usize>,
 
-    source: Option<Source>,
+    /// The track being decoded.
+    deck: Option<Deck>,
     source_eof: bool,
-    resampler: Option<Resampler>,
     output: Option<Output>,
     shared: Arc<Shared>,
     meters: Arc<Meters>,
     pushed_frames: u64,
+    /// Samples ready for the ring buffer, in order.
     pending: Vec<f32>,
-    scratch: Vec<f32>,
+    /// The last decoded chunk.
+    decoded: Vec<f32>,
+    /// Crossfade look-ahead: the newest decoded seconds, held back behind
+    /// `pending` so the end of a track is known before it is heard.
+    held: VecDeque<f32>,
+    /// The crossfade being mixed / heard.
+    fade: Option<Fade>,
     segments: VecDeque<Segment>,
     /// Next track that needs a different output config: started once the buffer drains.
     after_drain: Option<usize>,
@@ -330,6 +363,12 @@ struct Engine {
     shuffle: bool,
     repeat: RepeatMode,
     error: Option<String>,
+    eq: EqSettings,
+    taste: TasteSettings,
+    loudness: LoudnessSettings,
+    sound_source: Option<SoundSource>,
+    crossfade: CrossfadeSettings,
+    output_options: OutputOptions,
 }
 
 impl Engine {
@@ -348,15 +387,16 @@ impl Engine {
             queue: Vec::new(),
             order: Vec::new(),
             decoding: None,
-            source: None,
+            deck: None,
             source_eof: false,
-            resampler: None,
             output: None,
             shared: Shared::new(volume, meters.clone()),
             meters,
             pushed_frames: 0,
             pending: Vec::new(),
-            scratch: Vec::new(),
+            decoded: Vec::new(),
+            held: VecDeque::new(),
+            fade: None,
             segments: VecDeque::new(),
             after_drain: None,
             status: Status::Stopped,
@@ -365,6 +405,12 @@ impl Engine {
             shuffle: false,
             repeat: RepeatMode::Off,
             error: None,
+            eq: EqSettings::default(),
+            taste: TasteSettings::default(),
+            loudness: LoudnessSettings::default(),
+            sound_source: None,
+            crossfade: CrossfadeSettings::default(),
+            output_options: OutputOptions::default(),
         }
     }
 
@@ -424,22 +470,22 @@ impl Engine {
             }
             Command::Next => {
                 if let Some(pos) = self.next_pos(self.current_pos(), false) {
-                    self.start(pos, 0);
+                    self.skip_to(pos);
                 }
             }
             Command::Previous => {
                 let current = self.current_pos();
                 if self.position_ms() > RESTART_THRESHOLD_MS || current == Some(0) && self.repeat != RepeatMode::All {
                     if let Some(pos) = current {
-                        self.start(pos, 0);
+                        self.skip_to(pos);
                     }
                 } else if let Some(pos) = current.and_then(|p| self.prev_pos(p)) {
-                    self.start(pos, 0);
+                    self.skip_to(pos);
                 }
             }
             Command::Jump(index) => {
                 if let Some(pos) = self.order.iter().position(|&i| i == index) {
-                    self.start(pos, 0);
+                    self.skip_to(pos);
                 }
             }
             Command::Seek(ms) => {
@@ -473,8 +519,37 @@ impl Engine {
                 if let Some(p) = new_pos {
                     self.decoding = Some(p);
                 }
+                // album loudness only while an album plays in order
+                self.replan();
             }
             Command::Repeat(mode) => self.repeat = mode,
+            Command::Eq(settings) => {
+                self.eq = settings.clamped();
+                self.replan();
+            }
+            Command::Taste(settings) => {
+                self.taste = settings.clamped();
+                self.replan();
+            }
+            Command::Loudness(settings) => {
+                self.loudness = settings.clamped();
+                self.replan();
+            }
+            Command::SoundSource(source) => {
+                self.sound_source = Some(source);
+                for seg in &mut self.segments {
+                    seg.sound = self.sound_source.as_ref().map(|f| f(&seg.path)).unwrap_or_default();
+                }
+                self.replan();
+            }
+            Command::Crossfade(settings) => self.crossfade = settings.clamped(),
+            Command::Output(options) => {
+                let changed = options != self.output_options;
+                self.output_options = options;
+                if changed && self.output.is_some() {
+                    self.restart_current(false);
+                }
+            }
             Command::Stop => {
                 self.close();
                 self.status = Status::Stopped;
@@ -605,9 +680,11 @@ impl Engine {
     fn close(&mut self) {
         self.meters.tap.clear();
         self.output = None;
-        self.source = None;
-        self.resampler = None;
+        self.deck = None;
         self.pending.clear();
+        self.decoded.clear();
+        self.held.clear();
+        self.fade = None;
         self.segments.clear();
         self.after_drain = None;
         self.pushed_frames = 0;
@@ -669,57 +746,179 @@ impl Engine {
                 .output
                 .as_ref()
                 .is_some_and(|o| o.rate == target_rate && o.device_name == device.name().unwrap_or_default());
+        let sound = self.sound_of(&path);
+        let mut tags_gain = None;
+        let device_name = device.name().unwrap_or_else(|_| "output".into());
+        let plan = self.plan_for(&path, &sound, &mut tags_gain, &device_name, target_rate);
         if !reuse {
             self.output = None;
             self.shared = Shared::new(self.volume, self.meters.clone());
+            // from the first sample, without a glide
+            self.shared.set_eq(plan.design);
             let output = Output::open(&device, target_rate, source.channels.max(1), self.shared.clone())?;
             self.meters.tap.set_rate(output.rate);
             self.output = Some(output);
             self.pushed_frames = 0;
             self.segments.clear();
+        } else {
+            // gapless: the track's filters glide in at its first frame
+            self.shared.schedule_eq(self.written_frames(), plan.design);
         }
         let output = self.output.as_ref().expect("output opened");
-
-        self.resampler = if source.sample_rate != output.rate {
-            Some(Resampler::new(source.sample_rate, output.rate, output.channels as usize)?)
-        } else {
-            None
-        };
-
-        let info = StreamInfo {
-            codec: source.codec.clone(),
-            source_rate: source.sample_rate,
-            bits_per_sample: source.bits_per_sample,
-            source_channels: source.channels,
-            output_rate: output.rate,
-            output_channels: output.channels,
-            resampled: self.resampler.is_some(),
-            device: output.device_name.clone(),
-        };
+        let deck = Deck::new(source, self.deck_format(output), 0)?;
+        let info = self.stream_info(&deck, output);
+        let start_frame = self.written_frames();
         self.segments.push_back(Segment {
             order_pos: pos,
-            start_frame: self.pushed_frames,
+            start_frame,
+            eq_frame: start_frame,
             start_ms,
-            duration_ms: source.duration_ms,
+            skipped_frames: 0,
+            duration_ms: deck.source().duration_ms,
             info,
+            path,
+            sound,
+            tags_gain,
+            plan,
         });
         self.decoding = Some(pos);
-        self.source = Some(source);
+        self.deck = Some(deck);
         self.source_eof = false;
         Ok(())
     }
 
-    /// Decodes into the ring buffer until it is full.
+    fn sound_of(&self, path: &Path) -> TrackSound {
+        self.sound_source.as_ref().map(|f| f(path)).unwrap_or_default()
+    }
+
+    fn deck_format(&self, output: &Output) -> DeckFormat {
+        DeckFormat {
+            rate: output.rate,
+            channels: output.channels,
+            surround: self.output_options.surround,
+            quality: self.output_options.resampler,
+        }
+    }
+
+    fn stream_info(&self, deck: &Deck, output: &Output) -> StreamInfo {
+        let s = deck.source();
+        let spread = output.channels > 2 && s.channels <= 2 && deck.remapped();
+        StreamInfo {
+            codec: s.codec.clone(),
+            source_rate: s.sample_rate,
+            bits_per_sample: s.bits_per_sample,
+            source_channels: s.channels,
+            output_rate: output.rate,
+            output_channels: output.channels,
+            resampled: deck.resampled(),
+            device: output.device_name.clone(),
+            surround: spread.then_some(self.output_options.surround),
+            resampler: deck.resampled().then_some(self.output_options.resampler),
+        }
+    }
+
+    /// Frames written so far: in the ring buffer or waiting for it.
+    fn written_frames(&self) -> u64 {
+        let channels = self.output.as_ref().map_or(1, |o| o.channels.max(1) as usize);
+        self.pushed_frames + (self.pending.len() / channels) as u64
+    }
+
+    /// Crossfade on: the end of each track is decoded ahead.
+    fn holding(&self) -> bool {
+        self.crossfade.is_on() && self.output.is_some()
+    }
+
+    /// Samples to hold back (0 when not holding).
+    fn hold_target(&self) -> usize {
+        match &self.output {
+            Some(o) if self.crossfade.is_on() => hold_frames(&self.crossfade, o.rate) * o.channels.max(1) as usize,
+            _ => 0,
+        }
+    }
+
+    /// What runs for a track on `device` at `rate`: its output profile, the
+    /// taste rule for it and the loudness gain. Track change only, never per buffer.
+    fn plan_for(
+        &self,
+        path: &Path,
+        sound: &TrackSound,
+        tags_gain: &mut Option<Option<ReplayGain>>,
+        device: &str,
+        rate: u32,
+    ) -> SoundPlan {
+        let loudness_db = if self.loudness.is_on() {
+            let rg = match sound.replay_gain {
+                Some(rg) if !rg.is_empty() => Some(rg),
+                _ => *tags_gain.get_or_insert_with(|| dsp::read_replay_gain(path)),
+            };
+            let album_in_order = !self.shuffle && sound.context.source.as_ref().is_some_and(|s| s.is("album"));
+            rg.map_or(0.0, |rg| self.loudness.gain_db(&rg, album_in_order))
+        } else {
+            0.0
+        };
+        dsp::sound_plan(&self.eq, &self.taste, device, &sound.context, loudness_db, rate)
+    }
+
+    /// The settings changed: every buffered track gets new filters (the one
+    /// playing glides to them now, the next ones where they take over).
+    fn replan(&mut self) {
+        let Some(out) = &self.output else { return };
+        let (device, rate) = (out.device_name.clone(), out.rate);
+        let mut segments = std::mem::take(&mut self.segments);
+        for seg in &mut segments {
+            seg.plan = self.plan_for(&seg.path, &seg.sound, &mut seg.tags_gain, &device, rate);
+        }
+        self.shared.clear_scheduled();
+        // the callback's filters over time: (first frame, design)
+        let mut line: Vec<(u64, EqDesign)> = Vec::new();
+        if let Some(f) = self.fade.as_mut() {
+            if let Some(i) = segments.iter().position(|s| s.start_frame == f.start_frame && s.path == f.to) {
+                f.gain_to = segments[i].plan.design.gain() as f32;
+                if i > 0 {
+                    f.from_design = segments[i - 1].plan.design;
+                    f.gain_from = f.from_design.gain() as f32;
+                } else {
+                    // the outgoing track is gone from the list: its filters until the switch
+                    line.push((f.start_frame, f.from_design));
+                }
+            }
+        }
+        line.extend(segments.iter().map(|s| (s.eq_frame, s.plan.design)));
+        let played = self.shared.frames_played.load(Ordering::Relaxed);
+        let now = line.iter().rposition(|(at, _)| *at <= played).unwrap_or(0);
+        if let Some((_, design)) = line.get(now) {
+            self.shared.set_eq(*design);
+        }
+        for (at, design) in line.iter().skip(now + 1) {
+            self.shared.schedule_eq(*at, *design);
+        }
+        self.segments = segments;
+    }
+
+    /// Decodes into the ring buffer until it is full. With crossfade on, the
+    /// newest seconds wait in `held` (decoded faster than real time, within
+    /// [`LOOKAHEAD_BUDGET`] per pass, the ring buffer first) so a track's end
+    /// is known before it is heard.
     fn fill(&mut self) {
+        let started = Instant::now();
         loop {
+            let target = self.hold_target();
             let Some(output) = self.output.as_mut() else { return };
-            let channels = output.channels as usize;
+            let channels = output.channels.max(1) as usize;
 
             if !self.pending.is_empty() {
                 let pushed = output.producer.push_slice(&self.pending);
                 self.pushed_frames += (pushed / channels) as u64;
                 self.pending.drain(..pushed);
                 if !self.pending.is_empty() {
+                    // ring full: spare time reads further ahead for the crossfade
+                    let grow = self.holding()
+                        && self.deck.is_some()
+                        && self.held.len() < target
+                        && started.elapsed() < LOOKAHEAD_BUDGET;
+                    if grow && self.decode_step() {
+                        continue;
+                    }
                     return; // buffer full
                 }
             }
@@ -744,40 +943,250 @@ impl Engine {
                 }
             }
 
-            let Some(source) = self.source.as_mut() else { return };
-            let src_channels = source.channels;
-            match source.next_chunk() {
-                Ok(Some(samples)) => {
-                    self.scratch.clear();
-                    map_channels(samples, src_channels, channels as u16, &mut self.scratch);
-                    match &mut self.resampler {
-                        Some(r) => {
-                            if let Err(e) = r.process(&self.scratch, &mut self.pending) {
-                                self.error = Some(e.to_string());
-                                self.source_eof = true;
-                            }
+            if !self.held.is_empty() {
+                let excess = self.held.len().saturating_sub(target);
+                let take = if excess > 0 {
+                    excess
+                } else {
+                    let low = output.producer.occupied_len() < output.producer.capacity().get() / 2;
+                    let over = started.elapsed() >= LOOKAHEAD_BUDGET;
+                    if target == 0 || low || over || self.deck.is_none() {
+                        let free = output.producer.vacant_len() / channels * channels;
+                        if free == 0 {
+                            return;
                         }
-                        None => self.pending.extend_from_slice(&self.scratch),
+                        self.held.len().min(free)
+                    } else {
+                        0 // read further ahead first
                     }
+                };
+                if take > 0 {
+                    self.pending.extend(self.held.drain(..take));
+                    continue;
                 }
-                Ok(None) => {
-                    if let Some(r) = &mut self.resampler {
-                        let _ = r.flush(&mut self.pending);
-                    }
-                    self.on_source_end();
-                }
-                Err(e) => {
-                    self.error = Some(e.to_string());
-                    self.on_source_end();
+            }
+
+            if !self.decode_step() {
+                return;
+            }
+        }
+    }
+
+    /// Decodes one chunk of the deck (mixing the crossfade in). `false` when
+    /// there is nothing to decode.
+    fn decode_step(&mut self) -> bool {
+        let Some(deck) = self.deck.as_mut() else { return false };
+        self.decoded.clear();
+        let more = match deck.read(&mut self.decoded) {
+            Ok(more) => more,
+            Err(e) => {
+                tracing::warn!("{e}");
+                self.error = Some(e.to_string());
+                false
+            }
+        };
+        let skipped = deck.take_skipped();
+        if skipped > 0 {
+            if let Some(seg) = self.segments.back_mut() {
+                seg.skipped_frames += skipped;
+            }
+        }
+        if let Some(fade) = self.fade.as_mut() {
+            fade.mix(&mut self.decoded);
+        }
+        self.commit_decoded();
+        if !more {
+            self.end_of_deck();
+        }
+        true
+    }
+
+    /// The last chunk goes behind what is held back, or straight to the ring.
+    fn commit_decoded(&mut self) {
+        if self.holding() {
+            self.held.extend(self.decoded.drain(..));
+        } else {
+            self.pending.append(&mut self.decoded);
+        }
+    }
+
+    /// The track being decoded ended: crossfade into the next one, or queue
+    /// it gapless / after the buffer drains.
+    fn end_of_deck(&mut self) {
+        self.deck = None;
+        if let Some(fade) = self.fade.as_mut() {
+            if fade.mixing() {
+                // shorter than its fade-in: the outgoing track finishes alone
+                self.decoded.clear();
+                fade.finish_alone(&mut self.decoded);
+                self.commit_decoded();
+            }
+        }
+        if self.holding() && self.try_crossfade() {
+            return;
+        }
+        self.pending.extend(self.held.drain(..));
+        self.on_source_end();
+    }
+
+    /// The natural end of a track: fade into the next one when the settings
+    /// say so and it can be opened now (a stream still on its way, an
+    /// unreadable file: a normal transition instead).
+    fn try_crossfade(&mut self) -> bool {
+        let Some(cur) = self.decoding else { return false };
+        let Some(next) = self.next_pos(Some(cur), true) else { return false };
+        let Some(path) = self.order.get(next).and_then(|&i| self.queue.get(i)).cloned() else { return false };
+        let source = Source::open(&path).ok();
+        let sound = self.sound_of(&path);
+        let Some(from) = self.segments.back() else { return false };
+        let to = source.as_ref().map(|s| TrackInfo::of(&sound.context, s.duration_ms));
+        let from_info = TrackInfo::of(&from.sound.context, from.duration_ms);
+        if !wants_fade(&self.crossfade, &from_info, to.as_ref(), self.shuffle, self.repeat, false) {
+            return false;
+        }
+        let Some(source) = source else { return false };
+        let tail: Vec<f32> = self.held.drain(..).collect();
+        self.begin_fade(next, path, source, sound, tail, false)
+    }
+
+    /// A skip or a pick while playing: a short fade when the settings allow
+    /// it, else a hard start.
+    fn skip_to(&mut self, pos: usize) {
+        if !self.manual_fade(pos) {
+            self.start(pos, 0);
+        }
+    }
+
+    fn manual_fade(&mut self, pos: usize) -> bool {
+        let ready = self.crossfade.is_on()
+            && self.crossfade.on_manual_skip
+            && self.status == Status::Playing
+            && !self.fade.as_ref().is_some_and(Fade::mixing)
+            && self.after_drain.is_none()
+            && !self.source_eof
+            && self.segments.len() == 1
+            && self.deck.is_some();
+        let Some(out) = self.output.as_ref().filter(|_| ready) else { return false };
+        let (rate, channels) = (out.rate as f32, out.channels.max(1) as usize);
+        let Some(path) = self.order.get(pos).and_then(|&i| self.queue.get(i)).cloned() else { return false };
+        let Ok(source) = Source::open(&path) else { return false };
+        let sound = self.sound_of(&path);
+        let Some(from) = self.segments.back() else { return false };
+        let to = TrackInfo::of(&sound.context, source.duration_ms);
+        let from_info = TrackInfo::of(&from.sound.context, from.duration_ms);
+        if !wants_fade(&self.crossfade, &from_info, Some(&to), self.shuffle, self.repeat, true) {
+            return false;
+        }
+        // the outgoing track fades from what comes right after the samples already queued
+        let want = (self.crossfade.fade_seconds(true) * rate) as usize * channels;
+        let mut tail: Vec<f32> = Vec::with_capacity(want);
+        tail.extend(self.held.drain(..want.min(self.held.len())));
+        self.held.clear();
+        if let Some(deck) = self.deck.as_mut() {
+            while tail.len() < want {
+                self.decoded.clear();
+                let more = deck.read(&mut self.decoded).unwrap_or(false);
+                tail.extend_from_slice(&self.decoded);
+                if !more {
+                    break;
                 }
             }
         }
+        self.decoded.clear();
+        tail.truncate(want);
+        self.deck = None;
+        self.begin_fade(pos, path, source, sound, tail, true)
+    }
+
+    /// Starts mixing `order[pos]` over `tail` (the outgoing track's last
+    /// samples). On failure the tail goes to the ring as is and it returns
+    /// `false` (the caller makes a normal transition).
+    fn begin_fade(
+        &mut self,
+        pos: usize,
+        path: PathBuf,
+        source: Source,
+        sound: TrackSound,
+        mut tail: Vec<f32>,
+        manual: bool,
+    ) -> bool {
+        let Some(out) = self.output.as_ref() else {
+            self.pending.extend_from_slice(&tail);
+            return false;
+        };
+        let (rate, channels) = (out.rate, out.channels.max(1) as usize);
+        let format = self.deck_format(out);
+        let device = out.device_name.clone();
+        // smart: the fade ends where the outgoing music does
+        let end = if self.crossfade.smart && !manual { music_end(&tail, channels) } else { tail.len() };
+        let Some(frames) = fade_frames(&self.crossfade, manual, end / channels, rate) else {
+            self.pending.extend_from_slice(&tail);
+            return false;
+        };
+        let lead = if self.crossfade.smart { (MAX_TRIM_SECONDS * rate as f32) as u64 } else { 0 };
+        let deck = match Deck::new(source, format, lead) {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!("crossfade: {e}");
+                self.pending.extend_from_slice(&tail);
+                return false;
+            }
+        };
+        tail.truncate(end);
+        let split = end - frames * channels;
+        self.pending.extend_from_slice(&tail[..split]);
+        tail.drain(..split);
+
+        let start_frame = self.written_frames();
+        let mut tags_gain = None;
+        let plan = self.plan_for(&path, &sound, &mut tags_gain, &device, rate);
+        let (from_design, from_path) =
+            self.segments.back().map_or((EqDesign::BYPASS, PathBuf::new()), |s| (s.plan.design, s.path.clone()));
+        let fade = Fade::new(
+            tail,
+            channels,
+            FadeSpec {
+                curve: self.crossfade.curve,
+                start_frame,
+                glide: dsp::glide_frames(rate) as usize,
+                from_design,
+                gain_to: plan.design.gain() as f32,
+                from: from_path,
+                to: path.clone(),
+                manual,
+            },
+        );
+        // the incoming track's filters take over halfway, where both are at half power
+        self.shared.schedule_eq(fade.switch_frame(), plan.design);
+        let info = match self.output.as_ref() {
+            Some(out) => self.stream_info(&deck, out),
+            None => return false,
+        };
+        self.segments.push_back(Segment {
+            order_pos: pos,
+            start_frame,
+            eq_frame: fade.switch_frame(),
+            start_ms: 0,
+            skipped_frames: 0,
+            duration_ms: deck.source().duration_ms,
+            info,
+            path,
+            sound,
+            tags_gain,
+            plan,
+        });
+        self.fade = Some(fade);
+        self.deck = Some(deck);
+        self.decoding = Some(pos);
+        self.source_eof = false;
+        self.after_drain = None;
+        true
     }
 
     /// Queues the next track right behind the current one (gapless) or
     /// after the buffer drains when it needs another output config.
     fn on_source_end(&mut self) {
-        self.source = None;
+        self.deck = None;
         let next = self.decoding.and_then(|p| self.next_pos(Some(p), true));
         let Some(pos) = next else {
             self.source_eof = true;
@@ -815,6 +1224,10 @@ impl Engine {
             self.segments.pop_front();
             changed = true;
         }
+        if self.fade.as_ref().is_some_and(|f| f.heard(played)) {
+            self.fade = None;
+            changed = true;
+        }
         changed
     }
 
@@ -826,7 +1239,7 @@ impl Engine {
         let Some(seg) = self.segments.front() else { return 0 };
         let Some(rate) = self.output.as_ref().map(|o| o.rate as u64) else { return seg.start_ms };
         let played = self.shared.frames_played.load(Ordering::Relaxed);
-        seg.start_ms + played.saturating_sub(seg.start_frame) * 1000 / rate.max(1)
+        seg.start_ms + (played.saturating_sub(seg.start_frame) + seg.skipped_frames) * 1000 / rate.max(1)
     }
 
     /// Next position in `order`. `auto` = natural end of a track (honours repeat-one).
@@ -860,6 +1273,16 @@ impl Engine {
 
     fn publish(&mut self) {
         let seg = self.segments.front();
+        let plan = seg.filter(|_| self.output.is_some()).map(|s| &s.plan);
+        let played = self.shared.frames_played.load(Ordering::Relaxed);
+        let rate = self.output.as_ref().map_or(48_000.0, |o| o.rate as f32);
+        let fading = self.fade.as_ref().filter(|f| self.output.is_some() && played >= f.start_frame).map(|f| Fading {
+            from: f.from.clone(),
+            to: f.to.clone(),
+            progress: f.progress(played),
+            seconds: f.len as f32 / rate,
+            manual: f.manual,
+        });
         let snapshot = Snapshot {
             status: self.status,
             queue: self.queue.clone(),
@@ -872,6 +1295,12 @@ impl Engine {
             preferred_device: self.device.clone(),
             stream: seg.map(|s| s.info.clone()),
             error: self.error.clone(),
+            eq_active: self.output.is_some() && plan.is_some_and(|p| p.eq_active),
+            eq_profile: plan.and_then(|p| p.profile.clone()),
+            taste_rule: plan.and_then(|p| p.taste_rule.as_ref().map(|r| r.id.clone())),
+            taste_label: plan.and_then(|p| p.taste_rule.as_ref().map(|r| r.label.clone())),
+            loudness_db: plan.map_or(0.0, |p| p.loudness_db),
+            fading,
         };
         let changed = self.published.lock().map(|mut p| {
             let changed = *p != snapshot;
@@ -913,6 +1342,40 @@ fn upcoming_queue(played: Vec<PathBuf>, decoded: Option<PathBuf>, tracks: Vec<Pa
     queue
 }
 
+/// Frames of look-ahead a crossfade needs at `rate`: the fade, the trailing
+/// silence the smart trim may skip, and a margin.
+fn hold_frames(settings: &CrossfadeSettings, rate: u32) -> usize {
+    let trim = if settings.smart { MAX_TRIM_SECONDS } else { 0.0 };
+    ((settings.fade_seconds(false) + trim + HOLD_MARGIN_SECONDS) * rate as f32) as usize
+}
+
+/// Whether going from `from` to `to` crossfades. `to` is `None` when the next
+/// track isn't ready (a stream still downloading, a file that can't be
+/// opened): a normal transition then. Repeat-one loops stay gapless.
+fn wants_fade(
+    settings: &CrossfadeSettings,
+    from: &TrackInfo,
+    to: Option<&TrackInfo>,
+    shuffle: bool,
+    repeat: RepeatMode,
+    manual: bool,
+) -> bool {
+    let Some(to) = to else { return false };
+    if !manual && repeat == RepeatMode::One {
+        return false;
+    }
+    settings.fades(from, to, shuffle, manual)
+}
+
+/// Frames the fade lasts when `music_frames` of the outgoing track are left
+/// to fade over: the setting, shortened to what there is, `None` when too
+/// little is left.
+fn fade_frames(settings: &CrossfadeSettings, manual: bool, music_frames: usize, rate: u32) -> Option<usize> {
+    let wanted = (settings.fade_seconds(manual) * rate as f32) as usize;
+    let frames = wanted.min(music_frames);
+    (frames as f32 >= MIN_FADE_SECONDS * rate as f32).then_some(frames)
+}
+
 fn pick_rate(supported: &[u32], source: u32) -> Option<u32> {
     let family = |r: u32| r % 11_025 == 0;
     supported
@@ -951,17 +1414,6 @@ mod tests {
     }
 
     #[test]
-    fn channel_mapping() {
-        let mut out = Vec::new();
-        map_channels(&[0.1, 0.2], 1, 2, &mut out);
-        assert_eq!(out, [0.1, 0.1, 0.2, 0.2]);
-
-        out.clear();
-        map_channels(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 3, 2, &mut out);
-        assert_eq!(out, [1.0, 2.0, 4.0, 5.0]);
-    }
-
-    #[test]
     fn rate_choice_keeps_the_family() {
         let jack = [44_100, 48_000, 88_200, 96_000];
         assert_eq!(pick_rate(&jack, 192_000), Some(96_000));
@@ -971,14 +1423,46 @@ mod tests {
         assert_eq!(pick_rate(&[], 44_100), None);
     }
 
+    use homefi_core::dsp::crossfade::CrossfadeMode;
+    use homefi_core::dsp::ItemRef;
+
+    fn on() -> CrossfadeSettings {
+        CrossfadeSettings { mode: CrossfadeMode::On, ..Default::default() }
+    }
+
     #[test]
-    fn resampler_changes_length_by_ratio() {
-        let mut r = Resampler::new(44_100, 48_000, 2).unwrap();
-        let input = vec![0.25f32; 44_100 * 2];
-        let mut out = Vec::new();
-        r.process(&input, &mut out).unwrap();
-        r.flush(&mut out).unwrap();
-        let frames = out.len() / 2;
-        assert!((47_000..=49_200).contains(&frames), "{frames}");
+    fn look_ahead_covers_the_fade_and_the_trim() {
+        // 6 s fade + 10 s of silence that may be trimmed + 0.5 s margin
+        assert_eq!(hold_frames(&on(), 48_000), (16.5 * 48_000.0) as usize);
+        let plain = CrossfadeSettings { smart: false, seconds: 3.0, ..on() };
+        assert_eq!(hold_frames(&plain, 44_100), (3.5 * 44_100.0) as usize);
+    }
+
+    #[test]
+    fn fade_length_follows_what_is_left() {
+        let s = on();
+        assert_eq!(fade_frames(&s, false, 1_000_000, 48_000), Some(6 * 48_000));
+        // the outgoing music ends sooner (short track, slow decoding): a shorter fade
+        assert_eq!(fade_frames(&s, false, 48_000, 48_000), Some(48_000));
+        // almost nothing left: a normal transition
+        assert_eq!(fade_frames(&s, false, 1000, 48_000), None);
+        // a skip: the short fade
+        assert_eq!(fade_frames(&s, true, 1_000_000, 48_000), Some(72_000));
+    }
+
+    #[test]
+    fn falls_back_to_a_normal_transition_when_the_next_track_is_not_ready() {
+        let a = ItemRef::named("A");
+        let b = ItemRef::named("B");
+        let from = TrackInfo { album: Some(&a), artist: None, duration_ms: Some(200_000) };
+        let to = TrackInfo { album: Some(&b), artist: None, duration_ms: Some(200_000) };
+        assert!(wants_fade(&on(), &from, Some(&to), false, RepeatMode::Off, false));
+        assert!(!wants_fade(&on(), &from, None, false, RepeatMode::Off, false), "not downloaded yet");
+        assert!(!wants_fade(&on(), &from, Some(&to), false, RepeatMode::One, false), "repeat one loops gapless");
+        assert!(wants_fade(&on(), &from, Some(&to), false, RepeatMode::One, true), "a skip still fades");
+        // the same album in order stays gapless
+        let next = TrackInfo { album: Some(&a), ..to };
+        assert!(!wants_fade(&on(), &from, Some(&next), false, RepeatMode::All, false));
+        assert!(!wants_fade(&CrossfadeSettings::default(), &from, Some(&to), false, RepeatMode::Off, false));
     }
 }

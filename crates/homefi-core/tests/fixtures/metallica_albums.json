@@ -1,0 +1,2205 @@
+[
+  {
+    "filter": "ALBUMS",
+    "id": 288984589,
+    "title": "72 Seasons",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2023-04-14",
+    "numberOfTracks": 12,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 289103426,
+    "title": "72 Seasons (Atmos Mix)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2023-04-14",
+    "numberOfTracks": 12,
+    "type": "ALBUM",
+    "audioQuality": "LOW",
+    "audioModes": [
+      "DOLBY_ATMOS"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "DOLBY_ATMOS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 197139317,
+    "title": "The Metallica Blacklist",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2021-09-10",
+    "numberOfTracks": 53,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 186461110,
+    "title": "S&M2 (Live)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2020-08-28",
+    "numberOfTracks": 22,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 166790530,
+    "title": "S&M2 (Live)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2020-08-28",
+    "numberOfTracks": 22,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 166789813,
+    "title": "Helping Hands...Live & Acoustic at the Masonic",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2019-02-01",
+    "numberOfTracks": 12,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 166787393,
+    "title": "Hardwired...To Self Destruct",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "2016-11-18",
+    "numberOfTracks": 12,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 133173644,
+    "title": "Hardwired...To Self-Destruct",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "2016-11-18",
+    "numberOfTracks": 12,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 186461093,
+    "title": "Metallica Through the Never (Music From the Motion Picture)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2013-09-24",
+    "numberOfTracks": 16,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 166789483,
+    "title": "Metallica Through the Never (Music From the Motion Picture)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2013-09-24",
+    "numberOfTracks": 16,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 34436068,
+    "title": "Lulu",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2011-11-01",
+    "numberOfTracks": 10,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 231,
+      "name": "Lou Reed"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 166788628,
+    "title": "Death Magnetic",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2008-09-12",
+    "numberOfTracks": 10,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 186460981,
+    "title": "Death Magnetic",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2008-09-12",
+    "numberOfTracks": 10,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 166790058,
+    "title": "Some Kind of Monster EP",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "2004-07-13",
+    "numberOfTracks": 8,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 186461059,
+    "title": "Some Kind of Monster EP",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "2004-07-13",
+    "numberOfTracks": 8,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 186460992,
+    "title": "St. Anger",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2003-06-05",
+    "numberOfTracks": 11,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 166786581,
+    "title": "St. Anger",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "2003-06-05",
+    "numberOfTracks": 11,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 167301995,
+    "title": "S&M (with Michael Kamen Conducting the San Francisco Symphony Orchestra) [Live at the Berkeley Community Theater, Berkeley, CA, 4/21-22/199]",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1999-11-23",
+    "numberOfTracks": 21,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 186461032,
+    "title": "S&M (with Michael Kamen Conducting the San Francisco Symphony Orchestra) [Live at the Berkeley Community Theater, Berkeley, CA, 4/21-22/1999]",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1999-11-23",
+    "numberOfTracks": 21,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 186461004,
+    "title": "Garage, Inc.",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1998-11-24",
+    "numberOfTracks": 27,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 167301856,
+    "title": "Garage, Inc.",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1998-11-24",
+    "numberOfTracks": 27,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 166789082,
+    "title": "Reload",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1997-11-18",
+    "numberOfTracks": 13,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 536933966,
+    "title": "ReLoad (Remastered)",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1997-11-18",
+    "numberOfTracks": 13,
+    "type": "ALBUM",
+    "audioQuality": "LOW",
+    "audioModes": [
+      "DOLBY_ATMOS"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "DOLBY_ATMOS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 536860664,
+    "title": "ReLoad (Remastered)",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1997-11-18",
+    "numberOfTracks": 13,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 186460967,
+    "title": "Reload",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1997-11-18",
+    "numberOfTracks": 13,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 536860794,
+    "title": "ReLoad (Remastered Deluxe Box Set)",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1997-11-18",
+    "numberOfTracks": 222,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 441830016,
+    "title": "Load",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "1996-06-04",
+    "numberOfTracks": 14,
+    "type": "ALBUM",
+    "audioQuality": "LOW",
+    "audioModes": [
+      "DOLBY_ATMOS"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "DOLBY_ATMOS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 441771410,
+    "title": "Load (Remastered Deluxe Box Set)",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1996-06-04",
+    "numberOfTracks": 233,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 441771365,
+    "title": "Load (Remastered)",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1996-06-04",
+    "numberOfTracks": 14,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 186461068,
+    "title": "Live S**t: Binge & Purge",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "1993-11-23",
+    "numberOfTracks": 24,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 166788010,
+    "title": "Live S**t: Binge & Purge",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "1993-11-23",
+    "numberOfTracks": 24,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 197143680,
+    "title": "Metallica (Remastered Deluxe Boxset)",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1991-08-12",
+    "numberOfTracks": 193,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 197137267,
+    "title": "Metallica (Remastered)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "1991-08-12",
+    "numberOfTracks": 12,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 186460915,
+    "title": "Metallica",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "1991-08-12",
+    "numberOfTracks": 12,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 166790187,
+    "title": "Metallica",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "1991-08-12",
+    "numberOfTracks": 12,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 166789684,
+    "title": "...And Justice for All (Remastered)",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1988-09-06",
+    "numberOfTracks": 9,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 186460912,
+    "title": "...And Justice for All (Remastered)",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1988-09-06",
+    "numberOfTracks": 9,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 166787025,
+    "title": "Master of Puppets (Remastered)",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1986-03-03",
+    "numberOfTracks": 8,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 186460809,
+    "title": "Master of Puppets (Remastered)",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1986-03-03",
+    "numberOfTracks": 8,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 166790246,
+    "title": "Ride The Lightning (Remastered)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "1984-07-27",
+    "numberOfTracks": 8,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 186460811,
+    "title": "Ride the Lightning (Remastered)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "1984-07-27",
+    "numberOfTracks": 8,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 186460913,
+    "title": "Kill 'Em All (Remastered)",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1983-07-25",
+    "numberOfTracks": 10,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "ALBUMS",
+    "id": 166787861,
+    "title": "Kill 'Em All (Remastered)",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1983-07-25",
+    "numberOfTracks": 10,
+    "type": "ALBUM",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 531884999,
+    "title": "Fixer (\"Fixxxer\" July '97 Rough Mix)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2026-06-09",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 531884992,
+    "title": "Voodoo Queen (\"Fixxxer\" Vocal Idea)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2026-06-09",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 531884995,
+    "title": "Fixer (\"Fixxxer\" September '95 Rough Mix)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2026-06-09",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 531884974,
+    "title": "Fixxxer (Remastered)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2026-06-09",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 526412286,
+    "title": "Fuel (Unreleased Boymerang Viper Mix)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2026-05-20",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 526412274,
+    "title": "Fuel (Remastered)",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "2026-05-20",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 526412290,
+    "title": "Fuel (Live at Reading Festival, Reading, England - August 24th, 1997)",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "2026-05-20",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 526412282,
+    "title": "Fuel (\"Fuel for Fire\" October '95 Rough Mix)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2026-05-20",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 526412278,
+    "title": "Fuel (Take 2 - May 18th, 1995)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2026-05-20",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 519678735,
+    "title": "Memory (\"The Memory Remains\" Instrumental Mix)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2026-04-28",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 519678721,
+    "title": "The Memory Remains (Remastered)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2026-04-28",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 519678730,
+    "title": "Memory (\"The Memory Remains\" Take 18 - November 6th, 1995)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2026-04-28",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 519678745,
+    "title": "The Memory Remains (Live at Brisbane Entertainment Centre, Brisbane, Australia - April 20th, 1998)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2026-04-28",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 315966513,
+    "title": "Too Far Gone? (Live at MetLife Stadium, East Rutherford, NJ, 8/6/2023)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2023-09-15",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 286265415,
+    "title": "72 Seasons",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2023-03-30",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 279562505,
+    "title": "If Darkness Had a Son",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2023-03-01",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 272475537,
+    "title": "Screaming Suicide",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2023-01-19",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 263197168,
+    "title": "Lux Æterna",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2022-11-28",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 263412759,
+    "title": "Lux Æterna",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2022-11-28",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOW",
+    "audioModes": [
+      "DOLBY_ATMOS"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "DOLBY_ATMOS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 196590287,
+    "title": "The Struggle Within (Remastered)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2021-09-08",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 195436682,
+    "title": "My Friend of Misery (From Jason's Riff Tapes)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2021-08-30",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 195200738,
+    "title": "The God That Failed (May 13th, 1991 Rough Mix)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2021-08-26",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 194172645,
+    "title": "Of Wolf and Man (Live at Maimarktgelände, Mannheim, Germany, May 22nd, 1993)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2021-08-18",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 192646571,
+    "title": "Through the Never (Live at Arco Arena, Sacramento, CA, January 11th, 1992)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2021-08-03",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 192059966,
+    "title": "Don't Tread on Me (Pre-Production Rehearsal)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2021-07-27",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 191176646,
+    "title": "Wherever I May Roam (Live at Day on the Green, Oakland, CA, October 12th, 1991)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2021-07-21",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 189666097,
+    "title": "Holier Than Thou (Pre-Production Rehearsal)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2021-07-07",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 188515978,
+    "title": "Enter Sandman (Live at Tushino Airfield, Moscow, September 28, 1991)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2021-06-22",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 166785950,
+    "title": "For Whom the Bell Tolls (Live)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2020-08-20",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 186461135,
+    "title": "For Whom the Bell Tolls (Live)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2020-08-20",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 150892778,
+    "title": "All Within My Hands (Live) [Radio Edit]",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2020-08-05",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 150885330,
+    "title": "All Within My Hands (Live) [Radio Edit]",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2020-08-05",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 186461136,
+    "title": "Moth Into Flame (Live)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2020-08-05",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 150856344,
+    "title": "Nothing Else Matters (Live) [Radio Edit]",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2020-08-05",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 150856667,
+    "title": "Nothing Else Matters (Live) [Radio Edit]",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2020-08-05",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 186461134,
+    "title": "All Within My Hands (Live)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2020-07-22",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 186461133,
+    "title": "Nothing Else Matters (Live)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2020-07-22",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 166786348,
+    "title": "All Within My Hands (Live)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2020-07-15",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 166801169,
+    "title": "Blackened 2020",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2020-05-15",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 166785940,
+    "title": "Moth Into Flame (Live)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2016-09-26",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 186461054,
+    "title": "Beyond Magnetic",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2012-01-31",
+    "numberOfTracks": 4,
+    "type": "EP",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 166788585,
+    "title": "Beyond Magnetic",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "2012-01-31",
+    "numberOfTracks": 4,
+    "type": "EP",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 188515368,
+    "title": "Enter Sandman (July 12th, 1990, Demo)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "1994-01-01",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 188515350,
+    "title": "Enter Sandman (Remastered)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "1994-01-01",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 189051455,
+    "title": "Sad But True (Take 36, February 5th, 1991)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "1994-01-01",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 166786360,
+    "title": "Nothing Else Matters (Live)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "1992-04-27",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 193253038,
+    "title": "Nothing Else Matters (Orchestra / Guitar / Vocal Mix, July 8th, 1991)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "1992-04-27",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 190332659,
+    "title": "The Unforgiven (May 14th, 1991 Rough Mix)",
+    "version": null,
+    "explicit": false,
+    "releaseDate": "1991-10-30",
+    "numberOfTracks": 1,
+    "type": "SINGLE",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 166790877,
+    "title": "The $5.98 EP - Garage Days Re-Revisited (Remastered)",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1987-01-01",
+    "numberOfTracks": 5,
+    "type": "EP",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  },
+  {
+    "filter": "EPSANDSINGLES",
+    "id": 186460914,
+    "title": "The $5.98 EP - Garage Days Re-Revisited (Remastered)",
+    "version": null,
+    "explicit": true,
+    "releaseDate": "1987-01-01",
+    "numberOfTracks": 5,
+    "type": "EP",
+    "audioQuality": "LOSSLESS",
+    "audioModes": [
+      "STEREO"
+    ],
+    "mediaMetadata": {
+      "tags": [
+        "LOSSLESS",
+        "HIRES_LOSSLESS"
+      ]
+    },
+    "artist": {
+      "id": 8405,
+      "name": "Metallica"
+    }
+  }
+]

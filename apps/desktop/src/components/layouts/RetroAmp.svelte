@@ -9,6 +9,7 @@
   import { app } from "../../lib/state.svelte";
   import { visual } from "../../lib/visual.svelte";
   import Icon from "../Icon.svelte";
+  import SignalChain from "../SignalChain.svelte";
   import Customize from "./Customize.svelte";
   import { rise } from "../../lib/motion";
 
@@ -16,6 +17,7 @@
   // as the skin of the whole app, the player bar has the controls
   const own = $derived(ownControls(app.settings?.room));
   const p = $derived(src.player);
+  const chainOn = $derived((app.settings?.room.signal_chain ?? true) && !!p?.stream);
   const track = $derived(src.current);
   const playing = $derived(p?.status === "playing");
   const duration = $derived(p?.duration_ms ?? track?.durationMs ?? 0);
@@ -97,6 +99,7 @@
           <div class="stereo">stereo</div>
         </div>
       </div>
+      {#if chainOn}<div class="chain-row"><SignalChain look="lcd" /></div>{/if}
 
       {#if own}
       <div class="seek sunken" use:seekable={{ duration: src.can.seek ? duration : 0, seek: src.seek, onpreview: (v) => (scrub = v) }} role="slider" aria-label="Seek" aria-valuemin={0} aria-valuemax={duration} aria-valuenow={position} tabindex="-1">
@@ -270,6 +273,10 @@
     to {
       transform: translateX(-100%);
     }
+  }
+  .chain-row {
+    margin-top: 4px;
+    min-width: 0;
   }
   .specs {
     display: flex;

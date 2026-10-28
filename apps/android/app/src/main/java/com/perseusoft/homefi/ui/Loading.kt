@@ -38,20 +38,26 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withContext
 
 /** Slow work in flight (search, Tidal pages, scans, starting a stream): drives the top loading bar. */
 object Busy {
     private val _count = MutableStateFlow(0)
     val count: StateFlow<Int> = _count.asStateFlow()
 
+    /**
+     * Runs [block] off the main thread: the engine's answers are decoded (and
+     * big lists mapped) on [Dispatchers.Default], the caller resumes where it was.
+     */
     suspend fun <T> track(block: suspend () -> T): T {
         _count.update { it + 1 }
         try {
-            return block()
+            return withContext(Dispatchers.Default) { block() }
         } finally {
             _count.update { it - 1 }
         }

@@ -26,7 +26,7 @@ use axum::Router;
 use futures::future::BoxFuture;
 use futures::stream::SplitStream;
 use futures::{SinkExt, StreamExt};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
@@ -57,6 +57,10 @@ const MAX_CODE_FAILURES: u32 = 5;
 /// (4000-4999 is the application range).
 const CLOSE_BY_HUB: u16 = 4000;
 const MAX_NAME_CHARS: usize = 32;
+/// Messages waiting for one guest's socket. Levels (15 a second) are dropped
+/// once half of it is in use; anything else finding it full means the guest
+/// stopped reading, and it is disconnected.
+const GUEST_QUEUE: usize = 64;
 
 /// Image bytes for `GET /cover/<id>`.
 #[derive(Debug, Clone)]
@@ -319,7 +323,7 @@ impl Hub {
             if ban {
                 inner.banned.insert(guest.ip);
             }
-            let _ = guest.tx.send(Outbound::Close("You were removed from the session".into()));
+            guest.tx.close("You were removed from the session");
             inner.broadcast();
             true
         })
@@ -529,9 +533,86 @@ fn random_code() -> String {
     format!("{:04}", n % 10_000)
 }
 
-enum Outbound {
-    Text(String),
-    Close(String),
+/// What kind of [`HubMessage`] an encoded text is, for [`GuestTx::push`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// Latest wins: a slow guest skips states it would only overwrite.
+    State,
+    /// Dropped when the guest's queue is getting full.
+    Levels,
+    Other,
+}
+
+impl Kind {
+    fn of(msg: &HubMessage) -> Self {
+        match msg {
+            HubMessage::State(_) => Kind::State,
+            HubMessage::Levels { .. } => Kind::Levels,
+            _ => Kind::Other,
+        }
+    }
+}
+
+/// Latest-wins part of what goes to a guest.
+#[derive(Debug, Clone, Default)]
+struct Latest {
+    state: Option<Arc<str>>,
+    /// Close the connection with this reason (after what is queued).
+    close: Option<String>,
+}
+
+/// The hub's side of one guest's connection: a bounded queue of messages plus
+/// the latest state, so a guest on a bad connection never makes the hub
+/// buffer without limit.
+#[derive(Clone)]
+struct GuestTx {
+    queue: mpsc::Sender<String>,
+    latest: Arc<watch::Sender<Latest>>,
+}
+
+/// The writer task's side of [`GuestTx`].
+struct GuestRx {
+    queue: mpsc::Receiver<String>,
+    latest: watch::Receiver<Latest>,
+}
+
+impl GuestTx {
+    fn channel() -> (Self, GuestRx) {
+        let (queue, queue_rx) = mpsc::channel(GUEST_QUEUE);
+        let (latest, latest_rx) = watch::channel(Latest::default());
+        (Self { queue, latest: Arc::new(latest) }, GuestRx { queue: queue_rx, latest: latest_rx })
+    }
+
+    fn send(&self, msg: &HubMessage) {
+        match serde_json::to_string(msg) {
+            Ok(text) => self.push(Kind::of(msg), text),
+            Err(e) => tracing::warn!("share: could not encode a hub message: {e}"),
+        }
+    }
+
+    /// Never blocks (it runs under the hub's lock).
+    fn push(&self, kind: Kind, text: String) {
+        match kind {
+            Kind::State => self.latest.send_modify(|l| l.state = Some(text.into())),
+            Kind::Levels => {
+                if self.queue.capacity() > GUEST_QUEUE / 2 {
+                    let _ = self.queue.try_send(text);
+                }
+            }
+            Kind::Other => {
+                if let Err(mpsc::error::TrySendError::Full(_)) = self.queue.try_send(text) {
+                    tracing::debug!("share: a guest stopped reading, disconnecting it");
+                    self.close("The connection to the hub is too slow");
+                }
+            }
+        }
+    }
+
+    fn close(&self, reason: &str) {
+        self.latest.send_modify(|l| {
+            l.close.get_or_insert_with(|| reason.to_owned());
+        });
+    }
 }
 
 /// The file behind [`State::audio`] (and [`State::prefetch`]).
@@ -574,7 +655,7 @@ fn audio_mime(path: &FsPath) -> &'static str {
 struct Guest {
     member: Member,
     ip: IpAddr,
-    tx: mpsc::UnboundedSender<Outbound>,
+    tx: GuestTx,
     /// Last song this guest said it is ready to start (`GuestMessage::Ready`).
     ready: Option<u64>,
 }
@@ -662,15 +743,16 @@ impl Inner {
 
     fn send(&self, guest_id: &str, msg: &HubMessage) {
         if let Some(g) = self.guests.iter().find(|g| g.member.guest_id == guest_id) {
-            send_to(&g.tx, msg);
+            g.tx.send(msg);
         }
     }
 
     fn send_all(&self, msg: &HubMessage) {
         // Serialize once for everyone.
         let Ok(text) = serde_json::to_string(msg) else { return };
+        let kind = Kind::of(msg);
         for g in &self.guests {
-            let _ = g.tx.send(Outbound::Text(text.clone()));
+            g.tx.push(kind, text.clone());
         }
     }
 
@@ -694,7 +776,7 @@ impl Inner {
         Some(guest)
     }
 
-    fn join(&mut self, hello: Hello, ip: IpAddr, tx: mpsc::UnboundedSender<Outbound>) -> Result<Member, String> {
+    fn join(&mut self, hello: Hello, ip: IpAddr, tx: GuestTx) -> Result<Member, String> {
         if self.stopped {
             return Err("The host stopped sharing".into());
         }
@@ -720,16 +802,14 @@ impl Inner {
             color: hello.color.trim().chars().take(16).collect(),
         };
         self.guests.push(Guest { member: member.clone(), ip, tx: tx.clone(), ready: None });
-        // Welcome first, so the guest never sees a state before it.
-        send_to(
-            &tx,
-            &HubMessage::Welcome {
-                guest_id: member.guest_id.clone(),
-                session_name: self.session_name.clone(),
-                permissions: self.permissions.clone(),
-                state: self.state(),
-            },
-        );
+        // Welcome first, so the guest never sees a state before it (the
+        // writer sends the first queued message before anything else).
+        tx.send(&HubMessage::Welcome {
+            guest_id: member.guest_id.clone(),
+            session_name: self.session_name.clone(),
+            permissions: self.permissions.clone(),
+            state: self.state(),
+        });
         Ok(member)
     }
 
@@ -833,15 +913,6 @@ impl Inner {
     }
 }
 
-fn send_to(tx: &mpsc::UnboundedSender<Outbound>, msg: &HubMessage) {
-    match serde_json::to_string(msg) {
-        Ok(text) => {
-            let _ = tx.send(Outbound::Text(text));
-        }
-        Err(e) => tracing::warn!("share: could not encode a hub message: {e}"),
-    }
-}
-
 struct Hello {
     name: String,
     color: String,
@@ -884,11 +955,11 @@ impl Shared {
         let mut inner = self.lock();
         inner.stopped = true;
         for g in inner.guests.drain(..) {
-            let _ = g.tx.send(Outbound::Close("The host stopped sharing".into()));
+            g.tx.close("The host stopped sharing");
         }
     }
 
-    fn join(&self, hello: Hello, ip: IpAddr, tx: mpsc::UnboundedSender<Outbound>) -> Result<Member, String> {
+    fn join(&self, hello: Hello, ip: IpAddr, tx: GuestTx) -> Result<Member, String> {
         self.update(|inner, fx| {
             let member = inner.join(hello, ip, tx)?;
             fx.events.push(HubEvent::GuestJoined(member.clone()));
@@ -906,7 +977,7 @@ impl Shared {
     }
 
     /// The guest's sender, `None` once it was kicked / left.
-    fn sender(&self, guest_id: &str) -> Option<mpsc::UnboundedSender<Outbound>> {
+    fn sender(&self, guest_id: &str) -> Option<GuestTx> {
         self.lock().guests.iter().find(|g| g.member.guest_id == guest_id).map(|g| g.tx.clone())
     }
 
@@ -915,7 +986,7 @@ impl Shared {
             // answered at once, without the lock, so the round trip stays short
             GuestMessage::Clock { t0 } => {
                 if let Some(tx) = self.sender(&who.guest_id) {
-                    send_to(&tx, &HubMessage::Clock { t0, hub_ms: self.now_ms() });
+                    tx.send(&HubMessage::Clock { t0, hub_ms: self.now_ms() });
                 }
             }
             GuestMessage::Search { q } => {
@@ -929,7 +1000,7 @@ impl Shared {
                         }
                         Err(e) => HubMessage::Notice { text: format!("Search failed: {e}") },
                     };
-                    send_to(&tx, &reply);
+                    tx.send(&reply);
                 });
             }
             GuestMessage::Browse { kind, id } => {
@@ -940,7 +1011,7 @@ impl Shared {
                         Ok(page) => HubMessage::Page(page),
                         Err(e) => HubMessage::Notice { text: format!("Could not open it: {e}") },
                     };
-                    send_to(&tx, &reply);
+                    tx.send(&reply);
                 });
             }
             msg => self.update(|inner, fx| {
@@ -1071,7 +1142,7 @@ async fn serve_guest(shared: Arc<Shared>, socket: WebSocket, ip: IpAddr) {
         return;
     };
 
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (tx, rx) = GuestTx::channel();
     let member = match shared.join(hello, ip, tx) {
         Ok(m) => m,
         Err(reason) => {
@@ -1083,34 +1154,7 @@ async fn serve_guest(shared: Arc<Shared>, socket: WebSocket, ip: IpAddr) {
         }
     };
 
-    let mut writer = tokio::spawn(async move {
-        let mut ping = tokio::time::interval(PING_EVERY);
-        ping.tick().await;
-        loop {
-            tokio::select! {
-                out = rx.recv() => match out {
-                    Some(Outbound::Text(t)) => {
-                        if sink.send(Message::Text(t.into())).await.is_err() {
-                            break;
-                        }
-                    }
-                    Some(Outbound::Close(reason)) => {
-                        let _ = sink.send(close_frame(&reason)).await;
-                        break;
-                    }
-                    None => {
-                        let _ = sink.close().await;
-                        break;
-                    }
-                },
-                _ = ping.tick() => {
-                    if sink.send(Message::Ping(Default::default())).await.is_err() {
-                        break;
-                    }
-                }
-            }
-        }
-    });
+    let mut writer = tokio::spawn(write_guest(sink, rx));
 
     loop {
         tokio::select! {
@@ -1130,6 +1174,114 @@ async fn serve_guest(shared: Arc<Shared>, socket: WebSocket, ip: IpAddr) {
     writer.abort();
 }
 
+/// Sends one guest what [`GuestTx`] collected: the welcome first, then queued
+/// messages in order, with the newest state as soon as the queue is empty;
+/// pings keep the connection alive.
+async fn write_guest(mut sink: futures::stream::SplitSink<WebSocket, Message>, mut rx: GuestRx) {
+    // the welcome is always the first queued message
+    let Some(welcome) = rx.queue.recv().await else { return };
+    if sink.send(Message::Text(welcome.into())).await.is_err() {
+        return;
+    }
+    let mut ping = tokio::time::interval(PING_EVERY);
+    ping.tick().await;
+    loop {
+        tokio::select! {
+            biased;
+            out = rx.queue.recv() => match out {
+                Some(t) => {
+                    if sink.send(Message::Text(t.into())).await.is_err() {
+                        return;
+                    }
+                }
+                // the hub let go of this guest (kicked, stopped, left)
+                None => break,
+            },
+            changed = rx.latest.changed() => {
+                if changed.is_err() {
+                    break;
+                }
+                let latest = rx.latest.borrow_and_update().clone();
+                if latest.close.is_some() {
+                    break;
+                }
+                if let Some(state) = latest.state {
+                    if sink.send(Message::Text(state.as_ref().into())).await.is_err() {
+                        return;
+                    }
+                }
+            }
+            _ = ping.tick() => {
+                if sink.send(Message::Ping(Default::default())).await.is_err() {
+                    return;
+                }
+            }
+        }
+    }
+    // the reason survives the hub dropping its side
+    let reason = rx.latest.borrow().close.clone();
+    match reason {
+        Some(reason) => {
+            let _ = sink.send(close_frame(&reason)).await;
+        }
+        None => {
+            let _ = sink.close().await;
+        }
+    }
+}
+
 fn close_frame(reason: &str) -> Message {
     Message::Close(Some(CloseFrame { code: CLOSE_BY_HUB, reason: reason.into() }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn levels() -> HubMessage {
+        HubMessage::Levels { l: 1, r: 2, b: vec![3; 16] }
+    }
+
+    #[test]
+    fn a_guest_that_stops_reading_never_grows_the_queue() {
+        let (tx, mut rx) = GuestTx::channel();
+        // ten minutes of levels with nobody reading
+        for _ in 0..15 * 600 {
+            tx.send(&levels());
+        }
+        assert!(rx.queue.len() <= GUEST_QUEUE / 2, "levels stop at half the queue: {}", rx.queue.len());
+        // other messages still fit after the levels
+        tx.send(&HubMessage::Notice { text: "hi".into() });
+        assert!(rx.latest.borrow().close.is_none());
+        let queued: Vec<String> = std::iter::from_fn(|| rx.queue.try_recv().ok()).collect();
+        assert!(queued.last().unwrap().contains("hi"));
+    }
+
+    #[test]
+    fn states_are_latest_wins() {
+        let (tx, mut rx) = GuestTx::channel();
+        for playing in [true, false, true] {
+            tx.send(&HubMessage::State(State { playing, position_ms: 7, ..Default::default() }));
+        }
+        assert!(rx.queue.try_recv().is_err(), "states don't queue");
+        assert!(rx.latest.has_changed().unwrap());
+        let state = rx.latest.borrow_and_update().state.clone().unwrap();
+        let back: HubMessage = serde_json::from_str(&state).unwrap();
+        assert!(matches!(back, HubMessage::State(State { playing: true, position_ms: 7, .. })));
+        assert!(!rx.latest.has_changed().unwrap());
+    }
+
+    #[test]
+    fn a_full_queue_disconnects_instead_of_dropping_answers() {
+        let (tx, rx) = GuestTx::channel();
+        for i in 0..GUEST_QUEUE {
+            tx.send(&HubMessage::Notice { text: i.to_string() });
+        }
+        assert!(rx.latest.borrow().close.is_none());
+        tx.send(&HubMessage::Notice { text: "one too many".into() });
+        assert!(rx.latest.borrow().close.is_some());
+        // the first reason stays
+        tx.close("later");
+        assert_ne!(rx.latest.borrow().close.as_deref(), Some("later"));
+    }
 }

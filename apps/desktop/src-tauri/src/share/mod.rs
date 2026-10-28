@@ -433,7 +433,7 @@ pub fn shutdown(app: &AppHandle) {
 
 // ----------------------------------------------------------------- commands
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn share_status(app: AppHandle) -> ShareStatus {
     let s = app.state::<AppState>().settings().share;
     ShareStatus {
@@ -497,7 +497,7 @@ pub async fn share_stop(app: AppHandle) -> CmdResult<()> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn share_set_party(app: AppHandle, on: bool) {
     if let Some(h) = app.state::<Share>().hub() {
         h.set_party(&app, on);
@@ -505,7 +505,7 @@ pub fn share_set_party(app: AppHandle, on: bool) {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn share_set_play_here(app: AppHandle, on: bool) {
     if let Some(h) = app.state::<Share>().hub() {
         h.set_play_here(&app, on);
@@ -514,21 +514,21 @@ pub fn share_set_play_here(app: AppHandle, on: bool) {
 }
 
 /// Removes a guest; `ban` keeps their device out until the session ends.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn share_kick(app: AppHandle, guest_id: String, ban: bool) -> bool {
     let done = app.state::<Share>().hub().is_some_and(|h| h.hub.kick(&guest_id, ban));
     emit_hub(&app);
     done
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn share_approve(app: AppHandle, queue_id: u64) -> bool {
     let done = app.state::<Share>().hub().is_some_and(|h| h.hub.approve(queue_id));
     emit_hub(&app);
     done
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn share_reject(app: AppHandle, queue_id: u64) -> bool {
     let done = app.state::<Share>().hub().is_some_and(|h| h.hub.reject(queue_id));
     emit_hub(&app);
@@ -595,7 +595,7 @@ pub async fn share_join(
 }
 
 /// Leaves the session (or stops joining). The app's own queue is as it was.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn share_leave(app: AppHandle) {
     let share = app.state::<Share>();
     share.guest_seq.fetch_add(1, Ordering::SeqCst);
@@ -610,7 +610,7 @@ pub fn share_leave(app: AppHandle) {
 
 /// A guest request: search, browse, add, remove, move, skip, vote_skip, toggle,
 /// volume, play. Answers and refusals come back as events.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn share_guest(app: AppHandle, message: GuestMessage) -> CmdResult<()> {
     if matches!(
         message,
@@ -623,7 +623,7 @@ pub fn share_guest(app: AppHandle, message: GuestMessage) -> CmdResult<()> {
 }
 
 /// "Play on this computer" while in a party.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn share_play_along(app: AppHandle, on: bool) {
     if let Some(g) = app.state::<Share>().guest() {
         g.set_play_along(on);

@@ -4,12 +4,15 @@
 //! Tidal authentication, the API client, stream parsing, path templating,
 //! audio tagging and the concurrent download engine.
 
+pub mod ai;
+pub mod album_versions;
 pub mod api;
 pub mod artwork;
 pub mod auth;
 pub mod catalog;
 pub mod config;
 pub mod download;
+pub mod dsp;
 pub mod error;
 pub mod ffmpeg;
 pub mod flac_tags;

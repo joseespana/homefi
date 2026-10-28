@@ -25,7 +25,25 @@ data class AudioOutput(
     val sampleRates: List<Int>,
     val bitDepths: List<Int>,
     val maxChannels: Int?,
-)
+) {
+    /**
+     * The equalizer's id for this output (the key of its per-output profiles): one per route
+     * type, and per product for USB DACs and Bluetooth (`usb:<name>`, `bt:<name>`), so the
+     * profile follows the headphones rather than the port.
+     */
+    val eqId: String get() = eqIdOf(kind, name)
+}
+
+/** See [AudioOutput.eqId]. */
+fun eqIdOf(kind: OutputKind, name: String): String = when (kind) {
+    OutputKind.USB -> if (name.isBlank()) "usb" else "usb:${name.trim()}"
+    OutputKind.BLUETOOTH -> if (name.isBlank()) "bt" else "bt:${name.trim()}"
+    OutputKind.WIRED -> "wired"
+    OutputKind.SPEAKER -> "speaker"
+    OutputKind.HDMI -> "hdmi"
+    OutputKind.LINE -> "line"
+    OutputKind.OTHER -> "other"
+}
 
 /**
  * Tracks the connected outputs and the one the user prefers. The preference is
@@ -47,6 +65,13 @@ class AudioOutputs(context: Context) {
     /** The connected device to route to, or `null` for the system default. */
     val preferredDevice: StateFlow<AudioDeviceInfo?> = _preferredDevice.asStateFlow()
 
+    private val _current = MutableStateFlow<AudioOutput?>(null)
+    /**
+     * Where playback goes now (best guess before Android 13): the preferred output when it is
+     * connected, else the system route. The equalizer picks its profile from this.
+     */
+    val current: StateFlow<AudioOutput?> = _current.asStateFlow()
+
     private var devices: Map<String, AudioDeviceInfo> = emptyMap()
 
     init {
@@ -61,6 +86,7 @@ class AudioOutputs(context: Context) {
         prefs.edit().putString(KEY, key).apply()
         _preferredKey.value = key
         _preferredDevice.value = key?.let(devices::get)
+        updateCurrent()
     }
 
     /** Where media audio goes right now when no preference applies (Android 13+). */
@@ -77,6 +103,15 @@ class AudioOutputs(context: Context) {
         devices = found
         _outputs.value = found.values.mapNotNull(::toOutput).sortedBy { it.kind.ordinal }
         _preferredDevice.value = _preferredKey.value?.let(found::get)
+        updateCurrent()
+    }
+
+    private fun updateCurrent() {
+        val list = _outputs.value
+        _current.value = list.firstOrNull { it.key == _preferredKey.value }
+            ?: systemRoute()
+            // before Android 13: a plugged-in DAC, jack or headset wins over the speaker
+            ?: list.firstOrNull()
     }
 
     private fun keyOf(d: AudioDeviceInfo) = "${d.type}:${d.productName}"

@@ -21,7 +21,7 @@ mod guest;
 mod hub;
 
 #[cfg(feature = "share")]
-pub use guest::{GuestClient, GuestEvent, Welcome};
+pub use guest::{GuestClient, GuestEvent, Welcome, EVENT_QUEUE as GUEST_EVENT_QUEUE};
 #[cfg(feature = "share")]
 pub use hub::{CoverImage, HostCommand, Hub, HubConfig, HubEvent, HubHost};
 

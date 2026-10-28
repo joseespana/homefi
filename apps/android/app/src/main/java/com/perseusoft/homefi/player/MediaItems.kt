@@ -86,3 +86,37 @@ fun MediaItem.withShareInfo(queueId: Long?, durationMs: Long? = knownDurationMs,
     extras.putBoolean(EXTRA_EXPLICIT, explicit)
     return buildUpon().setMediaMetadata(mediaMetadata.buildUpon().setExtras(extras).build()).build()
 }
+
+private const val EXTRA_SOURCE_KIND = "homefi.source.kind"
+private const val EXTRA_SOURCE_ID = "homefi.source.id"
+private const val EXTRA_SOURCE_NAME = "homefi.source.name"
+
+/**
+ * Where this item was queued from (an album, a playlist, an artist...), for taste rules
+ * ("this playlist sounds brighter") and album loudness. Kept in the metadata extras.
+ */
+val MediaItem.source: com.perseusoft.homefi.core.SourceContext?
+    get() {
+        val e = mediaMetadata.extras ?: return null
+        val kind = e.getString(EXTRA_SOURCE_KIND)?.takeIf { it.isNotBlank() } ?: return null
+        return com.perseusoft.homefi.core.SourceContext(kind = kind, id = e.getString(EXTRA_SOURCE_ID).orEmpty(), name = e.getString(EXTRA_SOURCE_NAME).orEmpty())
+    }
+
+/** A copy that remembers [source] (null leaves the item as it is). */
+fun MediaItem.withSource(source: com.perseusoft.homefi.core.SourceContext?): MediaItem {
+    if (source == null) return this
+    val extras = android.os.Bundle(mediaMetadata.extras ?: android.os.Bundle.EMPTY)
+    extras.putString(EXTRA_SOURCE_KIND, source.kind)
+    extras.putString(EXTRA_SOURCE_ID, source.id)
+    extras.putString(EXTRA_SOURCE_NAME, source.name)
+    return buildUpon().setMediaMetadata(mediaMetadata.buildUpon().setExtras(extras).build()).build()
+}
+
+/** Where a queue comes from, as taste rules name it. */
+object Sources {
+    fun album(id: String, name: String) = com.perseusoft.homefi.core.SourceContext("album", id, name)
+    fun playlist(id: String, name: String) = com.perseusoft.homefi.core.SourceContext("playlist", id, name)
+    fun artist(id: String, name: String) = com.perseusoft.homefi.core.SourceContext("artist", id, name)
+    fun library(name: String = "") = com.perseusoft.homefi.core.SourceContext("library", "", name)
+    fun folder(name: String) = com.perseusoft.homefi.core.SourceContext("folder", "", name)
+}

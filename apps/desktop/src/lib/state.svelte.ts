@@ -1,7 +1,7 @@
 // App-wide reactive state (Svelte 5 runes), fed by Rust events.
 import { snapTime } from "./snap";
 import { Paged } from "./paged.svelte";
-import { api, errorText, on, type Account, type LibraryKind, type AppInfo, type DownloadEvent, type Hit, type Kind, type PlayerState, type Settings, type StreamItem, type Theme, type Track, type PlayerLayout, type Upcoming } from "./api";
+import { api, errorText, on, type Account, type LibraryKind, type AppInfo, type DownloadEvent, type Hit, type Kind, type PlayerState, type Settings, type StreamItem, type Theme, type Track, type PlayerLayout, type Upcoming, type SourceContext, type TasteScope, type VersionHit, type AlbumVersionPrefs } from "./api";
 import { fixedTheme } from "./layouts";
 import { TERMS_VERSION } from "./terms";
 
@@ -19,7 +19,12 @@ export type View =
   | { name: "tidal-item"; kind: "album" | "playlist" | "artist" | "mix"; id: string; back?: View }
   | { name: "folder"; path: string }
   | { name: "downloads" }
-  | { name: "settings" }
+  /** `page` opens a section (Settings → Sound, AI...). */
+  | { name: "settings"; page?: string }
+  /** The equalizer; `output` preselects whose profile to edit. */
+  | { name: "eq"; output?: string; tab?: "device" | "taste" }
+  /** "Set up my sound": the EQ assistant (AI or the guided wizard). */
+  | { name: "assistant" }
   /** Someone else's room (shared control / party), as a guest. */
   | { name: "guest" };
 
@@ -48,6 +53,8 @@ export interface Note {
   key?: string;
   /** A person's colour (shared control notices). */
   color?: string;
+  /** A button on the note ("Undo"); clicking it dismisses the note. */
+  action?: { label: string; run: () => void };
 }
 
 /** What a confirmation dialog asks (see `app.confirm`). */
@@ -77,17 +84,24 @@ class AppState {
   account = $state<Account | null>(null);
   loginOpen = $state(false);
 
-  tracks = $state<Track[]>([]);
+  // Big lists that are only ever replaced whole: raw (not deeply proxied), so
+  // reading them costs one signal instead of one per track and field. Svelte
+  // re-checks every dependency of a derived read outside an effect, and with
+  // 10k proxied tracks that alone froze the app on every player tick.
+  tracks = $state.raw<Track[]>([]);
   /** Tidal tracks still to come after the player's queue (fetched just before they play). */
-  upcoming = $state<Upcoming[]>([]);
+  upcoming = $state.raw<Upcoming[]>([]);
   settings = $state<Settings | null>(null);
   /** ISRCs of local files, to mark Tidal tracks that are already downloaded. */
   localIsrc = $derived(new Map(this.tracks.filter((t) => t.isrc).map((t) => [t.isrc!, t])));
   scanning = $state(false);
 
-  player = $state<PlayerState | null>(null);
+  /** Replaced by every "player" event (4 a second while playing). */
+  player = $state.raw<PlayerState | null>(null);
+  /** The track being heard. */
+  current = $derived<Track | null>(this.player?.track ?? null);
   /** Queue entries outside the library (Tidal stream cache, opened folders). */
-  outside = $state<Record<string, Track | null>>({});
+  outside = $state.raw<Record<string, Track | null>>({});
 
   busy = $state(false);
   jobLabel = $state("");
@@ -115,7 +129,9 @@ class AppState {
   private noteTimers = new Map<number, ReturnType<typeof setTimeout>>();
   /** Open "Add to playlist" menu, anchored at a screen point. */
   playlistPicker = $state<{ trackIds: string[]; x: number; y: number } | null>(null);
-  queueMenu = $state<{ label: string; x: number; y: number; run: (next: boolean) => void } | null>(null);
+  queueMenu = $state<{ label: string; x: number; y: number; run: (next: boolean) => void; sound?: { scope: TasteScope; label: string } } | null>(null);
+  /** Open album version picker (a card's "3 versions" chip, the album page's "Other versions"). */
+  versionPicker = $state<{ title: string; versions: VersionHit[]; current: string | null; x: number; y: number } | null>(null);
   /** Open "New playlist" dialog; the tracks go in once it's created. */
   newPlaylist = $state<{ trackIds: string[] } | null>(null);
   /** Open confirmation dialog; `resolve` answers the `ask()` that opened it. */
@@ -201,12 +217,41 @@ class AppState {
   }
 
   /** Opens "Play next / Add to queue" next to the clicked button (or at the pointer, on right-click). */
-  openQueueMenu(e: MouseEvent, label: string, run: (next: boolean) => void) {
+  openQueueMenu(e: MouseEvent, label: string, run: (next: boolean) => void, sound?: TasteScope) {
     e.preventDefault();
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const x = e.type === "contextmenu" ? e.clientX + 200 : r.right;
     const y = e.type === "contextmenu" ? e.clientY : r.bottom + 6;
-    this.queueMenu = { label, x, y, run };
+    this.queueMenu = { label, x, y, run, sound: sound && { scope: sound, label } };
+  }
+
+  /**
+   * Opens the version picker next to the clicked chip (or at the pointer, on
+   * right-click). `current` is the album on screen, when on its page.
+   */
+  openVersions(e: MouseEvent, title: string, versions: VersionHit[], current: string | null = null) {
+    e.preventDefault();
+    e.stopPropagation();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const x = e.type === "contextmenu" ? e.clientX : r.left;
+    const y = e.type === "contextmenu" ? e.clientY : r.bottom + 6;
+    this.versionPicker = { title, versions, current, x, y };
+  }
+
+  /** Album versions as Settings → Tidal says (one card per album by default). */
+  get albumVersions(): AlbumVersionPrefs {
+    return { group: true, explicit: "explicit", spatial: "stereo", edition: "original", ...(this.settings?.album_versions ?? {}) };
+  }
+
+  /** Plays a whole Tidal album from its first track. */
+  async playAlbum(id: string, title: string) {
+    try {
+      const d = await api.tidalDetail("album", id);
+      if (!d.tracks.length) return this.notify(`“${title}” has no tracks to play`, true);
+      await this.playTidal(d.tracks, 0, false, { kind: "album", id, name: title });
+    } catch (e) {
+      this.notify(errorText(e), true);
+    }
   }
 
   /** Library / local files into the queue. */
@@ -260,8 +305,16 @@ class AppState {
    */
   tidalList(kind: LibraryKind, force = false): Paged {
     const cached = this.tidalCache.get(kind);
-    if (!force && cached && !(cached.error && !cached.items.length)) return cached;
-    const fresh = new Paged((offset, rest) => api.tidalLibraryPage(kind, offset, rest), true);
+    if (!force && cached && !(cached.error && !cached.items.length)) {
+      // left half-loaded (the user went elsewhere): the rest goes on streaming
+      if (!this.lazyLists) cached.rest();
+      return cached;
+    }
+    this.tidalCache.get(kind)?.cancel();
+    const fresh = new Paged((offset, rest) => api.tidalLibraryPage(kind, offset, rest), true, {
+      pages: (offset, onPage, load) => api.tidalLibraryStream(kind, offset, onPage, load),
+      cancel: api.tidalCancel,
+    });
     this.tidalCache.set(kind, fresh);
     if (this.lazyLists) fresh.more();
     else fresh.whole();
@@ -303,6 +356,22 @@ class AppState {
   }
 
   /**
+   * The mini player's window: only what it shows (theme, the player and the songs in
+   * its queue), never the whole library, Tidal or downloads, so it opens at once even
+   * where the web view is slow (WebView2 on Windows).
+   */
+  async initMini() {
+    this.settings = await api.getSettings();
+    on.settings((s) => (this.settings = s));
+    this.player = await api.playerState();
+    this.learnQueue(this.player.queue);
+    on.player((s) => {
+      this.player = s;
+      this.learnQueue(s.queue);
+    });
+  }
+
+  /**
    * Files deleted by hand must stop showing as downloaded: check the library
    * whenever the window comes back to the front, and every minute while visible.
    */
@@ -326,7 +395,7 @@ class AppState {
       for (const [id, d] of Object.entries(this.trackDownloads)) {
         if (d.state === "done" && d.path && gone.has(d.path)) delete this.trackDownloads[id];
       }
-      for (const p of gone) delete this.outside[p];
+      this.outside = Object.fromEntries(Object.entries(this.outside).filter(([p]) => !gone.has(p)));
     } catch (e) {
       console.warn("[homefi] prune", e);
     } finally {
@@ -338,14 +407,15 @@ class AppState {
    * Shows (or updates, with the same `key`) a floating note. Loading notes stay
    * until replaced or dismissed; the others go away on their own.
    */
-  note(text: string, kind: Note["kind"] = "info", key?: string, opts: { seconds?: number; color?: string } = {}): number {
+  note(text: string, kind: Note["kind"] = "info", key?: string, opts: { seconds?: number; color?: string; action?: Note["action"] } = {}): number {
     const existing = key ? this.notes.find((n) => n.key === key) : undefined;
     const id = existing?.id ?? ++this.noteIds;
     if (existing) {
       existing.text = text;
       existing.kind = kind;
+      existing.action = opts.action;
     } else {
-      this.notes = [...this.notes, { id, kind, text, key, color: opts.color }].slice(-4);
+      this.notes = [...this.notes, { id, kind, text, key, color: opts.color, action: opts.action }].slice(-4);
     }
     clearTimeout(this.noteTimers.get(id));
     const ms = opts.seconds ? opts.seconds * 1000 : kind === "error" ? 8000 : 3500;
@@ -456,7 +526,7 @@ class AppState {
   }
 
   /** Tidal track id of the file being heard, when known (to like / download / add it). */
-  get currentTidalId(): string | null {
+  currentTidalId = $derived.by((): string | null => {
     const path = this.current?.path;
     if (!path) return null;
     if (this.tidalIdByPath[path]) return this.tidalIdByPath[path];
@@ -467,7 +537,9 @@ class AppState {
     const ids = this.current?.isrc ? this.isrcIds[this.current.isrc] : undefined;
     if (!ids?.length) return null;
     return ids.find((id) => this.favorites.has(`track:${id}`)) ?? ids[0];
-  }
+  });
+  /** ISRC of the track being heard: rows compare against this plain value, so a tick doesn't wake them. */
+  currentIsrc = $derived<string | null>(this.current?.isrc ?? null);
 
   /** Track info for a queue path, from the library or read from the file. */
   trackAt(path: string): Track | undefined {
@@ -475,15 +547,31 @@ class AppState {
   }
   byPath = $derived(new Map(this.tracks.map((t) => [t.path, t])));
 
+  /** The queue `learnQueue` last looked at: the same one again (every tick) costs nothing. */
+  private seenQueue: string[] | null = null;
+  private seenLibrary: Track[] | null = null;
+  private asking = new Set<string>();
+
   private async learnQueue(queue: string[]) {
-    const unknown = queue.filter((p) => !this.byPath.has(p) && !(p in this.outside));
+    // ticks resend the same queue: compare it once instead of looking up every path
+    if (this.seenLibrary === this.tracks && this.seenQueue && sameList(this.seenQueue, queue)) return;
+    this.seenQueue = queue;
+    this.seenLibrary = this.tracks;
+    const byPath = this.byPath;
+    const outside = this.outside;
+    const unknown = queue.filter((p) => !byPath.has(p) && !(p in outside) && !this.asking.has(p));
     if (!unknown.length) return;
-    const found = await api.tracksFor(unknown);
-    this.outside = { ...this.outside, ...Object.fromEntries(unknown.map((p, i) => [p, found[i]])) };
+    for (const p of unknown) this.asking.add(p);
+    try {
+      const found = await api.tracksFor(unknown);
+      this.outside = { ...this.outside, ...Object.fromEntries(unknown.map((p, i) => [p, found[i]])) };
+    } finally {
+      for (const p of unknown) this.asking.delete(p);
+    }
   }
 
   /** Plays Tidal tracks from `index`: local copies when we have them, the rest streamed. */
-  playTidal(hits: Hit[], index = 0, shuffle = false) {
+  playTidal(hits: Hit[], index = 0, shuffle = false, source: SourceContext | null = null) {
     const items = hits
       .filter((h) => h.kind === "track")
       .map((h) => streamItem(h, (h.isrc && this.localIsrc.get(h.isrc)?.path) || null));
@@ -491,7 +579,7 @@ class AppState {
     if (!items.length) return;
     for (const i of items) if (i.local) this.tidalIdByPath[i.local] = i.id;
     this.note(`Loading “${items[start].title}”…`, "loading", "stream");
-    return api.playTidal(items, start, shuffle);
+    return api.playTidal(items, start, shuffle, source);
   }
 
   /**
@@ -610,9 +698,13 @@ class AppState {
     }
   }
 
-  get current(): Track | null {
-    return this.player?.track ?? null;
-  }
+}
+
+function sameList(a: string[], b: string[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 /** A Tidal track to play, with what guests see of it while sharing. */

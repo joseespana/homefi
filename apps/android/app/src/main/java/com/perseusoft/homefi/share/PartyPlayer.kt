@@ -26,6 +26,7 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.TeeAudioProcessor
 import com.perseusoft.homefi.player.AudioTap
+import com.perseusoft.homefi.player.EqAudioProcessor
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.perseusoft.homefi.core.ShareGuest
 import com.perseusoft.homefi.core.ShareState
@@ -278,13 +279,14 @@ internal class PartyPlayer(private val context: Context) {
 
     private fun build(): ExoPlayer {
         // FFmpeg too, for hubs that stream ALAC and friends
-        // the tee feeds the visualizer, VU meters and mascot, as in the app's own player
+        // the tee feeds the visualizer, VU meters and mascot, as in the app's own player;
+        // the equalizer runs first, with the same settings as the app's player
         val renderers = object : DefaultRenderersFactory(context) {
             override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink =
                 DefaultAudioSink.Builder(context)
                     .setEnableFloatOutput(enableFloatOutput)
                     .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                    .setAudioProcessors(arrayOf(TeeAudioProcessor(AudioTap)))
+                    .setAudioProcessors(arrayOf(EqAudioProcessor(), TeeAudioProcessor(AudioTap)))
                     .build()
         }.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
         // starts after 1 s of audio, then keeps reading well ahead (the rest lands in the cache)

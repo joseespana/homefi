@@ -14,6 +14,10 @@
         {#if n.kind === "loading"}<span class="spin" aria-hidden="true"></span>{:else if n.color}<span class="who" style:background={n.color}></span>{:else}<Icon name={icons[n.kind]} size={15} />{/if}
       </span>
       <span class="text">{n.text}</span>
+      {#if n.action}
+        {@const action = n.action}
+        <button class="action" onclick={() => (app.dismiss(n.id), action.run())}>{action.label}</button>
+      {/if}
       <button class="close" aria-label="Dismiss" onclick={() => app.dismiss(n.id)}><Icon name="x" size={14} /></button>
     </div>
   {/each}
@@ -78,6 +82,19 @@
     line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+  .action {
+    flex: none;
+    margin: -3px 0;
+    padding: 3px 10px;
+    border-radius: min(8px, var(--r-max));
+    font-weight: 700;
+    font-size: 12.5px;
+    color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 12%, transparent);
+  }
+  .action:hover {
+    background: color-mix(in srgb, var(--primary) 22%, transparent);
   }
   .close {
     flex: none;

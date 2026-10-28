@@ -10,6 +10,7 @@
   import { visual } from "../../lib/visual.svelte";
   import Cover from "../Cover.svelte";
   import Icon from "../Icon.svelte";
+  import SignalChain from "../SignalChain.svelte";
   import NowActions from "../NowActions.svelte";
   import SeekBar from "../SeekBar.svelte";
   import Visualizer from "../Visualizer.svelte";
@@ -23,6 +24,7 @@
   // as the skin of the whole app, the player bar has the controls
   const own = $derived(ownControls(app.settings?.room));
   const p = $derived(src.player);
+  const chainOn = $derived((app.settings?.room.signal_chain ?? true) && !!p?.stream);
   const track = $derived(src.current);
   const playing = $derived(p?.status === "playing");
   const duration = $derived(p?.duration_ms ?? track?.durationMs ?? 0);
@@ -131,6 +133,7 @@
       {#if track?.quality}<span class="chip quality">{track.quality}</span>{/if}
       <NowActions compact />
     </div>
+    {#if chainOn}<div class="chain-row"><SignalChain look="glass" /></div>{/if}
   </div>
 {/snippet}
 
@@ -224,6 +227,14 @@
   .sub {
     font-size: 15px;
     color: var(--muted);
+  }
+  .chain-row {
+    align-self: stretch;
+    margin-top: 10px;
+    min-width: 0;
+  }
+  .info.centered .chain-row :global(.chain) {
+    justify-content: center;
   }
   .facts {
     display: flex;
@@ -342,6 +353,10 @@
     display: flex;
     align-items: center;
     gap: 12px;
+  }
+  /* the info takes the row (the signal chain sizes itself by it) */
+  .strip > .info {
+    flex: 1;
   }
   .panel {
     flex: 1;

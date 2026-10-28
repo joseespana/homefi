@@ -1,6 +1,6 @@
 <script lang="ts">
   import { item } from "../lib/motion";
-  import { api, errorText, formatTime, type Hit } from "../lib/api";
+  import { api, errorText, formatTime, type Hit, type SourceContext } from "../lib/api";
   import { app } from "../lib/state.svelte";
   import Cover from "./Cover.svelte";
   import Icon from "./Icon.svelte";
@@ -13,6 +13,8 @@
     list = null,
     whole = null,
     onremove = null,
+    source = null,
+    enter = true,
   }: {
     hit: Hit;
     index?: number | null;
@@ -20,6 +22,10 @@
     /** The whole of `list` when it is still loading pages: playing goes on through all of it. */
     whole?: (() => Promise<Hit[]>) | null;
     onremove?: (() => void) | null;
+    /** Where `list` comes from (an album, a playlist), for taste layers and album loudness. */
+    source?: SourceContext | null;
+    /** Play the entrance (false for rows a scroll brings in). */
+    enter?: boolean;
   } = $props();
   const canFavorite = $derived(!!app.account && hit.kind !== "mix" && hit.kind !== "video");
   const fav = $derived(app.isFavorite(hit.kind, hit.id));
@@ -31,6 +37,8 @@
   const dl = $derived(hit.kind === "track" ? app.trackDownloads[hit.id] : undefined);
   const job = $derived(hit.kind !== "track" ? app.jobs[hit.title] : undefined);
   const ring = 2 * Math.PI * 9;
+  // a 48 px row needs Tidal's 160 px image, not the 320 px one (a quarter of the bytes to fetch and decode)
+  const thumb = (url: string | null) => url?.replace(/\/320x320\.jpg$/, "/160x160.jpg") ?? null;
 
   // delete animation: "Deleting…" while the file goes to the Trash, then the row turns to dust
   // and comes back without its downloaded mark
@@ -64,7 +72,7 @@
 
   // the track being heard (same Tidal id, or same recording when it plays from a local file)
   const isCurrent = $derived(
-    hit.kind === "track" && app.current != null && (app.currentTidalId === hit.id || (!!hit.isrc && app.current.isrc === hit.isrc)),
+    hit.kind === "track" && (app.currentTidalId === hit.id || (!!hit.isrc && app.currentIsrc === hit.isrc)),
   );
   const playing = $derived(isCurrent && app.player?.status === "playing");
 
@@ -78,11 +86,12 @@
       app.notify(errorText(e), true);
     }
     const at = siblings.indexOf(hit);
-    app.playTidal(siblings, at >= 0 ? at : Math.max(0, siblings.findIndex((h) => h.id === hit.id)));
+    app.playTidal(siblings, at >= 0 ? at : Math.max(0, siblings.findIndex((h) => h.id === hit.id)), false, source);
   }
 
   function queueMenu(e: MouseEvent) {
-    if (hit.kind === "track") app.openQueueMenu(e, hit.title, (next) => app.queueHits([hit], hit.title, next));
+    if (hit.versions && hit.versions.length > 1) return app.openVersions(e, hit.title, hit.versions);
+    if (hit.kind === "track") app.openQueueMenu(e, hit.title, (next) => app.queueHits([hit], hit.title, next), { kind: "track", id: hit.id, name: hit.title });
   }
 
   function open() {
@@ -90,7 +99,7 @@
   }
 </script>
 
-<div class="hit" in:item|global class:openable class:track={hit.kind === "track"} class:now-row={isCurrent} class:live={playing} class:deleting bind:this={row} role="group" aria-label={hit.title} oncontextmenu={queueMenu}>
+<div class="hit" data-row in:item|global={{ skip: !enter }} class:openable class:track={hit.kind === "track"} class:now-row={isCurrent} class:live={playing} class:deleting bind:this={row} role="group" aria-label={hit.title} oncontextmenu={queueMenu}>
   {#if index != null}
     <!-- the one play control of a track row: the number (or the cover, below) -->
     <span class="n">
@@ -114,7 +123,7 @@
     aria-label={hit.kind === "track" ? `${playing ? "Pause" : "Play"} ${hit.title}` : undefined}
   >
     <span class="art">
-      <Cover url={hit.cover_url} size={48} radius={hit.kind === "artist" ? 24 : 8} icon={icons[hit.kind]} />
+      <Cover url={thumb(hit.cover_url)} size={48} radius={hit.kind === "artist" ? 24 : 8} icon={icons[hit.kind]} />
       {#if hit.kind === "track" && index == null}
         <span class="art-state" class:sound={playing}>
           <span class="idle"><Icon name={playing ? "volume" : "play"} size={18} /></span>
@@ -129,6 +138,7 @@
       </div>
       <div class="ellipsis sub">
         {#if hit.quality}<span class="badge">{hit.quality}</span>{/if}
+        {#if hit.versions && hit.versions.length > 1}<span class="badge versions">{hit.versions.length} versions</span>{/if}
         {#if error}<span class="error">{error}</span>{:else}{hit.subtitle}{/if}
       </div>
     </div>
@@ -144,6 +154,12 @@
       onclick={() => app.toggleFavorite(hit.kind, hit.id, hit.title)}
     >
       <Icon name={fav ? "heartFill" : "heart"} size={16} />
+    </button>
+  {/if}
+  {#if hit.versions && hit.versions.length > 1}
+    {@const versions = hit.versions}
+    <button class="icon-btn quiet" title="{versions.length} versions: explicit, clean, Dolby Atmos, remasters…" aria-label="Versions of {hit.title}" onclick={(e) => app.openVersions(e, hit.title, versions)}>
+      <Icon name="layers" size={16} />
     </button>
   {/if}
   {#if hit.kind === "track"}
@@ -249,6 +265,10 @@
     display: flex;
     gap: 6px;
     align-items: center;
+  }
+  .badge.versions {
+    margin-right: 6px;
+    background: color-mix(in srgb, var(--room-accent) 18%, transparent);
   }
   .badge.e {
     margin-left: 4px;

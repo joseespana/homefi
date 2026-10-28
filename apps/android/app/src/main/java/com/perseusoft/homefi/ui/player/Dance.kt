@@ -75,6 +75,15 @@ data class Pose(
      * (positive) and back (negative) instead of out to the sides.
      */
     val turn: Double = 0.0,
+    /**
+     * Holding a guitar (0 none, 1 playing it): the arms then reach for it
+     * instead of following [armL] / [armR].
+     */
+    val guitar: Double = 0.0,
+    /** Where the picking hand is in its stroke across the strings: 1 down, -1 up. */
+    val strum: Double = 0.0,
+    /** Where the fretting hand is along the neck: 0 near the body, 1 further up. */
+    val fret: Double = 0.0,
 )
 
 val REST = Pose()
@@ -109,6 +118,8 @@ private fun steps(table: DoubleArray, b: Double, speed: Double = 4.0): Double {
     val prev = table[(i + table.size - 1) % table.size]
     return mix(prev, table[i], ease(snap(b, speed)))
 }
+
+private val GUITAR_SLIDE = doubleArrayOf(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0)
 
 private val ROBOT_TURNS = doubleArrayOf(0.0, 0.0, 1.0, 1.0, 0.0, 0.0, -1.0, -1.0)
 
@@ -255,9 +266,25 @@ fun dancePose(id: DanceId, b: Double, k: Double, side: Boolean = false): Pose {
             Pose(y = -26 * k * hop, rot = 3 * s, armL = -25 + 6 * d, armR = if (lasso) 165 + 15 * sin(4 * PI * b) else -25 + 6 * d, liftL = 14 * pos(s), liftR = 14 * pos(-s))
         }
         DanceId.GUITAR -> {
-            // fretting hand out, picking hand strumming twice a beat, a jump at the end of the bar
-            val jump = if (idx(b, 4) == 3) sin(PI * frac(b)) else 0.0
-            Pose(y = 8 * d - 50 * k * jump, rot = -8 + 4 * d, armL = 70.0, armR = -10 + 26 * abs(sin(4 * PI * b)), legL = 16.0, legR = 16.0, turn = if (side) 0.45 else 0.0)
+            // a real guitar held across the belly: the picking hand strokes across the
+            // strings (down on the beat, up in between), the fretting hand slides up
+            // the neck every other bar, the body rocks back on the beat and there is
+            // a jump at the end of every four bars. Never further round than three
+            // quarters, so the guitar always stays in front.
+            val jump = if (idx(b, 16) == 15) sin(PI * frac(b)) else 0.0
+            val loud = if (idx(b / 2, 2) == 1) 2 else 1 // every other bar strums twice as fast
+            Pose(
+                y = 3 * d - 40 * k * jump,
+                rot = 1 - 5 * k * d,
+                armL = -60.0,
+                armR = 150.0,
+                legL = 16.0,
+                legR = 16.0,
+                turn = if (side) 0.36 + 0.08 * sin(PI * b / 4) else 0.0,
+                guitar = 1.0,
+                strum = cos(2 * PI * b * loud),
+                fret = steps(GUITAR_SLIDE, b, 3.0),
+            )
         }
     }
 }
@@ -276,6 +303,9 @@ private fun blend(a: Pose, b: Pose, t: Double) = Pose(
     liftR = mix(a.liftR, b.liftR, t),
     flip = if (t < 0.5) a.flip else b.flip,
     turn = mix(a.turn, b.turn, t),
+    guitar = mix(a.guitar, b.guitar, t),
+    strum = mix(a.strum, b.strum, t),
+    fret = mix(a.fret, b.fret, t),
 )
 
 private const val DANCE_BEATS = 16

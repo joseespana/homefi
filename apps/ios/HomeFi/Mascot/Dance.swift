@@ -33,7 +33,7 @@ enum DanceId: String, CaseIterable, Identifiable {
         case .macarena: String(localized: "dance.macarena", defaultValue: "Macarena")
         case .running: String(localized: "dance.running", defaultValue: "Running man")
         case .horse: String(localized: "dance.horse", defaultValue: "Horse ride")
-        case .guitar: String(localized: "dance.guitar", defaultValue: "Air guitar")
+        case .guitar: String(localized: "dance.guitar", defaultValue: "Guitar solo")
         }
     }
 
@@ -49,7 +49,7 @@ enum DanceId: String, CaseIterable, Identifiable {
         case .macarena: String(localized: "dance.macarena.hint", defaultValue: "Arms, head, hips, turn")
         case .running: String(localized: "dance.running.hint", defaultValue: "Running on the spot")
         case .horse: String(localized: "dance.horse.hint", defaultValue: "Galloping with the reins")
-        case .guitar: String(localized: "dance.guitar.hint", defaultValue: "Strumming a guitar that isn't there")
+        case .guitar: String(localized: "dance.guitar.hint", defaultValue: "Rocking out on a guitar")
         }
     }
 }
@@ -143,6 +143,15 @@ struct Pose {
      * (positive) and back (negative) instead of out to the sides.
      */
     var turn: Double = 0
+    /**
+     * Holding a guitar (0 none, 1 playing it): the arms then reach for it
+     * instead of following `armL` / `armR`.
+     */
+    var guitar: Double = 0
+    /// Where the picking hand is in its stroke across the strings: 1 down, -1 up.
+    var strum: Double = 0
+    /// Where the fretting hand is along the neck: 0 near the body, 1 further up.
+    var fret: Double = 0
 }
 
 let REST = Pose()
@@ -179,6 +188,7 @@ private func steps(_ table: [Double], _ b: Double, _ speed: Double = 4) -> Doubl
     return mix(prev, table[i], ease(snap(b, speed)))
 }
 
+private let GUITAR_SLIDE: [Double] = [0, 0, 0, 0, 0, 0, 1, 1]
 private let ROBOT_TURNS: [Double] = [0, 0, 1, 1, 0, 0, -1, -1]
 private let ROBOT: [(Double, Double)] = [(90, 10), (90, 90), (170, 90), (10, 170)]
 private let YMCA: [(Double, Double)] = [
@@ -319,9 +329,18 @@ func dancePose(_ id: DanceId, _ b: Double, _ k: Double, side: Bool = false) -> P
         }
         return Pose(y: -26 * k * hop, rot: 3 * s, armL: -25 + 6 * d, armR: lasso ? 165 + 15 * sin(4 * .pi * b) : -25 + 6 * d, liftL: 14 * pos(s), liftR: 14 * pos(-s))
     case .guitar:
-        // fretting hand out, picking hand strumming twice a beat, a jump at the end of the bar
-        let jump = idx(b, 4) == 3 ? sin(.pi * frac(b)) : 0
-        return Pose(y: 8 * d - 50 * k * jump, rot: -8 + 4 * d, armL: 70, armR: -10 + 26 * abs(sin(4 * .pi * b)), legL: 16, legR: 16, turn: side ? 0.45 : 0)
+        // a real guitar held across the belly: the picking hand strokes across the
+        // strings (down on the beat, up in between), the fretting hand slides up
+        // the neck every other bar, the body rocks back on the beat and there is
+        // a jump at the end of every four bars. Never further round than three
+        // quarters, so the guitar always stays in front.
+        let jump = idx(b, 16) == 15 ? sin(.pi * frac(b)) : 0
+        let loud: Double = idx(b / 2, 2) == 1 ? 2 : 1 // every other bar strums twice as fast
+        return Pose(
+            y: 3 * d - 40 * k * jump, rot: 1 - 5 * k * d, armL: -60, armR: 150, legL: 16, legR: 16,
+            turn: side ? 0.36 + 0.08 * sin(.pi * b / 4) : 0,
+            guitar: 1, strum: cos(2 * .pi * b * loud), fret: steps(GUITAR_SLIDE, b, 3)
+        )
     }
 }
 
@@ -339,7 +358,10 @@ private func blend(_ a: Pose, _ b: Pose, _ t: Double) -> Pose {
         liftL: mix(a.liftL, b.liftL, t),
         liftR: mix(a.liftR, b.liftR, t),
         flip: t < 0.5 ? a.flip : b.flip,
-        turn: mix(a.turn, b.turn, t)
+        turn: mix(a.turn, b.turn, t),
+        guitar: mix(a.guitar, b.guitar, t),
+        strum: mix(a.strum, b.strum, t),
+        fret: mix(a.fret, b.fret, t)
     )
 }
 

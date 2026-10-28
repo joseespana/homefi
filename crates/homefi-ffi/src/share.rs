@@ -533,22 +533,25 @@ impl share::HubHost for CallbackHost {
 
 /// Starts sharing: guests can join at [`ShareHub::info`] until
 /// [`ShareHub::stop`] (or until the object is released).
-#[uniffi::export(async_runtime = "tokio")]
+#[uniffi::export]
 pub async fn start_hub(settings: HubSettings, host: Box<dyn HubHostCallback>) -> Result<Arc<ShareHub>> {
-    let mut config = HubConfig::new(settings.session_name, settings.host_name);
-    config.host_color = settings.host_color;
-    config.code = settings.code;
-    config.bind = SocketAddr::from(([0, 0, 0, 0], settings.port));
-    config.permissions = settings.permissions.into();
-    config.stream_audio = settings.stream_audio;
-    let hub = Hub::start(config, Arc::new(CallbackHost(Arc::from(host)))).await?;
-    let host = settings
-        .advertise_host
-        .filter(|h| !h.trim().is_empty())
-        .or_else(|| share::local_ip_guess().map(|ip| ip.to_string()))
-        .unwrap_or_else(|| "127.0.0.1".into());
-    let info = hub.join_info(&host).into();
-    Ok(Arc::new(ShareHub { hub, info }))
+    crate::runtime::run(async move {
+        let mut config = HubConfig::new(settings.session_name, settings.host_name);
+        config.host_color = settings.host_color;
+        config.code = settings.code;
+        config.bind = SocketAddr::from(([0, 0, 0, 0], settings.port));
+        config.permissions = settings.permissions.into();
+        config.stream_audio = settings.stream_audio;
+        let hub = Hub::start(config, Arc::new(CallbackHost(Arc::from(host)))).await?;
+        let host = settings
+            .advertise_host
+            .filter(|h| !h.trim().is_empty())
+            .or_else(|| share::local_ip_guess().map(|ip| ip.to_string()))
+            .unwrap_or_else(|| "127.0.0.1".into());
+        let info = hub.join_info(&host).into();
+        Ok(Arc::new(ShareHub { hub, info }))
+    })
+    .await
 }
 
 #[derive(uniffi::Object)]
@@ -557,7 +560,7 @@ pub struct ShareHub {
     info: HubInfo,
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[uniffi::export]
 impl ShareHub {
     pub fn info(&self) -> HubInfo {
         self.info.clone()
@@ -670,8 +673,11 @@ impl ShareHub {
     }
 
     /// Disconnects everyone and frees the port.
-    pub async fn stop(&self) {
-        self.hub.stop().await;
+    pub async fn stop(self: Arc<Self>) {
+        crate::runtime::run(async move {
+            self.hub.stop().await;
+        })
+        .await
     }
 }
 
@@ -748,7 +754,7 @@ pub struct GuestWelcome {
 
 /// Joins the hub at `host:port`. Fails with the hub's reason ("Wrong join
 /// code", ...). Events go to `listener` until `Disconnected`.
-#[uniffi::export(async_runtime = "tokio")]
+#[uniffi::export]
 pub async fn join_hub(
     host: String,
     port: u16,
@@ -757,31 +763,34 @@ pub async fn join_hub(
     code: String,
     listener: Box<dyn GuestListener>,
 ) -> Result<Arc<ShareGuest>> {
-    let (client, welcome, mut rx) = GuestClient::connect(&host, port, &name, &color, &code).await?;
-    let pump = tokio::spawn(async move {
-        while let Some(event) = rx.recv().await {
-            let event = match event {
-                share::GuestEvent::Message(msg) => match msg {
-                    HubMessage::State(s) => GuestEvent::State { state: s.into() },
-                    HubMessage::Results(r) => GuestEvent::Results { results: r.into() },
-                    HubMessage::Page(p) => GuestEvent::Page { page: p.into() },
-                    HubMessage::Notice { text } => GuestEvent::Notice { text },
-                    HubMessage::Denied { reason } => GuestEvent::Denied { reason },
-                    HubMessage::Levels { l, r, b } => GuestEvent::Levels { left: l, right: r, bands: b },
-                    HubMessage::Welcome { .. } | HubMessage::Clock { .. } | HubMessage::Unknown => continue,
-                },
-                share::GuestEvent::Disconnected { reason } => GuestEvent::Disconnected { reason },
-            };
-            listener.on_event(event);
-        }
-    });
-    let welcome = GuestWelcome {
-        guest_id: welcome.guest_id,
-        session_name: welcome.session_name,
-        permissions: welcome.permissions.into(),
-        state: welcome.state.into(),
-    };
-    Ok(Arc::new(ShareGuest { client, welcome, pump }))
+    crate::runtime::run(async move {
+        let (client, welcome, mut rx) = GuestClient::join(&host, port, &name, &color, &code).await?;
+        let pump = tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                let event = match event {
+                    share::GuestEvent::Message(msg) => match msg {
+                        HubMessage::State(s) => GuestEvent::State { state: s.into() },
+                        HubMessage::Results(r) => GuestEvent::Results { results: r.into() },
+                        HubMessage::Page(p) => GuestEvent::Page { page: p.into() },
+                        HubMessage::Notice { text } => GuestEvent::Notice { text },
+                        HubMessage::Denied { reason } => GuestEvent::Denied { reason },
+                        HubMessage::Levels { l, r, b } => GuestEvent::Levels { left: l, right: r, bands: b },
+                        HubMessage::Welcome { .. } | HubMessage::Clock { .. } | HubMessage::Unknown => continue,
+                    },
+                    share::GuestEvent::Disconnected { reason } => GuestEvent::Disconnected { reason },
+                };
+                listener.on_event(event);
+            }
+        });
+        let welcome = GuestWelcome {
+            guest_id: welcome.guest_id,
+            session_name: welcome.session_name,
+            permissions: welcome.permissions.into(),
+            state: welcome.state.into(),
+        };
+        Ok(Arc::new(ShareGuest { client, welcome, pump }))
+    })
+    .await
 }
 
 #[derive(uniffi::Object)]

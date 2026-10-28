@@ -4,6 +4,8 @@
   import Icon from "../Icon.svelte";
   import { lyrics } from "../../lib/lyrics.svelte";
   import { useSource } from "../../lib/source.svelte";
+  import { sound } from "../../lib/sound.svelte";
+  import HowSounds from "../sound/HowSounds.svelte";
 
   let { light = false }: { light?: boolean } = $props();
   let open = $state(false);
@@ -11,6 +13,9 @@
 </script>
 
 <div class="customize">
+  {#if src.current && !src.remote && sound.ui.react_room}
+    <HowSounds place="room" look={light ? "skin-light" : "skin"} />
+  {/if}
   {#if src.current}
     <button class="chip" class:light onclick={() => lyrics.setOpen(true)} aria-label="Show the lyrics" title="Lyrics">
       <Icon name="lyrics" size={14} /> <span>Lyrics</span>

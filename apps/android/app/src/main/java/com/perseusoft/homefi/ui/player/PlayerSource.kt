@@ -57,7 +57,7 @@ interface PlayerSource {
     fun skipTo(index: Int)
     fun toggleShuffle()
     fun cycleRepeat()
-    fun play(tracks: List<LibraryTrack>, startIndex: Int = 0)
+    fun play(tracks: List<LibraryTrack>, startIndex: Int = 0, source: com.perseusoft.homefi.core.SourceContext? = null)
     fun queueTracks(tracks: List<LibraryTrack>, next: Boolean)
 }
 
@@ -73,7 +73,7 @@ private class ControllerSource(private val player: PlayerController) : PlayerSou
     override fun skipTo(index: Int) = player.skipTo(index)
     override fun toggleShuffle() = player.toggleShuffle()
     override fun cycleRepeat() = player.cycleRepeat()
-    override fun play(tracks: List<LibraryTrack>, startIndex: Int) = player.play(tracks, startIndex)
+    override fun play(tracks: List<LibraryTrack>, startIndex: Int, source: com.perseusoft.homefi.core.SourceContext?) = player.play(tracks, startIndex, source = source)
     override fun queueTracks(tracks: List<LibraryTrack>, next: Boolean) = player.queueTracks(tracks, next)
 }
 

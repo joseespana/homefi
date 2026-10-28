@@ -3,8 +3,10 @@
 
 use std::path::{Path, PathBuf};
 
+use homefi_core::dsp::{CrossfadeSettings, EqProfile, EqSettings, LoudnessSettings, TasteSettings};
 use homefi_core::quality::TrackQuality;
 use homefi_core::share::{AddMode, EditMode, Permissions, QueueOrder, SkipMode};
+use homefi_player::OutputOptions;
 use serde::{Deserialize, Serialize};
 
 /// What the listening room shows. Everything can be turned off.
@@ -12,6 +14,11 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct RoomSettings {
     pub signal_chain: bool,
+    /// How the signal chain looks: `compact` (small stages joined by a
+    /// flowing signal, details on hover) or `detailed` (the big boxes).
+    pub signal_style: String,
+    /// The links of the signal chain flow while the music plays.
+    pub signal_animate: bool,
     pub vu_meters: bool,
     pub visualizer: bool,
     pub halo: bool,
@@ -72,6 +79,8 @@ impl Default for RoomSettings {
     fn default() -> Self {
         Self {
             signal_chain: true,
+            signal_style: "compact".into(),
+            signal_animate: true,
             vu_meters: true,
             visualizer: true,
             halo: true,
@@ -212,6 +221,61 @@ impl ShareSettings {
     }
 }
 
+/// Which AI the assistants use. Never the key: that one lives in the OS
+/// keychain (see `ai.rs`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct AiSettings {
+    /// Provider id (`anthropic`, `openai`, `gemini`, `openrouter`, `mistral`,
+    /// `groq`, `xai`, `deepseek`, `ollama`, `openai_compatible`); empty = no
+    /// AI, the EQ assistant runs as the guided wizard.
+    pub provider: String,
+    /// Empty: the provider's default, or the best one it lists.
+    pub model: String,
+    /// Address of an Ollama or custom server; empty = the provider's own.
+    pub base_url: String,
+}
+
+/// How the equalizer screen looks and behaves (desktop only).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EqUiSettings {
+    /// An "EQ" button next to the output in the player bar.
+    pub deck_button: bool,
+    /// "Hear without EQ": `hold` (while pressed) or `toggle` (click on, click off).
+    pub ab_mode: String,
+    /// Band numbers on the handles of the curve.
+    pub band_labels: bool,
+    /// Bass / treble / clarity sliders on the equalizer screen.
+    pub taste_sliders: bool,
+}
+
+impl Default for EqUiSettings {
+    fn default() -> Self {
+        Self { deck_button: true, ab_mode: "hold".into(), band_labels: true, taste_sliders: true }
+    }
+}
+
+/// "How does it sound?" and taste layers in the interface (desktop only).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SoundUiSettings {
+    /// The "How does it sound?" button in the player bar.
+    pub react_deck: bool,
+    /// ...and in the listening room.
+    pub react_room: bool,
+    /// "HD 650 + Electronic" next to the EQ button: which layers play.
+    pub layer_chip: bool,
+    /// Suggestion cards (a taste layer for what you listen to most).
+    pub suggestions: bool,
+}
+
+impl Default for SoundUiSettings {
+    fn default() -> Self {
+        Self { react_deck: true, react_room: true, layer_chip: true, suggestions: true }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DesktopSettings {
@@ -245,6 +309,52 @@ pub struct DesktopSettings {
     pub tidal_terms_accepted: u32,
     /// When it was accepted (Unix epoch, milliseconds).
     pub tidal_terms_accepted_at: Option<u64>,
+    /// Equalizer (off by default): a profile per output device, AutoEq
+    /// headphone corrections. camelCase inside, like on Android; an unreadable
+    /// section falls back to the defaults instead of resetting every setting.
+    #[serde(deserialize_with = "homefi_core::dsp::lenient_settings")]
+    pub eq: EqSettings,
+    /// Bring-your-own-key AI (the EQ assistant); the key is in the OS keychain.
+    pub ai: AiSettings,
+    /// The user's saved equalizer presets (camelCase inside, like `eq`).
+    pub eq_presets: Vec<EqProfile>,
+    pub eq_ui: EqUiSettings,
+    /// Taste layers: tilts for a genre, playlist, artist, album or track on top
+    /// of the output's profile (camelCase inside, like `eq`; off until the first rule).
+    #[serde(deserialize_with = "homefi_core::dsp::lenient_taste")]
+    pub taste: TasteSettings,
+    /// Loudness normalization from ReplayGain (off: bit-perfect).
+    #[serde(deserialize_with = "homefi_core::dsp::lenient_loudness")]
+    pub loudness: LoudnessSettings,
+    pub sound_ui: SoundUiSettings,
+    /// One card per album on Tidal lists, and which release it shows.
+    pub album_versions: homefi_core::album_versions::VersionPrefs,
+    /// Crossfade between songs (off: gapless, bit-perfect). camelCase inside,
+    /// the same JSON as Android's `crossfade_settings`.
+    #[serde(deserialize_with = "homefi_core::dsp::lenient_crossfade")]
+    pub crossfade: CrossfadeSettings,
+    /// Surround devices (stereo on 5.1 / 7.1 speakers) and resampler quality.
+    #[serde(deserialize_with = "lenient")]
+    pub output: OutputOptions,
+}
+
+/// A section written by a newer version (unknown values) reads as its
+/// defaults instead of resetting the whole file.
+fn lenient<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Any<T> {
+        Known(T),
+        Other(serde::de::IgnoredAny),
+    }
+    Ok(match Any::<T>::deserialize(d)? {
+        Any::Known(v) => v,
+        Any::Other(_) => T::default(),
+    })
 }
 
 impl Default for DesktopSettings {
@@ -269,6 +379,16 @@ impl Default for DesktopSettings {
             share: ShareSettings::default(),
             tidal_terms_accepted: 0,
             tidal_terms_accepted_at: None,
+            eq: EqSettings::default(),
+            ai: AiSettings::default(),
+            eq_presets: Vec::new(),
+            eq_ui: EqUiSettings::default(),
+            taste: TasteSettings::default(),
+            loudness: LoudnessSettings::default(),
+            sound_ui: SoundUiSettings::default(),
+            album_versions: Default::default(),
+            crossfade: CrossfadeSettings::default(),
+            output: OutputOptions::default(),
         }
     }
 }
@@ -278,8 +398,12 @@ impl DesktopSettings {
         std::fs::read(path).ok().and_then(|raw| serde_json::from_slice(&raw).ok()).unwrap_or_default()
     }
 
+    /// Writes the file whole or not at all (a temp file renamed over it): a
+    /// crash mid-write can't leave a broken file that would reset every setting.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        std::fs::write(path, serde_json::to_vec_pretty(self)?)
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_vec_pretty(self)?)?;
+        std::fs::rename(&tmp, path)
     }
 
     pub fn library_roots(&self) -> Vec<PathBuf> {
@@ -299,6 +423,7 @@ mod tests {
         assert_eq!(old.theme, "dark");
         assert_eq!(old.share, ShareSettings::default());
         assert!(old.lazy_lists);
+        assert!(old.album_versions.group);
         // nobody has accepted the personal-use notice until they see it
         assert_eq!(old.tidal_terms_accepted, 0);
         assert_eq!(old.tidal_terms_accepted_at, None);
@@ -320,5 +445,56 @@ mod tests {
         assert!(old.room.lyrics_mascot);
         assert_eq!(old.room.lyrics_offset_ms, 0);
         assert_eq!(old.room.motion, "auto");
+    }
+
+    #[test]
+    fn the_equalizer_starts_off_and_survives_bad_data() {
+        let old: DesktopSettings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(old.eq, EqSettings::default());
+        assert!(!old.eq.enabled);
+        let eq: DesktopSettings = serde_json::from_str(
+            r#"{"eq":{"enabled":true,"perOutput":{"USB DAC":{"name":"HD 650","bands":[{"freqHz":105,"gainDb":6}]}}}}"#,
+        )
+        .unwrap();
+        assert!(eq.eq.enabled && eq.eq.auto_preamp);
+        assert_eq!(eq.eq.profile_for("USB DAC").map(|p| p.bands.len()), Some(1));
+        // a broken eq section keeps the rest of the file
+        let bad: DesktopSettings = serde_json::from_str(r#"{"theme":"dark","eq":{"enabled":"yes"}}"#).unwrap();
+        assert_eq!(bad.theme, "dark");
+        assert_eq!(bad.eq, EqSettings::default());
+        assert!(bad.eq_presets.is_empty() && bad.eq_ui.deck_button && bad.eq_ui.ab_mode == "hold");
+    }
+
+    #[test]
+    fn crossfade_and_surround_start_off_and_survive_bad_data() {
+        use homefi_player::{CrossfadeMode, ResamplerQuality, SurroundMode};
+        let old: DesktopSettings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(!old.crossfade.is_on());
+        assert_eq!(old.output, OutputOptions::default());
+        assert_eq!(old.output.surround, SurroundMode::FrontOnly);
+        let set: DesktopSettings = serde_json::from_str(
+            r#"{"crossfade":{"mode":"on","seconds":40},"output":{"surround":"upmix","resampler":"fast"}}"#,
+        )
+        .unwrap();
+        assert_eq!((set.crossfade.mode, set.crossfade.seconds), (CrossfadeMode::On, 12.0));
+        assert_eq!((set.output.surround, set.output.resampler), (SurroundMode::Upmix, ResamplerQuality::Fast));
+        let bad: DesktopSettings =
+            serde_json::from_str(r#"{"theme":"dark","crossfade":7,"output":{"surround":"dolby atmos"}}"#).unwrap();
+        assert_eq!(bad.theme, "dark");
+        assert!(!bad.crossfade.is_on());
+        assert_eq!(bad.output, OutputOptions::default());
+    }
+
+    #[test]
+    fn taste_and_loudness_start_off_and_survive_bad_data() {
+        let old: DesktopSettings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(!old.taste.enabled && old.taste.rules.is_empty());
+        assert_eq!(old.loudness, LoudnessSettings::default());
+        assert!(old.sound_ui.react_deck && old.sound_ui.layer_chip);
+        let bad: DesktopSettings =
+            serde_json::from_str(r#"{"theme":"dark","taste":{"rules":7},"loudness":{"mode":42}}"#).unwrap();
+        assert_eq!(bad.theme, "dark");
+        assert!(bad.taste.rules.is_empty());
+        assert_eq!(bad.loudness.mode, homefi_core::dsp::LoudnessMode::Off);
     }
 }

@@ -22,6 +22,32 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(45);
 const CLOCK_BURST: u32 = 5;
 const CLOCK_BURST_EVERY: Duration = Duration::from_millis(150);
 const CLOCK_EVERY: Duration = Duration::from_secs(3);
+/// Events waiting for the app in [`GuestClient::join`]. Levels are dropped
+/// when it is full; other events wait for room (the socket waits with them).
+pub const EVENT_QUEUE: usize = 64;
+
+/// Where the connection task puts events.
+enum Events {
+    Unbounded(mpsc::UnboundedSender<GuestEvent>),
+    Bounded(mpsc::Sender<GuestEvent>),
+}
+
+impl Events {
+    async fn send(&self, event: GuestEvent) {
+        match self {
+            Events::Unbounded(tx) => {
+                let _ = tx.send(event);
+            }
+            // the visualizer misses a frame rather than the app falling behind
+            Events::Bounded(tx) if matches!(event, GuestEvent::Message(HubMessage::Levels { .. })) => {
+                let _ = tx.try_send(event);
+            }
+            Events::Bounded(tx) => {
+                let _ = tx.send(event).await;
+            }
+        }
+    }
+}
 
 /// What the hub said when the guest joined.
 #[derive(Debug, Clone, PartialEq)]
@@ -63,7 +89,8 @@ pub struct GuestClient {
 impl GuestClient {
     /// Joins the hub at `host:port`. Fails with the hub's reason when it refuses
     /// (`Error::Share("Wrong join code")`, ...). Returns the client, the welcome
-    /// and the stream of everything that follows.
+    /// and the stream of everything that follows. Prefer [`Self::join`], whose
+    /// stream is bounded.
     pub async fn connect(
         host: &str,
         port: u16,
@@ -71,6 +98,33 @@ impl GuestClient {
         color: &str,
         code: &str,
     ) -> Result<(Self, Welcome, mpsc::UnboundedReceiver<GuestEvent>)> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let (client, welcome) = Self::open(host, port, name, color, code, Events::Unbounded(tx)).await?;
+        Ok((client, welcome, rx))
+    }
+
+    /// [`Self::connect`] with a bounded stream of [`EVENT_QUEUE`] events: an
+    /// app slow to take them misses level updates, never piles them up.
+    pub async fn join(
+        host: &str,
+        port: u16,
+        name: &str,
+        color: &str,
+        code: &str,
+    ) -> Result<(Self, Welcome, mpsc::Receiver<GuestEvent>)> {
+        let (tx, rx) = mpsc::channel(EVENT_QUEUE);
+        let (client, welcome) = Self::open(host, port, name, color, code, Events::Bounded(tx)).await?;
+        Ok((client, welcome, rx))
+    }
+
+    async fn open(
+        host: &str,
+        port: u16,
+        name: &str,
+        color: &str,
+        code: &str,
+        event_tx: Events,
+    ) -> Result<(Self, Welcome)> {
         // IPv6 literals need brackets in URLs.
         let authority = if host.contains(':') && !host.starts_with('[') {
             format!("[{host}]:{port}")
@@ -117,7 +171,6 @@ impl GuestClient {
         .map_err(|_| Error::Share("The hub did not answer".into()))??;
 
         let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Outbound>();
-        let (event_tx, event_rx) = mpsc::unbounded_channel();
         let clock = Arc::new(Mutex::new(ClockSync::default()));
         let epoch = Instant::now();
         let samples = clock.clone();
@@ -158,9 +211,7 @@ impl GuestClient {
                                 let t3 = local_ms();
                                 samples.lock().unwrap_or_else(|e| e.into_inner()).add(t0, hub_ms, t3);
                             }
-                            Ok(msg) => {
-                                let _ = event_tx.send(GuestEvent::Message(msg));
-                            }
+                            Ok(msg) => event_tx.send(GuestEvent::Message(msg)).await,
                             Err(e) => tracing::debug!("share: bad message from the hub: {e}"),
                         },
                         Ok(Some(Ok(Message::Close(frame)))) => {
@@ -176,7 +227,7 @@ impl GuestClient {
                     },
                 }
             }
-            let _ = event_tx.send(GuestEvent::Disconnected { reason });
+            event_tx.send(GuestEvent::Disconnected { reason }).await;
         });
 
         let client = Self {
@@ -187,7 +238,7 @@ impl GuestClient {
             clock,
             epoch,
         };
-        Ok((client, welcome, event_rx))
+        Ok((client, welcome))
     }
 
     pub fn guest_id(&self) -> &str {

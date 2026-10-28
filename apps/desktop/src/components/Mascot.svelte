@@ -68,7 +68,7 @@
       anger = t < angryUntil ? (t - angryFrom) / 1000 : -1;
       if (angry) p = angryPose(anger);
       // the right hand holds the microphone up to the mouth
-      else if (singing && playing) p = { ...p, armR: -110, turn: 0, flip: false };
+      else if (singing && playing) p = { ...p, armR: -110, turn: 0, flip: false, guitar: 0 };
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -168,12 +168,56 @@
       depth: front * side,
     };
   }
+  // The guitar (see `Pose.guitar`): body across the belly on the picking
+  // hand's side (the left of the picture), neck slanting up towards the
+  // fretting hand. It sits in front of the house, so when the mascot turns it
+  // slides round towards where it faces and is seen a little edge-on.
+  const GUITAR = { x: 410, y: 712, ahead: 150, neck: 22, scale: 1.2 };
+  const NECK_A = (GUITAR.neck * Math.PI) / 180;
+  const ARM_MAX = 175;
+  const g = $derived(limbs === "off" ? 0 : Math.max(0, Math.min(1, p.guitar)));
+  const guitar = $derived.by(() => {
+    // the guitar turns a little less than the body so its face stays in view
+    const gx = 512 + (GUITAR.x - 512) * across + GUITAR.ahead * side;
+    const gy = GUITAR.y - 16 * Math.abs(side);
+    const sx = Math.cos(th * 0.7);
+    const z = GUITAR.scale;
+    const at = (u: number, v: number) => [gx + (u * Math.cos(NECK_A) + v * Math.sin(NECK_A)) * sx * z, gy + (v * Math.cos(NECK_A) - u * Math.sin(NECK_A)) * z] as const;
+    return { at, transform: `translate(${gx.toFixed(1)} ${gy.toFixed(1)}) scale(${(sx * z).toFixed(3)} ${z}) rotate(${-GUITAR.neck})` };
+  });
+  /** Points an arm at `target`, stretching it up to `ARM_MAX`; `g` blends from its dance angle. */
+  function reach(arm: { x: number; y: number; rot: number }, target: readonly [number, number]) {
+    const dx = target[0] - arm.x;
+    const dy = target[1] - arm.y;
+    const rot = (Math.atan2(-dx, dy) * 180) / Math.PI;
+    const turnBy = ((((rot - arm.rot) % 360) + 540) % 360) - 180;
+    return { rot: arm.rot + turnBy * g, len: ARM + (Math.min(ARM_MAX, Math.hypot(dx, dy)) - ARM) * g };
+  }
+  /**
+   * Picking hand: a short stroke across the strings over the pickups, curving
+   * a little at each end; turned, it flicks more along the face of the guitar.
+   */
+  const pickAt = $derived(guitar.at(-24 - 8 * p.strum * p.strum + 16 * p.strum * Math.abs(side), -6 + 16 * p.strum * (1 - 0.4 * Math.abs(side))));
+  /** Fretting hand: on the neck, as far up as the arm reaches. */
+  function fretAt(shoulder: { x: number; y: number }) {
+    let u = 230 + 70 * p.fret;
+    for (; u > 120; u -= 10) {
+      const [x, y] = guitar.at(u, 0);
+      if (Math.hypot(x - shoulder.x, y - shoulder.y) <= ARM_MAX - 15) break;
+    }
+    return guitar.at(u, 0);
+  }
   const armList = $derived(
     [
-      { ...limb(SHOULDER.l[0], p.armL, 1), y: SHOULDER.l[1], mic: false },
-      { ...limb(SHOULDER.r[0], p.armR, -1), y: SHOULDER.r[1], mic: singing && playing && !angry },
-    ].sort((a, b) => a.depth - b.depth),
+      { ...limb(SHOULDER.l[0], p.armL, 1), y: SHOULDER.l[1], mic: false, len: ARM, pick: false, hold: "pick" },
+      { ...limb(SHOULDER.r[0], p.armR, -1), y: SHOULDER.r[1], mic: singing && playing && !angry, len: ARM, pick: false, hold: "fret" },
+    ]
+      .map((a) => (g > 0 ? { ...a, ...reach(a, a.hold === "pick" ? pickAt : fretAt(a)), pick: g > 0.5 && a.hold === "pick" } : a))
+      .sort((a, b) => a.depth - b.depth),
   );
+  /** With the guitar on, the fretting arm stays in front of the house (it reaches round to the neck). */
+  const behindArms = $derived(armList.filter((a) => a.depth < BEHIND && !(g > 0.5 && a.hold === "fret")));
+  const frontArms = $derived(armList.filter((a) => !behindArms.includes(a)));
   const legList = $derived(
     [
       { ...limb(HIP.l[0], p.legL, 1), y: HIP.l[1], lift: p.liftL },
@@ -224,14 +268,25 @@
     `M${x} ${y}L${x - s * 0.5} ${y + s * 1.1}L${x - s * 0.05} ${y + s * 1.1}L${x - s * 0.35} ${y + s * 2}L${x + s * 0.55} ${y + s * 0.75}L${x + s * 0.08} ${y + s * 0.75}L${x + s * 0.35} ${y}Z`;
 </script>
 
-{#snippet armShape(arm: { x: number; y: number; rot: number; mic: boolean })}
+{#snippet armShape(arm: { x: number; y: number; rot: number; mic: boolean; len: number; pick: boolean })}
   <g transform="translate({arm.x.toFixed(1)} {arm.y}) rotate({arm.rot.toFixed(1)})">
-    {#if outline !== "none"}
-      <line y2={ARM} stroke={outline} stroke-width="72" stroke-linecap="round" />
-      <circle cy={ARM} r="46" fill={outline} />
+    {#if arm.pick}
+      <!-- the pick, held tip down towards the strings and flicking with the wrist -->
+      <path
+        d="M-22 0L22 0L0 40Z"
+        transform="translate(0 {arm.len.toFixed(1)}) rotate({(-arm.rot - GUITAR.neck + 14 * p.strum).toFixed(1)}) translate(0 34)"
+        fill="#fde047"
+        stroke={C.navy}
+        stroke-width="6"
+        stroke-linejoin="round"
+      />
     {/if}
-    <line y2={ARM} stroke={fill} stroke-width="56" stroke-linecap="round" />
-    <circle cy={ARM} r="38" fill={fill} />
+    {#if outline !== "none"}
+      <line y2={arm.len} stroke={outline} stroke-width="72" stroke-linecap="round" />
+      <circle cy={arm.len} r="46" fill={outline} />
+    {/if}
+    <line y2={arm.len} stroke={fill} stroke-width="56" stroke-linecap="round" />
+    <circle cy={arm.len} r="38" fill={fill} />
     {#if arm.mic}
       <!-- microphone, pointing at the mouth -->
       <rect x="-15" y={ARM - 6} width="30" height="78" rx="12" fill="#374151" />
@@ -239,6 +294,35 @@
       <circle cy={ARM + 100} r="36" fill="#d1d5db" stroke="#6b7280" stroke-width="6" />
       <path d="M-30 {ARM + 92}H30M-30 {ARM + 108}H30M-12 {ARM + 66}V{ARM + 134}M12 {ARM + 66}V{ARM + 134}" stroke="#6b7280" stroke-width="4" opacity="0.7" />
     {/if}
+  </g>
+{/snippet}
+
+<!-- an electric guitar, neck along +x, centred on its body -->
+{#snippet guitarShape()}
+  <g transform={guitar.transform} opacity={Math.min(1, g * 2).toFixed(2)}>
+    <!-- outline first, then the parts on top -->
+    <g fill={C.navy}>
+      <circle cx="-38" cy="0" r="92" />
+      <circle cx="46" cy="0" r="72" />
+      <rect x="70" y="-25" width="300" height="50" rx="12" />
+      <path d="M352 -36L446 -46Q458 0 446 46L352 36Z" stroke={C.navy} stroke-width="12" stroke-linejoin="round" />
+    </g>
+    <circle cx="-38" cy="0" r="82" fill="#dc2626" />
+    <circle cx="46" cy="0" r="62" fill="#dc2626" />
+    <!-- pickguard, pickups and bridge -->
+    <path d="M-70 -40Q-10 -66 60 -30L60 30Q-10 66 -70 40Z" fill="#f8fafc" opacity="0.9" />
+    <rect x="-24" y="-34" width="18" height="68" rx="5" fill="#111827" />
+    <rect x="18" y="-34" width="18" height="68" rx="5" fill="#111827" />
+    <rect x="-72" y="-30" width="14" height="60" rx="4" fill="#9ca3af" />
+    <circle cx="-88" cy="44" r="9" fill="#fde047" />
+    <circle cx="-62" cy="62" r="9" fill="#fde047" />
+    <!-- neck, frets and headstock with its tuning pegs -->
+    <rect x="76" y="-17" width="290" height="34" rx="6" fill="#a16207" />
+    {#each [110, 150, 186, 220, 252, 282, 310, 336] as x}<path d="M{x} -17V17" stroke="#fde68a" stroke-width="4" />{/each}
+    <path d="M358 -30L440 -38Q450 0 440 38L358 30Z" fill="#111827" />
+    {#each [376, 402, 428] as x}<circle cx={x} cy="-44" r="9" fill="#d1d5db" /><circle cx={x} cy="44" r="9" fill="#d1d5db" />{/each}
+    <!-- strings -->
+    <path d="M-64 -12H372M-64 0H372M-64 12H372" stroke="#e5e7eb" stroke-width="3" />
   </g>
 {/snippet}
 
@@ -464,7 +548,7 @@
           <clipPath id={clipId}><path d={MASCOT.house} /></clipPath>
         </defs>
         {#if limbs !== "off"}
-          {#each armList.filter((a) => a.depth < BEHIND) as arm}
+          {#each behindArms as arm}
             {@render armShape(arm)}
           {/each}
         {/if}
@@ -508,9 +592,13 @@
             {/if}
           </g>
         </g>
+        {#if g > 0}
+          <!-- in front of the body, behind the hands -->
+          {@render guitarShape()}
+        {/if}
         {#if limbs !== "off"}
           <!-- arms with mitten hands, in front so raised arms stay visible -->
-          {#each armList.filter((a) => a.depth >= BEHIND) as arm}
+          {#each frontArms as arm}
             {@render armShape(arm)}
           {/each}
         {/if}

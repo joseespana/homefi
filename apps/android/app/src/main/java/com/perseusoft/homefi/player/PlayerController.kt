@@ -16,6 +16,7 @@ import com.perseusoft.homefi.core.LibraryTrack
 import com.perseusoft.homefi.core.ItemKind
 import android.widget.Toast
 import com.perseusoft.homefi.core.SearchHit
+import com.perseusoft.homefi.core.SourceContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
@@ -134,24 +135,26 @@ class PlayerController(private val context: Context, private val trackLookup: (S
         }
     }
 
-    fun play(tracks: List<LibraryTrack>, startIndex: Int = 0, shuffle: Boolean = false) {
+    /** [source]: the album, playlist... the tracks come from (taste rules and album loudness use it). */
+    fun play(tracks: List<LibraryTrack>, startIndex: Int = 0, shuffle: Boolean = false, source: SourceContext? = null) {
         if (tracks.isEmpty()) return
-        playItems(tracks.map { it.toMediaItem() }, startIndex, shuffle)
+        playItems(tracks.map { it.toMediaItem().withSource(source) }, startIndex, shuffle)
     }
 
-    fun playItems(items: List<MediaItem>, startIndex: Int, shuffle: Boolean) = withController { c ->
-        if (items.isNotEmpty() && playOverride?.invoke(items, startIndex.coerceIn(0, items.lastIndex), false) == true) return@withController
+    fun playItems(items: List<MediaItem>, startIndex: Int, shuffle: Boolean, source: SourceContext? = null) = withController { c ->
+        val queue = if (source == null) items else items.map { it.withSource(source) }
+        if (queue.isNotEmpty() && playOverride?.invoke(queue, startIndex.coerceIn(0, queue.lastIndex), false) == true) return@withController
         c.shuffleModeEnabled = shuffle
-        val start = if (shuffle) (items.indices).random() else startIndex.coerceIn(0, items.lastIndex)
-        c.setMediaItems(items, start, 0L)
+        val start = if (shuffle) (queue.indices).random() else startIndex.coerceIn(0, queue.lastIndex)
+        c.setMediaItems(queue, start, 0L)
         c.prepare()
         c.play()
     }
 
     /** Tidal tracks, streamed (see TidalStreams). */
-    fun playTidal(tracks: List<SearchHit>, startIndex: Int = 0, shuffle: Boolean = false) {
+    fun playTidal(tracks: List<SearchHit>, startIndex: Int = 0, shuffle: Boolean = false, source: SourceContext? = null) {
         if (tracks.isEmpty()) return
-        playItems(tracks.map { it.toTidalMediaItem() }, startIndex, shuffle)
+        playItems(tracks.map { it.toTidalMediaItem() }, startIndex, shuffle, source)
     }
 
     /**
@@ -186,8 +189,8 @@ class PlayerController(private val context: Context, private val trackLookup: (S
      * after its last loaded track ([lastId] at [lastIndex]) while the queue still holds it
      * there. Silently skipped once the user replaced the queue.
      */
-    fun appendTidal(lastId: String, lastIndex: Int, rest: List<SearchHit>) = withController { c ->
-        val items = rest.filter { it.kind == ItemKind.TRACK }.map { it.toTidalMediaItem() }
+    fun appendTidal(lastId: String, lastIndex: Int, rest: List<SearchHit>, source: SourceContext? = null) = withController { c ->
+        val items = rest.filter { it.kind == ItemKind.TRACK }.map { it.toTidalMediaItem().withSource(source) }
         if (items.isEmpty() || lastIndex !in 0 until c.mediaItemCount) return@withController
         if (c.getMediaItemAt(lastIndex).mediaId != "tidal:$lastId") return@withController
         c.addMediaItems(lastIndex + 1, items)

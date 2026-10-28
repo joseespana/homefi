@@ -1,17 +1,22 @@
 <script lang="ts">
+  import { sound } from "../lib/sound.svelte";
   import { item } from "../lib/motion";
-  import { api, bumpCovers, errorText, on, type ArtworkProgress, type Track } from "../lib/api";
+  import { api, bumpCovers, errorText, on, type ArtworkProgress, type Track, type SourceContext, type TasteScope } from "../lib/api";
   import { pickFolder } from "./Folder.svelte";
   import { app, filterTracks, groupAlbums, groupArtists } from "../lib/state.svelte";
   import Cover from "./Cover.svelte";
   import Icon from "./Icon.svelte";
   import Skeleton from "./Skeleton.svelte";
   import TrackTable from "./TrackTable.svelte";
+  import { Progressive } from "../lib/virtual.svelte";
 
   let query = $state("");
   const tracks = $derived(filterTracks(app.tracks, query));
   const albums = $derived(groupAlbums(tracks));
   const artists = $derived(groupArtists(tracks));
+  // hundreds of covers: a chunk per frame instead of one long task
+  const grow = new Progressive();
+  $effect(() => grow.track(view.name === "albums" ? albums.length : view.name === "artists" ? artists.length : 0));
 
   const view = $derived(app.view);
   const album = $derived(view.name === "album" ? groupAlbums(app.tracks).find((a) => a.key === view.key) : undefined);
@@ -41,13 +46,14 @@
     }
   }
 
-  function queueAll(e: MouseEvent, label: string, list: Track[]) {
-    app.openQueueMenu(e, label, (next) => app.queueFiles(list.map((t) => t.path), label, next));
+  function queueAll(e: MouseEvent, label: string, list: Track[], scope?: TasteScope) {
+    app.openQueueMenu(e, label, (next) => app.queueFiles(list.map((t) => t.path), label, next), scope);
   }
 
-  function playAll(list = tracks, shuffle = false) {
-    if (list.length) api.play(list.map((t) => t.path), 0, shuffle);
+  function playAll(list = tracks, shuffle = false, source: SourceContext | null = null) {
+    if (list.length) api.play(list.map((t) => t.path), 0, shuffle, source);
   }
+  const albumSource = (title: string): SourceContext => ({ kind: "album", id: "", name: title });
 </script>
 
 {#if album}
@@ -59,13 +65,14 @@
       <div class="muted">{album.artist || "Unknown artist"}{album.year ? ` · ${album.year}` : ""} · {album.tracks.length} songs</div>
       <div><span class="badge">{album.tracks[0].quality}</span></div>
       <div class="actions">
-        <button class="btn primary" onclick={() => playAll(album.tracks)}><Icon name="play" size={16} /> Play</button>
-        <button class="btn tonal" onclick={() => playAll(album.tracks, true)}><Icon name="shuffle" size={16} /> Shuffle</button>
-        <button class="btn tonal" onclick={(e) => queueAll(e, album.title || "Unknown album", album.tracks)}><Icon name="queue" size={16} /> Queue</button>
+        <button class="btn primary" onclick={() => playAll(album.tracks, false, albumSource(album.title))}><Icon name="play" size={16} /> Play</button>
+        <button class="btn tonal" onclick={() => playAll(album.tracks, true, albumSource(album.title))}><Icon name="shuffle" size={16} /> Shuffle</button>
+        <button class="btn tonal" onclick={(e) => queueAll(e, album.title || "Unknown album", album.tracks, album.title ? { kind: "album", id: "", name: album.title } : undefined)}><Icon name="queue" size={16} /> Queue</button>
+        {#if album.title}<button class="btn tonal" onclick={() => (sound.forScope = { scope: { kind: "album", id: "", name: album.title }, label: album.title })}><Icon name="soundwave" size={16} /> Sound</button>{/if}
       </div>
     </div>
   </header>
-  <TrackTable tracks={album.tracks} numbered showAlbum={false} />
+  <TrackTable tracks={album.tracks} numbered showAlbum={false} source={album.title ? albumSource(album.title) : null} />
 {:else if artist}
   <header class="head">
     <div>
@@ -148,7 +155,7 @@
     <TrackTable {tracks} />
   {:else if view.name === "albums"}
     <div class="grid">
-      {#each albums as a (a.key)}
+      {#each albums.slice(0, grow.shown) as a (a.key)}
         <button class="card" in:item|global onclick={() => (app.view = { name: "album", key: a.key })} ondblclick={() => playAll(a.tracks)}>
           <div class="sleeve">
             <span class="vinyl" aria-hidden="true"><i></i></span>
@@ -161,7 +168,7 @@
     </div>
   {:else}
     <div class="artists">
-      {#each artists as a (a.name)}
+      {#each artists.slice(0, grow.shown) as a (a.name)}
         <button class="artist" in:item|global onclick={() => (app.view = { name: "artist", name_: a.name })}>
           <Cover path={a.tracks[0].path} size={52} radius={26} icon="user" />
           <div>

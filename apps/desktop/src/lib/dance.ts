@@ -29,7 +29,7 @@ export const DANCES: { id: DanceId; label: string; hint: string }[] = [
   { id: "macarena", label: "Macarena", hint: "Arms, head, hips, turn" },
   { id: "running", label: "Running man", hint: "Running on the spot" },
   { id: "horse", label: "Horse ride", hint: "Galloping with the reins" },
-  { id: "guitar", label: "Air guitar", hint: "Strumming a guitar that isn't there" },
+  { id: "guitar", label: "Guitar solo", hint: "Rocking out on a guitar" },
 ];
 
 /** The famous dances each genre picks from. */
@@ -77,9 +77,18 @@ export interface Pose {
    * (positive) and back (negative) instead of out to the sides.
    */
   turn: number;
+  /**
+   * Holding a guitar (0 none, 1 playing it): the arms then reach for it
+   * instead of following `armL` / `armR`.
+   */
+  guitar: number;
+  /** Where the picking hand is in its stroke across the strings: 1 down, -1 up. */
+  strum: number;
+  /** Where the fretting hand is along the neck: 0 near the body, 1 further up. */
+  fret: number;
 }
 
-export const REST: Pose = { x: 0, y: 0, rot: 0, sx: 1, sy: 1, armL: 30, armR: 30, legL: 0, legR: 0, liftL: 0, liftR: 0, flip: false, turn: 0 };
+export const REST: Pose = { x: 0, y: 0, rot: 0, sx: 1, sy: 1, armL: 30, armR: 30, legL: 0, legR: 0, liftL: 0, liftR: 0, flip: false, turn: 0, guitar: 0, strum: 0, fret: 0 };
 
 const PI = Math.PI;
 const sin = Math.sin;
@@ -249,9 +258,25 @@ export function dancePose(id: DanceId, b: number, k: number, side = false): Pose
       return pose({ y: -26 * k * hop, rot: 3 * s, armL: -25 + 6 * d, armR: lasso ? 165 + 15 * sin(4 * PI * b) : -25 + 6 * d, liftL: 14 * pos(s), liftR: 14 * pos(-s) });
     }
     case "guitar": {
-      // fretting hand out, picking hand strumming twice a beat, a jump at the end of the bar
-      const jump = Math.floor(b) % 4 === 3 ? sin(PI * frac(b)) : 0;
-      return pose({ y: 8 * d - 50 * k * jump, rot: -8 + 4 * d, armL: 70, armR: -10 + 26 * Math.abs(sin(4 * PI * b)), legL: 16, legR: 16, turn: side ? 0.45 : 0 });
+      // a real guitar held across the belly: the picking hand strokes across the
+      // strings (down on the beat, up in between), the fretting hand slides up
+      // the neck every other bar, the body rocks back on the beat and there is
+      // a jump at the end of every four bars. Never further round than three
+      // quarters, so the guitar always stays in front.
+      const jump = Math.floor(b) % 16 === 15 ? sin(PI * frac(b)) : 0;
+      const loud = Math.floor(b / 2) % 2 === 1 ? 2 : 1; // every other bar strums twice as fast
+      return pose({
+        y: 3 * d - 40 * k * jump,
+        rot: 1 - 5 * k * d,
+        armL: -60,
+        armR: 150,
+        legL: 16,
+        legR: 16,
+        turn: side ? 0.36 + 0.08 * sin((PI * b) / 4) : 0,
+        guitar: 1,
+        strum: cos(2 * PI * b * loud),
+        fret: steps([0, 0, 0, 0, 0, 0, 1, 1], b, 3),
+      });
     }
   }
 }
@@ -271,6 +296,9 @@ function blend(a: Pose, b: Pose, t: number): Pose {
     liftR: mix(a.liftR, b.liftR, t),
     flip: t < 0.5 ? a.flip : b.flip,
     turn: mix(a.turn, b.turn, t),
+    guitar: mix(a.guitar, b.guitar, t),
+    strum: mix(a.strum, b.strum, t),
+    fret: mix(a.fret, b.fret, t),
   };
 }
 

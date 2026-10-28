@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { item } from "../lib/motion";
   import { untrack } from "svelte";
   import { api, errorText, type Hit } from "../lib/api";
   import { app } from "../lib/state.svelte";
-  import Cover from "./Cover.svelte";
+  import AlbumCard from "./AlbumCard.svelte";
   import HitRow from "./HitRow.svelte";
   import Icon from "./Icon.svelte";
   import PageMore from "./PageMore.svelte";
   import Skeleton from "./Skeleton.svelte";
   import type { Paged } from "../lib/paged.svelte";
+  import { Progressive, Windowed } from "../lib/virtual.svelte";
 
   type Tab = "playlists" | "albums" | "artists" | "tracks";
   const tabs: { id: Tab; label: string }[] = [
@@ -20,6 +20,10 @@
   const tab = $derived((app.view.name === "tidal" && app.view.tab) || "playlists");
 
   let list = $state<Paged | null>(null);
+  /** The track rows near the screen; the grid's covers a chunk per frame. */
+  const win = new Windowed(60);
+  const grow = new Progressive();
+  $effect(() => grow.track(shown.length));
   let filter = $state("");
   const items = $derived(list?.items ?? []);
   const loading = $derived(!!list?.loading);
@@ -27,6 +31,7 @@
   const error = $derived(list?.error && !list.items.length ? list.error : null);
 
   function load(t: Tab, force = false) {
+    win.reset();
     list = app.tidalList(t, force);
   }
 
@@ -34,6 +39,12 @@
     const t = tab;
     // only the account and the tab start a load (not the list's own state)
     if (app.account) untrack(() => load(t));
+  });
+
+  // another tab or view: the list stops streaming (it goes on when it's shown again)
+  $effect(() => {
+    const current = list;
+    return () => current?.cancel();
   });
 
   // a filter looks through the whole collection, not only the pages on screen
@@ -60,9 +71,6 @@
     }
   }
 
-  function open(h: Hit) {
-    app.view = { name: "tidal-item", kind: h.kind as "album", id: h.id, back: app.view };
-  }
 </script>
 
 <header class="head">
@@ -102,22 +110,21 @@
 {:else if loading && !shown.length}
   <Skeleton kind={tab === "tracks" ? "rows" : "grid"} round={tab === "artists"} count={tab === "tracks" ? 10 : 12} />
 {:else if tab === "tracks"}
-  <div class="list">
-    {#each shown as hit, i (hit.id)}
-      <HitRow {hit} index={i + 1} list={shown} whole={allTracks} />
+  <!-- only the rows near the screen exist -->
+  <div class="list" {@attach win.attach(() => shown.length)}>
+    <div aria-hidden="true" style:height="{win.before}px"></div>
+    {#each shown.slice(win.start, win.end) as hit, j (hit.id)}
+      <HitRow {hit} index={win.start + j + 1} list={shown} whole={allTracks} enter={!win.scrolled} />
     {/each}
+    <div aria-hidden="true" style:height="{win.after}px"></div>
     {#if list && !filter.trim()}<PageMore {list} />{/if}
   </div>
 {:else}
   <div class="grid">
-    {#each shown as hit (hit.id)}
-      <button class="card" in:item|global onclick={() => open(hit)} title={hit.title}>
-        <Cover url={hit.cover_url} size="100%" radius={hit.kind === "artist" ? 999 : 12} icon={hit.kind === "artist" ? "user" : hit.kind === "album" ? "disc" : "queue"} />
-        <div class="t ellipsis">{hit.title}</div>
-        <div class="s ellipsis">{hit.subtitle}</div>
-      </button>
+    {#each shown.slice(0, grow.shown) as hit (hit.id)}
+      <AlbumCard {hit} contained />
     {/each}
-    {#if list && !filter.trim()}<PageMore {list} />{/if}
+    {#if list && !filter.trim() && grow.shown >= shown.length}<PageMore {list} />{/if}
   </div>
 {/if}
 
@@ -173,30 +180,6 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
     gap: 22px 18px;
-  }
-  .card {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    text-align: left;
-    padding: 8px;
-    margin: -8px;
-    border-radius: min(14px, var(--r-max));
-    min-width: 0;
-    /* long collections: covers far off screen aren't laid out or painted */
-    content-visibility: auto;
-    contain-intrinsic-size: auto 168px auto 230px;
-  }
-  .card:hover {
-    background: var(--glass-strong);
-  }
-  .t {
-    margin-top: 6px;
-    font-weight: 600;
-  }
-  .s {
-    font-size: 12.5px;
-    color: var(--muted);
   }
   .list {
     display: flex;

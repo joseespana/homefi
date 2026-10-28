@@ -167,6 +167,10 @@ mod tests {
             manifest: b64(manifest),
             bit_depth: None,
             sample_rate: None,
+            track_replay_gain: None,
+            track_peak_amplitude: None,
+            album_replay_gain: None,
+            album_peak_amplitude: None,
         }
     }
 

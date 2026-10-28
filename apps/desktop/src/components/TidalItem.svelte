@@ -1,9 +1,11 @@
 <script lang="ts">
-  import { item } from "../lib/motion";
+  import { sound } from "../lib/sound.svelte";
   import { untrack } from "svelte";
-  import { api, errorText, formatTime, type Hit, type Kind, type TidalDetail } from "../lib/api";
+  import { api, errorText, formatTime, type Hit, type Kind, type TidalDetail, type SourceContext, type TasteScope, type VersionHit } from "../lib/api";
   import { Paged } from "../lib/paged.svelte";
+  import { Windowed } from "../lib/virtual.svelte";
   import { app } from "../lib/state.svelte";
+  import AlbumCard from "./AlbumCard.svelte";
   import Cover from "./Cover.svelte";
   import HitRow from "./HitRow.svelte";
   import Icon from "./Icon.svelte";
@@ -16,10 +18,16 @@
   let list = $state<Paged | null>(null);
   let error = $state<string | null>(null);
   let queued = $state(false);
+  /** Every release of this album (itself included), for "Other versions". */
+  let versions = $state<VersionHit[]>([]);
 
+  // the first page shows right away; with lazy lists off the rest streams in behind it
   async function fetchDetail(kind: Kind, id: string) {
-    const d = await api.tidalDetail(kind, id, app.lazyLists);
-    const pages = Paged.from((offset, rest) => api.tidalDetailPage(kind, id, offset, rest), d.tracks, d.total, d.next_offset);
+    const d = await api.tidalDetail(kind, id, true);
+    const pages = Paged.from((offset, rest) => api.tidalDetailPage(kind, id, offset, rest), d.tracks, d.total, d.next_offset, false, {
+      pages: (offset, onPage, load) => api.tidalDetailStream(kind, id, offset, onPage, load),
+      cancel: api.tidalCancel,
+    });
     return { d, pages };
   }
 
@@ -30,20 +38,40 @@
   });
 
   // only the view starts a load (not the state the load itself touches)
+  const win = new Windowed(60);
+
   function open(kind: Kind, id: string) {
+    win.reset();
     detail = null;
     list = null;
     error = null;
     queued = false;
+    versions = [];
+    // the other releases come from the artist's page: they show up a moment later
+    if (kind === "album" && app.albumVersions.group) {
+      api.tidalAlbumVersions(id).then(
+        (list) => {
+          if (v?.kind === kind && v?.id === id) versions = list;
+        },
+        () => {},
+      );
+    }
     fetchDetail(kind, id).then(
       ({ d, pages }) => {
         if (v?.kind !== kind || v?.id !== id) return;
         detail = d;
         list = pages;
+        if (!app.lazyLists) pages.rest();
       },
       (e) => (error = errorText(e)),
     );
   }
+
+  // leaving (another item, another view): a list still streaming stops
+  $effect(() => {
+    const current = list;
+    return () => current?.cancel();
+  });
 
   const tracks = $derived(list?.items ?? []);
   const done = $derived(list?.done ?? true);
@@ -113,6 +141,9 @@
   }
 
   const fav = $derived(v ? app.isFavorite(v.kind, v.id) : false);
+  /** This release's labels (Hi-Res, Remastered 2023, Deluxe +16...); explicit is the E badge. */
+  const mine = $derived(versions.find((x) => x.id === v?.id));
+  const labels = $derived(mine ? mine.labels.filter((_, i) => mine.label_codes[i] !== "explicit" && mine.labels[i] !== detail?.header.quality) : []);
 
   // after an edit: Tidal's version, with as many tracks as were loaded (the scroll stays put)
   async function reload() {
@@ -173,7 +204,9 @@
   }
 
   // downloaded tracks play from the library, the others stream from Tidal
-  const play = (shuffle = false) => run(async () => app.playTidal(await allTracks(), 0, shuffle));
+  const source = $derived<SourceContext | null>(v && detail && v.kind !== "artist" ? { kind: v.kind, id: v.id, name: detail.header.title } : null);
+  const scope = $derived<TasteScope | null>(v && detail && v.kind !== "mix" ? { kind: v.kind, id: v.id, name: detail.header.title } : null);
+  const play = (shuffle = false) => run(async () => app.playTidal(await allTracks(), 0, shuffle, source));
 </script>
 
 <button class="back" onclick={back}><Icon name="back" size={16} /> Back</button>
@@ -187,13 +220,24 @@
     <Cover url={detail.header.cover_url} size={200} radius={v?.kind === "artist" ? 100 : 16} icon={v?.kind === "artist" ? "user" : "disc"} />
     <div class="info">
       <div class="eyebrow">{v?.kind}</div>
-      <h1>{detail.header.title}</h1>
+      <h1>{detail.header.title}{#if detail.header.explicit && v?.kind === "album"}<span class="badge e big" title="Explicit">E</span>{/if}</h1>
       <div class="muted">
         {#if v?.kind !== "playlist"}{detail.header.subtitle} · {/if}
         {#if trackCount}{trackCount} tracks{#if total}{` · ${formatTime(total)}`}{/if}{/if}
         {#if owned.length} · <span class="have">{owned.length}{more} downloaded</span>{/if}
       </div>
-      {#if detail.header.quality}<div><span class="badge">{detail.header.quality}</span></div>{/if}
+      {#if detail.header.quality || labels.length || versions.length > 1}
+        <div class="labels">
+          {#if detail.header.quality}<span class="badge" class:atmos={detail.header.quality === "Dolby Atmos"}>{detail.header.quality}</span>{/if}
+          {#each labels as label, i (i)}<span class="badge" class:atmos={label === "Dolby Atmos"}>{label}</span>{/each}
+          {#if versions.length > 1}
+            <button class="versions" title="Explicit, clean, Dolby Atmos, remasters… switch to another release" onclick={(e) => app.openVersions(e, detail!.header.title, versions, v?.id ?? null)}>
+              <Icon name="layers" size={13} /> Other versions ({versions.length - 1})
+            </button>
+          {/if}
+        </div>
+      {/if}
+      {#if mine?.atmos}<p class="muted small">Dolby Atmos needs an Atmos device, and downloads skip Atmos tracks: pick a stereo version to keep it.</p>{/if}
       {#if detail.description}<p class="desc muted">{detail.description}</p>{/if}
       <div class="actions">
         {#if tracks.length}
@@ -201,10 +245,14 @@
           <button class="btn tonal" onclick={() => play(true)}><Icon name="shuffle" size={16} /> Shuffle</button>
           <button
             class="btn tonal"
-            onclick={(e) => app.openQueueMenu(e, detail!.header.title, (next) => run(async () => app.queueHits(await allTracks(), detail!.header.title, next)))}
+            onclick={(e) => app.openQueueMenu(e, detail!.header.title, (next) => run(async () => app.queueHits(await allTracks(), detail!.header.title, next)), scope ?? undefined)}
           >
             <Icon name="queue" size={16} /> Queue
           </button>
+        {/if}
+        {#if scope}
+          {@const s = scope}
+          <button class="btn tonal" title="How this {s.kind} sounds: ask the assistant or set it by hand" onclick={() => (sound.forScope = { scope: s, label: s.name })}><Icon name="soundwave" size={16} /> Sound</button>
         {/if}
         {#if complete && !dlActive}
           <span class="btn tonal done" title="Every track is in your library"><Icon name="check" size={16} /> Downloaded</span>
@@ -259,19 +307,19 @@
     <h2>Albums & singles</h2>
     <div class="grid">
       {#each detail.albums as album (album.id)}
-        <button class="card" in:item|global onclick={() => (app.view = { name: "tidal-item", kind: "album", id: album.id, back: app.view })}>
-          <Cover url={album.cover_url} size="100%" radius={12} icon="disc" />
-          <div class="t ellipsis">{album.title}</div>
-          <div class="s ellipsis">{album.subtitle}</div>
-        </button>
+        <AlbumCard hit={album} />
       {/each}
     </div>
   {/if}
 
-  <div class="list">
-    {#each tracks as hit, i (hit.id + ":" + i)}
-      <HitRow {hit} index={i + 1} list={tracks} whole={done ? null : allTracks} onremove={detail.owned ? () => remove(i) : null} />
+  <!-- only the rows near the screen exist (a long playlist stays light) -->
+  <div class="list" {@attach win.attach(() => tracks.length)}>
+    <div aria-hidden="true" style:height="{win.before}px"></div>
+    {#each tracks.slice(win.start, win.end) as hit, j (hit.id + ":" + (win.start + j))}
+      {@const i = win.start + j}
+      <HitRow {hit} index={i + 1} list={tracks} whole={done ? null : allTracks} onremove={detail.owned ? () => remove(i) : null} {source} enter={!win.scrolled} />
     {/each}
+    <div aria-hidden="true" style:height="{win.after}px"></div>
     {#if list}<PageMore {list} />{/if}
   </div>
 {/if}
@@ -329,26 +377,39 @@
     gap: 20px 16px;
     margin-bottom: 20px;
   }
-  .card {
+  .labels {
     display: flex;
-    flex-direction: column;
-    gap: 3px;
-    text-align: left;
-    padding: 8px;
-    margin: -8px;
-    border-radius: min(14px, var(--r-max));
-    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
   }
-  .card:hover {
-    background: var(--glass-strong);
+  .badge.atmos {
+    background: color-mix(in srgb, #8b5cf6 22%, transparent);
   }
-  .t {
-    margin-top: 6px;
-    font-weight: 600;
-  }
-  .s {
-    font-size: 12.5px;
+  .badge.e.big {
+    margin-left: 10px;
+    vertical-align: middle;
+    font-size: 13px;
+    padding: 1px 7px;
+    background: var(--surface-3);
     color: var(--muted);
+  }
+  .versions {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 10px;
+    border-radius: min(999px, var(--r-max));
+    font-size: 12px;
+    font-weight: 600;
+    background: color-mix(in srgb, var(--room-accent) 18%, transparent);
+    border: 1px solid color-mix(in srgb, var(--room-accent) 45%, transparent);
+  }
+  .versions:hover {
+    background: color-mix(in srgb, var(--room-accent) 30%, transparent);
+  }
+  .small {
+    font-size: 12px;
   }
   .list {
     display: flex;

@@ -36,6 +36,22 @@ pub fn expand_tilde(path: &Path) -> PathBuf {
     }
 }
 
+/// Writes `bytes` to `path` all at once: into a temporary file next to it
+/// (mode `0600` on Unix), then renamed over it. A reader never sees half a
+/// file and a crash mid-write leaves the old one. Parent folders are created.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let dir = match path.parent() {
+        Some(d) if !d.as_os_str().is_empty() => d,
+        _ => Path::new("."),
+    };
+    std::fs::create_dir_all(dir)?;
+    let mut tmp = tempfile::Builder::new().prefix(".homefi-").suffix(".tmp").tempfile_in(dir)?;
+    tmp.write_all(bytes)?;
+    tmp.persist(path).map_err(|e| e.error)?;
+    Ok(())
+}
+
 /// Replaces (or appends) the extension of the *last* path component.
 ///
 /// Mirrors Python's `Path.with_suffix`: only the text after the last dot of
@@ -104,6 +120,23 @@ pub fn relative_to(path: &Path, base: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn atomic_writes_replace_whole_files_and_leave_no_temporaries() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("sub/data.json");
+        write_atomic(&file, b"first").unwrap();
+        write_atomic(&file, b"second").unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"second");
+        let names: Vec<_> =
+            std::fs::read_dir(file.parent().unwrap()).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("data.json")]);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+    }
 
     #[test]
     fn suffix_replaces_only_last_extension() {

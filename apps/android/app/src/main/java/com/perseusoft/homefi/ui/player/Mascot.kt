@@ -63,7 +63,9 @@ import com.perseusoft.homefi.player.AudioTap
 import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -106,6 +108,17 @@ private const val RX = 584f
 private const val RY = 600f
 private const val EYE_R = 34f
 
+// the guitar (keep in sync with the desktop): body across the belly on the
+// picking hand's side (the left of the picture), neck slanting up towards the
+// fretting hand, [GUITAR_AHEAD] in front of the house
+private const val GUITAR_X = 410f
+private const val GUITAR_Y = 712f
+private const val GUITAR_AHEAD = 150f
+private const val GUITAR_NECK = 22f
+private const val GUITAR_SCALE = 1.2f
+/** How far an arm stretches to reach the guitar. */
+private const val ARM_MAX = 175f
+
 // turning sideways (keep in sync with the desktop)
 private const val HEAD_R = 270f
 private const val BEHIND = -0.3f
@@ -143,6 +156,13 @@ private object Ink {
     val micHandle = Color(0xFF374151)
     val micRing = Color(0xFF6B7280)
     val micHead = Color(0xFFD1D5DB)
+    val guitarRed = Color(0xFFDC2626)
+    val pickguard = Color(0xFFF8FAFC)
+    val pickup = Color(0xFF111827)
+    val bridge = Color(0xFF9CA3AF)
+    val fretboard = Color(0xFFA16207)
+    val fretWire = Color(0xFFFDE68A)
+    val strings = Color(0xFFE5E7EB)
 }
 
 /** A colour that cycles through the hues, like the desktop's `hue-rotate` neon. */
@@ -240,6 +260,14 @@ private object Art {
     val medalNote = svg("M504 774V800M504 774L524 768V794")
     val glassesBridge = svg("M${LX + 50} ${LY}Q512 ${LY - 16} ${RX - 50} $RY")
     val bowTie = svg("M512 784L456 756V812ZM512 784L568 756V812Z")
+
+    // the guitar, neck along +x, centred on its body
+    val headOutline = svg("M352 -36L446 -46Q458 0 446 46L352 36Z")
+    val head = svg("M358 -30L440 -38Q450 0 440 38L358 30Z")
+    val pickguard = svg("M-70 -40Q-10 -66 60 -30L60 30Q-10 66 -70 40Z")
+    val frets = svg(listOf(110, 150, 186, 220, 252, 282, 310, 336).joinToString("") { "M$it -17V17" })
+    val strings = svg("M-64 -12H372M-64 0H372M-64 12H372")
+    val pick = svg("M-22 0L22 0L0 40Z")
 
     /** A "z" for the sleeping mascot, in a unit square. */
     val zed = svg("M0 0H1L0 1H1")
@@ -363,7 +391,7 @@ fun MascotView(modifier: Modifier = Modifier, singing: Boolean = false) {
                 frame.anger = tantrum.at(frame.seconds)
                 if (frame.anger >= 0) frame.pose = angryPose(frame.anger)
                 // karaoke: the right hand holds the microphone up to the mouth
-                else if (sing && playing) frame.pose = frame.pose.copy(armR = -110.0, turn = 0.0, flip = false)
+                else if (sing && playing) frame.pose = frame.pose.copy(armR = -110.0, turn = 0.0, flip = false, guitar = 0.0)
                 tick.longValue = now
             }
         }
@@ -515,15 +543,24 @@ private fun DrawScope.drawMascot(
                 .forEach { (leg, lift) -> drawLeg(leg, lift.toFloat(), fill, outline) }
         }
         rotate(TILT, TILT_PIVOT) {
+            val g = if (fill == null) 0f else p.guitar.toFloat().coerceIn(0f, 1f)
+            val guitar = Guitar(turn)
             val arms = if (fill == null) emptyList() else {
-                listOf(turn.limb(SHOULDER_L, p.armL.toFloat(), 1f), turn.limb(SHOULDER_R, p.armR.toFloat(), -1f)).sortedBy { it.depth }
+                listOf(
+                    Arm.of(turn.limb(SHOULDER_L, p.armL.toFloat(), 1f), Hold.PICK),
+                    Arm.of(turn.limb(SHOULDER_R, p.armR.toFloat(), -1f), Hold.FRET),
+                ).map { if (g > 0) it.reaching(if (it.hold == Hold.PICK) guitar.pickAt(p.strum.toFloat(), turn.side) else guitar.fretAt(p.fret.toFloat(), it.at), g) else it }
+                    .sortedBy { it.depth }
             }
+            // with the guitar on, the fretting arm stays in front of the house (it reaches round to the neck)
+            val behind = arms.filter { it.depth < BEHIND && !(g > 0.5f && it.hold == Hold.FRET) }
+            val pick = if (g > 0.5f) -GUITAR_NECK + 14 * p.strum.toFloat() else null
             // the microphone is in the right hand (the one whose shoulder is on the right)
             val micArm = if (sing >= 0) arms.maxByOrNull { it.at.x } else null
             val cups = turn.cups()
             val band = turn.bandHalves(cups)
             val bandPen = Pen.round(BAND_W * (1 - 0.45f * abs(turn.side)))
-            arms.filter { it.depth < BEHIND }.forEach { drawArm(it, fill!!, outline, mic = it === micArm) }
+            behind.forEach { drawArm(it, fill!!, outline, mic = it === micArm) }
             // cups and the band half reaching them go behind as soon as they face away
             band.filter { it.second < 0 }.forEach { drawBand(it.first, bandPen, mood, playing, hue, beat) }
             cups.filter { it.depth < 0 }.forEach { drawCup(it, mood) }
@@ -566,8 +603,10 @@ private fun DrawScope.drawMascot(
                     }) { drawPath(Art.vein, Ink.darkRed, style = Pen.w12) }
                 }
             }
+            // in front of the body, behind the hands
+            if (g > 0) drawGuitar(guitar, min(1f, g * 2))
             // arms in front, so raised arms don't hide behind the headphones
-            arms.filter { it.depth >= BEHIND }.forEach { drawArm(it, fill!!, outline, mic = it === micArm) }
+            arms.filter { it !in behind }.forEach { drawArm(it, fill!!, outline, mic = it === micArm, pick = if (it.hold == Hold.PICK) pick else null) }
         }
     }
     if (angry) drawSteam(anger)
@@ -602,8 +641,9 @@ private fun DrawScope.drawFuriousFace() {
  * wide as its front) and the limbs on the far side go behind the body.
  */
 private class Turn(turn: Float) {
-    val side = sin(turn * PI / 2).toFloat()
-    private val across = cos(turn * PI / 2).toFloat()
+    val th = turn * PI / 2
+    val side = sin(th).toFloat()
+    val across = cos(th).toFloat()
     val narrow = 1 - 0.2f * abs(side)
     // headphones sit a little behind the middle of the head when seen from the side
     private val back = -46f * side
@@ -681,11 +721,99 @@ private fun DrawScope.drawCup(c: Turn.Cup, mood: Mood) {
     }
 }
 
-/** One arm from its shoulder, rotated clockwise by [Turn.Limb.rot] from hanging down. */
-private fun DrawScope.drawArm(arm: Turn.Limb, fill: Color, outline: Color?, mic: Boolean = false) {
+private enum class Hold { PICK, FRET }
+
+/** An arm to draw: where it joins, its angle (clockwise from hanging down) and length, and what it holds on the guitar. */
+private class Arm(val at: Offset, val rot: Float, val len: Float, val depth: Float, val hold: Hold) {
+    /** Points it at [target], stretching up to [ARM_MAX]; [g] blends from its dance angle. */
+    fun reaching(target: Offset, g: Float): Arm {
+        val dx = target.x - at.x
+        val dy = target.y - at.y
+        val aim = Math.toDegrees(atan2(-dx, dy).toDouble()).toFloat()
+        val by = ((aim - rot) % 360 + 540) % 360 - 180
+        return Arm(at, rot + by * g, ARM + (min(ARM_MAX, hypot(dx, dy)) - ARM) * g, depth, hold)
+    }
+
+    companion object {
+        fun of(limb: Turn.Limb, hold: Hold) = Arm(limb.at, limb.rot, ARM, limb.depth, hold)
+    }
+}
+
+/**
+ * Where the guitar is when turned by [turn]: it sits in front of the house, so
+ * it slides round towards where the mascot faces and is seen a little edge-on
+ * (it turns less than the body, so its face stays in view).
+ */
+private class Guitar(turn: Turn) {
+    val x = 512 + (GUITAR_X - 512) * turn.across + GUITAR_AHEAD * turn.side
+    val y = GUITAR_Y - 16 * abs(turn.side)
+    val sx = cos(turn.th * 0.7).toFloat()
+    private val cosN = cos(GUITAR_NECK * PI / 180).toFloat()
+    private val sinN = sin(GUITAR_NECK * PI / 180).toFloat()
+
+    /** A point on the guitar, [u] along the neck and [v] across it, from the middle of its body. */
+    fun at(u: Float, v: Float) = Offset(x + (u * cosN + v * sinN) * sx * GUITAR_SCALE, y + (v * cosN - u * sinN) * GUITAR_SCALE)
+
+    /** Picking hand: a short stroke across the strings over the pickups; turned, it flicks more along the face. */
+    fun pickAt(strum: Float, side: Float) =
+        at(-24 - 8 * strum * strum + 16 * strum * abs(side), -6 + 16 * strum * (1 - 0.4f * abs(side)))
+
+    /** Fretting hand: on the neck, as far up as the arm reaches from [shoulder]. */
+    fun fretAt(fret: Float, shoulder: Offset): Offset {
+        var u = 230 + 70 * fret
+        while (u > 120 && (at(u, 0f) - shoulder).getDistance() > ARM_MAX - 15) u -= 10
+        return at(u, 0f)
+    }
+}
+
+/** An electric guitar: red body, pickups, a neck with frets and a headstock with its pegs. */
+private fun DrawScope.drawGuitar(guitar: Guitar, alpha: Float) {
+    withTransform({
+        translate(guitar.x, guitar.y)
+        scale(guitar.sx * GUITAR_SCALE, GUITAR_SCALE, Offset.Zero)
+        rotate(-GUITAR_NECK, Offset.Zero)
+    }) {
+        // outline first, then the parts on top
+        drawCircle(Ink.navy, 92f, Offset(-38f, 0f), alpha = alpha)
+        drawCircle(Ink.navy, 72f, Offset(46f, 0f), alpha = alpha)
+        drawRoundRect(Ink.navy, Offset(70f, -25f), Size(300f, 50f), CornerRadius(12f), alpha = alpha)
+        drawPath(Art.headOutline, Ink.navy, alpha = alpha)
+        drawPath(Art.headOutline, Ink.navy, alpha = alpha, style = Pen.w12)
+        drawCircle(Ink.guitarRed, 82f, Offset(-38f, 0f), alpha = alpha)
+        drawCircle(Ink.guitarRed, 62f, Offset(46f, 0f), alpha = alpha)
+        drawPath(Art.pickguard, Ink.pickguard, alpha = alpha * 0.9f)
+        drawRoundRect(Ink.pickup, Offset(-24f, -34f), Size(18f, 68f), CornerRadius(5f), alpha = alpha)
+        drawRoundRect(Ink.pickup, Offset(18f, -34f), Size(18f, 68f), CornerRadius(5f), alpha = alpha)
+        drawRoundRect(Ink.bridge, Offset(-72f, -30f), Size(14f, 60f), CornerRadius(4f), alpha = alpha)
+        drawCircle(Ink.yellow, 9f, Offset(-88f, 44f), alpha = alpha)
+        drawCircle(Ink.yellow, 9f, Offset(-62f, 62f), alpha = alpha)
+        drawRoundRect(Ink.fretboard, Offset(76f, -17f), Size(290f, 34f), CornerRadius(6f), alpha = alpha)
+        drawPath(Art.frets, Ink.fretWire, alpha = alpha, style = Stroke(4f))
+        drawPath(Art.head, Ink.pickup, alpha = alpha)
+        for (x in listOf(376f, 402f, 428f)) {
+            drawCircle(Ink.steel, 9f, Offset(x, -44f), alpha = alpha)
+            drawCircle(Ink.steel, 9f, Offset(x, 44f), alpha = alpha)
+        }
+        drawPath(Art.strings, Ink.strings, alpha = alpha, style = Stroke(3f))
+    }
+}
+
+/** One arm from its shoulder, rotated clockwise by [Arm.rot] from hanging down; [pick] is the angle of a guitar pick in its hand. */
+private fun DrawScope.drawArm(arm: Arm, fill: Color, outline: Color?, mic: Boolean = false, pick: Float? = null) {
     val a = Math.toRadians(arm.rot.toDouble())
     val shoulder = arm.at
-    val hand = Offset(shoulder.x - ARM * sin(a).toFloat(), shoulder.y + ARM * cos(a).toFloat())
+    val hand = Offset(shoulder.x - arm.len * sin(a).toFloat(), shoulder.y + arm.len * cos(a).toFloat())
+    if (pick != null) {
+        // held tip down towards the strings, flicking with the wrist
+        withTransform({
+            translate(hand.x, hand.y)
+            rotate(pick, Offset.Zero)
+            translate(0f, 34f)
+        }) {
+            drawPath(Art.pick, Ink.yellow)
+            drawPath(Art.pick, Ink.navy, style = Pen.w6)
+        }
+    }
     if (outline != null) {
         drawLine(outline, shoulder, hand, ARM_W + 2 * OUTLINE, StrokeCap.Round)
         drawCircle(outline, HAND + OUTLINE, hand)

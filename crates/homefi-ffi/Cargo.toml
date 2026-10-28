@@ -26,4 +26,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 serde_json.workspace = true
-uniffi = { workspace = true, features = ["tokio"] }
+uniffi.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

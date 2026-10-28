@@ -14,6 +14,53 @@ pub const API_V2_URL: &str = "https://api.tidal.com/v2";
 
 const MAX_RETRIES: u32 = 5;
 const RETRY_DELAY: Duration = Duration::from_millis(500);
+/// GETs answered `429` / `5xx`, or that could not connect, are tried this many
+/// more times (exponential backoff with jitter, honouring `Retry-After`).
+const HTTP_RETRIES: u32 = 3;
+const BACKOFF_BASE: Duration = Duration::from_millis(500);
+/// A `Retry-After` longer than this is capped (the user is waiting).
+const MAX_RETRY_AFTER: Duration = Duration::from_secs(30);
+/// Whole-request limit for JSON API calls (not for media downloads, which use
+/// [`TidalClient::http`] without one).
+pub const JSON_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// One HTTP client (connection pool, TLS sessions) for every [`TidalClient`]:
+/// building one per call costs a TLS handshake each time.
+pub fn shared_http() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .user_agent(concat!("homefi/", env!("CARGO_PKG_VERSION")))
+            // no total timeout (downloads take long), but a stalled
+            // connection is given up instead of hanging forever
+            .connect_timeout(Duration::from_secs(15))
+            .read_timeout(Duration::from_secs(60))
+            .build()
+            .expect("reqwest client")
+    })
+}
+
+/// Wait before retry number `attempt` (1-based): `Retry-After` when the server
+/// sent one, else 0.5 s, 1 s, 2 s... plus up to 250 ms of jitter so parallel
+/// requests do not come back in lockstep.
+fn backoff(attempt: u32, retry_after: Option<Duration>) -> Duration {
+    if let Some(after) = retry_after {
+        return after.min(MAX_RETRY_AFTER);
+    }
+    use std::hash::{BuildHasher, Hasher};
+    let jitter = std::collections::hash_map::RandomState::new().build_hasher().finish() % 250;
+    BACKOFF_BASE * 2u32.pow(attempt.saturating_sub(1).min(6)) + Duration::from_millis(jitter)
+}
+
+/// `Retry-After` in seconds (the HTTP-date form is rare for APIs and ignored).
+fn retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
+    let secs: u64 = headers.get(reqwest::header::RETRY_AFTER)?.to_str().ok()?.trim().parse().ok()?;
+    Some(Duration::from_secs(secs))
+}
+
+fn is_retryable_status(status: u16) -> bool {
+    status == 429 || (500..=599).contains(&status) && status != 501
+}
 
 /// How long a response may be served from the disk cache.
 #[derive(Debug, Clone, Copy)]
@@ -41,14 +88,7 @@ pub struct TidalClient {
 impl TidalClient {
     pub fn new(token: impl Into<String>) -> Self {
         Self {
-            http: reqwest::Client::builder()
-                .user_agent(concat!("homefi/", env!("CARGO_PKG_VERSION")))
-                // no total timeout (downloads take long), but a stalled
-                // connection is given up instead of hanging forever
-                .connect_timeout(std::time::Duration::from_secs(15))
-                .read_timeout(std::time::Duration::from_secs(60))
-                .build()
-                .expect("reqwest client"),
+            http: shared_http().clone(),
             api_url: API_URL.to_owned(),
             api_v2_url: API_V2_URL.to_owned(),
             token: RwLock::new(token.into()),
@@ -91,11 +131,11 @@ impl TidalClient {
     }
 
     pub fn token(&self) -> String {
-        self.token.read().expect("token lock").clone()
+        self.token.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn set_token(&self, token: String) {
-        *self.token.write().expect("token lock") = token;
+        *self.token.write().unwrap_or_else(|e| e.into_inner()) = token;
     }
 
     fn cache_key(url: &str, params: &[(&str, String)]) -> String {
@@ -119,22 +159,44 @@ impl TidalClient {
         Ok(true)
     }
 
+    /// GET with the bearer token. Retries `429` / `5xx` / connection failures
+    /// (see [`HTTP_RETRIES`]) and refreshes the token once on `401`.
     async fn get(&self, url: &str, params: &[(&str, String)]) -> Result<(u16, String)> {
         let mut refreshed = false;
+        let mut attempt = 0;
         loop {
             let token = self.token();
-            let res = self
+            let sent = self
                 .http
                 .get(url)
                 .query(params)
                 .bearer_auth(&token)
                 .header("Accept", "application/json")
+                .timeout(JSON_TIMEOUT)
                 .send()
-                .await?;
+                .await;
+            let res = match sent {
+                Err(e) if (e.is_connect() || e.is_timeout()) && attempt < HTTP_RETRIES => {
+                    attempt += 1;
+                    let wait = backoff(attempt, None);
+                    tracing::debug!("GET failed ({e}), retry {attempt}/{HTTP_RETRIES} in {wait:?}");
+                    tokio::time::sleep(wait).await;
+                    continue;
+                }
+                other => other?,
+            };
 
             let status = res.status().as_u16();
             if status == 401 && !refreshed && self.refresh_token(&token).await? {
                 refreshed = true;
+                continue;
+            }
+            if is_retryable_status(status) && attempt < HTTP_RETRIES {
+                attempt += 1;
+                let wait = backoff(attempt, retry_after(res.headers()));
+                tracing::debug!("GET answered {status}, retry {attempt}/{HTTP_RETRIES} in {wait:?}");
+                drop(res);
+                tokio::time::sleep(wait).await;
                 continue;
             }
             return Ok((status, res.text().await?));
@@ -150,16 +212,15 @@ impl TidalClient {
     ) -> Result<T> {
         let url = format!("{}/{endpoint}", self.api_url);
         let key = Self::cache_key(&url, params);
-        let decode = |data: Value| {
-            serde_json::from_value::<T>(data)
-                .map_err(|e| Error::Decode { endpoint: endpoint.to_owned(), message: e.to_string() })
-        };
+        let decode_error =
+            |e: serde_json::Error| Error::Decode { endpoint: endpoint.to_owned(), message: e.to_string() };
 
         if let (CachePolicy::Ttl(ttl), Some(cache), false) = (policy, &self.cache, self.omit_cache) {
-            if let Some(body) = cache.get(&key, ttl) {
-                if let Ok(data) = serde_json::from_str::<Value>(&body) {
+            if let Some(body) = cache.get_async(&key, ttl).await {
+                // a stale shape (or a broken file) is fetched again
+                if let Ok(data) = serde_json::from_str::<T>(&body) {
                     tracing::debug!("{endpoint} HIT");
-                    return decode(data);
+                    return Ok(data);
                 }
             }
         }
@@ -167,35 +228,39 @@ impl TidalClient {
         let mut attempt = 1;
         let (status, body, data) = loop {
             let (status, body) = self.get(&url, params).await?;
-            match serde_json::from_str::<Value>(&body) {
-                Ok(data) => break (status, body, data),
-                Err(_) if attempt < MAX_RETRIES => {
-                    tracing::warn!("invalid json from {endpoint}, retrying {attempt}/{MAX_RETRIES}");
-                    attempt += 1;
-                    tokio::time::sleep(RETRY_DELAY).await;
+            if status != 200 {
+                // error bodies are small: parse them as JSON for the message
+                match serde_json::from_str::<Value>(&body) {
+                    Ok(data) => {
+                        tracing::debug!("{endpoint} MISS [{status}]");
+                        self.dump_debug(endpoint, params, status, || data.clone());
+                        return Err(api_error(status, &data));
+                    }
+                    // retries for 429 / 5xx already happened in `get`
+                    Err(_) => return Err(invalid_json(status)),
                 }
-                Err(_) => {
-                    return Err(Error::Api {
-                        status,
-                        sub_status: "0".into(),
-                        user_message: "Response body does not contain valid json.".into(),
-                    })
+            } else {
+                // decode straight into `T` (one parse); syntax errors mean a broken body
+                match serde_json::from_str::<T>(&body) {
+                    Ok(data) => break (status, body, data),
+                    Err(e) if !e.is_syntax() && !e.is_eof() => return Err(decode_error(e)),
+                    Err(_) if attempt < MAX_RETRIES => {}
+                    Err(_) => return Err(invalid_json(status)),
                 }
             }
+            tracing::warn!("invalid json from {endpoint}, retrying {attempt}/{MAX_RETRIES}");
+            attempt += 1;
+            tokio::time::sleep(RETRY_DELAY).await;
         };
 
         tracing::debug!("{endpoint} MISS [{status}]");
-        self.dump_debug(endpoint, params, status, &data);
-
-        if status != 200 {
-            return Err(api_error(status, &data));
-        }
+        self.dump_debug(endpoint, params, status, || serde_json::from_str(&body).unwrap_or(Value::Null));
 
         if let (CachePolicy::Ttl(_), Some(cache)) = (policy, &self.cache) {
-            cache.put(&key, &body);
+            cache.put_async(&key, body).await;
         }
 
-        decode(data)
+        Ok(data)
     }
 
     /// Sends a write request (`POST`, `PUT`, `DELETE`) with a form body.
@@ -219,7 +284,8 @@ impl TidalClient {
                 .request(method.clone(), &url)
                 .query(query)
                 .bearer_auth(&token)
-                .header("Accept", "application/json");
+                .header("Accept", "application/json")
+                .timeout(JSON_TIMEOUT);
             if !form.is_empty() {
                 req = req.form(form);
             }
@@ -246,7 +312,7 @@ impl TidalClient {
     /// `ETag` of a v1 resource (needed before editing a playlist).
     pub async fn etag(&self, endpoint: &str, params: &[(&str, String)]) -> Result<Option<String>> {
         let url = format!("{}/{endpoint}", self.api_url);
-        let res = self.http.get(&url).query(params).bearer_auth(self.token()).send().await?;
+        let res = self.http.get(&url).query(params).bearer_auth(self.token()).timeout(JSON_TIMEOUT).send().await?;
         let status = res.status().as_u16();
         let tag = res.headers().get("etag").and_then(|v| v.to_str().ok()).map(str::to_owned);
         if status != 200 {
@@ -262,7 +328,7 @@ impl TidalClient {
         let key = Self::cache_key(&url, params);
 
         if let (CachePolicy::Ttl(ttl), Some(cache), false) = (policy, &self.cache, self.omit_cache) {
-            if let Some(data) = cache.get(&key, ttl).and_then(|b| serde_json::from_str(&b).ok()) {
+            if let Some(data) = cache.get_async(&key, ttl).await.and_then(|b| serde_json::from_str(&b).ok()) {
                 return Ok(data);
             }
         }
@@ -274,13 +340,15 @@ impl TidalClient {
         };
 
         if let (CachePolicy::Ttl(_), Some(cache)) = (policy, &self.cache) {
-            cache.put(&key, &body);
+            cache.put_async(&key, body).await;
         }
         Ok(data)
     }
 
-    fn dump_debug(&self, endpoint: &str, params: &[(&str, String)], status: u16, data: &Value) {
+    /// `data` is only built when debugging is on (it costs a second parse).
+    fn dump_debug(&self, endpoint: &str, params: &[(&str, String)], status: u16, data: impl FnOnce() -> Value) {
         let Some(dir) = &self.debug_dir else { return };
+        let data = data();
         let file = dir.join(format!("{endpoint}.json"));
         let params: serde_json::Map<String, Value> =
             params.iter().map(|(k, v)| (k.to_string(), Value::String(v.clone()))).collect();
@@ -299,6 +367,10 @@ impl TidalClient {
             tracing::debug!("could not write {}: {e}", file.display());
         }
     }
+}
+
+fn invalid_json(status: u16) -> Error {
+    Error::Api { status, sub_status: "0".into(), user_message: "Response body does not contain valid json.".into() }
 }
 
 fn api_error(status: u16, data: &Value) -> Error {
@@ -328,6 +400,18 @@ mod tests {
 
         let err = api_error(500, &serde_json::json!({"message": "boom"}));
         assert_eq!(err.to_string(), "boom, 500/0");
+    }
+
+    #[test]
+    fn backoff_honours_retry_after_and_grows() {
+        assert_eq!(backoff(1, Some(Duration::from_secs(2))), Duration::from_secs(2));
+        assert_eq!(backoff(1, Some(Duration::from_secs(600))), MAX_RETRY_AFTER);
+        let first = backoff(1, None);
+        let third = backoff(3, None);
+        assert!(first >= BACKOFF_BASE && first < BACKOFF_BASE + Duration::from_millis(250));
+        assert!(third >= BACKOFF_BASE * 4);
+        assert!(is_retryable_status(429) && is_retryable_status(503) && !is_retryable_status(501));
+        assert!(!is_retryable_status(404) && !is_retryable_status(401));
     }
 
     #[test]

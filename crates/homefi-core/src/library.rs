@@ -336,19 +336,17 @@ pub fn scan(roots: &[PathBuf], cache: Option<&Path>) -> Vec<TrackInfo> {
     });
     tracks.extend(parsed);
 
-    tracks.sort_by(|a, b| {
-        // untagged files go last
-        let key = |t: &CacheEntry| {
-            let i = &t.info;
-            (
-                i.album_artist.is_empty(),
-                i.album_artist.to_lowercase(),
-                i.album.to_lowercase(),
-                i.disc_number,
-                i.track_number,
-            )
-        };
-        key(a).cmp(&key(b)).then_with(|| a.info.title.to_lowercase().cmp(&b.info.title.to_lowercase()))
+    // untagged files go last; keys are lowercased once per track, not per comparison
+    tracks.sort_by_cached_key(|t| {
+        let i = &t.info;
+        (
+            i.album_artist.is_empty(),
+            i.album_artist.to_lowercase(),
+            i.album.to_lowercase(),
+            i.disc_number,
+            i.track_number,
+            i.title.to_lowercase(),
+        )
     });
 
     if let Some(cache_path) = cache {
@@ -356,12 +354,10 @@ pub fn scan(roots: &[PathBuf], cache: Option<&Path>) -> Vec<TrackInfo> {
             version: CACHE_VERSION,
             entries: tracks.iter().map(|e| (e.info.path.clone(), e.clone())).collect(),
         };
-        let write = serde_json::to_vec(&new_cache).map_err(std::io::Error::from).and_then(|raw| {
-            if let Some(parent) = cache_path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(cache_path, raw)
-        });
+        // atomic: a scan killed mid-write (app swiped away) keeps the old cache
+        let write = serde_json::to_vec(&new_cache)
+            .map_err(std::io::Error::from)
+            .and_then(|raw| crate::paths::write_atomic(cache_path, &raw));
         if let Err(e) = write {
             tracing::warn!("could not write library cache {}: {e}", cache_path.display());
         }

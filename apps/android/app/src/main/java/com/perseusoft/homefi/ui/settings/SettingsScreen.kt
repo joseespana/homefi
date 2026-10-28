@@ -1,6 +1,8 @@
 package com.perseusoft.homefi.ui.settings
 
+import com.perseusoft.homefi.ui.AiIcon
 import com.perseusoft.homefi.ui.haptics
+import androidx.compose.material.icons.rounded.GraphicEq
 import com.perseusoft.homefi.ui.theme.SkinHeading
 import com.perseusoft.homefi.ui.theme.fixedDark
 import com.perseusoft.homefi.ui.ConfirmDialog
@@ -47,7 +49,11 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SwapHoriz
 import com.perseusoft.homefi.ui.SelectChip
+import com.perseusoft.homefi.core.AlbumEditionPref
+import com.perseusoft.homefi.core.AlbumExplicitPref
+import com.perseusoft.homefi.core.AlbumSpatialPref
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -104,6 +110,7 @@ import com.perseusoft.homefi.data.PlayerLayout
 import com.perseusoft.homefi.data.ProgressStyle
 import com.perseusoft.homefi.data.ProgressThickness
 import com.perseusoft.homefi.data.ShareSettings
+import com.perseusoft.homefi.data.SignalStyle
 import com.perseusoft.homefi.data.Storage
 import com.perseusoft.homefi.data.ThemeMode
 import com.perseusoft.homefi.homefi
@@ -137,7 +144,11 @@ private fun AudioQuality.label(): Int = when (this) {
  * page, so the search finds "Port" under shared control.
  */
 private enum class SettingsPage(val title: Int, val icon: ImageVector, val keywords: List<Int>) {
-    ACCOUNT(R.string.settings_account, Icons.Rounded.AccountCircle, listOf(R.string.settings_logout, R.string.login_connect, R.string.settings_lazy_lists)),
+    ACCOUNT(R.string.settings_account, Icons.Rounded.AccountCircle, listOf(
+        R.string.settings_logout, R.string.login_connect, R.string.settings_lazy_lists, R.string.settings_album_versions,
+        R.string.settings_album_group, R.string.settings_album_explicit, R.string.settings_album_spatial, R.string.settings_album_edition,
+        R.string.settings_album_keywords,
+    )),
     DOWNLOADS(
         R.string.settings_downloads,
         Icons.Rounded.Download,
@@ -158,6 +169,7 @@ private enum class SettingsPage(val title: Int, val icon: ImageVector, val keywo
             R.string.settings_appearance, R.string.theme_light, R.string.theme_dark, R.string.settings_player,
             R.string.layout_title, R.string.layout_everywhere, R.string.immersive_shade, R.string.progress_title, R.string.progress_animated,
             R.string.settings_motion, R.string.motion_subtle, R.string.settings_haptics,
+            R.string.signal_chain, R.string.signal_style_detailed, R.string.signal_animate, R.string.signal_bitperfect, R.string.signal_resampled,
         ),
     ),
     MASCOT(
@@ -171,6 +183,32 @@ private enum class SettingsPage(val title: Int, val icon: ImageVector, val keywo
         listOf(
             R.string.lyrics_mode, R.string.lyrics_mode_karaoke, R.string.lyrics_size, R.string.lyrics_timing,
             R.string.lyrics_auto_open, R.string.lyrics_mascot,
+        ),
+    ),
+    SOUND(
+        R.string.settings_sound,
+        Icons.Rounded.GraphicEq,
+        listOf(
+            R.string.eq_title, R.string.eq_on, R.string.eq_open, R.string.eq_assistant, R.string.eq_preamp_auto,
+            R.string.eq_autoeq, R.string.eq_presets, R.string.eq_taste, R.string.eq_bass, R.string.eq_treble,
+            R.string.sound_layers_on, R.string.sound_rules, R.string.sound_loudness, R.string.sound_how,
+            R.string.sound_settings_react_button, R.string.sound_settings_layer_chip, R.string.sound_settings_suggestions,
+        ),
+    ),
+    PLAYBACK(
+        R.string.settings_playback,
+        Icons.Rounded.SwapHoriz,
+        listOf(
+            R.string.crossfade_on, R.string.crossfade_keywords, R.string.crossfade_curve, R.string.crossfade_smart,
+            R.string.crossfade_album_runs, R.string.crossfade_manual, R.string.crossfade_low_power,
+        ),
+    ),
+    AI(
+        R.string.settings_ai,
+        AiIcon,
+        listOf(
+            R.string.ai_provider, R.string.ai_key, R.string.ai_get_key, R.string.ai_test, R.string.ai_model,
+            R.string.ai_base_url, R.string.ai_remove, R.string.eq_assistant,
         ),
     ),
     SHARING(
@@ -220,7 +258,7 @@ fun SettingsScreen(loggedIn: Boolean, onLogin: () -> Unit, onLoggedOut: () -> Un
     val shared = remember(storageTick) { Storage.hasSharedAccess(context) }
     val dir = remember(storageTick, settings.downloadDir) { Storage.downloadDir(context, settings.downloadDir).absolutePath }
     val legacyPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { storageTick++ }
-    val account = remember(loggedIn) { app.engine.account() }
+    val account = app.account.account.collectAsStateWithLifecycle().value
 
     var page by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
     BackHandler(enabled = page != null) { page = null }
@@ -249,6 +287,9 @@ fun SettingsScreen(loggedIn: Boolean, onLogin: () -> Unit, onLoggedOut: () -> Un
                                 stringResource(settings.mascotDance?.label ?: R.string.mascot_dance_auto)
                         SettingsPage.LYRICS ->
                             stringResource(R.string.lyrics_summary, stringResource(settings.lyricsMode.label()), stringResource(settings.lyricsSize.label()))
+                        SettingsPage.SOUND -> soundSummary()
+                        SettingsPage.PLAYBACK -> playbackSummary()
+                        SettingsPage.AI -> aiSummary(settings.ai)
                         SettingsPage.SHARING ->
                             "${stringResource(settings.share.network.label())} · ${app.share.sessionName(settings.share)}"
                         SettingsPage.ABOUT -> "HomeFi ${BuildConfig.VERSION_NAME}"
@@ -278,6 +319,9 @@ fun SettingsScreen(loggedIn: Boolean, onLogin: () -> Unit, onLoggedOut: () -> Un
                         }
                         SettingsPage.MASCOT -> MascotSettings()
                         SettingsPage.LYRICS -> LyricsSettings()
+                        SettingsPage.SOUND -> SoundSettings()
+                        SettingsPage.PLAYBACK -> PlaybackSettings()
+                        SettingsPage.AI -> AiSettingsSection()
                         SettingsPage.SHARING -> ShareSettingsSection()
                         SettingsPage.ABOUT -> AboutSettings()
                     }
@@ -356,7 +400,7 @@ private fun PageHeader(title: Int, onBack: () -> Unit) {
 private fun AccountSettings(loggedIn: Boolean, onLogin: () -> Unit, onLoggedOut: () -> Unit) {
     val app = LocalContext.current.homefi
     val scope = rememberCoroutineScope()
-    val account = remember(loggedIn) { app.engine.account() }
+    val account = app.account.account.collectAsStateWithLifecycle().value
     Header(R.string.settings_account)
     if (account == null) {
         Text(stringResource(R.string.settings_account_none), modifier = Modifier.padding(horizontal = 16.dp))
@@ -378,6 +422,7 @@ private fun AccountSettings(loggedIn: Boolean, onLogin: () -> Unit, onLoggedOut:
                     scope.launch {
                         app.downloads.cancelAll()
                         app.engine.logout()
+                        app.account.signedOut()
                         onLoggedOut()
                     }
                 },
@@ -394,6 +439,31 @@ private fun AccountSettings(loggedIn: Boolean, onLogin: () -> Unit, onLoggedOut:
     Header(R.string.settings_tidal_lists)
     Toggle(R.string.settings_lazy_lists, settings.lazyLists) { v -> app.settings.update { it.copy(lazyLists = v) } }
     Hint(R.string.settings_lazy_lists_hint)
+
+    // the same four options as the desktop's Settings → Tidal → Album versions
+    Header(R.string.settings_album_versions)
+    Toggle(R.string.settings_album_group, settings.albumVersionsGroup) { v -> app.settings.update { it.copy(albumVersionsGroup = v) } }
+    Hint(R.string.settings_album_group_hint)
+    Reveal(settings.albumVersionsGroup) {
+        Label(R.string.settings_album_explicit)
+        Row(Modifier.padding(horizontal = 16.dp)) {
+            Chip(settings.albumExplicit == AlbumExplicitPref.EXPLICIT, R.string.album_pref_explicit) { app.settings.update { it.copy(albumExplicit = AlbumExplicitPref.EXPLICIT) } }
+            Chip(settings.albumExplicit == AlbumExplicitPref.CLEAN, R.string.album_pref_clean) { app.settings.update { it.copy(albumExplicit = AlbumExplicitPref.CLEAN) } }
+        }
+        Hint(R.string.settings_album_explicit_hint)
+        Label(R.string.settings_album_spatial)
+        Row(Modifier.padding(horizontal = 16.dp)) {
+            Chip(settings.albumSpatial == AlbumSpatialPref.STEREO, R.string.album_pref_stereo) { app.settings.update { it.copy(albumSpatial = AlbumSpatialPref.STEREO) } }
+            Chip(settings.albumSpatial == AlbumSpatialPref.DOLBY_ATMOS, R.string.album_pref_atmos) { app.settings.update { it.copy(albumSpatial = AlbumSpatialPref.DOLBY_ATMOS) } }
+        }
+        Hint(R.string.settings_album_spatial_hint)
+        Label(R.string.settings_album_edition)
+        Row(Modifier.padding(horizontal = 16.dp)) {
+            Chip(settings.albumEdition == AlbumEditionPref.ORIGINAL, R.string.album_pref_original) { app.settings.update { it.copy(albumEdition = AlbumEditionPref.ORIGINAL) } }
+            Chip(settings.albumEdition == AlbumEditionPref.REMASTER, R.string.album_pref_remaster) { app.settings.update { it.copy(albumEdition = AlbumEditionPref.REMASTER) } }
+        }
+        Hint(R.string.settings_album_edition_hint)
+    }
 }
 
 /** Quality, tags and naming of what gets downloaded. */
@@ -666,6 +736,28 @@ private fun PlayerSettings() {
         }
     }
     Toggle(R.string.progress_animated, settings.progressAnimated) { v -> app.settings.update { it.copy(progressAnimated = v) } }
+    SignalChainSettings()
+}
+
+/** The player's signal chain: Compact / Detailed / Off, and whether its links flow. */
+@Composable
+private fun SignalChainSettings() {
+    val app = LocalContext.current.homefi
+    val settings by app.settings.settings.collectAsStateWithLifecycle()
+    Label(R.string.signal_chain)
+    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+        Chip(settings.signalChain && settings.signalStyle == SignalStyle.COMPACT, R.string.signal_style_compact) {
+            app.settings.update { it.copy(signalChain = true, signalStyle = SignalStyle.COMPACT) }
+        }
+        Chip(settings.signalChain && settings.signalStyle == SignalStyle.DETAILED, R.string.signal_style_detailed) {
+            app.settings.update { it.copy(signalChain = true, signalStyle = SignalStyle.DETAILED) }
+        }
+        Chip(!settings.signalChain, R.string.signal_style_off) { app.settings.update { it.copy(signalChain = false) } }
+    }
+    Hint(if (settings.signalChain) R.string.signal_chain_hint else R.string.signal_chain_off_hint)
+    Toggle(R.string.signal_animate, settings.signalAnimate, enabled = settings.signalChain) { v ->
+        app.settings.update { it.copy(signalAnimate = v) }
+    }
 }
 
 /** How the mascot looks and dances (the same choices as on the desktop). */
@@ -1050,7 +1142,7 @@ private fun ShareEditMode.labelRes(): Int = when (this) {
 }
 
 @Composable
-private fun Label(text: Int, top: Dp = 12.dp) {
+internal fun Label(text: Int, top: Dp = 12.dp) {
     Text(
         stringResource(text),
         style = MaterialTheme.typography.labelLarge,
@@ -1060,7 +1152,7 @@ private fun Label(text: Int, top: Dp = 12.dp) {
 
 /** A hint under a setting; when the choice changes it, the new text fades in. */
 @Composable
-private fun Hint(text: Int) {
+internal fun Hint(text: Int) {
     val motion = LocalMotion.current
     AnimatedContent(targetState = text, transitionSpec = { motion.swap() }, label = "hint") { shown ->
         Text(
@@ -1074,7 +1166,7 @@ private fun Hint(text: Int) {
 
 /** Options that only matter for one choice open and close below it. */
 @Composable
-private fun Reveal(visible: Boolean, content: @Composable () -> Unit) {
+internal fun Reveal(visible: Boolean, content: @Composable () -> Unit) {
     val motion = LocalMotion.current
     AnimatedVisibility(visible, enter = motion.reveal(), exit = motion.conceal()) {
         Column { content() }
@@ -1151,7 +1243,7 @@ private fun ProgressThickness.labelRes(): Int = when (this) {
 }
 
 @Composable
-private fun Header(text: Int) {
+internal fun Header(text: Int) {
     SkinHeading(
         stringResource(text),
         style = MaterialTheme.typography.titleSmall,
@@ -1161,7 +1253,7 @@ private fun Header(text: Int) {
 }
 
 @Composable
-private fun Toggle(text: Int, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
+internal fun Toggle(text: Int, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     ListItem(
         colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
         headlineContent = {

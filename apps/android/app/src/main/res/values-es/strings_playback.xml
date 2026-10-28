@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_playback">Reproducción</string>
+    <string name="crossfade_title">Fundido</string>
+    <string name="crossfade_on">Fundir una canción con la siguiente</string>
+    <string name="crossfade_on_hint">La siguiente canción empieza mientras esta se apaga. Apagado, cada cambio es sin pausas y bit-perfect; durante un fundido el sonido no es bit-perfect.</string>
+    <string name="crossfade_keywords">fundido, crossfade, fundir, transición, mezcla, sin pausas, gapless, solapar</string>
+    <string name="crossfade_seconds">Duración: %1$s s</string>
+    <string name="crossfade_curve">Curva</string>
+    <string name="crossfade_curve_equal_power">Potencia constante</string>
+    <string name="crossfade_curve_s">Curva en S</string>
+    <string name="crossfade_curve_linear">Lineal</string>
+    <string name="crossfade_curve_equal_power_hint">El volumen se mantiene parejo todo el rato.</string>
+    <string name="crossfade_curve_s_hint">Se queda más en cada canción y cambia rápido en el medio.</string>
+    <string name="crossfade_curve_linear_hint">Líneas rectas: baja un poco a mitad.</string>
+    <string name="crossfade_smart">Saltar el silencio</string>
+    <string name="crossfade_smart_hint">Funde desde donde de verdad acaba la música hasta donde empieza la siguiente (silencio por debajo de −60 dB).</string>
+    <string name="crossfade_album_runs">Álbumes sin pausas</string>
+    <string name="crossfade_album_runs_hint">Sin fundido entre canciones del mismo álbum en orden (discos en vivo, mezclas).</string>
+    <string name="crossfade_manual">Fundir al saltar</string>
+    <string name="crossfade_manual_hint">Un fundido corto al pasar a la siguiente, la anterior o elegir una canción, en vez de un corte.</string>
+    <string name="crossfade_manual_seconds">Fundido al saltar: %1$s s</string>
+    <string name="crossfade_min_track">Canción más corta que se funde: %1$s</string>
+    <string name="crossfade_min_auto">Automático (%1$s s)</string>
+    <string name="crossfade_min_track_hint">Las canciones más cortas (interludios, intros) suenan enteras, sin pausas entre ellas.</string>
+    <string name="crossfade_low_power">Desactivar en teléfonos lentos</string>
+    <string name="crossfade_low_power_hint">El fundido reproduce dos canciones a la vez. En teléfonos con poca memoria, o si el teléfono no da abasto durante los fundidos, las canciones cambian como siempre.</string>
+    <string name="crossfade_unavailable_memory">Este teléfono tiene poca memoria: las canciones cambian sin fundido.</string>
+    <string name="crossfade_unavailable_lag">El teléfono no dio abasto durante los fundidos: el fundido queda en pausa hasta reiniciar la app.</string>
+    <string name="crossfade_summary_on">Fundido de %1$s s</string>
+    <string name="crossfade_summary_off">Sin pausas</string>
+    <string name="crossfade_now">Fundiendo con %1$s</string>
+    <string name="crossfade_now_untitled">Fundiendo</string>
+</resources>

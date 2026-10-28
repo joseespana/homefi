@@ -12,6 +12,8 @@
   import NowActions from "./NowActions.svelte";
   import { lyrics } from "../lib/lyrics.svelte";
   import { pop, swap } from "../lib/motion";
+  import { sound } from "../lib/sound.svelte";
+  import HowSounds from "./sound/HowSounds.svelte";
 
   let { queueOpen = $bindable(false) }: { queueOpen?: boolean } = $props();
 
@@ -60,6 +62,13 @@
   const outputLabel = $derived(p?.stream?.device ?? p?.preferred_device ?? "System default");
   // 0..1 mini level bars in the deck
   const level = $derived(Math.max(visual.vuLeft, visual.vuRight));
+  // "HD 650 + Electronic": the output's profile and the taste layer playing
+  const layers = $derived.by(() => {
+    if (!p?.eq_active) return null;
+    const rule = p.taste_rule ? sound.taste.rules.find((r) => r.id === p.taste_rule) : null;
+    return [p.eq_profile, rule?.scope.name ?? p.taste_label].filter(Boolean).join(" + ") || null;
+  });
+  const loudness = $derived(Math.abs(p?.loudness_db ?? 0) >= 0.05 ? (p?.loudness_db ?? 0) : null);
 </script>
 
 <footer class="deck">
@@ -76,8 +85,10 @@
           {:else if p?.stream}
             <div class="chip">
               <span class="led" class:warn={p.stream.resampled}></span>
-              {p.stream.codec.toUpperCase()} {p.stream.bits_per_sample ? `${p.stream.bits_per_sample}/` : ""}{khz(p.stream.source_rate)}
-              {#if p.stream.resampled}→ {khz(p.stream.output_rate)}{/if}
+              <span class="fmt"><span class="codec">{p.stream.codec.toUpperCase()}&nbsp;</span>{p.stream.bits_per_sample ? `${p.stream.bits_per_sample}/` : ""}{khz(p.stream.source_rate)}{#if p.stream.resampled}&nbsp;→ {khz(p.stream.output_rate)}{/if}</span>
+              {#if p.eq_active}<span class="eq-tag ellipsis" title={`Equalizer on: ${layers ?? "on"} (not bit-perfect)`}>EQ{#if sound.ui.layer_chip && layers}<span class="layers">&nbsp;· {layers}</span>{/if}</span>{/if}
+              {#if loudness !== null}<span class="eq-tag loud" title="Loudness normalization: not bit-perfect">{loudness > 0 ? "+" : "−"}{Math.abs(loudness).toFixed(1)} dB</span>{/if}
+              {#if p.fading}<span class="eq-tag fade" style:--p={p.fading.progress} title={`Crossfading (${p.fading.seconds.toFixed(1)} s): not bit-perfect until it ends`}>Fade</span>{/if}
             </div>
           {/if}
         </div>
@@ -140,6 +151,22 @@
         <OutputMenu onclose={() => (outputsOpen = false)} />
       {/if}
     </div>
+    {#if sound.ui.react_deck && !src.remote}
+      <HowSounds place="deck" look="hw" up />
+    {/if}
+    {#if app.settings?.eq_ui?.deck_button ?? true}
+      <button
+        class="hw small eq-btn"
+        class:on={!src.remote && p?.eq_active}
+        class:active={app.view.name === "eq"}
+        title={p?.eq_active ? `Equalizer: ${layers ?? "on"} (not bit-perfect)` : app.settings?.eq.enabled ? "Equalizer: on, flat for this output" : "Equalizer: off (bit-perfect)"}
+        aria-label="Equalizer"
+        onclick={() => (app.view = app.view.name === "eq" ? { name: "room" } : { name: "eq" })}
+      >
+        <Icon name="eq" size={16} />
+        {#if !src.remote && p?.eq_active}<span class="eq-dot"></span>{/if}
+      </button>
+    {/if}
     <Knob value={volume} onchange={setVolume} size={narrow ? 40 : 52} />
     {#if narrow}
       <div class="more">
@@ -206,11 +233,15 @@
     align-items: center;
     gap: 12px;
     min-width: 0;
+    max-width: 100%;
     text-align: left;
     border-radius: min(12px, var(--r-max));
   }
+  /* the title column: nothing in it (the format / EQ chip above all) may
+     paint over the seek bar and its times, whatever the engine's sizing */
   .meta {
     min-width: 0;
+    overflow: hidden;
   }
   .title {
     font-weight: 700;
@@ -220,9 +251,14 @@
     color: var(--muted);
   }
   .chip {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 6px;
+    width: fit-content;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+    white-space: nowrap;
     margin-top: 4px;
     padding: 2px 8px;
     border-radius: min(999px, var(--r-max));
@@ -258,6 +294,37 @@
     border-radius: 50%;
     background: var(--ok);
     box-shadow: 0 0 6px var(--ok);
+  }
+  /* when the column is short the EQ name gives way first ("EQ · Senn…"),
+     the format and the loudness keep their text */
+  .fmt,
+  .eq-tag.loud,
+  .led {
+    flex: none;
+  }
+  .eq-tag {
+    flex: 0 1 auto;
+    min-width: 2.6em;
+    max-width: 200px;
+    white-space: nowrap;
+    padding: 0 5px;
+    border-radius: min(4px, var(--r-max));
+    background: color-mix(in srgb, #fbbf24 22%, transparent);
+    color: #d97706;
+    font-weight: 700;
+  }
+  .eq-btn.active {
+    box-shadow: inset 0 0 0 1px var(--accent-text), 0 2px 0 rgb(0 0 0 / 0.35);
+  }
+  .eq-dot {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #fbbf24;
+    box-shadow: 0 0 6px #fbbf24;
   }
   .led.warn {
     background: #fbbf24;
@@ -458,6 +525,22 @@
       display: none;
     }
   }
+  /* a shorter title column: the loudness tag goes first, then the layer
+     names and the codec ("24/96 · EQ") */
+  @media (max-width: 1280px) {
+    .eq-tag.loud {
+      display: none;
+    }
+  }
+  @media (max-width: 1040px) {
+    .eq-tag .layers,
+    .codec {
+      display: none;
+    }
+    .eq-tag {
+      min-width: 0;
+    }
+  }
   @media (max-width: 920px) {
     .deck {
       grid-template-columns: minmax(0, 1fr) minmax(260px, 1.4fr) auto;
@@ -468,5 +551,9 @@
     .transport {
       gap: 6px;
     }
+  }
+  /* crossfade in progress: the tag fills as the next song takes over */
+  .eq-tag.fade {
+    background: linear-gradient(90deg, color-mix(in srgb, var(--primary) 30%, transparent) calc(var(--p, 0) * 100%), transparent 0);
   }
 </style>

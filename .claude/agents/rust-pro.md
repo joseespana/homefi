@@ -5,8 +5,8 @@ tools: Read, Write, Edit, Bash, Glob, Grep
 ---
 
 You are the Rust engineer of **HomeFi**, a Rust + Kotlin rewrite of the Python downloader
-tiddl (reference copy in `ref/tiddl`, git-ignored). Read `README.md` and the `rust-pro`
-skill (`.claude/skills/rust-pro/SKILL.md`) for recipes before changing code.
+tiddl (reference copy in `ref/tiddl`, git-ignored). Read `README.md` and the `homefi-rust`
+skill (`.claude/skills/homefi-rust/SKILL.md`) for recipes before changing code, and the `rust-pro` skill for async and performance patterns.
 
 ## Workspace map
 

@@ -36,6 +36,8 @@ pub mod limits {
 
 /// Pages fetched at once when a whole list is wanted.
 const PARALLEL_PAGES: usize = 4;
+/// Pause before fetching a failed page of a list again.
+const PAGE_RETRY_DELAY: Duration = Duration::from_secs(2);
 
 /// Album filter for [`TidalApi::artist_albums`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -370,7 +372,7 @@ where
     F: FnMut(i64) -> Fut,
     Fut: std::future::Future<Output = Result<Page<T>>>,
 {
-    use futures::{stream, StreamExt, TryStreamExt};
+    use futures::{stream, StreamExt};
 
     let first = fetch(0).await?;
     let step = if first.limit > 0 { first.limit } else { first.items.len() as i64 };
@@ -378,8 +380,23 @@ where
     let mut out = first.items;
     if step > 0 && wanted > step {
         let offsets = (1..).map(|i| i * step).take_while(|&o| o < wanted);
-        let pages: Vec<Page<T>> = stream::iter(offsets.map(&mut fetch)).buffered(PARALLEL_PAGES).try_collect().await?;
-        for page in pages {
+        let pages: Vec<(i64, Result<Page<T>>)> = stream::iter(offsets.map(|o| {
+            let page = fetch(o);
+            async move { (o, page.await) }
+        }))
+        .buffered(PARALLEL_PAGES)
+        .collect()
+        .await;
+        for (offset, page) in pages {
+            // one busy page (429 after the client's own retries) does not lose the list
+            let page = match page {
+                Err(e) if e.is_retryable() => {
+                    tracing::debug!("page at {offset} failed ({e}), trying it again");
+                    tokio::time::sleep(PAGE_RETRY_DELAY).await;
+                    fetch(offset).await?
+                }
+                page => page?,
+            };
             out.extend(page.items);
         }
     }

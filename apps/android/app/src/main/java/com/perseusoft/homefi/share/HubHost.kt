@@ -26,7 +26,7 @@ import kotlinx.coroutines.runBlocking
  */
 internal class HubHost(private val app: HomefiApplication, private val manager: ShareManager) : HubHostCallback {
     private val tracks get() = app.library.state.value.tracks
-    private val loggedIn get() = app.engine.account() != null
+    private val loggedIn get() = app.account.isLoggedIn
 
     override fun search(q: String): ShareSearchResults? {
         val query = q.trim()

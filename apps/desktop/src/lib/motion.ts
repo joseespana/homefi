@@ -75,19 +75,21 @@ const NONE: TransitionConfig = { duration: 0 };
  */
 function moving(
   node: Element,
-  o: { duration: number; delay?: number; x?: number; y?: number; scale?: number; origin?: string; pop?: boolean },
+  o: { duration: number; delay?: number; x?: number; y?: number; scale?: number; origin?: string; pop?: boolean; plain?: boolean },
   direction: "in" | "out" | "both" = "in",
 ): TransitionConfig {
   if (level === "off") return NONE;
   const speed = (direction === "out" ? 0.7 : 1) * (level === "subtle" ? 0.7 : flavor.speed);
   const duration = Math.round(o.duration * speed);
   const delay = Math.round((o.delay ?? 0) * speed);
-  const opacity = +getComputedStyle(node).opacity;
+  // `plain`: a list row at rest (opaque, untransformed); reading its computed
+  // style would force a style recalc of the whole page for every row
+  const opacity = o.plain ? 1 : +getComputedStyle(node).opacity;
   if (level === "subtle") return { duration, delay, easing: cubicOut, css: (t) => `opacity: ${t * opacity}` };
   const x = (o.x ?? 0) * flavor.travel;
   const y = (o.y ?? 0) * flavor.travel;
   const s = 1 - (1 - (o.scale ?? 1)) * flavor.travel;
-  const base = getComputedStyle(node).transform;
+  const base = o.plain ? "none" : getComputedStyle(node).transform;
   const from = base === "none" ? "" : base;
   return {
     duration,
@@ -154,23 +156,30 @@ export function swap(node: Element, { x = 18, delay = 0 }: { x?: number; delay?:
 // anyway), so a list of thousands costs nothing.
 const STAGGER = 12;
 const MOST = 48;
+/** A batch that took longer than this to build skips the rest of its entrances (a slow machine is busy enough). */
+const BUDGET_MS = 12;
 let batch = 0;
 let closing = false;
+let batchStart = 0;
 
-/** A row or card of a list; use as `in:item|global` so the first load cascades too. */
-export function item(node: Element, { step = 28 }: { step?: number } = {}) {
-  if (level === "off") return NONE;
+/**
+ * A row or card of a list; use as `in:item|global` so the first load cascades too.
+ * `skip`: appear at once (rows that a scroll brings in, a virtual list's recycling).
+ */
+export function item(node: Element, { step = 28, skip = false }: { step?: number; skip?: boolean } = {}) {
+  if (level === "off" || skip) return NONE;
   const n = batch++;
   if (!closing) {
     // everything created in this update is one batch
     closing = true;
+    batchStart = performance.now();
     setTimeout(() => {
       batch = 0;
       closing = false;
     });
   }
-  if (n >= MOST) return NONE;
-  return moving(node, { duration: 300, delay: Math.min(n, STAGGER) * step, y: 10, scale: 0.985 });
+  if (n >= MOST || performance.now() - batchStart > BUDGET_MS) return NONE;
+  return moving(node, { duration: 300, delay: Math.min(n, STAGGER) * step, y: 10, scale: 0.985, plain: true });
 }
 
 /** Siblings sliding into the gap a removed item left (`animate:reflow` in a keyed each). */

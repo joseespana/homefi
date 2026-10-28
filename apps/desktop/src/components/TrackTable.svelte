@@ -1,21 +1,26 @@
 <script lang="ts">
   import { item } from "../lib/motion";
-  import { api, formatTime, type Track } from "../lib/api";
+  import { api, formatTime, type SourceContext, type Track } from "../lib/api";
   import { app } from "../lib/state.svelte";
+  import { Windowed } from "../lib/virtual.svelte";
   import Cover from "./Cover.svelte";
   import Icon from "./Icon.svelte";
 
-  let { tracks, numbered = false, showAlbum = true }: { tracks: Track[]; numbered?: boolean; showAlbum?: boolean } = $props();
+  let {
+    tracks,
+    numbered = false,
+    showAlbum = true,
+    source = null,
+  }: { tracks: Track[]; numbered?: boolean; showAlbum?: boolean; source?: SourceContext | null } = $props();
 
   const currentPath = $derived(app.current?.path);
   const playing = $derived(app.player?.status === "playing");
 
-  // render in pages so huge libraries stay smooth
-  let limit = $state(200);
-  const visible = $derived(tracks.slice(0, limit));
+  // only the rows near the screen exist, so a library of thousands scrolls like a short list
+  const win = new Windowed(52);
 
   function queueMenu(e: MouseEvent, track: Track) {
-    app.openQueueMenu(e, track.title, (next) => app.queueFiles([track.path], track.title, next));
+    app.openQueueMenu(e, track.title, (next) => app.queueFiles([track.path], track.title, next), { kind: "track", id: track.path, name: track.title });
   }
 
   // the track being heard pauses / resumes instead of starting over
@@ -24,18 +29,23 @@
     api.play(
       tracks.map((t) => t.path),
       index,
+      false,
+      source,
     );
   }
 </script>
 
-<div class="table" role="list">
-  {#each visible as track, i (track.path)}
+<div class="table" role="list" {@attach win.attach(() => tracks.length)}>
+  <div aria-hidden="true" style:height="{win.before}px"></div>
+  {#each tracks.slice(win.start, win.end) as track, j (track.path)}
+    {@const i = win.start + j}
     {@const current = track.path === currentPath}
     <!-- double-click is a mouse shortcut; keyboard users use the play button -->
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
       class="row"
-      in:item|global
+      data-row
+      in:item|global={{ skip: win.scrolled }}
       class:noalbum={!showAlbum}
       class:now-row={current}
       class:live={current && playing}
@@ -67,9 +77,7 @@
       </button>
     </div>
   {/each}
-  {#if tracks.length > limit}
-    <button class="more btn tonal" onclick={() => (limit += 500)}>Show more ({tracks.length - limit})</button>
-  {/if}
+  <div aria-hidden="true" style:height="{win.after}px"></div>
 </div>
 
 <style>
@@ -106,6 +114,7 @@
     position: relative;
     width: 40px;
     height: 40px;
+    padding: 0;
     display: grid;
     place-items: center;
   }
@@ -149,9 +158,5 @@
   .sound {
     display: grid;
     color: var(--accent-text);
-  }
-  .more {
-    align-self: center;
-    margin: 12px;
   }
 </style>

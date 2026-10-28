@@ -10,6 +10,7 @@
   import { visual } from "../../lib/visual.svelte";
   import Cover from "../Cover.svelte";
   import Icon from "../Icon.svelte";
+  import SignalChain from "../SignalChain.svelte";
   import Customize from "./Customize.svelte";
   import { rise, swap } from "../../lib/motion";
 
@@ -17,6 +18,7 @@
   // as the skin of the whole app, the player bar has the controls
   const own = $derived(ownControls(app.settings?.room));
   const p = $derived(src.player);
+  const chainOn = $derived((app.settings?.room.signal_chain ?? true) && !!p?.stream);
   const track = $derived(src.current);
   const playing = $derived(p?.status === "playing");
   const duration = $derived(p?.duration_ms ?? track?.durationMs ?? 0);
@@ -81,6 +83,7 @@
       <span class="time">{formatTime(position)}</span>
     </div>
   </div>
+  {#if chainOn}<div class="chain-row"><SignalChain look="luna" /></div>{/if}
 
   {#if own}
   <!-- seek: a groove with the green pill -->
@@ -152,6 +155,10 @@
     top: 22px;
     right: 22px;
     z-index: 2;
+  }
+  .chain-row {
+    padding: 0 2px;
+    min-width: 0;
   }
   .status {
     display: flex;

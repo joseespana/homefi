@@ -53,7 +53,7 @@
   const openTracks = $derived(open ? open.tracks.flatMap((p) => byPath.get(p) ?? []) : []);
 
   function play(shuffle = false) {
-    if (openTracks.length) api.play(openTracks.map((t) => t.path), 0, shuffle);
+    if (openTracks.length) api.play(openTracks.map((t) => t.path), 0, shuffle, open ? { kind: "playlist", id: open.path, name: open.name } : null);
   }
   function openTidal(h: Hit) {
     app.view = { name: "tidal-item", kind: "playlist", id: h.id, back: app.view };
@@ -76,7 +76,7 @@
         <button
           class="btn tonal"
           disabled={!openTracks.length}
-          onclick={(e) => app.openQueueMenu(e, open!.name, (next) => app.queueFiles(openTracks.map((t) => t.path), open!.name, next))}
+          onclick={(e) => app.openQueueMenu(e, open!.name, (next) => app.queueFiles(openTracks.map((t) => t.path), open!.name, next), { kind: "playlist", id: open!.path, name: open!.name })}
         >
           <Icon name="queue" size={16} /> Queue
         </button>

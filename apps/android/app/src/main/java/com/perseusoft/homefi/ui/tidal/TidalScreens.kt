@@ -38,6 +38,7 @@ import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
@@ -68,6 +69,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -75,8 +78,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.perseusoft.homefi.R
+import com.perseusoft.homefi.core.AlbumVersionHit
 import com.perseusoft.homefi.core.ItemKind
 import com.perseusoft.homefi.core.SearchHit
+import com.perseusoft.homefi.core.TasteScope
+import com.perseusoft.homefi.player.Sources
+import androidx.compose.material.icons.rounded.Tune
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.player.tidalId
 import com.perseusoft.homefi.ui.QualityBadge
@@ -94,11 +101,13 @@ class RowContext(
     val onPlay: (List<SearchHit>, Int) -> Unit,
     val onOpen: (SearchHit) -> Unit,
     val onDownload: (SearchHit) -> Unit,
+    /** Play / open / download a release from the album version picker. */
+    val onVersion: (AlbumVersionHit, VersionAction) -> Unit = { _, _ -> },
 )
 
 /** The same row context, with taps on tracks playing [key] (the whole list, loaded or not). */
 fun RowContext.playing(vm: TidalViewModel, key: ListKey) =
-    RowContext(playingId, local, queued, { _, i -> vm.play(key, i) }, onOpen, onDownload)
+    RowContext(playingId, local, queued, { _, i -> vm.play(key, i) }, onOpen, onDownload, onVersion)
 
 fun localKey(artist: String, title: String) = "${artist.trim().lowercase()}\u0000${title.trim().lowercase()}"
 
@@ -117,6 +126,7 @@ fun rememberRowContext(vm: TidalViewModel): RowContext {
         onPlay = { list, i -> app.player.playTidal(list, i) },
         onOpen = vm::open,
         onDownload = vm::download,
+        onVersion = vm::versionAction,
     )
 }
 
@@ -142,9 +152,12 @@ fun TidalRow(hit: SearchHit, list: List<SearchHit>, index: Int, ctx: RowContext,
     val openable = hit.kind in setOf(ItemKind.ALBUM, ItemKind.ARTIST, ItemKind.PLAYLIST)
     val player = LocalContext.current.homefi.player
     var menu by remember { mutableStateOf(false) }
+    var picker by remember { mutableStateOf(false) }
+    val hasVersions = hit.versions.size > 1
     val haptics = haptics()
     Box(modifier) {
     if (isTrack) QueueMenu(menu, { menu = false }) { next -> player.queueTidal(listOf(hit), next) }
+    if (picker) AlbumVersionsSheet(hit.title, hit.versions, null, { picker = false }, ctx.onVersion)
     ListItem(
         modifier = Modifier.combinedClickable(
             enabled = isTrack || openable,
@@ -159,6 +172,9 @@ fun TidalRow(hit: SearchHit, list: List<SearchHit>, index: Int, ctx: RowContext,
                 if (isTrack) {
                     haptics.longPress()
                     menu = true
+                } else if (hasVersions) {
+                    haptics.longPress()
+                    picker = true
                 }
             },
         ),
@@ -189,6 +205,10 @@ fun TidalRow(hit: SearchHit, list: List<SearchHit>, index: Int, ctx: RowContext,
             Row(verticalAlignment = Alignment.CenterVertically) {
                 hit.quality?.let {
                     QualityBadge(it)
+                    Spacer(Modifier.width(6.dp))
+                }
+                if (hasVersions) {
+                    VersionsChip(hit.versions.size, { picker = true }, onCover = false)
                     Spacer(Modifier.width(6.dp))
                 }
                 Text(hit.subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -289,23 +309,51 @@ fun LazyListScope.shelf(title: Int, hits: List<SearchHit>, ctx: RowContext) {
         Column(itemMotion(1)) {
             SectionTitle(stringResource(title))
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(hits, key = { it.id }) { hit ->
-                    Column(itemMotion().width(140.dp).clickable { ctx.onOpen(hit) }) {
-                        CoverArt(hit.coverUrl, 140.dp, icon = hit.kind.icon(), radius = 10.dp)
-                        Text(hit.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
-                        Text(hit.subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
+                items(hits, key = { it.id }) { hit -> ShelfCard(hit, ctx, itemMotion()) }
             }
         }
     }
 }
 
+/**
+ * A cover in a shelf. Albums Tidal lists several times are one card: a tap opens the default
+ * release, the "N versions" chip (or a long-press) lists them all.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun BackBar(title: String, onBack: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 16.dp)) {
+private fun ShelfCard(hit: SearchHit, ctx: RowContext, modifier: Modifier = Modifier) {
+    var picker by remember { mutableStateOf(false) }
+    val hasVersions = hit.versions.size > 1
+    val haptics = haptics()
+    if (picker) AlbumVersionsSheet(hit.title, hit.versions, null, { picker = false }, ctx.onVersion)
+    Column(
+        modifier.width(140.dp).combinedClickable(
+            onClick = { ctx.onOpen(hit) },
+            onLongClick = if (hasVersions) ({ haptics.longPress(); picker = true }) else null,
+        ),
+    ) {
+        Box {
+            CoverArt(hit.coverUrl, 140.dp, icon = hit.kind.icon(), radius = 10.dp)
+            if (hasVersions) VersionsChip(hit.versions.size, { picker = true }, Modifier.align(Alignment.BottomStart).padding(6.dp))
+        }
+        Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(top = 6.dp)) {
+            Text(hit.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f, fill = false))
+            if (hit.explicit) {
+                Spacer(Modifier.width(4.dp))
+                QualityBadge("E", Modifier.padding(top = 2.dp))
+            }
+        }
+        Text(hit.subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun BackBar(title: String, onBack: () -> Unit, onSound: (() -> Unit)? = null) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(end = if (onSound == null) 16.dp else 4.dp)) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.back)) }
-        Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        // "Sound for this…": a taste layer for this album, playlist or artist
+        if (onSound != null) IconButton(onClick = onSound) { Icon(Icons.Rounded.Tune, stringResource(R.string.sound_for)) }
     }
 }
 
@@ -322,11 +370,21 @@ private fun Hero(
     onQueue: (next: Boolean) -> Unit,
     onDownload: (() -> Unit)?,
     onSubtitle: (() -> Unit)? = null,
+    explicit: Boolean = false,
+    /** Below the subtitle: this release's badges, "Other versions" and a note on Atmos. */
+    extra: @Composable () -> Unit = {},
 ) {
+    val explicitLabel = stringResource(R.string.album_explicit)
     Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         CoverArt(cover, coverSize, radius = if (round) coverSize / 2 else 16.dp)
         Spacer(Modifier.size(12.dp))
-        Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.weight(1f, fill = false))
+            if (explicit) {
+                Spacer(Modifier.width(8.dp))
+                QualityBadge("E", Modifier.semantics { contentDescription = explicitLabel })
+            }
+        }
         Text(
             subtitle,
             style = MaterialTheme.typography.bodyLarge,
@@ -334,6 +392,7 @@ private fun Hero(
             textAlign = TextAlign.Center,
             modifier = if (onSubtitle != null) Modifier.clickable(onClick = onSubtitle) else Modifier,
         )
+        extra()
         Spacer(Modifier.size(12.dp))
         val haptics = haptics()
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -379,12 +438,51 @@ private fun <T> Loaded(
     }
 }
 
+/**
+ * Under an album's title: its quality and labels (Remastered 2023, Box set +209...),
+ * "Other versions (N)" when Tidal has more releases, and a note when it's Dolby Atmos.
+ */
+@Composable
+private fun AlbumVersionsLine(
+    title: String,
+    id: String,
+    quality: String?,
+    versions: List<AlbumVersionHit>,
+    onAction: (AlbumVersionHit, VersionAction) -> Unit,
+) {
+    var picker by remember { mutableStateOf(false) }
+    val mine = versions.firstOrNull { it.id == id }
+    if (picker) AlbumVersionsSheet(title, versions, id, { picker = false }, onAction)
+    Spacer(Modifier.size(8.dp))
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        quality?.let { QualityBadge(it) }
+        if (mine != null) VersionLabels(mine, skip = quality)
+    }
+    if (versions.size > 1) {
+        TextButton(onClick = { picker = true }) {
+            Icon(Icons.Rounded.Layers, null, Modifier.size(18.dp))
+            Text(stringResource(R.string.album_other_versions, versions.size - 1), Modifier.padding(start = 6.dp))
+        }
+    }
+    if (mine?.atmos == true) {
+        Text(
+            stringResource(R.string.album_atmos_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 8.dp),
+        )
+    }
+}
+
 /** The page on top of the browser stack. */
 @Composable
 fun TidalRoutePage(route: TidalRoute, vm: TidalViewModel) {
     val pages by vm.pages.collectAsStateWithLifecycle()
+    val versions by vm.versions.collectAsStateWithLifecycle()
     val ctx = rememberRowContext(vm)
     val player = LocalContext.current.homefi.player
+    val sound = LocalContext.current.homefi.sound
     val load = pages[route]
     val key = ListKey.Page(route)
     Column(Modifier.fillMaxSize()) {
@@ -392,12 +490,12 @@ fun TidalRoutePage(route: TidalRoute, vm: TidalViewModel) {
             is TidalRoute.Artist -> Loaded(load?.artist(), { vm.load(route) }, { SkeletonDetail(round = true) }) { artist ->
                 ListEntrance {
                 LazyColumn(Modifier.fillMaxSize()) {
-                    item(key = "bar") { BackBar(artist.name, vm::pop) }
+                    item(key = "bar") { BackBar(artist.name, vm::pop) { sound.soundFor(TasteScope.Artist(id = artist.id, name = artist.name)) } }
                     item(key = "hero") {
                         Hero(
                             artist.pictureUrl, 120.dp, true, artist.name, stringResource(R.string.tidal_top_tracks),
                             hasTracks = artist.topTracks.isNotEmpty(),
-                            onPlay = { shuffle -> player.playTidal(artist.topTracks, shuffle = shuffle) },
+                            onPlay = { shuffle -> player.playTidal(artist.topTracks, shuffle = shuffle, source = Sources.artist(artist.id, artist.name)) },
                             onQueue = { next -> player.queueTidal(artist.topTracks, next) },
                             onDownload = null,
                         )
@@ -416,7 +514,7 @@ fun TidalRoutePage(route: TidalRoute, vm: TidalViewModel) {
                 LoadMoreEffect(state, tracks, { vm.loadMore(key) })
                 ListEntrance {
                 LazyColumn(Modifier.fillMaxSize(), state = state) {
-                    item(key = "bar") { BackBar(album.title, vm::pop) }
+                    item(key = "bar") { BackBar(album.title, vm::pop) { sound.soundFor(TasteScope.Album(id = album.id, name = album.title)) } }
                     item(key = "hero") {
                         Hero(
                             album.coverUrl, 180.dp, false, album.title,
@@ -426,7 +524,8 @@ fun TidalRoutePage(route: TidalRoute, vm: TidalViewModel) {
                             onQueue = { next -> vm.queue(key, next) },
                             onDownload = { vm.download(album.title, "album/${album.id}") },
                             onSubtitle = album.artistId?.let { id -> { vm.push(TidalRoute.Artist(id)) } },
-                        )
+                            explicit = album.explicit,
+                        ) { AlbumVersionsLine(album.title, album.id, album.quality, versions[album.id].orEmpty(), vm::versionAction) }
                     }
                     if (tracks.items.isNotEmpty()) {
                         item(key = "header-album") { SectionTitle(stringResource(R.string.search_tracks)) }
@@ -446,7 +545,7 @@ fun TidalRoutePage(route: TidalRoute, vm: TidalViewModel) {
                 LoadMoreEffect(state, tracks, { vm.loadMore(key) })
                 ListEntrance {
                 LazyColumn(Modifier.fillMaxSize(), state = state) {
-                    item(key = "bar") { BackBar(playlist.title, vm::pop) }
+                    item(key = "bar") { BackBar(playlist.title, vm::pop) { sound.soundFor(TasteScope.Playlist(id = playlist.uuid, name = playlist.title)) } }
                     item(key = "hero") {
                         Hero(
                             playlist.coverUrl, 180.dp, false, playlist.title,

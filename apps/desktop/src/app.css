@@ -384,3 +384,18 @@ h2 {
   --window-border: var(--border);
   --window-accent-text: var(--accent-text);
 }
+
+/* Windows draws the open list of a select itself, from the page's color scheme: tie the
+   scheme to the resolved light / dark (themes and skins) and give the options the matching
+   opaque system colours, or dark-theme white text lands on a white list */
+:root[data-mode="dark"] {
+  color-scheme: dark;
+}
+:root[data-mode="light"] {
+  color-scheme: light;
+}
+select option,
+select optgroup {
+  background-color: Canvas;
+  color: CanvasText;
+}

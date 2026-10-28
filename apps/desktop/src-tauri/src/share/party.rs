@@ -21,6 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use homefi_core::dsp::EqSettings;
 use homefi_core::share::sync::{sync_action, SyncAction};
 use homefi_core::share::{AudioStream, GuestClient, GuestMessage, State};
 use homefi_player::{Player, Snapshot, Status, Visual};
@@ -310,6 +311,8 @@ pub struct PartyPlayer {
     started: Arc<AtomicBool>,
     volume: f32,
     device: Option<String>,
+    /// The app's equalizer, so the party sounds like the rest of the music here.
+    eq: EqSettings,
 }
 
 impl PartyPlayer {
@@ -325,6 +328,7 @@ impl PartyPlayer {
             started: Default::default(),
             volume: 0.8,
             device: None,
+            eq: EqSettings::default(),
         }
     }
 
@@ -360,6 +364,17 @@ impl PartyPlayer {
         self.device = device;
     }
 
+    /// Same equalizer as the app's own player.
+    pub fn set_eq(&mut self, eq: &EqSettings) {
+        if *eq == self.eq {
+            return;
+        }
+        self.eq = eq.clone();
+        if let Some(p) = &self.player {
+            p.set_eq(eq.clone());
+        }
+    }
+
     fn snapshot(&self) -> Option<(Instant, Snapshot)> {
         self.last.lock().unwrap().clone()
     }
@@ -378,6 +393,7 @@ impl PartyPlayer {
         let last = self.last.clone();
         let listener = Arc::new(move |s: &Snapshot| *last.lock().unwrap() = Some((Instant::now(), s.clone())));
         let p = Player::new(self.volume, self.device.clone(), listener);
+        p.set_eq(self.eq.clone());
         self.player = Some(p.clone());
         p
     }

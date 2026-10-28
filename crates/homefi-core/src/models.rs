@@ -436,6 +436,15 @@ pub struct TrackStream {
     pub bit_depth: Option<i64>,
     #[serde(default)]
     pub sample_rate: Option<i64>,
+    /// ReplayGain of the track and its album (dB) and their peaks (linear).
+    #[serde(default)]
+    pub track_replay_gain: Option<f64>,
+    #[serde(default)]
+    pub track_peak_amplitude: Option<f64>,
+    #[serde(default)]
+    pub album_replay_gain: Option<f64>,
+    #[serde(default)]
+    pub album_peak_amplitude: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

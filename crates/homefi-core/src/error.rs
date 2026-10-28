@@ -47,12 +47,30 @@ pub enum Error {
     /// user-facing (e.g. the hub's `denied` reason).
     #[error("{0}")]
     Share(String),
+
+    /// AutoEq (headphone profiles) failed; the text is already user-facing.
+    #[error("{0}")]
+    AutoEq(String),
+
+    /// An AI provider call failed (bad key, no credit, offline...).
+    #[error(transparent)]
+    Ai(#[from] crate::ai::AiError),
 }
 
 impl Error {
     /// `true` when Tidal reports the device code is still waiting for the user.
     pub fn is_authorization_pending(&self) -> bool {
         matches!(self, Error::Auth { error, .. } if error == "authorization_pending")
+    }
+
+    /// `true` for failures worth trying again a bit later: Tidal busy
+    /// (`429`, `5xx`) or a connection that could not be made / timed out.
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            Error::Api { status, .. } => *status == 429 || (500..=599).contains(status) && *status != 501,
+            Error::Http(e) => e.is_connect() || e.is_timeout(),
+            _ => false,
+        }
     }
 
     /// `true` when the device code expired before the user approved it.

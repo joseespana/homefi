@@ -1,5 +1,8 @@
 package com.perseusoft.homefi.ui.player
 
+import com.perseusoft.homefi.player.EqPanel
+import androidx.compose.material.icons.rounded.Hearing
+
 import com.perseusoft.homefi.ui.QueueMenu
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableLongStateOf
@@ -242,9 +245,27 @@ internal fun ColumnScope.RetroAmpLayout(state: PlayerUiState) {
                     Text(" kHz", color = Color(0xFFB0B0C8), fontFamily = AmpFont, fontSize = 10.sp)
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("stereo", color = LcdGreen, fontFamily = AmpFont, fontSize = 10.sp, modifier = Modifier.align(Alignment.End))
+                Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                    // "How does it sound?" as one more LCD key (its setting hides it)
+                    val app = LocalContext.current.homefi
+                    val settings by app.settings.settings.collectAsStateWithLifecycle()
+                    if (settings.soundReactButton && caps.remoteName == null) {
+                        Box(
+                            Modifier
+                                .bevel(Lcd, AmpDark, AmpLight, sunken = true, width = 2f)
+                                .clickable(onClickLabel = stringResource(R.string.sound_how)) { app.sound.openHow(true) }
+                                .padding(horizontal = 4.dp, vertical = 1.dp),
+                        ) {
+                            Text("SND?", color = LcdGreen, fontFamily = AmpFont, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text("stereo", color = LcdGreen, fontFamily = AmpFont, fontSize = 10.sp)
+                }
             }
         }
+        // the signal chain as one more LCD strip
+        if (signalChainShown(caps.remoteName != null)) SignalChain(current, Modifier.padding(top = 6.dp), look = LcdSignalLook)
         Spacer(Modifier.height(8.dp))
         AmpSeek(state, caps.canSeek) { player.seekTo(it) }
         Spacer(Modifier.height(8.dp))
@@ -254,6 +275,10 @@ internal fun ColumnScope.RetroAmpLayout(state: PlayerUiState) {
             AmpButton(Icons.Rounded.Pause, R.string.player_pause, enabled = caps.canPlayPause) { if (state.isPlaying) player.togglePlayPause() }
             AmpButton(Icons.Rounded.SkipNext, R.string.player_next, caps.canNext, player::next)
             Spacer(Modifier.weight(1f))
+            // lit while the real equalizer works (not bit-perfect); opens it
+            val eq = LocalContext.current.homefi.equalizer
+            val eqOn by eq.active.collectAsStateWithLifecycle()
+            AmpToggle("EQ", eqOn, { eq.open(EqPanel.EQUALIZER) })
             AmpToggle("SHUF", state.shuffle, player::toggleShuffle, caps.canShuffleRepeat)
             AmpToggle(if (state.repeatMode == Player.REPEAT_MODE_ONE) "REP1" else "REP", state.repeatMode != Player.REPEAT_MODE_OFF, player::cycleRepeat, caps.canShuffleRepeat)
         }
@@ -432,6 +457,7 @@ internal fun ColumnScope.LunaLayout(state: PlayerUiState, cover: Any?) {
             Text(formatDuration(state.positionMs), color = Color(0xFF9EC5FF), fontSize = 12.sp)
         }
     }
+    if (signalChainShown(caps.remoteName != null)) SignalChain(current, Modifier.padding(top = 6.dp), look = LunaSignalLook)
     Spacer(Modifier.height(10.dp))
     // seek: a groove with the green pill
     LunaSeek(state, caps.canSeek) { player.seekTo(it) }
@@ -459,6 +485,7 @@ internal fun ColumnScope.LunaLayout(state: PlayerUiState, cover: Any?) {
             on = state.repeatMode != Player.REPEAT_MODE_OFF,
             enabled = caps.canShuffleRepeat,
         )
+        howAction(caps)?.let { LunaOrb(Icons.Rounded.Hearing, R.string.sound_how, 34.dp, it) }
     }
     Spacer(Modifier.height(12.dp))
 }
@@ -530,6 +557,7 @@ internal fun ColumnScope.AluminumLayout(state: PlayerUiState, cover: Any?) {
             on = state.repeatMode != Player.REPEAT_MODE_OFF,
             enabled = caps.canShuffleRepeat,
         )
+        howAction(caps)?.let { MetalButton(Icons.Rounded.Hearing, R.string.sound_how, 34.dp, it) }
     }
     Spacer(Modifier.height(10.dp))
     // the pale LCD
@@ -567,6 +595,7 @@ internal fun ColumnScope.AluminumLayout(state: PlayerUiState, cover: Any?) {
             Text("-" + formatDuration((state.durationMs - state.positionMs).coerceAtLeast(0)), color = Color(0xFF3A3A3A), fontSize = 10.sp)
         }
     }
+    if (signalChainShown(caps.remoteName != null)) SignalChain(current, Modifier.padding(top = 4.dp), look = AluminumSignalLook)
     Spacer(Modifier.height(10.dp))
     CoverFlow(state, cover, Modifier.weight(1f).fillMaxWidth())
     Spacer(Modifier.height(8.dp))
@@ -797,7 +826,7 @@ private fun AlbumBack(album: FlowAlbum, playingMediaId: String?, onClose: () -> 
                 }
                 QueueMenu(menu, { menu = false }) { next -> player.queueTracks(album.tracks, next) }
             }
-            IconButton(onClick = { player.play(album.tracks) }, enabled = canPlay) {
+            IconButton(onClick = { player.play(album.tracks, source = com.perseusoft.homefi.player.Sources.album("", album.title)) }, enabled = canPlay) {
                 Icon(Icons.Rounded.PlayArrow, stringResource(R.string.player_play), tint = headerTint)
             }
         }
@@ -810,7 +839,7 @@ private fun AlbumBack(album: FlowAlbum, playingMediaId: String?, onClose: () -> 
                     Modifier
                         .fillMaxWidth()
                         .background(if (playing) Color(0xFFBFD4F2) else if (i % 2 == 1) Color(0x0F000000) else Color.Transparent)
-                        .clickable(enabled = caps.canPlayLibrary) { player.play(album.tracks, i) }
+                        .clickable(enabled = caps.canPlayLibrary) { player.play(album.tracks, i, source = com.perseusoft.homefi.player.Sources.album("", album.title)) }
                         .padding(start = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -899,7 +928,12 @@ internal fun ColumnScope.Web2000Layout(state: PlayerUiState, cover: Any?) {
                     Spacer(Modifier.height(8.dp))
                     Text(current?.title.orEmpty(), color = Color(0xFF222222), fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(current?.artist.orEmpty(), color = Color(0xFF555555), fontSize = 13.sp, maxLines = 1)
-                    current?.quality?.let { Text(it, color = Color(0xFF5E8F1E), fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                    if (signalChainShown(caps.remoteName != null)) {
+                        SignalChain(current, look = Web2000SignalLook)
+                    } else {
+                        current?.quality?.let { Text(it, color = Color(0xFF5E8F1E), fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                        EqBadge(remote = playerCapabilities().remoteName != null)
+                    }
                 }
             }
         } else {
@@ -958,9 +992,18 @@ internal fun ColumnScope.Web2000Layout(state: PlayerUiState, cover: Any?) {
                 on = state.repeatMode != Player.REPEAT_MODE_OFF,
                 enabled = caps.canShuffleRepeat,
             )
+            howAction(caps)?.let { WebButton(Icons.Rounded.Hearing, R.string.sound_how, 36.dp, it) }
         }
     }
     Spacer(Modifier.height(8.dp))
+}
+
+/** The visible "How does it sound?" button's action: null when its setting hides it, or for a hub's song. */
+@Composable
+private fun howAction(caps: PlayerCapabilities): (() -> Unit)? {
+    val app = LocalContext.current.homefi
+    val settings by app.settings.settings.collectAsStateWithLifecycle()
+    return if (settings.soundReactButton && caps.remoteName == null) ({ app.sound.openHow(true) }) else null
 }
 
 private fun Modifier.aspectSquare() = aspectRatio(1f, matchHeightConstraintsFirst = true)

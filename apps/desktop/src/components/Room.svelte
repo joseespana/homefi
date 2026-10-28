@@ -21,6 +21,8 @@
   import RetroAmp from "./layouts/RetroAmp.svelte";
   import Web2000 from "./layouts/Web2000.svelte";
   import { item as itemIn, rise, swap } from "../lib/motion";
+  import { sound } from "../lib/sound.svelte";
+  import HowSounds from "./sound/HowSounds.svelte";
 
   // the app's player, or someone else's room while this computer is a guest there
   const src = useSource();
@@ -74,6 +76,7 @@
       <div class="topline">
         <div class="eyebrow">{playing ? "Now playing" : p?.status === "paused" ? "Paused" : "Ready"}{track.genre ? ` · ${track.genre}` : ""}{src.remote ? ` · ${src.label}` : ""}</div>
         <div class="customize">
+          {#if !src.remote && sound.ui.react_room}<HowSounds place="room" />{/if}
           <button class="chip-btn" onclick={() => lyrics.setOpen(true)} aria-label="Show the lyrics" title="Lyrics"><Icon name="lyrics" size={13} /> Lyrics</button>
           <button class="chip-btn" onclick={() => (customize = !customize)} aria-label="Customize the room">Customize</button>
           {#if customize}<RoomMenu onclose={() => (customize = false)} />{/if}
@@ -96,8 +99,8 @@
       <NowActions />
 
       {#if show.signal && p?.stream}
-        <div class="panel">
-          <SignalChain stream={p.stream} />
+        <div class="panel" class:slim={app.settings?.room.signal_style !== "detailed"}>
+          <SignalChain />
         </div>
       {/if}
 
@@ -278,6 +281,10 @@
     background: var(--glass);
     border: 1px solid var(--glass-border);
     backdrop-filter: blur(20px) saturate(1.3);
+  }
+  /* the compact signal chain: a thin strip */
+  .panel.slim {
+    padding: 8px 10px;
   }
   .rack {
     display: flex;

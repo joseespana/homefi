@@ -3,6 +3,8 @@
 
 use serde::Serialize;
 
+use crate::album_versions::{group_album_versions, AlbumGroup, AlbumVersion, Lang, VersionPrefs};
+use crate::api::{all_pages, ArtistAlbumsFilter, TidalApi};
 use crate::metadata::Cover;
 use crate::models::{Album, Artist, ArtistRef, Playlist, Search, Track, Video};
 use crate::resource::ResourceKind;
@@ -27,6 +29,109 @@ pub struct Hit {
     /// Tracks only: matches local files that were downloaded before.
     pub isrc: Option<String>,
     pub duration_ms: Option<u64>,
+    /// Albums shown as one card: every release of it (this one included,
+    /// `primary`), see [`album_cards`]. Empty for everything else.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub versions: Vec<VersionHit>,
+}
+
+/// One release of an album, for a version picker.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct VersionHit {
+    pub id: String,
+    pub title: String,
+    pub cover_url: Option<String>,
+    pub explicit: bool,
+    /// `Hi-Res`, `Lossless`, `Dolby Atmos` when known.
+    pub quality: Option<String>,
+    pub year: Option<u32>,
+    pub tracks: u32,
+    /// Deluxe / box set / expanded: tracks over the standard edition.
+    pub extra_tracks: Option<u32>,
+    /// Dolby Atmos: needs an Atmos device.
+    pub atmos: bool,
+    /// The one shown by default.
+    pub primary: bool,
+    /// Stable ids (`explicit`, `clean`, `dolby_atmos`, `hi_res`, `lossless`,
+    /// `remastered`, `deluxe`, `box_set`, `expanded`, `anniversary`, `live`,
+    /// `original`), same order as `labels`.
+    pub label_codes: Vec<String>,
+    /// Chip texts: `Explicit`, `Hi-Res`, `Remastered 2023`, `Box set +209`...
+    pub labels: Vec<String>,
+    /// `Explicit · Hi-Res 24-bit · 12 tracks · 2023`.
+    pub description: String,
+}
+
+impl VersionHit {
+    pub fn new(v: &AlbumVersion, primary: bool, lang: Lang) -> Self {
+        let a = &v.album;
+        Self {
+            id: a.id.to_string(),
+            title: a.title.clone(),
+            cover_url: cover_url(a.cover.as_deref()),
+            explicit: a.explicit,
+            quality: quality_label(&a.media_metadata.tags, a.audio_quality.as_deref()),
+            year: v.year(),
+            tracks: u32::try_from(a.number_of_tracks).unwrap_or(0),
+            extra_tracks: v.labels.iter().find_map(|l| l.extra_tracks()),
+            atmos: v.is_atmos(),
+            primary,
+            label_codes: v.labels.iter().map(|l| l.code().to_owned()).collect(),
+            labels: v.labels.iter().map(|l| l.text(lang)).collect(),
+            description: v.description(lang),
+        }
+    }
+}
+
+fn version_hits(g: &AlbumGroup, lang: Lang) -> Vec<VersionHit> {
+    g.versions.iter().enumerate().map(|(i, v)| VersionHit::new(v, i == g.primary_index, lang)).collect()
+}
+
+/// Album cards for a list: one per album with its releases in `versions`
+/// (when there is more than one), the default pick in front; with
+/// `prefs.group` off, every release as Tidal lists it.
+pub fn album_cards(albums: &[Album], prefs: &VersionPrefs, lang: Lang) -> Vec<Hit> {
+    if !prefs.group {
+        return albums.iter().map(album_hit).collect();
+    }
+    group_album_versions(albums, prefs)
+        .iter()
+        .map(|g| {
+            let mut hit = album_hit(&g.primary);
+            if g.versions.len() > 1 {
+                hit.versions = version_hits(g, lang);
+            }
+            hit
+        })
+        .collect()
+}
+
+/// Every release of `album` on its main artist's page (itself included, even
+/// when the artist page doesn't list it), for the album header. Read-only.
+pub async fn album_versions(
+    api: &TidalApi,
+    album: &Album,
+    prefs: &VersionPrefs,
+    lang: Lang,
+) -> crate::Result<Vec<VersionHit>> {
+    let me =
+        || vec![VersionHit::new(&group_album_versions(std::slice::from_ref(album), prefs)[0].versions[0], true, lang)];
+    let Some(artist) = album.artist.as_ref().or(album.artists.first()).map(|a| a.id.to_string()) else {
+        return Ok(me());
+    };
+    let filter = match album.kind.to_ascii_uppercase().as_str() {
+        "EP" | "SINGLE" => ArtistAlbumsFilter::EpsAndSingles,
+        _ => ArtistAlbumsFilter::Albums,
+    };
+    let mut list = all_pages(|o| api.artist_albums(&artist, o, filter)).await?;
+    if !list.iter().any(|a| a.id == album.id) {
+        list.push(album.clone());
+    }
+    let groups = group_album_versions(&list, prefs);
+    Ok(groups
+        .iter()
+        .find(|g| g.versions.iter().any(|v| v.album.id == album.id))
+        .map_or_else(me, |g| version_hits(g, lang)))
 }
 
 impl Hit {
@@ -81,6 +186,7 @@ pub fn track_hit(t: &Track) -> Hit {
         quality: quality_label(&t.media_metadata.tags, Some(&t.audio_quality)),
         isrc: t.isrc.as_ref().map(|i| i.to_uppercase()),
         duration_ms: Some(t.duration as u64 * 1000),
+        versions: Vec::new(),
     }
 }
 
@@ -103,6 +209,7 @@ pub fn album_hit(a: &Album) -> Hit {
         quality: quality_label(&a.media_metadata.tags, a.audio_quality.as_deref()),
         isrc: None,
         duration_ms: None,
+        versions: Vec::new(),
     }
 }
 
@@ -119,6 +226,7 @@ pub fn artist_hit(a: &Artist) -> Hit {
         quality: None,
         isrc: None,
         duration_ms: None,
+        versions: Vec::new(),
     }
 }
 
@@ -135,6 +243,7 @@ pub fn playlist_hit(p: &Playlist) -> Hit {
         quality: None,
         isrc: None,
         duration_ms: None,
+        versions: Vec::new(),
     }
 }
 
@@ -151,6 +260,7 @@ pub fn video_hit(v: &Video) -> Hit {
         quality: None,
         isrc: None,
         duration_ms: None,
+        versions: Vec::new(),
     }
 }
 
@@ -175,5 +285,14 @@ impl From<&Search> for SearchResults {
             playlists: r.playlists.items.iter().map(playlist_hit).collect(),
             videos: r.videos.items.iter().map(video_hit).collect(),
         }
+    }
+}
+
+impl SearchResults {
+    /// Like `From<&Search>`, with the albums as [`album_cards`].
+    pub fn grouped(r: &Search, prefs: &VersionPrefs, lang: Lang) -> Self {
+        let mut out = Self::from(r);
+        out.albums = album_cards(&r.albums.items, prefs, lang);
+        out
     }
 }

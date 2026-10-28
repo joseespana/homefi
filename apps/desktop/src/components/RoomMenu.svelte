@@ -9,7 +9,7 @@
   const room = $derived(app.settings?.room);
 
   const all: { key: keyof RoomSettings; label: string; classic?: boolean }[] = [
-    { key: "signal_chain", label: "Signal chain", classic: true },
+    { key: "signal_chain", label: "Signal chain" },
     { key: "vu_meters", label: "VU meters", classic: true },
     { key: "visualizer", label: "Visualizer", classic: true },
     { key: "halo", label: "Halo around the cover", classic: true },
@@ -55,6 +55,21 @@
         <input type="checkbox" checked={room[t.key] as boolean} onchange={(e) => set({ [t.key]: e.currentTarget.checked })} />
       </label>
     {/each}
+    {#if room.signal_chain}
+      <label class="row">
+        <span>Signal chain look</span>
+        <select value={room.signal_style ?? "compact"} onchange={(e) => set({ signal_style: e.currentTarget.value as "compact" })}>
+          <option value="compact">Compact</option>
+          <option value="detailed">Detailed</option>
+        </select>
+      </label>
+      {#if room.signal_style !== "detailed"}
+        <label class="row">
+          <span>Animate the signal</span>
+          <input type="checkbox" checked={room.signal_animate ?? true} onchange={(e) => set({ signal_animate: e.currentTarget.checked })} />
+        </label>
+      {/if}
+    {/if}
     {#if room.mascot}
       <MascotOptions />
     {/if}

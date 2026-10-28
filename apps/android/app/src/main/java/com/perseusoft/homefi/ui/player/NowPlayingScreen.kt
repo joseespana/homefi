@@ -1,5 +1,11 @@
 package com.perseusoft.homefi.ui.player
 
+import androidx.compose.material3.HorizontalDivider
+import com.perseusoft.homefi.player.EqPanel
+import com.perseusoft.homefi.ui.sound.HowSoundsButton
+import com.perseusoft.homefi.ui.sound.SoundBadge
+import androidx.compose.material.icons.rounded.Hearing
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
@@ -385,6 +391,30 @@ private fun PlayerActions(
     Box {
         IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.Dashboard, stringResource(R.string.layout_title)) }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            val app = LocalContext.current.homefi
+            val eqActive by app.equalizer.active.collectAsStateWithLifecycle()
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.eq_title)) },
+                leadingIcon = {
+                    Icon(Icons.Rounded.GraphicEq, null, tint = if (eqActive) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+                },
+                onClick = {
+                    menu = false
+                    app.equalizer.open(EqPanel.EQUALIZER)
+                },
+            )
+            // "How does it sound?" is always here, whatever the button setting says
+            if (playerCapabilities().remoteName == null) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.sound_how)) },
+                    leadingIcon = { Icon(Icons.Rounded.Hearing, null) },
+                    onClick = {
+                        menu = false
+                        app.sound.openHow(true)
+                    },
+                )
+            }
+            HorizontalDivider()
             PlayerLayout.entries.forEach { l ->
                 DropdownMenuItem(
                     text = { Text(stringResource(l.label())) },
@@ -599,6 +629,7 @@ private fun Info(slot: TrackSlot, centered: Boolean, modifier: Modifier = Modifi
     val align = if (centered) Alignment.CenterHorizontally else Alignment.Start
     var queued by remember(current?.mediaId) { mutableStateOf(false) }
     val compact = LocalPlayerCompact.current
+    val chain = signalChainShown(remote = caps.remoteName != null) && current != null
     Column(modifier.fillMaxWidth(), horizontalAlignment = align) {
         // a new song's title slides in the way the queue moved
         TrackChange(slot, Modifier.fillMaxWidth(), contentAlignment = if (centered) Alignment.TopCenter else Alignment.TopStart) { s ->
@@ -630,7 +661,12 @@ private fun Info(slot: TrackSlot, centered: Boolean, modifier: Modifier = Modifi
             val id = current?.mediaId?.let(::tidalId)
             // the chip gives way (ellipsis) before the quality badge does
             SourceChip(local = id == null, remote = caps.remoteName, Modifier.weight(1f, fill = false))
-            current?.quality?.let { QualityBadge(it) }
+            // the signal chain below says the same (and more); without it, today's badges
+            if (!chain) {
+                current?.quality?.let { QualityBadge(it) }
+                EqBadge(remote = caps.remoteName != null)
+            }
+            HowSoundsButton(remote = caps.remoteName != null || current == null)
             if (id != null && caps.canDownload) {
                 // streaming from Tidal: one tap keeps it
                 IconButton(
@@ -650,7 +686,21 @@ private fun Info(slot: TrackSlot, centered: Boolean, modifier: Modifier = Modifi
                 }
             }
         }
+        if (chain) SignalChain(current, Modifier.padding(top = Space.xs), centered = centered)
+        CrossfadeIndicator(Modifier.padding(top = Space.xs))
     }
+}
+
+/**
+ * The signal badge ("EQ · HD 650 + Electronic · −3 dB") while the equalizer, a taste layer
+ * or loudness works on what this phone plays (not for a hub's song heard on the hub); a tap
+ * opens the equalizer.
+ */
+@Composable
+internal fun EqBadge(remote: Boolean) {
+    val app = LocalContext.current.homefi
+    val guest by app.share.guest.collectAsStateWithLifecycle()
+    SoundBadge(heardHere = !remote || (guest.playAlong && guest.state?.audio != null))
 }
 
 @Composable

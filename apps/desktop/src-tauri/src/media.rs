@@ -17,8 +17,6 @@ use crate::commands::TrackView;
 thread_local! {
     // the OS APIs must be used from the main thread
     static CONTROLS: RefCell<Option<MediaControls>> = const { RefCell::new(None) };
-    /// Track whose metadata was last sent (metadata only changes with the track).
-    static SHOWN: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 /// Creates the controls on the main thread and routes their events to `player`.
@@ -70,23 +68,35 @@ pub fn init<R: Runtime>(app: &AppHandle<R>, player: Player) {
     CONTROLS.with(|c| *c.borrow_mut() = Some(controls));
 }
 
-/// Pushes the current track and state to the OS (call from any thread).
+/// Track whose metadata was last sent (metadata only changes with the track).
+static SHOWN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Pushes the current track and state to the OS. Call it off the main thread:
+/// a new track's cover is read (and written for the OS) here, and only the
+/// ready data goes to the main thread.
 pub fn update<R: Runtime>(app: &AppHandle<R>, snapshot: &Snapshot, track: Option<TrackView>) {
     let status = snapshot.status;
     let position = Duration::from_millis(snapshot.position_ms);
     let duration = snapshot.duration_ms.map(Duration::from_millis);
+    let changed = {
+        let path = track.as_ref().map(|t| t.path.clone());
+        let mut shown = SHOWN.lock().unwrap_or_else(|e| e.into_inner());
+        let changed = *shown != path;
+        *shown = path;
+        changed
+    };
+    let metadata = match (changed, track) {
+        (true, Some(t)) => {
+            let cover = cover_file(&t.path);
+            Some((t, cover))
+        }
+        _ => None,
+    };
     let _ = app.run_on_main_thread(move || {
         CONTROLS.with(|c| {
             let mut c = c.borrow_mut();
             let Some(controls) = c.as_mut() else { return };
-            let changed = SHOWN.with(|shown| {
-                let path = track.as_ref().map(|t| t.path.clone());
-                let changed = *shown.borrow() != path;
-                *shown.borrow_mut() = path;
-                changed
-            });
-            if let (true, Some(t)) = (changed, &track) {
-                let cover = cover_file(&t.path);
+            if let Some((t, cover)) = &metadata {
                 let _ = controls.set_metadata(MediaMetadata {
                     title: Some(&t.title),
                     artist: Some(&t.artist),

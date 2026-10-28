@@ -50,16 +50,31 @@ pub async fn fetch(api: TidalApi, config: &Config, dir: &Path, id: &str, quality
         return Err(Error::Stream(format!("`{id}` is not a track id")));
     }
 
-    let key = dir.join(&resource.id);
-    let lock = FETCHING.lock().unwrap_or_else(|e| e.into_inner()).entry(key).or_default().clone();
-    let result = {
-        let _guard = lock.lock().await;
-        download(api, options(config, dir, quality), &resource).await
-    };
-    drop(lock);
-    // forget locks nobody else is waiting on
-    FETCHING.lock().unwrap_or_else(|e| e.into_inner()).retain(|_, l| Arc::strong_count(l) > 1);
-    result
+    let entry = FetchEntry::new(dir.join(&resource.id));
+    let lock = entry.lock();
+    let _guard = lock.lock().await;
+    download(api, options(config, dir, quality), &resource).await
+}
+
+/// This call's share of a track's lock in [`FETCHING`]. Dropping it (the fetch
+/// finished, failed or was cancelled mid-way) forgets locks nobody waits on.
+struct FetchEntry(Option<Arc<tokio::sync::Mutex<()>>>);
+
+impl FetchEntry {
+    fn new(key: PathBuf) -> Self {
+        Self(Some(FETCHING.lock().unwrap_or_else(|e| e.into_inner()).entry(key).or_default().clone()))
+    }
+
+    fn lock(&self) -> Arc<tokio::sync::Mutex<()>> {
+        self.0.clone().unwrap_or_default()
+    }
+}
+
+impl Drop for FetchEntry {
+    fn drop(&mut self) {
+        drop(self.0.take());
+        FETCHING.lock().unwrap_or_else(|e| e.into_inner()).retain(|_, l| Arc::strong_count(l) > 1);
+    }
 }
 
 async fn download(api: TidalApi, opts: DownloadOptions, resource: &Resource) -> Result<PathBuf> {
@@ -127,6 +142,26 @@ mod tests {
         assert!(paths[0].exists(), "queued file is kept");
         assert!(!paths[1].exists() && paths[2].exists() && paths[3].exists());
         assert_eq!(trim(&dir.path().join("missing"), 0, &[]), 0);
+    }
+
+    #[tokio::test]
+    async fn cancelled_fetches_leave_no_lock_behind() {
+        let key = PathBuf::from("/cache-test/42");
+        let held = FetchEntry::new(key.clone());
+        let lock = held.lock();
+        let guard = lock.lock().await;
+        // a second fetch waits on the lock, then is cancelled (dropped)
+        let waiting = async {
+            let entry = FetchEntry::new(key.clone());
+            let lock = entry.lock();
+            let _g = lock.lock().await;
+        };
+        assert!(tokio::time::timeout(std::time::Duration::from_millis(20), waiting).await.is_err());
+        assert!(FETCHING.lock().unwrap().contains_key(&key));
+        drop(guard);
+        drop(lock);
+        drop(held);
+        assert!(!FETCHING.lock().unwrap().contains_key(&key));
     }
 
     #[test]

@@ -48,14 +48,17 @@ tiddl's config file, path templates and CLI flags, so existing setups keep worki
 homefi/
 ├── Cargo.toml                 # Rust workspace, the version of everything lives here
 ├── crates/
-│   ├── homefi-core/           # Tidal auth + API, stream parsing, templates, tagging, download engine
+│   ├── homefi-core/           # Tidal auth + API, streams, lyrics, library, tagging, downloads, shared control
+│   ├── homefi-player/         # bit-perfect audio engine of the desktop app
 │   ├── homefi-cli/            # `homefi` command line app
-│   └── homefi-ffi/            # UniFFI bindings of the core for Android
+│   └── homefi-ffi/            # UniFFI bindings of the core for Android and iPhone
 ├── apps/
-│   └── android/               # Kotlin + Jetpack Compose app (uses homefi-ffi)
+│   ├── desktop/               # Tauri 2 + Svelte 5 app for macOS, Windows and Linux
+│   ├── android/               # Kotlin + Jetpack Compose app
+│   └── ios/                   # SwiftUI app (in progress, built from Xcode)
 ├── xtask/                     # `cargo xtask icons | bump | version`
 ├── assets/brand/              # logo sources (SVG) and rendered PNG / ICO
-├── docs/                      # config example, templating guide, releasing
+├── docs/                      # config example, templating, shared control, releasing
 └── .github/workflows/         # CI + release pipeline
 ```
 
@@ -120,6 +123,24 @@ Features:
 - **Downloads**: Tidal device login, search with covers, paste or share Tidal links from the Tidal app,
   a download queue with a progress notification, and tags with cover art and lyrics. Files are saved in
   `Music/HomeFi` (after you grant "All files access") or in the app's music folder.
+
+- **Album versions** (also on the desktop): Tidal lists some albums several times (explicit and clean,
+  stereo and Dolby Atmos, 16 and 24-bit, remasters, deluxe box sets). Artist pages, search and favorite
+  albums show one card per album with an **E** badge when it's explicit and a "3 versions" chip; the chip
+  (or a long-press, a right-click on the desktop) lists every release with its labels, and Play / Open /
+  Download each. Album pages show their labels and "Other versions". Settings → Tidal account → Album
+  versions: one card per album on / off, and which release the card shows (explicit or clean, stereo or
+  Dolby Atmos, original or latest remaster; the highest quality wins among the rest).
+- **Crossfade** (also on the desktop, off by default so playback stays gapless and bit-perfect):
+  Settings → Playback. The next song starts while the current one fades out, 1 to 12 s, with an
+  equal-power, S-curve or linear curve. "Skip the silence" fades from where the music really ends into
+  where the next song starts; "Keep albums gapless" leaves consecutive songs of one album in order
+  untouched; "Fade when I skip" gives next / previous / picking a song a short fade (0.5 to 3 s);
+  songs shorter than twice the fade (or a length you pick) never fade. Each song keeps its own
+  equalizer, taste layer and loudness during the overlap. The phone plays the two songs on two
+  players; with "Turn off on slow phones" (on by default) phones with under 2 GB of memory, or that lag
+  twice during fades, change songs as usual instead. The now-playing screen shows "Crossfading into …"
+  while it happens.
 
 | Format | Playback |
 | --- | --- |

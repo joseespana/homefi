@@ -3,6 +3,7 @@
   import { pop } from "../lib/motion";
   import { app } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
+  import { sound } from "../lib/sound.svelte";
 
   const menu = $derived(app.queueMenu!);
   const left = $derived(Math.max(12, Math.min(menu.x - 200, window.innerWidth - 212)));
@@ -23,6 +24,11 @@
   <div class="head ellipsis">{menu.label}</div>
   <button class="row" onclick={() => run(true)} role="menuitem"><Icon name="next" size={16} /> Play next</button>
   <button class="row" onclick={() => run(false)} role="menuitem"><Icon name="queue" size={16} /> Add to queue</button>
+  {#if menu.sound}
+    {@const s = menu.sound}
+    <div class="sep"></div>
+    <button class="row" onclick={() => (close(), (sound.forScope = s))} role="menuitem"><Icon name="soundwave" size={16} /> Sound for this {s.scope.kind}…</button>
+  {/if}
 </div>
 
 <style>
@@ -41,6 +47,11 @@
     background: var(--surface);
     border: 1px solid var(--border);
     box-shadow: var(--shadow);
+  }
+  .sep {
+    height: 1px;
+    margin: 4px 6px;
+    background: var(--border);
   }
   .head {
     padding: 4px 8px 6px;

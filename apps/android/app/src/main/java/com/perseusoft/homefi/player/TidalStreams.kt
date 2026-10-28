@@ -39,7 +39,17 @@ class TidalStreams(private val context: Context, private val scope: CoroutineSco
         } catch (e: Exception) {
             throw IOException(e.userMessage(), e) // shows in the player as a playback error
         }
+        context.homefi.sound.streamReady(id, path)
         return dataSpec.withUri(Uri.fromFile(File(path)))
+    }
+
+    /**
+     * The item can start at once: a local file, or a Tidal track already in the stream cache.
+     * A crossfade only starts the next song when it is (else a normal transition).
+     */
+    fun ready(mediaId: String): Boolean {
+        val id = tidalId(mediaId) ?: return true
+        return dir.listFiles()?.any { it.nameWithoutExtension == id && it.length() > 0 } == true
     }
 
     /** Fetches the next [AHEAD] Tidal tracks and keeps the cache under [MAX_BYTES]. */
@@ -50,7 +60,7 @@ class TidalStreams(private val context: Context, private val scope: CoroutineSco
         }
         val current = player.currentMediaItem?.mediaId?.let(::tidalId)
         scope.launch(Dispatchers.IO) {
-            val kept = ids.mapNotNull { id -> runCatching { fetch(id) }.getOrNull() }
+            val kept = ids.mapNotNull { id -> runCatching { fetch(id) }.getOrNull()?.also { context.homefi.sound.streamReady(id, it) } }
             val playing = dir.listFiles()?.filter { current != null && it.nameWithoutExtension == current }?.map { it.absolutePath }.orEmpty()
             runCatching { trimStreamCache(dir.absolutePath, MAX_BYTES, kept + playing) }
         }

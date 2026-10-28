@@ -21,7 +21,13 @@ use homefi_core::stream_cache;
 
 uniffi::setup_scaffolding!();
 
+mod ai;
+mod eq;
+mod runtime;
 mod share;
+mod versions;
+
+pub use versions::{AlbumEditionPref, AlbumExplicitPref, AlbumSpatialPref, AlbumVersionHit, AlbumVersionPrefs};
 
 const LIBRARY_CACHE: &str = "library_cache.json";
 
@@ -228,6 +234,10 @@ pub struct SearchHit {
     /// Tracks only, upper case: matches local files downloaded before.
     #[uniffi(default = None)]
     pub isrc: Option<String>,
+    /// Albums shown as one card: every release of it (this one is `primary`).
+    /// Empty for everything else, and for albums Tidal lists once.
+    #[uniffi(default = [])]
+    pub versions: Vec<AlbumVersionHit>,
 }
 
 #[derive(uniffi::Record)]
@@ -254,6 +264,7 @@ impl From<catalog::Hit> for SearchHit {
             album: h.album,
             duration_ms: h.duration_ms,
             isrc: h.isrc,
+            versions: h.versions.into_iter().map(AlbumVersionHit::from).collect(),
         }
     }
 }
@@ -586,9 +597,23 @@ impl Observer for ListenerObserver {
 #[derive(uniffi::Object)]
 pub struct HomefiEngine {
     session: Session,
+    /// How album lists are grouped ([`Self::set_album_versions`]).
+    grouping: std::sync::Mutex<versions::Grouping>,
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+impl HomefiEngine {
+    fn grouping(&self) -> versions::Grouping {
+        *self.grouping.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// One card per album (its releases in `versions`), as the settings say.
+    fn album_cards(&self, albums: &[Album]) -> Vec<SearchHit> {
+        let g = self.grouping();
+        hits(catalog::album_cards(albums, &g.prefs, g.lang))
+    }
+}
+
+#[uniffi::export]
 impl HomefiEngine {
     /// `app_dir` holds credentials and the API cache (use the app's private
     /// files dir).
@@ -597,7 +622,29 @@ impl HomefiEngine {
         let app_dir = PathBuf::from(app_dir);
         std::fs::create_dir_all(&app_dir).map_err(homefi_core::Error::from)?;
         let config = Config::load(&app_dir.join(homefi_core::paths::CONFIG_FILENAME))?;
-        Ok(Arc::new(Self { session: Session::new(app_dir, config) }))
+        // answered before any download asks (no ffmpeg on phones: quick)
+        homefi_core::ffmpeg::warm_up();
+        Ok(Arc::new(Self { session: Session::new(app_dir, config), grouping: Default::default() }))
+    }
+
+    /// How album lists (artist pages, search, favorites) are grouped from now
+    /// on, and the language (`en`, `es`, `es-MX`...) of the version labels.
+    pub fn set_album_versions(&self, prefs: AlbumVersionPrefs, language: String) {
+        *self.grouping.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            versions::Grouping::new(&prefs, &language);
+    }
+
+    /// Every release of an album (itself included) as its artist's page lists
+    /// them, for the album page's "Other versions".
+    pub async fn album_versions(self: Arc<Self>, id: String) -> Result<Vec<AlbumVersionHit>> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            let g = self.grouping();
+            let album = api.album(&id).await?;
+            let list = catalog::album_versions(&api, &album, &g.prefs, g.lang).await?;
+            Ok(list.into_iter().map(AlbumVersionHit::from).collect())
+        })
+        .await
     }
 
     pub fn account(&self) -> Option<Account> {
@@ -605,187 +652,256 @@ impl HomefiEngine {
         Some(Account { user_id: data.user_id.unwrap_or_default(), country_code: data.country_code.unwrap_or_default() })
     }
 
-    pub async fn start_login(&self) -> Result<DeviceLogin> {
-        let d = self.session.start_login().await?;
-        Ok(DeviceLogin {
-            url: d.url(),
-            device_code: d.device_code,
-            user_code: d.user_code,
-            interval_secs: d.interval.max(1) as u64,
-            expires_in_secs: d.expires_in.max(1) as u64,
+    pub async fn start_login(self: Arc<Self>) -> Result<DeviceLogin> {
+        crate::runtime::run(async move {
+            let d = self.session.start_login().await?;
+            Ok(DeviceLogin {
+                url: d.url(),
+                device_code: d.device_code,
+                user_code: d.user_code,
+                interval_secs: d.interval.max(1) as u64,
+                expires_in_secs: d.expires_in.max(1) as u64,
+            })
         })
+        .await
     }
 
-    pub async fn poll_login(&self, device_code: String) -> Result<LoginState> {
-        Ok(match self.session.poll_login(&device_code).await? {
-            LoginPoll::Pending => LoginState::Pending,
-            LoginPoll::Success(_) => LoginState::Success,
-            LoginPoll::Expired => LoginState::Expired,
+    pub async fn poll_login(self: Arc<Self>, device_code: String) -> Result<LoginState> {
+        crate::runtime::run(async move {
+            Ok(match self.session.poll_login(&device_code).await? {
+                LoginPoll::Pending => LoginState::Pending,
+                LoginPoll::Success(_) => LoginState::Success,
+                LoginPoll::Expired => LoginState::Expired,
+            })
         })
+        .await
     }
 
     /// Logs out remotely and always clears the local credentials.
-    pub async fn logout(&self) -> Result<()> {
-        if let Err(e) = self.session.logout(true).await {
-            tracing::warn!("remote logout failed: {e}");
-        }
-        Ok(())
+    pub async fn logout(self: Arc<Self>) -> Result<()> {
+        crate::runtime::run(async move {
+            if let Err(e) = self.session.logout(true).await {
+                tracing::warn!("remote logout failed: {e}");
+            }
+            Ok(())
+        })
+        .await
     }
 
-    pub async fn search(&self, query: String) -> Result<SearchResults> {
-        let api = self.session.api()?;
-        let r = catalog::SearchResults::from(&api.search(&query).await?);
-        Ok(SearchResults {
-            top_hit: r.top_hit.map(SearchHit::from),
-            tracks: hits(r.tracks),
-            albums: hits(r.albums),
-            artists: hits(r.artists),
-            playlists: hits(r.playlists),
-            videos: hits(r.videos),
+    pub async fn search(self: Arc<Self>, query: String) -> Result<SearchResults> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            let g = self.grouping();
+            let r = catalog::SearchResults::grouped(&api.search(&query).await?, &g.prefs, g.lang);
+            Ok(SearchResults {
+                top_hit: r.top_hit.map(SearchHit::from),
+                tracks: hits(r.tracks),
+                albums: hits(r.albums),
+                artists: hits(r.artists),
+                playlists: hits(r.playlists),
+                videos: hits(r.videos),
+            })
         })
+        .await
     }
 
     // ------------------------------------------------------------- browsing
 
     /// Artist header, top tracks, albums and EPs / singles.
-    pub async fn artist_page(&self, id: String) -> Result<ArtistPage> {
-        let api = self.session.api()?;
-        let (artist, top, albums, singles) = tokio::try_join!(
-            api.artist(&id),
-            pages_up_to(ARTIST_TOP_TRACKS, |o| api.artist_top_tracks(&id, o)),
-            pages_up_to(ARTIST_ALBUMS, |o| api.artist_albums(&id, o, ArtistAlbumsFilter::Albums)),
-            pages_up_to(ARTIST_ALBUMS, |o| api.artist_albums(&id, o, ArtistAlbumsFilter::EpsAndSingles)),
-        )?;
-        Ok(ArtistPage {
-            id: artist.id.to_string(),
-            picture_url: image_url(artist.picture.as_deref(), 750),
-            name: artist.name,
-            top_tracks: top.iter().map(|t| catalog::track_hit(t).into()).collect(),
-            albums: albums.iter().map(|a| catalog::album_hit(a).into()).collect(),
-            eps_and_singles: singles.iter().map(|a| catalog::album_hit(a).into()).collect(),
+    pub async fn artist_page(self: Arc<Self>, id: String) -> Result<ArtistPage> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            let (artist, top, albums, singles) = tokio::try_join!(
+                api.artist(&id),
+                pages_up_to(ARTIST_TOP_TRACKS, |o| api.artist_top_tracks(&id, o)),
+                pages_up_to(ARTIST_ALBUMS, |o| api.artist_albums(&id, o, ArtistAlbumsFilter::Albums)),
+                pages_up_to(ARTIST_ALBUMS, |o| api.artist_albums(&id, o, ArtistAlbumsFilter::EpsAndSingles)),
+            )?;
+            Ok(ArtistPage {
+                id: artist.id.to_string(),
+                picture_url: image_url(artist.picture.as_deref(), 750),
+                name: artist.name,
+                top_tracks: top.iter().map(|t| catalog::track_hit(t).into()).collect(),
+                albums: self.album_cards(&albums),
+                eps_and_singles: self.album_cards(&singles),
+            })
         })
+        .await
     }
 
     /// Album info and all of its tracks.
-    pub async fn album_page(&self, id: String) -> Result<AlbumPage> {
-        let api = self.session.api()?;
-        let (album, items) = tokio::try_join!(api.album(&id), all_pages(|o| api.album_items(&id, o)))?;
-        Ok(album_page(album, track_hits(items), None))
+    pub async fn album_page(self: Arc<Self>, id: String) -> Result<AlbumPage> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            let (album, items) = tokio::try_join!(api.album(&id), all_pages(|o| api.album_items(&id, o)))?;
+            Ok(album_page(album, track_hits(items), None))
+        })
+        .await
     }
 
     /// Album info and only the first page of its tracks; `tracks_next_offset`
     /// tells where [`Self::album_items_page`] continues.
-    pub async fn album_page_first(&self, id: String) -> Result<AlbumPage> {
-        let api = self.session.api()?;
-        let (album, page) = tokio::try_join!(api.album(&id), api.album_items(&id, 0))?;
-        let next = page_next(&page);
-        Ok(album_page(album, track_hits(page.items), next))
+    pub async fn album_page_first(self: Arc<Self>, id: String) -> Result<AlbumPage> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            let (album, page) = tokio::try_join!(api.album(&id), api.album_items(&id, 0))?;
+            let next = page_next(&page);
+            Ok(album_page(album, track_hits(page.items), next))
+        })
+        .await
     }
 
     /// Lyrics of a Tidal track (synced when Tidal has them); None when there are none.
-    pub async fn track_lyrics(&self, track_id: String) -> Result<Option<SongLyrics>> {
-        let api = self.session.api()?;
-        let id: i64 =
-            track_id.parse().map_err(|_| homefi_core::Error::Resource(format!("not a track id: {track_id}")))?;
-        Ok(homefi_core::lyrics::tidal(&api, id).await?.map(SongLyrics::from))
+    pub async fn track_lyrics(self: Arc<Self>, track_id: String) -> Result<Option<SongLyrics>> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            let id: i64 =
+                track_id.parse().map_err(|_| homefi_core::Error::Resource(format!("not a track id: {track_id}")))?;
+            Ok(homefi_core::lyrics::tidal(&api, id).await?.map(SongLyrics::from))
+        })
+        .await
     }
 
     /// Lyrics of a local file: its own (`.lrc` or tag) or, when it has none and the
     /// user is signed in, Tidal's for the same recording (found by its ISRC).
-    pub async fn file_lyrics(&self, path: String) -> Result<Option<SongLyrics>> {
-        let api = self.session.api().ok();
-        Ok(homefi_core::lyrics::for_file(api.as_ref(), std::path::Path::new(&path)).await?.map(SongLyrics::from))
+    pub async fn file_lyrics(self: Arc<Self>, path: String) -> Result<Option<SongLyrics>> {
+        crate::runtime::run(async move {
+            let api = self.session.api().ok();
+            Ok(homefi_core::lyrics::for_file(api.as_ref(), std::path::Path::new(&path)).await?.map(SongLyrics::from))
+        })
+        .await
     }
 
     /// One page of an album's tracks, starting at `offset`.
-    pub async fn album_items_page(&self, id: String, offset: u32) -> Result<HitPage> {
-        let api = self.session.api()?;
-        Ok(listed_page(api.album_items(&id, i64::from(offset)).await?))
+    pub async fn album_items_page(self: Arc<Self>, id: String, offset: u32) -> Result<HitPage> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            Ok(listed_page(api.album_items(&id, i64::from(offset)).await?))
+        })
+        .await
     }
 
     /// Playlist info and all of its tracks.
-    pub async fn playlist_page(&self, uuid: String) -> Result<PlaylistPage> {
-        let api = self.session.api()?;
-        let (playlist, items) = tokio::try_join!(api.playlist(&uuid), all_pages(|o| api.playlist_items(&uuid, o)))?;
-        Ok(playlist_page(playlist, api.user_id(), track_hits(items), None))
+    pub async fn playlist_page(self: Arc<Self>, uuid: String) -> Result<PlaylistPage> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            let (playlist, items) = tokio::try_join!(api.playlist(&uuid), all_pages(|o| api.playlist_items(&uuid, o)))?;
+            Ok(playlist_page(playlist, api.user_id(), track_hits(items), None))
+        })
+        .await
     }
 
     /// Playlist info and only the first page of its tracks; `tracks_next_offset`
     /// tells where [`Self::playlist_items_page`] continues.
-    pub async fn playlist_page_first(&self, uuid: String) -> Result<PlaylistPage> {
-        let api = self.session.api()?;
-        let (playlist, page) = tokio::try_join!(api.playlist(&uuid), api.playlist_items(&uuid, 0))?;
-        let next = page_next(&page);
-        Ok(playlist_page(playlist, api.user_id(), track_hits(page.items), next))
+    pub async fn playlist_page_first(self: Arc<Self>, uuid: String) -> Result<PlaylistPage> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            let (playlist, page) = tokio::try_join!(api.playlist(&uuid), api.playlist_items(&uuid, 0))?;
+            let next = page_next(&page);
+            Ok(playlist_page(playlist, api.user_id(), track_hits(page.items), next))
+        })
+        .await
     }
 
     /// One page of a playlist's tracks, starting at `offset`.
-    pub async fn playlist_items_page(&self, uuid: String, offset: u32) -> Result<HitPage> {
-        let api = self.session.api()?;
-        Ok(listed_page(api.playlist_items(&uuid, i64::from(offset)).await?))
+    pub async fn playlist_items_page(self: Arc<Self>, uuid: String, offset: u32) -> Result<HitPage> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            Ok(listed_page(api.playlist_items(&uuid, i64::from(offset)).await?))
+        })
+        .await
     }
 
     /// One page of a mix's tracks, starting at `offset`.
-    pub async fn mix_items_page(&self, id: String, offset: u32) -> Result<HitPage> {
-        let api = self.session.api()?;
-        Ok(listed_page(api.mix_items(&id, i64::from(offset)).await?))
+    pub async fn mix_items_page(self: Arc<Self>, id: String, offset: u32) -> Result<HitPage> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            Ok(listed_page(api.mix_items(&id, i64::from(offset)).await?))
+        })
+        .await
     }
 
     /// Playlists the user created and the ones they follow, newest first. The
     /// subtitle starts with `Yours` or `Following`.
-    pub async fn my_playlists(&self) -> Result<Vec<SearchHit>> {
-        let api = self.session.api()?;
-        let entries = all_pages(|o| api.playlists_and_favorites(o)).await?;
-        Ok(entries.iter().map(playlist_entry_hit).collect())
+    pub async fn my_playlists(self: Arc<Self>) -> Result<Vec<SearchHit>> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            let entries = all_pages(|o| api.playlists_and_favorites(o)).await?;
+            Ok(entries.iter().map(playlist_entry_hit).collect())
+        })
+        .await
     }
 
     /// Every favorite track, newest first.
-    pub async fn favorite_tracks(&self) -> Result<Vec<SearchHit>> {
-        let api = self.session.api()?;
-        let list = all_pages(|o| api.favorite_tracks(o)).await?;
-        Ok(list.iter().map(|f| catalog::track_hit(&f.item).into()).collect())
+    pub async fn favorite_tracks(self: Arc<Self>) -> Result<Vec<SearchHit>> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            let list = all_pages(|o| api.favorite_tracks(o)).await?;
+            Ok(list.iter().map(|f| catalog::track_hit(&f.item).into()).collect())
+        })
+        .await
     }
 
     /// Every favorite album, newest first.
-    pub async fn favorite_albums(&self) -> Result<Vec<SearchHit>> {
-        let api = self.session.api()?;
-        let list = all_pages(|o| api.favorite_albums(o)).await?;
-        Ok(list.iter().map(|f| catalog::album_hit(&f.item).into()).collect())
+    pub async fn favorite_albums(self: Arc<Self>) -> Result<Vec<SearchHit>> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            let list = all_pages(|o| api.favorite_albums(o)).await?;
+            Ok(self.album_cards(&list.into_iter().map(|f| f.item).collect::<Vec<_>>()))
+        })
+        .await
     }
 
     /// Every favorite artist, newest first.
-    pub async fn favorite_artists(&self) -> Result<Vec<SearchHit>> {
-        let api = self.session.api()?;
-        let list = all_pages(|o| api.favorite_artists(o)).await?;
-        Ok(list.iter().map(|f| catalog::artist_hit(&f.item).into()).collect())
+    pub async fn favorite_artists(self: Arc<Self>) -> Result<Vec<SearchHit>> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            let list = all_pages(|o| api.favorite_artists(o)).await?;
+            Ok(list.iter().map(|f| catalog::artist_hit(&f.item).into()).collect())
+        })
+        .await
     }
 
     /// One page of [`Self::my_playlists`], starting at `offset`.
-    pub async fn my_playlists_page(&self, offset: u32) -> Result<HitPage> {
-        let api = self.session.api()?;
-        let page = api.playlists_and_favorites(i64::from(offset)).await?;
-        Ok(hit_page(&page, page.items.iter().map(playlist_entry_hit).collect()))
+    pub async fn my_playlists_page(self: Arc<Self>, offset: u32) -> Result<HitPage> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            let page = api.playlists_and_favorites(i64::from(offset)).await?;
+            Ok(hit_page(&page, page.items.iter().map(playlist_entry_hit).collect()))
+        })
+        .await
     }
 
     /// One page of favorite tracks (newest first), starting at `offset`.
-    pub async fn favorite_tracks_page(&self, offset: u32) -> Result<HitPage> {
-        let api = self.session.api()?;
-        let page = api.favorite_tracks(i64::from(offset)).await?;
-        Ok(hit_page(&page, page.items.iter().map(|f| catalog::track_hit(&f.item).into()).collect()))
+    pub async fn favorite_tracks_page(self: Arc<Self>, offset: u32) -> Result<HitPage> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            let page = api.favorite_tracks(i64::from(offset)).await?;
+            Ok(hit_page(&page, page.items.iter().map(|f| catalog::track_hit(&f.item).into()).collect()))
+        })
+        .await
     }
 
     /// One page of favorite albums (newest first), starting at `offset`.
-    pub async fn favorite_albums_page(&self, offset: u32) -> Result<HitPage> {
-        let api = self.session.api()?;
-        let page = api.favorite_albums(i64::from(offset)).await?;
-        Ok(hit_page(&page, page.items.iter().map(|f| catalog::album_hit(&f.item).into()).collect()))
+    pub async fn favorite_albums_page(self: Arc<Self>, offset: u32) -> Result<HitPage> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            let page = api.favorite_albums(i64::from(offset)).await?;
+            // grouped page by page: versions saved far apart stay two cards
+            let cards = self.album_cards(&page.items.iter().map(|f| f.item.clone()).collect::<Vec<_>>());
+            Ok(hit_page(&page, cards))
+        })
+        .await
     }
 
     /// One page of favorite artists (newest first), starting at `offset`.
-    pub async fn favorite_artists_page(&self, offset: u32) -> Result<HitPage> {
-        let api = self.session.api()?;
-        let page = api.favorite_artists(i64::from(offset)).await?;
-        Ok(hit_page(&page, page.items.iter().map(|f| catalog::artist_hit(&f.item).into()).collect()))
+    pub async fn favorite_artists_page(self: Arc<Self>, offset: u32) -> Result<HitPage> {
+        crate::runtime::run(async move {
+            let api = self.session.api()?;
+            let page = api.favorite_artists(i64::from(offset)).await?;
+            Ok(hit_page(&page, page.items.iter().map(|f| catalog::artist_hit(&f.item).into()).collect()))
+        })
+        .await
     }
 
     // ------------------------------------------------------------- streaming
@@ -798,63 +914,73 @@ impl HomefiEngine {
     /// [`trim_stream_cache`] afterwards to bound the folder.
     #[uniffi::method(default(quality = None))]
     pub async fn fetch_stream(
-        &self,
+        self: Arc<Self>,
         track_id: String,
         cache_dir: String,
         quality: Option<AudioQuality>,
     ) -> Result<String> {
-        self.session.refresh(600, false).await?;
-        let api = self.session.api()?;
-        let quality = quality.map(TrackQuality::from).unwrap_or(self.session.config().download.track_quality);
-        let dir = PathBuf::from(cache_dir);
-        let path = stream_cache::fetch(api, self.session.config(), &dir, &track_id, quality).await?;
-        Ok(path.to_string_lossy().into_owned())
+        crate::runtime::run(async move {
+            self.session.refresh(600, false).await?;
+            let api = self.session.api()?;
+            let quality = quality.map(TrackQuality::from).unwrap_or(self.session.config().download.track_quality);
+            let dir = PathBuf::from(cache_dir);
+            let path = stream_cache::fetch(api, self.session.config(), &dir, &track_id, quality).await?;
+            Ok(path.to_string_lossy().into_owned())
+        })
+        .await
     }
 
     /// Scans `roots` recursively for playable files. Unchanged files are
     /// served from a cache in the app directory, so rescans are cheap.
-    pub async fn scan_library(&self, roots: Vec<String>) -> Vec<LibraryTrack> {
-        let cache = self.session.app_dir().join(LIBRARY_CACHE);
-        let roots: Vec<PathBuf> = roots.into_iter().map(PathBuf::from).collect();
-        let tracks = tokio::task::spawn_blocking(move || library::scan(&roots, Some(&cache))).await.unwrap_or_default();
-        tracks.into_iter().map(LibraryTrack::from).collect()
+    pub async fn scan_library(self: Arc<Self>, roots: Vec<String>) -> Vec<LibraryTrack> {
+        crate::runtime::run(async move {
+            let cache = self.session.app_dir().join(LIBRARY_CACHE);
+            let roots: Vec<PathBuf> = roots.into_iter().map(PathBuf::from).collect();
+            let tracks =
+                tokio::task::spawn_blocking(move || library::scan(&roots, Some(&cache))).await.unwrap_or_default();
+            tracks.into_iter().map(LibraryTrack::from).collect()
+        })
+        .await
     }
 
     /// Downloads `links` (Tidal URLs or `type/id`), reporting progress to
     /// `listener`. Cancelling the coroutine stops the download.
     pub async fn download(
-        &self,
+        self: Arc<Self>,
         links: Vec<String>,
         settings: DownloadSettings,
         listener: Box<dyn DownloadListener>,
     ) -> Result<DownloadSummary> {
-        let resources = links.iter().map(|l| Resource::parse(l)).collect::<homefi_core::Result<Vec<_>>>()?;
+        crate::runtime::run(async move {
+            let resources = links.iter().map(|l| Resource::parse(l)).collect::<homefi_core::Result<Vec<_>>>()?;
 
-        self.session.refresh(600, false).await?;
-        let api = self.session.api()?;
+            self.session.refresh(600, false).await?;
+            let api = self.session.api()?;
 
-        let download_dir = PathBuf::from(&settings.download_dir);
-        let mut opts = DownloadOptions::from_config(self.session.config());
-        opts.download_dir = download_dir.clone();
-        opts.scan_dir = download_dir.clone();
-        opts.track_quality = settings.quality.into();
-        opts.skip_existing = settings.skip_existing;
-        opts.threads = settings.threads.clamp(1, 8) as usize;
-        opts.metadata.cover = settings.embed_cover;
-        opts.metadata.lyrics = settings.embed_lyrics;
-        opts.videos_filter = if settings.include_videos { MediaFilter::Allow } else { MediaFilter::None };
-        opts.template_override = settings.template.filter(|t| !t.trim().is_empty());
+            let download_dir = PathBuf::from(&settings.download_dir);
+            let mut opts = DownloadOptions::from_config(self.session.config());
+            opts.download_dir = download_dir.clone();
+            opts.scan_dir = download_dir.clone();
+            opts.track_quality = settings.quality.into();
+            opts.skip_existing = settings.skip_existing;
+            opts.threads = settings.threads.clamp(1, 8) as usize;
+            opts.metadata.cover = settings.embed_cover;
+            opts.metadata.lyrics = settings.embed_lyrics;
+            opts.videos_filter = if settings.include_videos { MediaFilter::Allow } else { MediaFilter::None };
+            opts.template_override = settings.template.filter(|t| !t.trim().is_empty());
 
-        let observer = Arc::new(ListenerObserver { listener, base: download_dir });
-        let s = Downloader::new(api, opts, observer).run(&resources).await?;
+            let observer = Arc::new(ListenerObserver { listener, base: download_dir });
+            let s = Downloader::new(api, opts, observer).run(&resources).await?;
 
-        Ok(DownloadSummary {
-            queued: s.queued,
-            downloaded: s.downloaded,
-            existing: s.existing,
-            skipped: s.skipped,
-            failed: s.failed,
+            Ok(DownloadSummary {
+                queued: s.queued,
+                downloaded: s.downloaded,
+                existing: s.existing,
+                skipped: s.skipped,
+                failed: s.failed,
+            })
         })
+        .await
     }
 }
 
@@ -878,6 +1004,31 @@ mod tests {
         assert_eq!(hits.items.len(), 1);
         assert_eq!(hits.total, 5);
         assert_eq!(hits.next_offset, Some(2));
+    }
+
+    /// Kotlin awaits exports from its own threads (often Main), never from a
+    /// tokio one: the calls must bring their runtime.
+    #[test]
+    fn async_exports_complete_when_called_from_a_plain_thread() {
+        let dir = tempfile::tempdir().unwrap();
+        let music = dir.path().join("music");
+        std::fs::create_dir_all(&music).unwrap();
+        std::fs::write(music.join("song.flac"), b"not really flac").unwrap();
+        let engine = HomefiEngine::new(dir.path().join("app").display().to_string()).unwrap();
+
+        let scanned = std::thread::spawn({
+            let engine = engine.clone();
+            let root = music.display().to_string();
+            move || futures::executor::block_on(engine.scan_library(vec![root]))
+        })
+        .join()
+        .unwrap();
+        assert_eq!(scanned.len(), 1);
+
+        let searched = futures::executor::block_on(engine.clone().search("x".into()));
+        assert!(matches!(searched, Err(HomefiError::NotLoggedIn { .. })));
+        let lyrics = futures::executor::block_on(engine.file_lyrics(music.join("song.flac").display().to_string()));
+        assert!(lyrics.unwrap().is_none());
     }
 
     #[test]

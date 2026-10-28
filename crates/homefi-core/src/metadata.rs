@@ -34,6 +34,8 @@ pub struct TrackTags {
     pub cover: Option<Vec<u8>>,
     pub comment: String,
     pub genre: String,
+    /// Written as `REPLAYGAIN_*` tags (Tidal's values), for loudness normalization.
+    pub replay_gain: Option<crate::dsp::ReplayGain>,
 }
 
 impl TrackTags {
@@ -52,6 +54,7 @@ impl TrackTags {
             album_title: track.album.title.clone().unwrap_or_default(),
             isrc: track.isrc.clone(),
             bpm: track.bpm.filter(|b| *b > 0),
+            replay_gain: Some(crate::dsp::ReplayGain::from_track(track)).filter(|r| !r.is_empty()),
             ..Default::default()
         }
     }
@@ -126,9 +129,27 @@ fn fill_common(tag: &mut Tag, tags: &TrackTags, joined_artists: bool) {
     if let Some(lyrics) = tags.lyrics.as_deref().filter(|l| !l.is_empty()) {
         tag.insert_text(ItemKey::Lyrics, lyrics.to_owned());
     }
+    for (key, value) in replay_gain_items(tags) {
+        tag.insert_text(key, value);
+    }
     if let Some(cover) = &tags.cover {
         tag.push_picture(cover_picture(cover));
     }
+}
+
+/// `REPLAYGAIN_*` values of `tags` that are known.
+fn replay_gain_items(tags: &TrackTags) -> Vec<(ItemKey, String)> {
+    use crate::dsp::loudness::{format_gain, format_peak};
+    let Some(rg) = tags.replay_gain else { return Vec::new() };
+    [
+        (ItemKey::ReplayGainTrackGain, rg.track_gain_db.map(format_gain)),
+        (ItemKey::ReplayGainTrackPeak, rg.track_peak.map(format_peak)),
+        (ItemKey::ReplayGainAlbumGain, rg.album_gain_db.map(format_gain)),
+        (ItemKey::ReplayGainAlbumPeak, rg.album_peak.map(format_peak)),
+    ]
+    .into_iter()
+    .filter_map(|(k, v)| v.map(|v| (k, v)))
+    .collect()
 }
 
 fn write_m4a(path: &Path, tags: &TrackTags) -> Result<()> {
@@ -169,6 +190,15 @@ fn write_flac(path: &Path, tags: &TrackTags) -> Result<()> {
     c.push(("LYRICS".into(), tags.lyrics.clone().unwrap_or_default()));
     for entry in &tags.credits {
         c.extend(entry.contributors.iter().map(|p| (entry.kind.clone(), p.name.clone())));
+    }
+    for (key, value) in replay_gain_items(tags) {
+        let name = match key {
+            ItemKey::ReplayGainTrackGain => "REPLAYGAIN_TRACK_GAIN",
+            ItemKey::ReplayGainTrackPeak => "REPLAYGAIN_TRACK_PEAK",
+            ItemKey::ReplayGainAlbumGain => "REPLAYGAIN_ALBUM_GAIN",
+            _ => "REPLAYGAIN_ALBUM_PEAK",
+        };
+        c.push((name.into(), value));
     }
     crate::flac_tags::write(path, &c, tags.cover.as_deref())
 }

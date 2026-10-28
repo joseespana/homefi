@@ -15,6 +15,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import com.perseusoft.homefi.core.parseLink
 import com.perseusoft.homefi.data.PlayerLayout
 import com.perseusoft.homefi.data.ThemeMode
@@ -35,6 +36,7 @@ import com.perseusoft.homefi.ui.Haptics
 import com.perseusoft.homefi.ui.LocalHaptics
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val destinations = Channel<Destination>(Channel.BUFFERED)
@@ -141,14 +143,17 @@ class MainActivity : ComponentActivity() {
     private fun queueLink(text: String?) {
         text ?: return
         val link = LINK.find(text)?.value?.let { runCatching { parseLink(it) }.getOrNull() }
-        if (link == null || homefi.engine.account() == null) {
-            Toast.makeText(this, R.string.share_invalid, Toast.LENGTH_SHORT).show()
-            return
+        // a link shared to a cold app may arrive before the account was read: wait for it
+        lifecycleScope.launch {
+            if (link == null || homefi.account.current() == null) {
+                Toast.makeText(this@MainActivity, R.string.share_invalid, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val path = "${link.kind.name.lowercase()}/${link.id}"
+            homefi.downloads.enqueue(path, listOf(path))
+            destinations.trySend(Destination.DOWNLOADS)
+            Toast.makeText(this@MainActivity, getString(R.string.share_queued, path), Toast.LENGTH_SHORT).show()
         }
-        val path = "${link.kind.name.lowercase()}/${link.id}"
-        homefi.downloads.enqueue(path, listOf(path))
-        destinations.trySend(Destination.DOWNLOADS)
-        Toast.makeText(this, getString(R.string.share_queued, path), Toast.LENGTH_SHORT).show()
     }
 
     companion object {

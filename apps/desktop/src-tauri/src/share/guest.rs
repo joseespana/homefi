@@ -329,6 +329,7 @@ async fn party_loop(app: AppHandle, session: Arc<GuestSession>) {
                 false
             } else {
                 party.set_output(settings.volume, settings.output_device.clone());
+                party.set_eq(&settings.eq);
                 let started = party.tick(&session.client, &hub_state, s.speaker_delay_ms, s.preload_songs);
                 had_player |= party.active();
                 started

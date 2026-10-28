@@ -105,6 +105,8 @@ impl Error {
             Error::Resource(_) => Problem::BadLink,
             Error::Template(_) | Error::Config(_) => Problem::Settings,
             Error::Share(_) => Problem::Worded,
+            Error::AutoEq(_) => Problem::Worded,
+            Error::Ai(_) => Problem::Worded,
         }
     }
 
@@ -146,6 +148,8 @@ impl Error {
             }
             Problem::Worded => match self {
                 Error::Share(m) => m.clone(),
+                Error::AutoEq(m) => m.clone(),
+                Error::Ai(e) => e.humane_in(lang),
                 e => e.to_string(),
             },
             _ => match self {

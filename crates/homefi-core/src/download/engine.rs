@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use futures::future::join_all;
+use std::future::Future;
+use std::time::{Duration, Instant};
+
 use futures::StreamExt;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{OnceCell, Semaphore};
@@ -21,8 +23,9 @@ use crate::resource::{Resource, ResourceKind};
 use crate::stream::{parse_track_stream, video_segments};
 use crate::template::{format_path, TemplateData};
 
-/// Emit a progress event at most every this many bytes.
-const PROGRESS_STEP: u64 = 256 * 1024;
+/// At most this many progress events per download task (~10 a second): front
+/// ends redraw on each, and fast connections deliver thousands of chunks.
+const PROGRESS_EVERY: Duration = Duration::from_millis(100);
 /// Playlist covers are limited to 1080px by Tidal.
 const PLAYLIST_COVER_MAX: u32 = 1080;
 /// At most this many genres are written to the GENRE tag.
@@ -53,6 +56,8 @@ struct ItemMeta {
     cover: Option<Arc<SharedCover>>,
     comment: String,
     genre: String,
+    /// Album ReplayGain from the stream info (the track's own comes with the track).
+    replay_gain: Option<crate::dsp::ReplayGain>,
 }
 
 impl ItemMeta {
@@ -74,7 +79,6 @@ struct Inner {
     next_task: AtomicU64,
     summary: Mutex<Summary>,
     albums: Mutex<HashMap<i64, Album>>,
-    ffmpeg: bool,
 }
 
 /// Downloads Tidal resources according to [`DownloadOptions`].
@@ -98,7 +102,6 @@ impl Downloader {
                 next_task: AtomicU64::new(1),
                 summary: Mutex::new(Summary::default()),
                 albums: Mutex::new(HashMap::new()),
-                ffmpeg: ffmpeg::is_available(),
             }),
         }
     }
@@ -109,10 +112,12 @@ impl Downloader {
 
     /// Downloads every resource concurrently and returns the totals.
     pub async fn run(&self, resources: &[Resource]) -> Result<Summary> {
-        let results = join_all(
+        let results = bounded(
             resources
                 .iter()
-                .map(|r| async move { self.handle_resource(r).await.inspect_err(|e| self.fail(r.to_string(), e)) }),
+                .map(|r| async move { self.handle_resource(r).await.inspect_err(|e| self.fail(r.to_string(), e)) })
+                .collect(),
+            self.fan_out(),
         )
         .await;
 
@@ -120,6 +125,13 @@ impl Downloader {
             results.into_iter().collect::<Result<Vec<_>>>()?;
         }
         Ok(*self.inner.summary.lock().unwrap())
+    }
+
+    /// Items prepared at once: enough to keep every download slot busy while
+    /// the next ones look for existing files, without polling a 2000-track
+    /// playlist's items (and their API calls) all together.
+    fn fan_out(&self) -> usize {
+        self.inner.opts.threads.max(1) * 2
     }
 
     fn emit(&self, event: Event) {
@@ -176,14 +188,6 @@ impl Downloader {
         }
     }
 
-    fn resolve(&self, base: &Path, relative: &Path) -> PathBuf {
-        if self.inner.opts.match_existing_path_case {
-            resolve_existing_path_case(base, relative)
-        } else {
-            base.join(relative)
-        }
-    }
-
     async fn album_cached(&self, id: i64) -> Result<Album> {
         if let Some(album) = self.inner.albums.lock().unwrap().get(&id) {
             return Ok(album.clone());
@@ -225,7 +229,13 @@ impl Downloader {
         Ok(())
     }
 
-    fn save_m3u(&self, kind: M3uResource, template: &str, data: TemplateData, items: Vec<ItemResult>) -> Result<()> {
+    async fn save_m3u(
+        &self,
+        kind: M3uResource,
+        template: &str,
+        data: TemplateData,
+        items: Vec<ItemResult>,
+    ) -> Result<()> {
         if !self.inner.opts.m3u.saves(kind) || template.is_empty() {
             return Ok(());
         }
@@ -238,7 +248,7 @@ impl Downloader {
             })
             .collect();
         let path = self.inner.opts.download_dir.join(format_path(template, &data, false)?);
-        if let Some(path) = crate::m3u::save(&tracks, &path)? {
+        if let Some(path) = blocking(move || crate::m3u::save(&tracks, &path)).await?? {
             self.emit(Event::ExtraWritten { kind: ExtraFile::Playlist, path });
         }
         Ok(())
@@ -309,9 +319,9 @@ impl Downloader {
                         None => break,
                     }
                 }
-                let items = collect(join_all(futures).await, opts.fail_fast)?;
+                let items = collect(bounded(futures, self.fan_out()).await, opts.fail_fast)?;
                 let data = TemplateData::new("").extra("mix_id", resource.id.as_str()).extra("type", "mix");
-                self.save_m3u(M3uResource::Mix, &opts.m3u.templates.mix, data, items)?;
+                self.save_m3u(M3uResource::Mix, &opts.m3u.templates.mix, data, items).await?;
             }
 
             ResourceKind::Playlist => {
@@ -392,10 +402,10 @@ impl Downloader {
             }
         }
 
-        let items = collect(join_all(futures).await, opts.fail_fast)?;
+        let items = collect(bounded(futures, self.fan_out()).await, opts.fail_fast)?;
 
         let data = TemplateData::new("").album(album).extra("type", "album");
-        self.save_m3u(M3uResource::Album, &opts.m3u.templates.album, data, items)?;
+        self.save_m3u(M3uResource::Album, &opts.m3u.templates.album, data, items).await?;
 
         if let (true, Some(cover)) = (opts.cover.saves(CoverResource::Album), cover) {
             let data = TemplateData::new("").album(album);
@@ -459,7 +469,12 @@ impl Downloader {
             self.report(|| format!("Album: {} ({})", album.title, album.id), result).map(drop)
         });
 
-        let (videos, albums) = futures::join!(join_all(video_futures), join_all(album_futures));
+        // albums one slot each: their tracks fan out on their own
+        let album_futures: Vec<_> = album_futures.collect();
+        let (videos, albums) = futures::join!(
+            bounded(video_futures, self.fan_out()),
+            bounded(album_futures, self.inner.opts.threads.max(1))
+        );
         collect(videos, opts.fail_fast)?;
         albums.into_iter().collect::<Result<Vec<_>>>()?;
         Ok(())
@@ -488,10 +503,10 @@ impl Downloader {
             }
         }
 
-        let items = collect(join_all(futures).await, opts.fail_fast)?;
+        let items = collect(bounded(futures, self.fan_out()).await, opts.fail_fast)?;
 
         let data = TemplateData::new("").playlist(playlist, 0).extra("type", "playlist");
-        self.save_m3u(M3uResource::Playlist, &opts.m3u.templates.playlist, data, items)?;
+        self.save_m3u(M3uResource::Playlist, &opts.m3u.templates.playlist, data, items).await?;
 
         if let (true, Some(uid)) = (opts.cover.saves(CoverResource::Playlist), playlist.square_image.as_deref()) {
             let cover = SharedCover::new(uid, opts.cover.size.min(PLAYLIST_COVER_MAX));
@@ -503,7 +518,7 @@ impl Downloader {
 
     /// Downloads one item and writes its tags. `relative` is the rendered
     /// template ending with `.*`.
-    async fn handle_item(&self, item: MediaItem, relative: String, meta: ItemMeta) -> Result<ItemResult> {
+    async fn handle_item(&self, item: MediaItem, relative: String, mut meta: ItemMeta) -> Result<ItemResult> {
         self.emit(Event::Queued { id: item.id().to_string(), title: item.title().to_owned() });
 
         let result = match self.download(&item, Path::new(&relative)).await {
@@ -515,9 +530,10 @@ impl Downloader {
             }
             other => other?,
         };
-        let Some((path, downloaded)) = result else {
+        let Some((path, downloaded, replay_gain)) = result else {
             return Ok(None);
         };
+        meta.replay_gain = replay_gain;
 
         let opts = &self.inner.opts;
         if opts.metadata.enable && (downloaded || opts.rewrite_metadata) {
@@ -526,8 +542,12 @@ impl Downloader {
         }
 
         if opts.update_mtime && !downloaded {
-            let file = std::fs::File::options().append(true).open(&path);
-            if let Err(e) = file.and_then(|f| f.set_modified(std::time::SystemTime::now())) {
+            let file = path.clone();
+            let touched = blocking(move || {
+                std::fs::File::options().append(true).open(&file)?.set_modified(std::time::SystemTime::now())
+            })
+            .await;
+            if let Err(e) = touched.and_then(|r| r.map_err(Error::from)) {
                 tracing::warn!("could not update mtime of {}: {e}", path.display());
             }
         }
@@ -578,6 +598,13 @@ impl Downloader {
                     genre: meta.genre,
                     ..TrackTags::from_track(track)
                 };
+                let tags = TrackTags {
+                    replay_gain: match (meta.replay_gain, tags.replay_gain) {
+                        (Some(stream), Some(listed)) => Some(stream.or(listed)),
+                        (a, b) => a.or(b),
+                    },
+                    ..tags
+                };
                 let path = path.to_path_buf();
                 spawn_blocking(move || metadata::write_track_tags(&path, &tags)).await
             }
@@ -593,7 +620,11 @@ impl Downloader {
 
     /// Returns the final path and whether it was (re)downloaded, or `None`
     /// when the item was skipped.
-    async fn download(&self, item: &MediaItem, relative: &Path) -> Result<Option<(PathBuf, bool)>> {
+    async fn download(
+        &self,
+        item: &MediaItem,
+        relative: &Path,
+    ) -> Result<Option<(PathBuf, bool, Option<crate::dsp::ReplayGain>)>> {
         let opts = &self.inner.opts;
 
         if !item.allow_streaming() {
@@ -613,15 +644,30 @@ impl Downloader {
             MediaItem::Video(_) => with_suffix(relative, "mp4"),
         };
 
-        let existing = self.resolve(&opts.scan_dir, &filename);
-        let outcome = if existing.exists() {
+        // every file system look-up of the item in one trip to the blocking pool
+        let (existing, exists, target) = {
+            let (scan_dir, download_dir, name) = (opts.scan_dir.clone(), opts.download_dir.clone(), filename.clone());
+            let match_case = opts.match_existing_path_case;
+            blocking(move || {
+                let existing = resolve_path(match_case, &scan_dir, &name);
+                let exists = existing.exists();
+                let target = if scan_dir == download_dir {
+                    existing.clone()
+                } else {
+                    resolve_path(match_case, &download_dir, &name)
+                };
+                (existing, exists, target)
+            })
+            .await?
+        };
+        let outcome = if exists {
             if opts.skip_existing {
                 self.emit(Event::Exists {
                     id: item.id().to_string(),
                     title: item.title().to_owned(),
                     path: existing.clone(),
                 });
-                return Ok(Some((existing, false)));
+                return Ok(Some((existing, false, None)));
             }
             Outcome::Overwritten
         } else {
@@ -639,6 +685,7 @@ impl Downloader {
 
         let _permit = self.inner.semaphore.acquire().await.expect("semaphore is never closed");
 
+        let mut replay_gain = None;
         let (urls, mut path, quality, extract_flac) = match item {
             MediaItem::Track(track) => {
                 let stream = self.inner.api.track_stream(track.id, opts.track_quality).await?;
@@ -655,7 +702,8 @@ impl Downloader {
                 }
 
                 let source = parse_track_stream(&stream)?;
-                let path = self.resolve(&opts.download_dir, &filename);
+                replay_gain = Some(crate::dsp::ReplayGain::from_stream(&stream)).filter(|r| !r.is_empty());
+                let path = target.clone();
 
                 if is_lossless_api_name(&stream.audio_quality) && !atmos {
                     let mut quality = track_quality_label(&stream.audio_quality).to_owned();
@@ -675,7 +723,7 @@ impl Downloader {
             MediaItem::Video(video) => {
                 let stream = self.inner.api.video_stream(video.id, opts.video_quality).await?;
                 let urls = video_segments(&self.inner.http, &stream).await?;
-                let path = with_suffix(&self.resolve(&opts.download_dir, &filename), "ts");
+                let path = with_suffix(&target, "ts");
                 (urls, path, video_quality_label(&stream.video_quality).to_owned(), false)
             }
         };
@@ -688,7 +736,7 @@ impl Downloader {
         path = self.post_process(item, path, extract_flac).await;
 
         self.emit(Event::Finished { task, id: item.id().to_string(), title, quality, path: path.clone(), outcome });
-        Ok(Some((path, true)))
+        Ok(Some((path, true, replay_gain)))
     }
 
     /// Streams `urls` (in order) into `path` through a temporary file.
@@ -702,7 +750,7 @@ impl Downloader {
 
         let mut total = None;
         let mut downloaded = 0u64;
-        let mut reported = 0u64;
+        let mut reported = Instant::now();
         for url in urls {
             let res = self.inner.http.get(url).send().await?.error_for_status()?;
             if urls.len() == 1 {
@@ -713,8 +761,8 @@ impl Downloader {
                 let chunk = chunk?;
                 file.write_all(&chunk).await?;
                 downloaded += chunk.len() as u64;
-                if downloaded - reported >= PROGRESS_STEP {
-                    reported = downloaded;
+                if reported.elapsed() >= PROGRESS_EVERY {
+                    reported = Instant::now();
                     self.inner.observer.on_event(Event::Progress { task, downloaded, total });
                 }
             }
@@ -732,7 +780,7 @@ impl Downloader {
     /// are reported but keep the downloaded file.
     async fn post_process(&self, item: &MediaItem, path: PathBuf, extract_flac: bool) -> PathBuf {
         let opts = &self.inner.opts;
-        let ffmpeg = self.inner.ffmpeg;
+        let ffmpeg = ffmpeg::available().await;
         let title = item.title().to_owned();
         let mut path = path;
 
@@ -747,8 +795,9 @@ impl Downloader {
                     Ok(Some(p)) => path = p,
                     // native FLAC (Lossless) or AAC inside MP4: name it after what it is
                     Ok(None) => {
-                        let ext = match ffmpeg::sniff_container(&path) {
-                            Container::Flac => "flac",
+                        let file = path.clone();
+                        let ext = match blocking(move || ffmpeg::sniff_container(&file)).await {
+                            Ok(Container::Flac) => "flac",
                             _ => "m4a",
                         };
                         let target = with_suffix(&path, ext);
@@ -829,6 +878,37 @@ fn collect(results: Vec<Result<ItemResult>>, fail_fast: bool) -> Result<Vec<Item
     Ok(results.into_iter().map(|r| r.ok().flatten()).collect())
 }
 
+/// Joins `base` and `relative`, reusing the casing of existing folders when
+/// asked (blocking: it reads directories).
+fn resolve_path(match_case: bool, base: &Path, relative: &Path) -> PathBuf {
+    if match_case {
+        resolve_existing_path_case(base, relative)
+    } else {
+        base.join(relative)
+    }
+}
+
+/// Runs `futures` at most `limit` at a time; the results keep the input order
+/// (playlist files list tracks in order).
+async fn bounded<F: Future>(futures: Vec<F>, limit: usize) -> Vec<F::Output> {
+    let mut done: Vec<(usize, F::Output)> =
+        futures::stream::iter(futures.into_iter().enumerate().map(|(i, f)| async move { (i, f.await) }))
+            .buffer_unordered(limit.max(1))
+            .collect()
+            .await;
+    done.sort_by_key(|(i, _)| *i);
+    done.into_iter().map(|(_, out)| out).collect()
+}
+
+/// Blocking file-system work off the async workers.
+async fn blocking<T, F>(f: F) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    tokio::task::spawn_blocking(f).await.map_err(|e| Error::Io(std::io::Error::other(e.to_string())))
+}
+
 async fn spawn_blocking<F>(f: F) -> Result<()>
 where
     F: FnOnce() -> Result<()> + Send + 'static,
@@ -839,6 +919,27 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn bounded_keeps_the_order_and_the_limit() {
+        use std::sync::atomic::AtomicUsize;
+        let running = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let futures: Vec<_> = (0..20u64)
+            .map(|i| {
+                let (running, peak) = (running.clone(), peak.clone());
+                async move {
+                    let now = running.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(now, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(20 - i)).await;
+                    running.fetch_sub(1, Ordering::SeqCst);
+                    i
+                }
+            })
+            .collect();
+        assert_eq!(bounded(futures, 4).await, (0..20).collect::<Vec<_>>());
+        assert_eq!(peak.load(Ordering::SeqCst), 4);
+    }
 
     #[test]
     fn extension_prediction() {

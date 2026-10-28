@@ -74,23 +74,46 @@ pub async fn tidal(api: &TidalApi, track_id: i64) -> Result<Option<Lyrics>> {
 }
 
 /// Lyrics of a local file: `<same name>.lrc` next to it first, then the lyrics tag.
+/// Blocking (disk and tag parsing).
 pub fn local(path: &Path) -> Option<Lyrics> {
+    local_and_isrc(path).0
+}
+
+/// The file's own lyrics and, when it has none, its ISRC: one read of the tags.
+fn local_and_isrc(path: &Path) -> (Option<Lyrics>, Option<String>) {
     let lrc = path.with_extension("lrc");
     if let Some(l) = std::fs::read_to_string(&lrc).ok().and_then(|t| Lyrics::parse(&t, None)) {
-        return Some(l);
+        return (Some(l), None);
     }
-    let file = lofty::read_from_path(path).ok()?;
-    let text = file.tags().iter().find_map(|t| t.get_string(&ItemKey::Lyrics).map(str::to_owned))?;
-    Lyrics::parse(&text, None)
+    let Some(file) = read_tags(path) else { return (None, None) };
+    let text = file.tags().iter().find_map(|t| t.get_string(&ItemKey::Lyrics).map(str::to_owned));
+    match text.and_then(|t| Lyrics::parse(&t, None)) {
+        Some(l) => (Some(l), None),
+        None => (None, isrc_in(&file)),
+    }
+}
+
+/// The tags only: no cover art (megabytes in some files) and no audio properties.
+fn read_tags(path: &Path) -> Option<lofty::file::TaggedFile> {
+    use lofty::config::ParseOptions;
+    lofty::probe::Probe::open(path)
+        .ok()?
+        .options(ParseOptions::new().read_cover_art(false).read_properties(false))
+        .guess_file_type()
+        .ok()?
+        .read()
+        .ok()
 }
 
 /// Lyrics of a local file: its own (see [`local`]) or, when it has none, Tidal's
 /// for the same recording, found by the ISRC in its tags (when signed in).
 pub async fn for_file(api: Option<&TidalApi>, path: &Path) -> Result<Option<Lyrics>> {
-    if let Some(found) = local(path) {
+    let file = path.to_path_buf();
+    let (found, isrc) = tokio::task::spawn_blocking(move || local_and_isrc(&file)).await.unwrap_or_default();
+    if let Some(found) = found {
         return Ok(Some(found));
     }
-    let (Some(api), Some(isrc)) = (api, isrc_of(path)) else { return Ok(None) };
+    let (Some(api), Some(isrc)) = (api, isrc) else { return Ok(None) };
     // the same recording is often on several releases; any of them has the lyrics
     for track in api.tracks_by_isrc(&isrc).await?.iter().take(3) {
         if let Some(found) = tidal(api, track.id).await? {
@@ -101,8 +124,7 @@ pub async fn for_file(api: Option<&TidalApi>, path: &Path) -> Result<Option<Lyri
 }
 
 /// The ISRC in a file's tags.
-fn isrc_of(path: &Path) -> Option<String> {
-    let file = lofty::read_from_path(path).ok()?;
+fn isrc_in(file: &lofty::file::TaggedFile) -> Option<String> {
     file.tags()
         .iter()
         .find_map(|t| t.get_string(&ItemKey::Isrc))

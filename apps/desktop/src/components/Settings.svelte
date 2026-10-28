@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { LOUDNESS_DEFAULTS, LOUDNESS_MODES, SOUND_UI_DEFAULTS } from "../lib/sound.svelte";
   import SeekBar from "./SeekBar.svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
-  import { api, errorText, type Quality, type Settings, type ShareSettings, type Theme, type ProgressStyle, type Motion } from "../lib/api";
+  import { api, errorText, type Quality, type Settings, type ShareSettings, type Theme, type ProgressStyle, type Motion, type SoundUiSettings, type AlbumVersionPrefs } from "../lib/api";
   import { share } from "../lib/share.svelte";
   import MascotOptions from "./MascotOptions.svelte";
   import { LAYOUTS, fixedTheme, layoutOf, skinOf } from "../lib/layouts";
@@ -10,6 +11,9 @@
   import Icon from "./Icon.svelte";
   import { item, rise } from "../lib/motion";
   import { TERMS_TEXT, TERMS_VERSION } from "../lib/terms";
+  import AiOptions from "./AiOptions.svelte";
+  import PlaybackOptions from "./PlaybackOptions.svelte";
+  import type { EqUiSettings } from "../lib/api";
 
   let settings = $state<Settings | null>(null);
   let error = $state<string | null>(null);
@@ -96,13 +100,16 @@
     if (ok && settings) save({ library_dirs: settings.library_dirs.filter((d) => d !== dir) });
   }
 
-  type PageId = "look" | "room" | "lyrics" | "mascot" | "share" | "downloads" | "library" | "tidal" | "about";
+  type PageId = "look" | "room" | "lyrics" | "mascot" | "sound" | "playback" | "ai" | "share" | "downloads" | "library" | "tidal" | "about";
   // words are what the search box matches, besides the title
   const pages: { id: PageId; title: string; icon: string; words: string }[] = [
     { id: "look", title: "Look", icon: "palette", words: "appearance theme light dark system skin layout everywhere whole app progress bar seek wavy neon led thickness animate motion animation animations transitions effects movement reduce reduced still calm" },
-    { id: "room", title: "Listening room", icon: "disc", words: "layout player skin theme everywhere whole app look classic immersive studio aluminum cover flow retro amp winamp luna xp web 2000 vinyl signal chain vu meters visualizer halo album colors shade shadow gradient readable title" },
+    { id: "room", title: "Listening room", icon: "disc", words: "layout player skin theme everywhere whole app look classic immersive studio aluminum cover flow retro amp winamp luna xp web 2000 vinyl signal chain path pipeline connectors flow flowing animate animation compact detailed source codec resample resampling output dac bit-perfect processed vu meters visualizer halo album colors shade shadow gradient readable title" },
     { id: "lyrics", title: "Lyrics", icon: "lyrics", words: "lyrics karaoke words sing singing song text lines synced lrc musixmatch size timing offset delay bluetooth late early open automatically mascot homefito microphone" },
     { id: "mascot", title: "Mascot", icon: "smile", words: "mascot dance style mood turns arms legs angry temper click right-click" },
+    { id: "sound", title: "Sound", icon: "eq", words: "sound equalizer eq parametric bands preamp clipping autoeq headphones correction bass treble clarity taste bit-perfect bypass compare a/b presets player bar button set up my sound assistant guided taste layers rules genre playlist artist album how does it sound reactions loudness normalization replaygain lufs volume suggestions" },
+    { id: "playback", title: "Playback", icon: "soundwave", words: "playback crossfade cross fade transition transitions mix overlap gapless dj fade out fade in skip silence album surround 7.1 5.1 channels speakers upmix center subwoofer lfe rear resampler resampling quality cpu" },
+    { id: "ai", title: "AI", icon: "ai", words: "ai key api openai chatgpt anthropic claude gemini google openrouter mistral groq xai grok deepseek ollama local model assistant keychain privacy provider server" },
     {
       id: "share",
       title: "Shared control & party",
@@ -111,12 +118,17 @@
     },
     { id: "downloads", title: "Downloads", icon: "download", words: "quality lossless max hi-res flac aac cover lyrics skip existing folder" },
     { id: "library", title: "Music folders", icon: "folder", words: "library folders music add remove scan" },
-    { id: "tidal", title: "Tidal account", icon: "user", words: "tidal account login log out connect lists scroll lazy load pages playlists favorites infinite" },
+    { id: "tidal", title: "Tidal account", icon: "user", words: "tidal account login log out connect lists scroll lazy load pages playlists favorites infinite album versions duplicates same album group explicit clean edited dolby atmos spatial stereo remaster remastered original deluxe box set edition hi-res lossless default pick E badge" },
     { id: "about", title: "About", icon: "info", words: "about version ffmpeg data personal use terms notice disclaimer copyright accepted" },
   ];
 
   const STORE = "homefi.settings.page";
   let page = $state<PageId>(readPage());
+  // opened on a section (the equalizer's "Equalizer settings", the assistant's "Set up AI")
+  $effect(() => {
+    const v = app.view;
+    if (v.name === "settings" && v.page && pages.some((p) => p.id === v.page)) go(v.page as PageId);
+  });
   let query = $state("");
 
   function readPage(): PageId {
@@ -158,6 +170,19 @@
         return `${s.room.lyrics_mode === "karaoke" ? "Karaoke" : "Normal"} · ${sizeLabels[s.room.lyrics_size] ?? "Medium"} text${s.room.lyrics_offset_ms ? ` · ${offsetLabel(s.room.lyrics_offset_ms)}` : ""}`;
       case "mascot":
         return s.room.mascot ? "On" : "Off";
+      case "sound": {
+        const own = Object.keys(s.eq?.perOutput ?? {}).length;
+        const rules = s.taste?.rules?.length ?? 0;
+        const loud = s.loudness?.mode && s.loudness.mode !== "off" ? " · loudness" : "";
+        return `Equalizer ${s.eq?.enabled ? "on" : "off"}${own ? ` · ${own === 1 ? "1 output" : `${own} outputs`}` : ""}${rules && s.taste?.enabled ? ` · ${rules} taste ${rules === 1 ? "layer" : "layers"}` : ""}${loud}`;
+      }
+      case "playback": {
+        const xf = s.crossfade?.mode === "on" ? `Crossfade ${s.crossfade.seconds} s` : "Gapless";
+        const sur = s.output?.surround && s.output.surround !== "frontOnly" ? ` · ${s.output.surround === "upmix" ? "upmix" : "all speakers"}` : "";
+        return `${xf}${sur}${s.output?.resampler === "fast" ? " · fast resampler" : ""}`;
+      }
+      case "ai":
+        return s.ai?.provider ? (AI_NAMES[s.ai.provider] ?? s.ai.provider) : "None · guided questions";
       case "share":
         return share.sharing ? `Sharing · ${share.hub.guests.length} guests` : share.inRoom ? `In ${share.guest.session_name}` : `As “${s.share.name || share.name}”`;
       case "downloads":
@@ -165,7 +190,7 @@
       case "library":
         return s.library_dirs.length === 1 ? "1 folder" : `${s.library_dirs.length} folders`;
       case "tidal":
-        return `${app.account ? "Connected" : "Not connected"}${s.lazy_lists === false ? " · whole lists" : ""}`;
+        return `${app.account ? "Connected" : "Not connected"}${s.lazy_lists === false ? " · whole lists" : ""}${s.album_versions?.group === false ? " · every release" : ""}`;
       case "about":
         return `HomeFi ${app.info?.version ?? ""}`;
     }
@@ -177,10 +202,29 @@
   const skinLabel = $derived(LAYOUTS.find((l) => l.id === skin)?.label ?? "");
   const lockedTheme = $derived(fixedTheme(skin));
 
+  const AI_NAMES: Record<string, string> = { anthropic: "Anthropic (Claude)", openai: "OpenAI", gemini: "Google Gemini", openrouter: "OpenRouter", mistral: "Mistral", groq: "Groq", xai: "xAI (Grok)", deepseek: "DeepSeek", ollama: "Ollama", openai_compatible: "Custom server" };
+  const EQ_UI: EqUiSettings = { deck_button: true, ab_mode: "hold", band_labels: true, taste_sliders: true };
+  const eqUi = $derived({ ...EQ_UI, ...(settings?.eq_ui ?? {}) });
+  function saveEqUi(patch: Partial<EqUiSettings>) {
+    save({ eq_ui: { ...eqUi, ...patch } });
+  }
+  const soundUi = $derived({ ...SOUND_UI_DEFAULTS, ...(settings?.sound_ui ?? {}) });
+  const loudness = $derived({ ...LOUDNESS_DEFAULTS, ...(settings?.loudness ?? {}) });
+  const taste = $derived(settings?.taste ?? { enabled: false, rules: [] });
+  function saveSoundUi(patch: Partial<SoundUiSettings>) {
+    save({ sound_ui: { ...soundUi, ...patch } });
+  }
   const sizeLabels: Record<string, string> = { small: "Small", medium: "Medium", large: "Large" };
   const offsetLabel = (ms: number) => (ms === 0 ? "In time" : `${ms > 0 ? "+" : "−"}${(Math.abs(ms) / 1000).toFixed(1)} s ${ms > 0 ? "later" : "earlier"}`);
   function saveRoom(patch: Partial<Settings["room"]>) {
     if (settings) save({ room: { ...settings.room, ...patch } });
+  }
+
+  const versionPrefs = $derived<AlbumVersionPrefs>({ group: true, explicit: "explicit", spatial: "stereo", edition: "original", ...(settings?.album_versions ?? {}) });
+  function saveVersions(patch: Partial<AlbumVersionPrefs>) {
+    // My Tidal's albums come grouped from Rust: load them again the new way
+    app.tidalCache.delete("albums");
+    save({ album_versions: { ...versionPrefs, ...patch } });
   }
 
   function saveShare(patch: Partial<ShareSettings>) {
@@ -336,9 +380,25 @@
         {/each}
       </div>
     {/if}
+    <h3>Signal chain</h3>
+    <p class="muted small">The path of the sound: the file, what works on it (resampling, loudness, equalizer) and the output. Point at a stage for everything about it.</p>
+    <div class="segmented">
+      {#each [["compact", "Compact", "Small stages joined by a flowing signal"], ["detailed", "Detailed", "Big boxes with every stage spelled out"], ["off", "Off", "Not shown"]] as [id, label, hint]}
+        <button
+          class:selected={(settings.room.signal_chain === false ? "off" : (settings.room.signal_style ?? "compact")) === id}
+          onclick={() => saveRoom(id === "off" ? { signal_chain: false } : { signal_chain: true, signal_style: id as "compact" })}
+        ><b>{label}</b><span>{hint}</span></button>
+      {/each}
+    </div>
+    {#if settings.room.signal_chain !== false && settings.room.signal_style !== "detailed"}
+      <label class="toggle top">
+        <input type="checkbox" checked={settings.room.signal_animate ?? true} onchange={(e) => saveRoom({ signal_animate: e.currentTarget.checked })} />
+        <span>Animate the signal<small class="muted">The links flow while the music plays, swinging with it; still when paused. Motion off or subtle keeps them still too</small></span>
+      </label>
+    {/if}
     <h3>Show</h3>
     <div class="room-grid">
-      {#each [["signal_chain", "Signal chain"], ["vu_meters", "VU meters"], ["visualizer", "Visualizer"], ["halo", "Halo around the cover"], ["album_colors", "Colors from the album art"]] as [key, label]}
+      {#each [["vu_meters", "VU meters"], ["visualizer", "Visualizer"], ["halo", "Halo around the cover"], ["album_colors", "Colors from the album art"]] as [key, label]}
         <label class="toggle">
           <input
             type="checkbox"
@@ -394,6 +454,82 @@
       <div class="mascot-opts"><MascotOptions /></div>
     {/if}
   </section>
+  {/if}
+
+  {#if page === "sound"}
+  <section>
+    <p class="muted small">A parametric equalizer between the music and your output: a profile for each output (headphones, speakers, a DAC), measured corrections for thousands of headphones, and your own taste on top. While it changes the sound, playback isn't bit-perfect.</p>
+    <h3>Equalizer</h3>
+    <label class="toggle top">
+      <input type="checkbox" checked={settings.eq?.enabled ?? false} onchange={(e) => save({ eq: { ...settings!.eq, enabled: e.currentTarget.checked } })} />
+      <span>Equalizer on<small class="muted">{app.player?.eq_active ? `Playing with “${app.player.eq_profile}” now: processed, not bit-perfect` : "Nothing is changed right now: bit-perfect"}</small></span>
+    </label>
+    <label class="toggle top">
+      <input type="checkbox" checked={settings.eq?.autoPreamp ?? true} onchange={(e) => save({ eq: { ...settings!.eq, autoPreamp: e.currentTarget.checked } })} />
+      <span>Automatic preamp<small class="muted">Lowers the volume before the boosts just enough that nothing clips</small></span>
+    </label>
+    <div class="row-buttons">
+      <button class="btn primary" onclick={() => (app.view = { name: "eq" })}><Icon name="eq" size={16} /> Open equalizer</button>
+      <button class="btn tonal" onclick={() => (app.view = { name: "assistant" })}><Icon name="ai" size={16} /> Set up my sound</button>
+    </div>
+    <p class="muted small">{Object.keys(settings.eq?.perOutput ?? {}).length} output profiles · {settings.eq?.defaultProfile ? `“${settings.eq.defaultProfile.name}” for other outputs` : "other outputs flat"} · {settings.eq_presets?.length ?? 0} saved presets</p>
+
+    <h3>Equalizer screen</h3>
+    <label class="toggle"><input type="checkbox" checked={eqUi.deck_button} onchange={(e) => saveEqUi({ deck_button: e.currentTarget.checked })} /> EQ button in the player bar, next to the output</label>
+    <label class="toggle"><input type="checkbox" checked={eqUi.band_labels} onchange={(e) => saveEqUi({ band_labels: e.currentTarget.checked })} /> Band numbers on the curve</label>
+    <label class="toggle"><input type="checkbox" checked={eqUi.taste_sliders} onchange={(e) => saveEqUi({ taste_sliders: e.currentTarget.checked })} /> Taste sliders (bass, treble, clarity)</label>
+    <div class="row-setting">
+      <span class="label">“Hear without EQ”</span>
+      <div class="segmented compact">
+        <button class:selected={eqUi.ab_mode === "hold"} onclick={() => saveEqUi({ ab_mode: "hold" })}><b>While held</b></button>
+        <button class:selected={eqUi.ab_mode === "toggle"} onclick={() => saveEqUi({ ab_mode: "toggle" })}><b>Click on, click off</b></button>
+      </div>
+      <small class="muted">Compare the music with and without the equalizer; nothing is saved</small>
+    </div>
+
+    <h3>Taste layers</h3>
+    <label class="toggle top">
+      <input type="checkbox" checked={taste.enabled} onchange={(e) => save({ taste: { ...taste, enabled: e.currentTarget.checked } })} />
+      <span>Taste layers on<small class="muted">{taste.rules.length ? `${taste.rules.length} ${taste.rules.length === 1 ? "rule" : "rules"} for genres, playlists, artists, albums or tracks, on top of each output's profile` : "None yet: tap “How does it sound?” while music plays"}</small></span>
+    </label>
+    <label class="toggle"><input type="checkbox" checked={soundUi.react_deck} onchange={(e) => saveSoundUi({ react_deck: e.currentTarget.checked })} /> “How does it sound?” button in the player bar</label>
+    <label class="toggle"><input type="checkbox" checked={soundUi.react_room} onchange={(e) => saveSoundUi({ react_room: e.currentTarget.checked })} /> “How does it sound?” in the listening room</label>
+    <label class="toggle"><input type="checkbox" checked={soundUi.layer_chip} onchange={(e) => saveSoundUi({ layer_chip: e.currentTarget.checked })} /> Show the layers playing next to EQ (“HD 650 + Electronic”)</label>
+    <label class="toggle"><input type="checkbox" checked={soundUi.suggestions} onchange={(e) => saveSoundUi({ suggestions: e.currentTarget.checked })} /> Suggestions for what you listen to most</label>
+    <div class="row-buttons">
+      <button class="btn tonal" onclick={() => (app.view = { name: "eq", tab: "taste" })}><Icon name="layers" size={16} /> Taste rules</button>
+    </div>
+
+    <h3>Loudness</h3>
+    <div class="row-setting">
+      <span class="label">Normalization</span>
+      <div class="segmented compact">
+        {#each LOUDNESS_MODES as m (m.id)}
+          <button class:selected={loudness.mode === m.id} title={m.hint} onclick={() => save({ loudness: { ...loudness, mode: m.id } })}><b>{m.label}</b></button>
+        {/each}
+      </div>
+      <small class="muted">{LOUDNESS_MODES.find((m) => m.id === loudness.mode)?.hint}. From ReplayGain (Tidal's, or the file's tags); any change of level means it isn't bit-perfect.</small>
+    </div>
+    {#if loudness.mode !== "off"}
+      <div class="row-setting">
+        <span class="label">Target <b class="mono">{loudness.targetLufs} LUFS</b></span>
+        <input type="range" min="-24" max="-8" step="1" value={loudness.targetLufs} aria-label="Target loudness" onchange={(e) => save({ loudness: { ...loudness, targetLufs: Number(e.currentTarget.value) } })} />
+        <small class="muted">−14 is what streaming services use; lower is quieter with more headroom</small>
+      </div>
+      <label class="toggle top">
+        <input type="checkbox" checked={loudness.preventClipping} onchange={(e) => save({ loudness: { ...loudness, preventClipping: e.currentTarget.checked } })} />
+        <span>Prevent clipping<small class="muted">Never raises a quiet song past its loudest peak</small></span>
+      </label>
+    {/if}
+  </section>
+  {/if}
+
+  {#if page === "playback"}
+    <PlaybackOptions {settings} {save} />
+  {/if}
+
+  {#if page === "ai"}
+    <AiOptions {settings} {save} />
   {/if}
 
   {#if page === "share"}
@@ -552,6 +688,38 @@
       <input type="checkbox" checked={settings.lazy_lists ?? true} onchange={(e) => save({ lazy_lists: e.currentTarget.checked })} />
       <span>Load lists as you scroll<small class="muted">Playlists, albums and favorites show their first tracks right away and bring more as you scroll. Off, each list loads whole before it shows. Play, Shuffle and Download always use the whole list.</small></span>
     </label>
+
+    <h3>Album versions</h3>
+    <label class="toggle top">
+      <input type="checkbox" checked={versionPrefs.group} onchange={(e) => saveVersions({ group: e.currentTarget.checked })} />
+      <span>One card per album<small class="muted">Tidal lists some albums several times: explicit and clean, stereo and Dolby Atmos, 16 and 24-bit, remasters, deluxe box sets. On, they share one card with a “versions” chip to pick another; the album page shows “Other versions”. Off, every release shows as Tidal lists it.</small></span>
+    </label>
+    {#if versionPrefs.group}
+      <div class="row-setting">
+        <span class="label">Explicit or clean</span>
+        <div class="segmented compact">
+          <button class:selected={versionPrefs.explicit === "explicit"} onclick={() => saveVersions({ explicit: "explicit" })}><b>Explicit</b></button>
+          <button class:selected={versionPrefs.explicit === "clean"} onclick={() => saveVersions({ explicit: "clean" })}><b>Clean</b></button>
+        </div>
+        <small class="muted">When both exist; explicit is the artist's original</small>
+      </div>
+      <div class="row-setting">
+        <span class="label">Stereo or Dolby Atmos</span>
+        <div class="segmented compact">
+          <button class:selected={versionPrefs.spatial === "stereo"} onclick={() => saveVersions({ spatial: "stereo" })}><b>Stereo</b></button>
+          <button class:selected={versionPrefs.spatial === "atmos"} onclick={() => saveVersions({ spatial: "atmos" })}><b>Dolby Atmos</b></button>
+        </div>
+        <small class="muted">Atmos needs an Atmos device, and downloads skip Atmos tracks</small>
+      </div>
+      <div class="row-setting">
+        <span class="label">Original or remaster</span>
+        <div class="segmented compact">
+          <button class:selected={versionPrefs.edition === "original"} onclick={() => saveVersions({ edition: "original" })}><b>Original</b></button>
+          <button class:selected={versionPrefs.edition === "remaster"} onclick={() => saveVersions({ edition: "remaster" })}><b>Latest remaster</b></button>
+        </div>
+        <small class="muted">The highest quality wins among the rest; deluxe editions and box sets only when there is nothing else</small>
+      </div>
+    {/if}
   </section>
   {/if}
 
@@ -882,6 +1050,12 @@
   }
   .link-btn:hover {
     text-decoration: underline;
+  }
+  .row-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 10px 0 8px;
   }
   .room-grid {
     display: grid;

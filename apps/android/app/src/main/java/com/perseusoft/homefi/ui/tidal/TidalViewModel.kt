@@ -5,23 +5,31 @@ import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.perseusoft.homefi.core.AlbumPage
+import com.perseusoft.homefi.core.AlbumVersionHit
 import com.perseusoft.homefi.core.ArtistPage
 import com.perseusoft.homefi.core.HitPage
 import com.perseusoft.homefi.core.ItemKind
 import com.perseusoft.homefi.core.PlaylistPage
 import com.perseusoft.homefi.core.SearchHit
+import com.perseusoft.homefi.core.SourceContext
+import com.perseusoft.homefi.player.Sources
 import com.perseusoft.homefi.data.userMessage
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.ui.Busy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** A page of the Tidal browser, pushed on top of the search screen. */
 sealed interface TidalRoute {
@@ -103,6 +111,24 @@ class TidalViewModel(app: Application) : AndroidViewModel(app) {
     private val _queued = MutableStateFlow<Set<String>>(emptySet())
     val queued: StateFlow<Set<String>> = _queued.asStateFlow()
 
+    /** Every release of the albums opened (by album id), for "Other versions". */
+    private val _versions = MutableStateFlow<Map<String, List<AlbumVersionHit>>>(emptyMap())
+    val versions: StateFlow<Map<String, List<AlbumVersionHit>>> = _versions.asStateFlow()
+
+    init {
+        // other album version preferences: artist pages and favorite albums come grouped anew
+        viewModelScope.launch {
+            settings.settings.map { it.albumVersions }.distinctUntilChanged().drop(1).collect { prefs ->
+                engine.setAlbumVersions(prefs, java.util.Locale.getDefault().toLanguageTag())
+                _versions.value = emptyMap()
+                val shown = _pages.value.keys.filter { it is TidalRoute.Artist || it is TidalRoute.Album }
+                _pages.update { pages -> pages - shown.filter { it !in _stack.value }.toSet() }
+                shown.filter { it in _stack.value }.forEach(::load)
+                if (_collection.value[Collection.ALBUMS] != null) loadCollection(Collection.ALBUMS, force = true)
+            }
+        }
+    }
+
     /** One page request per list at a time (main thread only). */
     private val moreJobs = mutableMapOf<ListKey, Job>()
 
@@ -127,6 +153,7 @@ class TidalViewModel(app: Application) : AndroidViewModel(app) {
 
     fun load(route: TidalRoute) {
         forget(ListKey.Page(route))
+        if (route is TidalRoute.Album) loadVersions(route.id)
         _pages.update { it + (route to Load.Loading) }
         val lazy = settings.current.lazyLists
         viewModelScope.launch {
@@ -217,23 +244,38 @@ class TidalViewModel(app: Application) : AndroidViewModel(app) {
     fun play(key: ListKey, start: Int = 0, shuffle: Boolean = false) {
         val current = list(key) ?: return
         if (current.items.isEmpty()) return
+        val source = sourceOf(key)
         if (current.complete) {
-            player.playTidal(current.items, start, shuffle)
+            player.playTidal(current.items, start, shuffle, source)
             return
         }
         if (!shuffle && !player.playsElsewhere) {
             val loaded = current.items
-            player.playTidal(loaded, start)
+            player.playTidal(loaded, start, source = source)
             viewModelScope.launch {
                 val all = wholeList(key) ?: return@launch
                 // index of the last loaded track in the queue (playTidal queues every row)
-                player.appendTidal(loaded.last().id, loaded.lastIndex, all.drop(loaded.size))
+                player.appendTidal(loaded.last().id, loaded.lastIndex, all.drop(loaded.size), source)
             }
             return
         }
         viewModelScope.launch {
             val all = wholeList(key) ?: return@launch
-            player.playTidal(all, start, shuffle)
+            player.playTidal(all, start, shuffle, source)
+        }
+    }
+
+    /** Where a list's queue comes from, for taste rules and album loudness. */
+    fun sourceOf(key: ListKey): SourceContext? = when (key) {
+        is ListKey.Of -> Sources.library(key.collection.name.lowercase())
+        is ListKey.Page -> when (val info = ((_pages.value[key.route] as? Load.Ready)?.value)) {
+            is TrackListPage<*> -> when (val i = info.info) {
+                is AlbumPage -> Sources.album(i.id, i.title)
+                is PlaylistPage -> Sources.playlist(i.uuid, i.title)
+                else -> null
+            }
+            is ArtistPage -> Sources.artist(info.id, info.name)
+            else -> null
         }
     }
 
@@ -242,6 +284,27 @@ class TidalViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val all = wholeList(key) ?: return@launch
             player.queueTidal(all, next)
+        }
+    }
+
+    /** The other releases of an album come a moment after its page (from its artist's list). */
+    private fun loadVersions(id: String) {
+        if (!settings.current.albumVersionsGroup || _versions.value.containsKey(id)) return
+        viewModelScope.launch {
+            runCatching { engine.albumVersions(id) }.onSuccess { list -> _versions.update { it + (id to list) } }
+        }
+    }
+
+    /** Play / open / download one release from the version picker. */
+    fun versionAction(v: AlbumVersionHit, action: VersionAction) {
+        when (action) {
+            VersionAction.OPEN -> push(TidalRoute.Album(v.id))
+            VersionAction.DOWNLOAD -> download(v.title, "album/${v.id}")
+            VersionAction.PLAY -> viewModelScope.launch {
+                runCatching { Busy.track { engine.albumPage(v.id) } }
+                    .onSuccess { page -> if (page.tracks.isNotEmpty()) player.playTidal(page.tracks, 0, source = Sources.album(page.id, page.title)) }
+                    .onFailure { Toast.makeText(getApplication(), it.userMessage(), Toast.LENGTH_LONG).show() }
+            }
         }
     }
 
@@ -268,32 +331,37 @@ class TidalViewModel(app: Application) : AndroidViewModel(app) {
         wholeJobs.remove(key)?.cancel()
     }
 
-    private suspend fun fetchPage(key: ListKey, offset: UInt): HitPage = when (key) {
-        is ListKey.Of -> when (key.collection) {
-            Collection.PLAYLISTS -> engine.myPlaylistsPage(offset)
-            Collection.TRACKS -> engine.favoriteTracksPage(offset)
-            Collection.ALBUMS -> engine.favoriteAlbumsPage(offset)
-            Collection.ARTISTS -> engine.favoriteArtistsPage(offset)
-        }
-        is ListKey.Page -> when (val r = key.route) {
-            is TidalRoute.Album -> engine.albumItemsPage(r.id, offset)
-            is TidalRoute.Playlist -> engine.playlistItemsPage(r.uuid, offset)
-            is TidalRoute.Artist -> HitPage(emptyList(), 0u, null)
+    // decoded off the main thread (a page of a 2000-track list is big)
+    private suspend fun fetchPage(key: ListKey, offset: UInt): HitPage = withContext(Dispatchers.Default) {
+        when (key) {
+            is ListKey.Of -> when (key.collection) {
+                Collection.PLAYLISTS -> engine.myPlaylistsPage(offset)
+                Collection.TRACKS -> engine.favoriteTracksPage(offset)
+                Collection.ALBUMS -> engine.favoriteAlbumsPage(offset)
+                Collection.ARTISTS -> engine.favoriteArtistsPage(offset)
+            }
+            is ListKey.Page -> when (val r = key.route) {
+                is TidalRoute.Album -> engine.albumItemsPage(r.id, offset)
+                is TidalRoute.Playlist -> engine.playlistItemsPage(r.uuid, offset)
+                is TidalRoute.Artist -> HitPage(emptyList(), 0u, null)
+            }
         }
     }
 
     /** The whole list in one go (the core fetches its pages in parallel). */
-    private suspend fun fetchWhole(key: ListKey): List<SearchHit> = when (key) {
-        is ListKey.Of -> when (key.collection) {
-            Collection.PLAYLISTS -> engine.myPlaylists()
-            Collection.TRACKS -> engine.favoriteTracks()
-            Collection.ALBUMS -> engine.favoriteAlbums()
-            Collection.ARTISTS -> engine.favoriteArtists()
-        }
-        is ListKey.Page -> when (val r = key.route) {
-            is TidalRoute.Album -> engine.albumPage(r.id).tracks
-            is TidalRoute.Playlist -> engine.playlistPage(r.uuid).tracks
-            is TidalRoute.Artist -> (_pages.value[r] as? Load.Ready)?.value.let { (it as? ArtistPage)?.topTracks }.orEmpty()
+    private suspend fun fetchWhole(key: ListKey): List<SearchHit> = withContext(Dispatchers.Default) {
+        when (key) {
+            is ListKey.Of -> when (key.collection) {
+                Collection.PLAYLISTS -> engine.myPlaylists()
+                Collection.TRACKS -> engine.favoriteTracks()
+                Collection.ALBUMS -> engine.favoriteAlbums()
+                Collection.ARTISTS -> engine.favoriteArtists()
+            }
+            is ListKey.Page -> when (val r = key.route) {
+                is TidalRoute.Album -> engine.albumPage(r.id).tracks
+                is TidalRoute.Playlist -> engine.playlistPage(r.uuid).tracks
+                is TidalRoute.Artist -> (_pages.value[r] as? Load.Ready)?.value.let { (it as? ArtistPage)?.topTracks }.orEmpty()
+            }
         }
     }
 

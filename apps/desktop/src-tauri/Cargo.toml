@@ -38,6 +38,9 @@ souvlaki = { version = "0.8", default-features = false, features = ["use_zbus"] 
 trash = "5.2"
 # Shared control on the LAN: announce / find hubs (`_homefi._tcp`), pure Rust on every OS
 mdns-sd = { version = "=0.21.6", default-features = false }
+# AI keys in the OS keychain: macOS Keychain, Windows Credential Manager, Linux
+# Secret Service over pure-Rust D-Bus (zbus), no OpenSSL or libdbus
+keyring = { version = "3.6", features = ["apple-native", "windows-native", "async-secret-service", "async-io", "crypto-rust"] }
 
 [dev-dependencies]
 tempfile.workspace = true

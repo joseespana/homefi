@@ -103,6 +103,11 @@ import com.perseusoft.homefi.ui.theme.currentTitleColor
 import com.perseusoft.homefi.ui.theme.numeric
 import com.perseusoft.homefi.ui.theme.skinRowColors
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.rounded.Tune
+import com.perseusoft.homefi.core.SourceContext
+import com.perseusoft.homefi.core.TasteScope
+import com.perseusoft.homefi.player.Sources
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.takeOrElse
@@ -165,13 +170,19 @@ fun LibraryScreen() {
                 TrackList(
                     tracks = found,
                     currentId = currentId,
+                    source = Sources.playlist("", openPlaylist.name),
                     header = {
-                        ScreenHeader(openPlaylist.name, onBack = { playlistPath = null })
+                        ScreenHeader(
+                            openPlaylist.name,
+                            onBack = { playlistPath = null },
+                            onSound = { app.sound.soundFor(TasteScope.Playlist(id = "", name = openPlaylist.name)) },
+                        )
                         val missing = openPlaylist.tracks.size - found.size
                         PlayHeader(
                             stringResource(R.string.library_count, found.size) +
                                 if (missing > 0) " · " + stringResource(R.string.library_playlist_missing, missing) else "",
                             found,
+                            Sources.playlist("", openPlaylist.name),
                         )
                     },
                 )
@@ -180,7 +191,14 @@ fun LibraryScreen() {
                 TrackList(
                     tracks = openArtist.tracks,
                     currentId = currentId,
-                    header = { ScreenHeader(openArtist.name, onBack = { artistName = null }) },
+                    source = Sources.artist("", openArtist.name),
+                    header = {
+                        ScreenHeader(
+                            openArtist.name,
+                            onBack = { artistName = null },
+                            onSound = openArtist.name.takeIf { it.isNotBlank() }?.let { n -> { app.sound.soundFor(TasteScope.Artist(id = "", name = n)) } },
+                        )
+                    },
                 )
             }
             LibraryPage.Root -> LibraryTabs(
@@ -196,6 +214,7 @@ fun LibraryScreen() {
                 onAlbum = { albumKey = it.key },
                 onArtist = { artistName = it.name },
                 onPlaylist = { playlistPath = it.path },
+                onSound = app.sound::soundFor,
             )
         }
     }
@@ -231,6 +250,7 @@ private fun LibraryTabs(
     onAlbum: (Album) -> Unit,
     onArtist: (Artist) -> Unit,
     onPlaylist: (LocalPlaylist) -> Unit,
+    onSound: (TasteScope) -> Unit,
 ) {
     val app = LocalContext.current.homefi
     val state by app.library.state.collectAsStateWithLifecycle()
@@ -289,13 +309,13 @@ private fun LibraryTabs(
                         onRescan = app.library::refresh,
                     )
                     is TabBody.Showing -> when (shown.tab) {
-                        LibraryTab.SONGS -> TrackList(tracks, currentId, header = {
-                            PlayHeader(stringResource(R.string.library_count, tracks.size), tracks)
+                        LibraryTab.SONGS -> TrackList(tracks, currentId, source = Sources.library(), header = {
+                            PlayHeader(stringResource(R.string.library_count, tracks.size), tracks, Sources.library())
                             if (!state.hasAccess) AccessCard(onGrant)
                         })
-                        LibraryTab.ALBUMS -> AlbumGrid(albums, onAlbum)
-                        LibraryTab.ARTISTS -> ArtistList(artists, onArtist)
-                        LibraryTab.PLAYLISTS -> PlaylistList(state.playlists.filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }, onPlaylist)
+                        LibraryTab.ALBUMS -> AlbumGrid(albums, onAlbum, onSound)
+                        LibraryTab.ARTISTS -> ArtistList(artists, onArtist, onSound)
+                        LibraryTab.PLAYLISTS -> PlaylistList(state.playlists.filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }, onPlaylist, onSound)
                     }
                 }
             }
@@ -342,7 +362,7 @@ private fun AccessCard(onGrant: () -> Unit) {
 }
 
 @Composable
-fun PlayHeader(subtitle: String, tracks: List<LibraryTrack>) {
+fun PlayHeader(subtitle: String, tracks: List<LibraryTrack>, source: SourceContext? = null) {
     val player = LocalContext.current.homefi.player
     val haptics = haptics()
     Row(
@@ -360,11 +380,11 @@ fun PlayHeader(subtitle: String, tracks: List<LibraryTrack>) {
         // icons only next to Play: the row has to fit a DAP's narrow screen
         QueueButton({ next -> player.queueTracks(tracks, next) }, enabled = tracks.isNotEmpty())
         Spacer(Modifier.width(8.dp))
-        FilledTonalButton(onClick = { haptics.press(); player.play(tracks, shuffle = true) }, enabled = tracks.isNotEmpty()) {
+        FilledTonalButton(onClick = { haptics.press(); player.play(tracks, shuffle = true, source = source) }, enabled = tracks.isNotEmpty()) {
             Icon(Icons.Rounded.Shuffle, stringResource(R.string.library_shuffle))
         }
         Spacer(Modifier.width(8.dp))
-        Button(onClick = { haptics.press(); player.play(tracks) }, enabled = tracks.isNotEmpty()) {
+        Button(onClick = { haptics.press(); player.play(tracks, source = source) }, enabled = tracks.isNotEmpty()) {
             Icon(Icons.Rounded.PlayArrow, null, Modifier.size(ButtonDefaults.IconSize))
             Spacer(Modifier.size(ButtonDefaults.IconSpacing))
             Text(stringResource(R.string.library_play_all))
@@ -373,8 +393,8 @@ fun PlayHeader(subtitle: String, tracks: List<LibraryTrack>) {
 }
 
 @Composable
-private fun ScreenHeader(title: String, onBack: () -> Unit) {
-    Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun ScreenHeader(title: String, onBack: () -> Unit, onSound: (() -> Unit)? = null) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.back)) }
         Text(
             title,
@@ -382,17 +402,20 @@ private fun ScreenHeader(title: String, onBack: () -> Unit) {
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
         )
+        // "Sound for this…": a taste layer for this album, artist or playlist
+        if (onSound != null) IconButton(onClick = onSound) { Icon(Icons.Rounded.Tune, stringResource(R.string.sound_for)) }
     }
 }
 
 @Composable
-private fun TrackList(tracks: List<LibraryTrack>, currentId: String?, header: @Composable () -> Unit) {
+private fun TrackList(tracks: List<LibraryTrack>, currentId: String?, source: SourceContext? = null, header: @Composable () -> Unit) {
     val player = LocalContext.current.homefi.player
     ListEntrance {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
             item(key = "header") { Column(itemMotion(0)) { header() } }
-            trackItems(tracks, currentId) { index -> player.play(tracks, index) }
+            trackItems(tracks, currentId) { index -> player.play(tracks, index, source = source) }
         }
     }
 }
@@ -484,7 +507,8 @@ fun TrackRow(track: LibraryTrack, current: Boolean, index: Int = 0, modifier: Mo
 }
 
 @Composable
-private fun AlbumGrid(albums: List<Album>, onOpen: (Album) -> Unit) {
+private fun AlbumGrid(albums: List<Album>, onOpen: (Album) -> Unit, onSound: (TasteScope) -> Unit) {
+    val haptics = haptics()
     ListEntrance {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(156.dp),
@@ -497,7 +521,11 @@ private fun AlbumGrid(albums: List<Album>, onOpen: (Album) -> Unit) {
             Column(
                 itemMotion(i)
                     .clip(RoundedCornerShape(12.dp))
-                    .clickable { onOpen(album) },
+                    // long press: "Sound for this…"
+                    .combinedClickable(
+                        onClick = { onOpen(album) },
+                        onLongClick = { haptics.longPress(); onSound(TasteScope.Album(id = "", name = album.title)) },
+                    ),
             ) {
                 CoverArt(
                     album.cover,
@@ -529,7 +557,8 @@ private fun AlbumGrid(albums: List<Album>, onOpen: (Album) -> Unit) {
 }
 
 @Composable
-private fun PlaylistList(playlists: List<LocalPlaylist>, onOpen: (LocalPlaylist) -> Unit) {
+private fun PlaylistList(playlists: List<LocalPlaylist>, onOpen: (LocalPlaylist) -> Unit, onSound: (TasteScope) -> Unit) {
+    val haptics = haptics()
     if (playlists.isEmpty()) {
         Text(
             stringResource(R.string.library_playlists_empty),
@@ -542,7 +571,10 @@ private fun PlaylistList(playlists: List<LocalPlaylist>, onOpen: (LocalPlaylist)
     LazyColumn(Modifier.fillMaxSize()) {
         itemsIndexed(playlists, key = { _, it -> it.path }) { i, playlist ->
             ListItem(
-                modifier = itemMotion(i).clickable { onOpen(playlist) },
+                modifier = itemMotion(i).combinedClickable(
+                    onClick = { onOpen(playlist) },
+                    onLongClick = { haptics.longPress(); onSound(TasteScope.Playlist(id = "", name = playlist.name)) },
+                ),
                 colors = skinRowColors(i, current = false),
                 leadingContent = {
                     CoverArt(playlist.tracks.firstOrNull()?.let(::EmbeddedCover), 52.dp, icon = Icons.AutoMirrored.Rounded.QueueMusic)
@@ -556,12 +588,16 @@ private fun PlaylistList(playlists: List<LocalPlaylist>, onOpen: (LocalPlaylist)
 }
 
 @Composable
-private fun ArtistList(artists: List<Artist>, onOpen: (Artist) -> Unit) {
+private fun ArtistList(artists: List<Artist>, onOpen: (Artist) -> Unit, onSound: (TasteScope) -> Unit) {
+    val haptics = haptics()
     ListEntrance {
     LazyColumn(Modifier.fillMaxSize()) {
         itemsIndexed(artists, key = { _, it -> it.name }) { i, artist ->
             ListItem(
-                modifier = itemMotion(i).clickable { onOpen(artist) },
+                modifier = itemMotion(i).combinedClickable(
+                    onClick = { onOpen(artist) },
+                    onLongClick = { if (artist.name.isNotBlank()) { haptics.longPress(); onSound(TasteScope.Artist(id = "", name = artist.name)) } },
+                ),
                 colors = skinRowColors(i, current = false),
                 leadingContent = { CoverArt(EmbeddedCover(artist.tracks.first().path), 48.dp, icon = Icons.Rounded.Person, radius = 24.dp) },
                 headlineContent = { Text(artist.name.ifBlank { stringResource(R.string.unknown_artist) }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -574,13 +610,19 @@ private fun ArtistList(artists: List<Artist>, onOpen: (Artist) -> Unit) {
 
 @Composable
 private fun AlbumDetail(album: Album, currentId: String?, onBack: () -> Unit) {
-    val player = LocalContext.current.homefi.player
+    val app = LocalContext.current.homefi
+    val player = app.player
     val haptics = haptics()
+    val source = remember(album.key) { Sources.album("", album.title) }
     ListEntrance {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
         item(key = "header") {
             Column(itemMotion(0)) {
-            ScreenHeader(album.title.ifBlank { stringResource(R.string.unknown_album) }, onBack)
+            ScreenHeader(
+                album.title.ifBlank { stringResource(R.string.unknown_album) },
+                onBack,
+                onSound = album.title.takeIf { it.isNotBlank() }?.let { t -> { app.sound.soundFor(TasteScope.Album(id = "", name = t)) } },
+            )
             Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 CoverArt(album.cover, 128.dp, icon = Icons.Rounded.Album, radius = 12.dp)
                 Spacer(Modifier.width(16.dp))
@@ -595,7 +637,7 @@ private fun AlbumDetail(album: Album, currentId: String?, onBack: () -> Unit) {
                     QualityBadge(album.tracks.first().quality)
                 }
             }
-            PlayHeader("", album.tracks)
+            PlayHeader("", album.tracks, source)
             }
         }
         items(album.tracks.size, key = { album.tracks[it].path }) { index ->
@@ -604,7 +646,7 @@ private fun AlbumDetail(album: Album, currentId: String?, onBack: () -> Unit) {
             ListItem(
                 modifier = itemMotion(index + 1).clickable {
                     haptics.press()
-                    if (current) player.togglePlayPause() else player.play(album.tracks, index)
+                    if (current) player.togglePlayPause() else player.play(album.tracks, index, source = source)
                 },
                 colors = skinRowColors(index, current),
                 leadingContent = {

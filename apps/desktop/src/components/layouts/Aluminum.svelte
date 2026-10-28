@@ -7,6 +7,7 @@
   import { ownControls } from "../../lib/layouts";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
+  import SignalChain from "../SignalChain.svelte";
   import CoverFlow from "./CoverFlow.svelte";
   import Customize from "./Customize.svelte";
   import { rise, swap } from "../../lib/motion";
@@ -15,6 +16,7 @@
   // as the skin of the whole app, the player bar has the controls
   const own = $derived(ownControls(app.settings?.room));
   const p = $derived(src.player);
+  const chainOn = $derived((app.settings?.room.signal_chain ?? true) && !!p?.stream);
   const track = $derived(src.current);
   const playing = $derived(p?.status === "playing");
   const duration = $derived(p?.duration_ms ?? track?.durationMs ?? 0);
@@ -68,6 +70,7 @@
     </div>
   </div>
 
+  {#if chainOn}<div class="chain-row"><SignalChain look="alu" /></div>{/if}
   <div class="flow"><CoverFlow /></div>
 </div>
 
@@ -195,6 +198,12 @@
     height: 8px;
     background: #222;
     transform: rotate(45deg);
+  }
+  .chain-row {
+    min-width: 0;
+  }
+  .chain-row :global(.chain) {
+    justify-content: center;
   }
   .flow {
     flex: 1;

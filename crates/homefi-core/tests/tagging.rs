@@ -63,6 +63,12 @@ fn tags() -> TrackTags {
         }],
         cover: Some(TINY_JPEG.to_vec()),
         copyright: Some("(P) 2001 Virgin".into()),
+        replay_gain: Some(homefi_core::dsp::ReplayGain {
+            track_gain_db: Some(-9.43),
+            track_peak: Some(0.999969),
+            album_gain_db: Some(-8.9),
+            album_peak: Some(1.0),
+        }),
     }
 }
 
@@ -107,6 +113,11 @@ fn tags_roundtrip_in_every_format() {
         assert!(tag.artist().is_some_and(|a| a.contains("Daft Punk")), "{ext}");
 
         assert_eq!(tag.pictures().len(), 1, "{ext}: cover");
+        // loudness normalization reads the ReplayGain back
+        let rg = homefi_core::dsp::read_replay_gain(&path).unwrap_or_else(|| panic!("{ext}: no ReplayGain"));
+        assert_eq!(rg.track_gain_db, Some(-9.43), "{ext}");
+        assert_eq!(rg.album_gain_db, Some(-8.9), "{ext}");
+        assert_eq!(rg.track_peak, Some(0.999969), "{ext}");
 
         if ext == "flac" {
             let artists: Vec<_> = tag.get_strings(&ItemKey::TrackArtist).collect();
