@@ -7,6 +7,14 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-28
+
+First public version: the desktop app (macOS, Windows, Linux), the Android app and the CLI, on
+one Rust core. Play your own files and your TIDAL subscription bit-perfect, with synced lyrics
+and karaoke, eight listening-room layouts that theme the whole app, shared control and party
+mode between devices, and offline copies in max quality. Every look and behaviour is a setting
+on both apps.
+
 ### Added
 - Personal, non-commercial use notice: the desktop and Android apps ask you to accept it before
   connecting a TIDAL account (and once, after updating, if already signed in); the CLI prints it

@@ -2243,7 +2243,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "homefi-cli"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2262,7 +2262,7 @@ dependencies = [
 
 [[package]]
 name = "homefi-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -2291,7 +2291,7 @@ dependencies = [
 
 [[package]]
 name = "homefi-desktop"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2318,7 +2318,7 @@ dependencies = [
 
 [[package]]
 name = "homefi-ffi"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "futures",
  "homefi-core",
@@ -2331,7 +2331,7 @@ dependencies = [
 
 [[package]]
 name = "homefi-player"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "cpal",
  "homefi-core",
