@@ -7,6 +7,11 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-29
+
+Clean sound on surround and virtual 7.1 outputs like THX Spatial Audio, and a mute button in the
+mini player. Desktop and Android installs from 1.2.0 on offer this update by themselves.
+
 ### Added
 - Mini player: a mute button (and the M key) that silences the sound without changing the saved
   volume; every window follows it, and turning the volume brings the sound back.
