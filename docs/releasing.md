@@ -55,6 +55,113 @@ There is no iOS build: the app is about your own files and output devices, which
 Linux arm64 builds use GitHub's `ubuntu-22.04-arm` runners. If they aren't available for
 the repository's plan, those two jobs stay queued; the rest of the release is not blocked.
 
+## In-app updates
+
+Every app offers new versions by itself (see the README's *Updates*). The only calls are to
+GitHub: `api.github.com/repos/joseespana/homefi/releases[/latest]` and the release files.
+
+### Desktop: signing key and `latest.json`
+
+The desktop app updates with [tauri-plugin-updater](https://v2.tauri.app/plugin/updater/): it
+reads `latest.json` and only installs a file whose [minisign](https://jedisct1.github.io/minisign/)
+signature matches the public key in `apps/desktop/src-tauri/tauri.conf.json`
+(`plugins.updater.pubkey`). The private key never goes in the repository. Add it as secrets:
+
+```bash
+gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.homefi-release/updater.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD < ~/.homefi-release/updater-password.txt
+```
+
+| Secret | Value |
+| --- | --- |
+| `TAURI_SIGNING_PRIVATE_KEY` | contents of the private key (`pnpm tauri signer generate -w ~/.homefi-release/updater.key`) |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | its password |
+
+A tag fails without them (like the Android key): a release whose files aren't signed can't be
+installed by the apps already out. Builds of `main` without them skip the updater files. **Losing
+the key** means the installed apps can't update in place any more: a new key needs a release that
+users install by hand once (it carries the new public key).
+
+With the key, the desktop jobs also produce the updater's files and their `.sig`:
+
+| Platform | Updater file (in the release) | `latest.json` targets |
+| --- | --- | --- |
+| macOS | `HomeFi-<v>-macos-<arch>.app.tar.gz` (from the `app` bundle) | `darwin-aarch64`, `darwin-x86_64` (+ `-app`) |
+| Windows | the setup `.exe` and the `.msi` themselves | `windows-x86_64` / `windows-aarch64` (+ `-nsis`), `windows-x86_64-msi` |
+| Linux | the `.AppImage`, `.deb` and `.rpm` themselves | `linux-x86_64` / `linux-aarch64` (+ `-appimage`, `-deb`, `-rpm`) |
+
+The app looks for `<os>-<arch>-<install type>` first (the bundler writes the install type into
+each package's binary), then `<os>-<arch>`, so a `.deb` install updates with the `.deb`. The
+`.deb` / `.rpm` are installed with `pkexec` (a password prompt); without `pkexec`, and for copies
+that can't replace themselves (a dev build, run from the `.dmg`, macOS's translocated copy,
+an AppImage without `$APPIMAGE`), the app only offers **Download** (the release page).
+
+The `collect` job writes `latest.json` for every tag (`version`, `notes` = the CHANGELOG section,
+`pub_date`, `platforms` with the signature and the URL of this tag's versioned file) and
+publishes it with the release. `releases/latest/download/latest.json` (the app's endpoint) is
+always the newest **stable** release, because GitHub's "latest" skips pre-releases; with
+"Include pre-releases" on, the app reads the newest release from the API and uses that
+pre-release's own `latest.json` asset. The `.sig` files go into `latest.json`, not the release.
+
+macOS: the app is ad-hoc signed. The updater downloads with its own HTTP client, which doesn't
+quarantine the file, so the new `HomeFi.app` it swaps into `/Applications` opens without the
+"Open Anyway" step (when the folder isn't writable by the user, macOS asks for an administrator
+password). Each ad-hoc build has a new signature, so macOS may ask once more for access to the
+keychain item of the AI keys ("Always Allow").
+
+Windows: the setup runs in passive mode (a progress window, no questions) and opens HomeFi
+again; the app saves its settings and closes first.
+
+### Testing an update locally
+
+The manifest's `version` must be the version the file was signed for (the signature records it,
+and `requireSignedVersion` is on), so the test installs a real upgrade: an app built as an older
+version updates to the current build.
+
+```bash
+cd apps/desktop
+export TAURI_SIGNING_PRIVATE_KEY=~/.homefi-release/updater.key
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat ~/.homefi-release/updater-password.txt)"
+HTTP='"plugins":{"updater":{"dangerousInsecureTransportProtocol":true}}'   # test builds only
+
+# 1. the update: this version, signed (target/release/bundle/macos/HomeFi.app.tar.gz + .sig)
+pnpm tauri build --bundles app --config "{$HTTP}"
+mkdir -p /tmp/upd/srv && cp ../../target/release/bundle/macos/HomeFi.app.tar.gz* /tmp/upd/srv/
+
+# 2. the app to update: the same code calling itself 1.0.9
+pnpm tauri build --bundles app --config "{\"version\":\"1.0.9\",$HTTP}"
+cp -R ../../target/release/bundle/macos/HomeFi.app /tmp/upd/   # anywhere writable
+
+# 3. the manifest, served over plain HTTP
+python3 - "$(cargo xtask version)" <<'PY'
+import json, sys
+sig = open("/tmp/upd/srv/HomeFi.app.tar.gz.sig").read()
+entry = {"url": "http://127.0.0.1:8765/HomeFi.app.tar.gz", "signature": sig}
+json.dump({"version": sys.argv[1], "notes": "- Local test", "pub_date": "2026-01-01T00:00:00Z",
+           "platforms": {"darwin-aarch64": entry, "darwin-x86_64": entry}}, open("/tmp/upd/srv/latest.json", "w"))
+PY
+python3 -m http.server 8765 --bind 127.0.0.1 --directory /tmp/upd/srv &
+
+# 4. run it with its own data folder, pointed at the local manifest
+HOMEFI_PATH=/tmp/upd/home HOMEFI_UPDATE_ENDPOINT=http://127.0.0.1:8765/latest.json \
+  /tmp/upd/HomeFi.app/Contents/MacOS/homefi-desktop
+```
+
+About 20 s after launch the card says "HomeFi <version> is available"; **Update now** downloads
+and verifies it, **Restart now** swaps the app and opens the new one (Settings → About shows the
+new version). With "Install updates: When HomeFi is idle" (Settings → About) it does all of
+that by itself after 5 idle minutes. `HOMEFI_UPDATE_ENDPOINT` replaces the manifest URL; release
+builds only accept HTTPS ones. A tampered file, another key's signature or a manifest whose
+version differs from the signed one is refused ("The update's signature didn't match").
+
+### Android and CLI
+
+Android (the official `com.perseusoft.homefi` build) reads the same releases through the core
+(`homefi_core::update`), downloads `HomeFi-android.apk`, checks it against the release's
+`SHA256SUMS`, and opens Android's installer. It only installs over the existing app when the APK
+is signed with the same key (`ANDROID_KEYSTORE_*`). The SR35 and debug builds have another
+package name and never update themselves. The CLI prints a notice once a day and never installs.
+
 ## Cloudflare R2 (optional)
 
 With these set, every build is also uploaded to an R2 bucket (the step is skipped otherwise):

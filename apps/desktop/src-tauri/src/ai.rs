@@ -209,7 +209,12 @@ pub(crate) fn guess_kind(name: &str) -> OutputKind {
     }
 }
 
-async fn context(app: &AppHandle, language: &str, notes: Option<String>) -> AssistantContext {
+async fn context(
+    app: &AppHandle,
+    language: &str,
+    notes: Option<String>,
+    focus_rule: Option<String>,
+) -> AssistantContext {
     let listening = crate::sound::summary(app).await;
     let state = app.state::<AppState>();
     let settings = state.settings();
@@ -237,6 +242,7 @@ async fn context(app: &AppHandle, language: &str, notes: Option<String>) -> Assi
         listening: Some(listening).filter(|l| !l.is_empty()),
         now_playing: now.context,
         active_output: playing.or(settings.output_device),
+        focus_rule: focus_rule.filter(|r| !r.trim().is_empty()),
     }
 }
 
@@ -255,7 +261,7 @@ pub(crate) async fn settings_config(app: &AppHandle) -> Option<AiConfig> {
 /// answers go to [`eq_assistant_reply`].
 pub(crate) async fn suggest(app: &AppHandle, language: &str) -> CmdResult<AssistantTurn> {
     let ai = app.state::<Ai>();
-    let ctx = context(app, language, None).await;
+    let ctx = context(app, language, None, None).await;
     let mut session = match settings_config(app).await {
         Some(config) => EqSession::ai(config, ctx),
         None => EqSession::guided(ctx),
@@ -296,16 +302,18 @@ fn apply_confirmed(app: &AppHandle, turn: &AssistantTurn) -> CmdResult<()> {
 
 /// Starts a conversation: with the AI of the settings, or the guided wizard
 /// when `guided` is set or no provider is chosen. `language` is the UI's
-/// (`es`, `en`); `notes` anything the user wants to tell up front.
+/// (`es`, `en`); `notes` anything the user wants to tell up front;
+/// `focus_rule` the id of the taste rule to refine ("Ask the AI to refine").
 #[tauri::command]
 pub async fn eq_assistant_start(
     app: AppHandle,
     guided: bool,
     language: String,
     notes: Option<String>,
+    focus_rule: Option<String>,
 ) -> CmdResult<AssistantTurn> {
     let ai = app.state::<Ai>();
-    let ctx = context(&app, &language, notes).await;
+    let ctx = context(&app, &language, notes, focus_rule).await;
     let settings: AiSettings = app.state::<AppState>().settings().ai;
     let mut session = if guided || settings.provider.is_empty() {
         EqSession::guided(ctx)

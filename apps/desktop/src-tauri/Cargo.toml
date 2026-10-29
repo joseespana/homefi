@@ -32,6 +32,8 @@ url.workspace = true
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
+# In-app updates from the GitHub release (latest.json, minisign-signed artifacts)
+tauri-plugin-updater = "2.14"
 # OS media controls: Now Playing (macOS), SMTC (Windows), MPRIS (Linux, pure Rust D-Bus)
 souvlaki = { version = "0.8", default-features = false, features = ["use_zbus"] }
 # "Delete download" moves files to the system Trash / Recycle Bin

@@ -13,7 +13,8 @@
   import { TERMS_TEXT, TERMS_VERSION } from "../lib/terms";
   import AiOptions from "./AiOptions.svelte";
   import PlaybackOptions from "./PlaybackOptions.svelte";
-  import type { EqUiSettings } from "../lib/api";
+  import type { EqUiSettings, UpdateSettings } from "../lib/api";
+  import { manualReasonText, updates } from "../lib/update.svelte";
 
   let settings = $state<Settings | null>(null);
   let error = $state<string | null>(null);
@@ -107,7 +108,7 @@
     { id: "room", title: "Listening room", icon: "disc", words: "layout player skin theme everywhere whole app look classic immersive studio aluminum cover flow retro amp winamp luna xp web 2000 vinyl signal chain path pipeline connectors flow flowing animate animation compact detailed source codec resample resampling output dac bit-perfect processed vu meters visualizer halo album colors shade shadow gradient readable title" },
     { id: "lyrics", title: "Lyrics", icon: "lyrics", words: "lyrics karaoke words sing singing song text lines synced lrc musixmatch size timing offset delay bluetooth late early open automatically mascot homefito microphone" },
     { id: "mascot", title: "Mascot", icon: "smile", words: "mascot dance style mood turns arms legs angry temper click right-click" },
-    { id: "sound", title: "Sound", icon: "eq", words: "sound equalizer eq parametric bands preamp clipping autoeq headphones correction bass treble clarity taste bit-perfect bypass compare a/b presets player bar button set up my sound assistant guided taste layers rules genre playlist artist album how does it sound reactions loudness normalization replaygain lufs volume suggestions" },
+    { id: "sound", title: "Sound", icon: "eq", words: "sound equalizer eq parametric bands preamp clipping autoeq headphones correction bass treble clarity taste curve parametric bands editor simple advanced bit-perfect bypass compare a/b presets player bar button set up my sound assistant guided taste layers rules genre playlist artist album how does it sound reactions loudness normalization replaygain lufs volume suggestions" },
     { id: "playback", title: "Playback", icon: "soundwave", words: "playback crossfade cross fade transition transitions mix overlap gapless dj fade out fade in skip silence album surround 7.1 5.1 channels speakers upmix center subwoofer lfe rear resampler resampling quality cpu" },
     { id: "ai", title: "AI", icon: "ai", words: "ai key api openai chatgpt anthropic claude gemini google openrouter mistral groq xai grok deepseek ollama local model assistant keychain privacy provider server" },
     {
@@ -119,7 +120,7 @@
     { id: "downloads", title: "Downloads", icon: "download", words: "quality lossless max hi-res flac aac cover lyrics skip existing folder" },
     { id: "library", title: "Music folders", icon: "folder", words: "library folders music add remove scan" },
     { id: "tidal", title: "Tidal account", icon: "user", words: "tidal account login log out connect lists scroll lazy load pages playlists favorites infinite album versions duplicates same album group explicit clean edited dolby atmos spatial stereo remaster remastered original deluxe box set edition hi-res lossless default pick E badge" },
-    { id: "about", title: "About", icon: "info", words: "about version ffmpeg data personal use terms notice disclaimer copyright accepted" },
+    { id: "about", title: "About", icon: "info", words: "about version ffmpeg data personal use terms notice disclaimer copyright accepted update updates updater upgrade new version check now automatically auto pre-release prerelease beta install idle restart download release notes what's new github privacy" },
   ];
 
   const STORE = "homefi.settings.page";
@@ -191,8 +192,11 @@
         return s.library_dirs.length === 1 ? "1 folder" : `${s.library_dirs.length} folders`;
       case "tidal":
         return `${app.account ? "Connected" : "Not connected"}${s.lazy_lists === false ? " · whole lists" : ""}${s.album_versions?.group === false ? " · every release" : ""}`;
-      case "about":
-        return `HomeFi ${app.info?.version ?? ""}`;
+      case "about": {
+        const u = updates.view;
+        const out = u?.version && ["available", "downloading", "ready"].includes(u.status) ? ` · ${u.version} available` : "";
+        return `HomeFi ${app.info?.version ?? ""}${out}`;
+      }
     }
   }
 
@@ -226,6 +230,34 @@
     app.tidalCache.delete("albums");
     save({ album_versions: { ...versionPrefs, ...patch } });
   }
+
+  const UPDATE_DEFAULTS: UpdateSettings = { auto_check: true, prereleases: false, install: "ask" };
+  const updateSettings = $derived<UpdateSettings>({ ...UPDATE_DEFAULTS, ...(settings?.updates ?? {}) });
+  function saveUpdates(patch: Partial<UpdateSettings>) {
+    save({ updates: { ...updateSettings, ...patch } });
+  }
+  const upd = $derived(updates.view);
+  const updateLine = $derived.by(() => {
+    if (!upd) return "";
+    switch (upd.status) {
+      case "checking":
+        return "Looking for a new version…";
+      case "available":
+        return `HomeFi ${upd.version} is available${upd.prerelease ? " (beta)" : ""}`;
+      case "downloading":
+        return `Downloading HomeFi ${upd.version}…${upd.total ? ` ${Math.round((upd.downloaded / upd.total) * 100)}%` : ""}`;
+      case "ready":
+        return `HomeFi ${upd.version} is ready: restart to finish`;
+      case "installing":
+        return `Installing HomeFi ${upd.version}…`;
+      case "error":
+        return upd.error ?? "Couldn't check for updates.";
+      case "upToDate":
+        return `HomeFi ${upd.current} is the newest version`;
+      default:
+        return `HomeFi ${upd.current}`;
+    }
+  });
 
   function saveShare(patch: Partial<ShareSettings>) {
     if (settings) save({ share: { ...settings.share, ...patch } });
@@ -496,6 +528,15 @@
     <label class="toggle"><input type="checkbox" checked={soundUi.react_room} onchange={(e) => saveSoundUi({ react_room: e.currentTarget.checked })} /> “How does it sound?” in the listening room</label>
     <label class="toggle"><input type="checkbox" checked={soundUi.layer_chip} onchange={(e) => saveSoundUi({ layer_chip: e.currentTarget.checked })} /> Show the layers playing next to EQ (“HD 650 + Electronic”)</label>
     <label class="toggle"><input type="checkbox" checked={soundUi.suggestions} onchange={(e) => saveSoundUi({ suggestions: e.currentTarget.checked })} /> Suggestions for what you listen to most</label>
+    <div class="row-setting">
+      <span class="label">A rule's editor opens in</span>
+      <div class="segmented compact">
+        {#each [["auto", "Auto"], ["simple", "Simple"], ["advanced", "Advanced"]] as [id, label] (id)}
+          <button class:selected={(soundUi.taste_editor ?? "auto") === id} onclick={() => saveSoundUi({ taste_editor: id as SoundUiSettings["taste_editor"] })}><b>{label}</b></button>
+        {/each}
+      </div>
+      <small class="muted">Simple: bass, treble and clarity sliders. Advanced: the full curve with bands. Auto: the curve when the rule has bands</small>
+    </div>
     <div class="row-buttons">
       <button class="btn tonal" onclick={() => (app.view = { name: "eq", tab: "taste" })}><Icon name="layers" size={16} /> Taste rules</button>
     </div>
@@ -729,6 +770,48 @@
       HomeFi {app.info?.version} · {app.info?.platform} · ffmpeg {app.info?.ffmpeg ? "found" : "not found (not needed for FLAC / Hi-Res)"}<br />
       Data: {app.info?.appDir}
     </p>
+    <h3>Updates</h3>
+    {#if upd}
+      <div class="folder">
+        <Icon name={upd.status === "ready" ? "refresh" : "download"} />
+        <div class="grow">
+          <div>{updateLine}</div>
+          <small class="muted">{upd.lastChecked ? `Last checked ${new Date(upd.lastChecked).toLocaleString()}` : "Not checked yet"}</small>
+        </div>
+        {#if upd.status === "available" && upd.inPlace}
+          <button class="btn primary" onclick={() => updates.download()}>Update now</button>
+        {:else if upd.status === "available" || (upd.status === "error" && upd.version && !upd.inPlace)}
+          <button class="btn primary" onclick={() => updates.openPage()}><Icon name="external" size={14} /> Download</button>
+        {:else if upd.status === "ready"}
+          <button class="btn primary" onclick={() => updates.restart("now")}>Restart now</button>
+        {/if}
+        <button class="btn tonal" disabled={updates.checking || ["checking", "downloading", "installing"].includes(upd.status)} onclick={() => updates.check()}>Check now</button>
+      </div>
+      {#if upd.version && ["available", "downloading", "ready"].includes(upd.status)}
+        <button class="link-btn" onclick={() => updates.openPage()}>What's new in {upd.version}</button>
+      {/if}
+      {#if !upd.inPlace}
+        <p class="note-line"><Icon name="info" size={14} /> {manualReasonText(upd.manualReason)}</p>
+      {/if}
+    {/if}
+    <label class="toggle top">
+      <input type="checkbox" checked={updateSettings.auto_check} onchange={(e) => saveUpdates({ auto_check: e.currentTarget.checked })} />
+      <span>Check for updates automatically<small class="muted">When HomeFi starts and every 6 hours while it's open. “Check now” works either way.</small></span>
+    </label>
+    <label class="toggle top">
+      <input type="checkbox" checked={updateSettings.prereleases} onchange={(e) => saveUpdates({ prereleases: e.currentTarget.checked })} />
+      <span>Include pre-releases<small class="muted">Beta versions get new things first, and may have rough edges</small></span>
+    </label>
+    <div class="row-setting">
+      <span class="label">Install updates</span>
+      <div class="segmented compact">
+        <button class:selected={updateSettings.install === "ask"} onclick={() => saveUpdates({ install: "ask" })}><b>Ask</b></button>
+        <button class:selected={updateSettings.install === "idle"} onclick={() => saveUpdates({ install: "idle" })}><b>When HomeFi is idle</b></button>
+      </div>
+      <small class="muted">{updateSettings.install === "ask" ? "A small card offers the new version; nothing restarts until you say so" : "Downloaded by itself, installed after 5 minutes with no music, downloads or shared session (HomeFi restarts)"}</small>
+    </div>
+    <p class="muted small">Privacy: checking only asks GitHub for HomeFi's public releases (api.github.com and the release files). Nothing about you, your account or your music is sent.</p>
+
     <h3>Personal use</h3>
     <p class="muted small terms">{TERMS_TEXT}</p>
     <p class="muted small">

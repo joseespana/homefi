@@ -18,7 +18,14 @@
   let error = $state<string | null>(null);
   let filter = $state("");
 
-  async function load(refresh = false) {
+  // one load at a time: the view can ask again before the last answer arrives
+  let inFlight: Promise<void> | null = null;
+  function load(refresh = false) {
+    if (inFlight && !refresh) return inFlight;
+    inFlight = run(refresh).finally(() => (inFlight = null));
+    return inFlight;
+  }
+  async function run(refresh: boolean) {
     loading = true;
     error = null;
     // Tidal's come page by page (shared with My Tidal), next to the local ones
@@ -32,9 +39,11 @@
       loading = false;
     }
   }
+  // again only when the signed-in account itself changes (not every new account object)
+  const accountId = $derived(app.account?.userId ?? null);
   $effect(() => {
-    void app.account;
-    load();
+    void accountId;
+    untrack(() => load());
   });
 
   const match = (text: string) => !filter.trim() || text.toLowerCase().includes(filter.trim().toLowerCase());

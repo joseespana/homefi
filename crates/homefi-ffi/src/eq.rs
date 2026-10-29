@@ -252,7 +252,18 @@ pub enum TasteCreator {
     Reaction,
 }
 
-/// A tilt for some music, on top of the output's profile.
+/// One band of a taste rule's curve, with what it does (the assistant's
+/// words; may be empty). Same limits as [`EqBand`], plus the taste caps
+/// (see [`taste_clamp_curve`]).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct TasteBand {
+    pub band: EqBand,
+    #[uniffi(default = "")]
+    pub note: String,
+}
+
+/// A taste layer for some music, on top of the output's profile: a tilt
+/// (three broad knobs) and / or a parametric curve of up to 8 bands.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct TasteRule {
     pub id: String,
@@ -261,6 +272,20 @@ pub struct TasteRule {
     pub label: String,
     pub created_by: TasteCreator,
     pub enabled: bool,
+    #[uniffi(default = [])]
+    pub bands: Vec<TasteBand>,
+    /// Why (the assistant's words; may be empty).
+    #[uniffi(default = "")]
+    pub explanation: String,
+}
+
+/// A curve brought within the taste caps, and what had to change.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct TasteCurveCheck {
+    pub bands: Vec<TasteBand>,
+    pub tilt: Tilt,
+    /// Plain English, one line per change (empty: nothing changed).
+    pub notes: Vec<String>,
 }
 
 /// Every taste rule and the switch for all of them (off until the first rule).
@@ -379,6 +404,18 @@ impl From<TasteCreator> for dsp::TasteCreator {
     }
 }
 
+impl From<dsp::TasteBand> for TasteBand {
+    fn from(b: dsp::TasteBand) -> Self {
+        Self { band: b.band.into(), note: b.note }
+    }
+}
+
+impl From<TasteBand> for dsp::TasteBand {
+    fn from(b: TasteBand) -> Self {
+        Self { band: b.band.into(), note: b.note }
+    }
+}
+
 impl From<dsp::TasteRule> for TasteRule {
     fn from(r: dsp::TasteRule) -> Self {
         Self {
@@ -388,6 +425,8 @@ impl From<dsp::TasteRule> for TasteRule {
             label: r.label,
             created_by: r.created_by.into(),
             enabled: r.enabled,
+            bands: r.bands.into_iter().map(Into::into).collect(),
+            explanation: r.explanation,
         }
     }
 }
@@ -401,6 +440,8 @@ impl From<TasteRule> for dsp::TasteRule {
             label: r.label,
             created_by: r.created_by.into(),
             enabled: r.enabled,
+            bands: r.bands.into_iter().map(Into::into).collect(),
+            explanation: r.explanation,
         }
     }
 }
@@ -659,6 +700,43 @@ pub fn taste_split_genres(tag: String) -> Vec<String> {
 #[uniffi::export]
 pub fn taste_new_rule(scope: TasteScope, tilt: Tilt, label: String, created_by: TasteCreator) -> TasteRule {
     dsp::TasteRule::new(scope.into(), tilt.into(), label, created_by.into()).into()
+}
+
+/// `bands` and `tilt` within the taste caps (each band ±9 dB, peaks Q 0.3..8,
+/// at most 8 bands, the whole layer ≤ +12 dB; on a `small_speaker` no boost
+/// below 150 Hz), with what had to change.
+#[uniffi::export]
+pub fn taste_clamp_curve(bands: Vec<TasteBand>, tilt: Tilt, small_speaker: bool) -> TasteCurveCheck {
+    let bands: Vec<dsp::TasteBand> = bands.into_iter().map(Into::into).collect();
+    let (bands, tilt, notes) = dsp::clamp_taste_curve(&bands, tilt.into(), small_speaker);
+    TasteCurveCheck { bands: bands.into_iter().map(Into::into).collect(), tilt: tilt.into(), notes }
+}
+
+/// A rule's curve alone (tilt shelves and bands) as a profile, to draw it
+/// with [`eq_response`]; no preamp.
+#[uniffi::export]
+pub fn taste_curve_profile(rule: TasteRule) -> EqProfile {
+    let r = dsp::TasteRule::from(rule);
+    dsp::taste_profile(&r.bands, r.tilt).into()
+}
+
+/// What plays with a rule on top of `profile` (the output's, or flat):
+/// both combined as the player runs them, with the preamp that keeps it from
+/// clipping. Draw it with [`eq_response`].
+#[uniffi::export]
+pub fn taste_combined_profile(profile: Option<EqProfile>, rule: TasteRule, small_speaker: bool) -> EqProfile {
+    let r = dsp::TasteRule::from(rule);
+    let base = profile.map(dsp::EqProfile::from).unwrap_or_else(|| dsp::EqProfile::flat(""));
+    let mut p = dsp::with_taste_rule(&base, &r.bands, r.tilt, small_speaker);
+    p.preamp_db = dsp::auto_preamp_db(&p);
+    p.into()
+}
+
+/// A rule's curve in one line: `3 bands · -2 dB 3.2k, +1.5 dB 120 Hz` (then the
+/// tilt), Spanish when `language` is.
+#[uniffi::export]
+pub fn taste_curve_summary(rule: TasteRule, language: String) -> String {
+    dsp::curve_summary(&rule.into(), language.to_lowercase().starts_with("es"))
 }
 
 /// Adds `rule` or replaces the one with its id / scope; the first rule turns the layers on.
@@ -988,6 +1066,51 @@ mod tests {
         assert!(!crossfade_fades(x, t(album.clone()), t(album.clone()), false, false), "album run");
         assert!(crossfade_fades(x, t(album), t(None), false, false));
         assert_eq!(taste_scopes(ctx).len(), 2);
+    }
+
+    #[test]
+    fn taste_curves_cross_the_boundary() {
+        let band = |kind, freq_hz, gain_db, q| TasteBand {
+            band: EqBand { kind, freq_hz, gain_db, q, enabled: true },
+            note: "why".into(),
+        };
+        let mut rule = taste_new_rule(
+            TasteScope::Genre { name: "Rock".into() },
+            Tilt { bass_db: 0.0, treble_db: 0.0, clarity_db: None },
+            "Less harsh".into(),
+            TasteCreator::Manual,
+        );
+        assert!(rule.bands.is_empty() && rule.explanation.is_empty());
+        rule.bands = vec![band(EqBandKind::Peak, 3200.0, -2.0, 3.0), band(EqBandKind::Peak, 60.0, 20.0, 1.0)];
+        let checked = taste_clamp_curve(rule.bands.clone(), rule.tilt, true);
+        assert_eq!(checked.bands[1].band.freq_hz, 200.0, "no deep boost on a phone speaker");
+        assert!(!checked.notes.is_empty());
+        let taste = taste_upsert(taste_default_settings(), rule.clone());
+        let json = taste_settings_to_json(taste.clone());
+        assert!(json.contains("\"note\":\"why\""), "{json}");
+        let back = taste_settings_from_json(json);
+        assert_eq!(back.rules[0].bands.len(), 2);
+        assert_eq!(back.rules[0].bands[1].band.gain_db, 9.0, "each band ±9 dB");
+        assert_eq!(taste_curve_summary(back.rules[0].clone(), "en".into()), "2 bands · +9 dB 60 Hz, -2 dB 3.2k");
+        assert_eq!(taste_curve_profile(back.rules[0].clone()).bands.len(), 2);
+        let combined = taste_combined_profile(Some(hd650()), back.rules[0].clone(), false);
+        assert_eq!(combined.bands.len(), 3);
+        assert!(combined.preamp_db < -9.0);
+        // the player runs all of it
+        let ctx = NowPlayingContext {
+            track_id: None,
+            path: None,
+            title: None,
+            album: None,
+            artists: vec![],
+            genres: vec!["Rock".into()],
+            source: None,
+        };
+        let mut eq = eq_default_settings();
+        eq.enabled = true;
+        eq.per_output.insert("usb".into(), hd650());
+        let b = sound_biquads(eq, back, "usb".into(), ctx, 0.0, 48_000);
+        assert_eq!(b.len(), 4, "preamp, the shelf and both taste bands");
     }
 
     #[test]

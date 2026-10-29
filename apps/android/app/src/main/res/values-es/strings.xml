@@ -608,4 +608,46 @@
         <item quantity="many">%1$d canciones</item>
         <item quantity="other">%1$d canciones</item>
     </plurals>
+
+    <!-- Actualizaciones (Ajustes → Acerca de, la tarjeta de actualización) -->
+    <string name="update_title">Actualizaciones</string>
+    <string name="update_check_now">Buscar ahora</string>
+    <string name="update_auto">Buscar actualizaciones automáticamente</string>
+    <string name="update_auto_hint">Como mucho cada 6 horas, mientras HomeFi está abierta. «Buscar ahora» funciona siempre.</string>
+    <string name="update_prereleases">Incluir versiones preliminares</string>
+    <string name="update_prereleases_hint">Las versiones beta traen las novedades antes y pueden tener detalles por pulir</string>
+    <string name="update_keywords">actualizar actualización actualizaciones nueva versión beta preliminar instalar descargar apk github privacidad</string>
+    <string name="update_install_note">Android pregunta antes de instalar, y la música se detiene mientras se instala.</string>
+    <string name="update_privacy">Privacidad: la búsqueda solo consulta a GitHub las versiones públicas de HomeFi. No se envía nada sobre ti, tu cuenta ni tu música.</string>
+    <string name="update_usb">En este dispositivo las actualizaciones llegan por USB</string>
+    <string name="update_checking">Buscando una versión nueva…</string>
+    <string name="update_up_to_date">HomeFi %1$s es la versión más reciente</string>
+    <string name="update_available">HomeFi %1$s está disponible</string>
+    <string name="update_available_beta">HomeFi %1$s (beta) está disponible</string>
+    <string name="update_downloading">Descargando HomeFi %1$s…</string>
+    <string name="update_ready">HomeFi %1$s está lista para instalar</string>
+    <string name="update_failed">No se pudo instalar HomeFi %1$s</string>
+    <string name="update_last_checked">Última búsqueda: %1$s</string>
+    <string name="update_never_checked">Aún no se ha buscado</string>
+    <string name="update_update">Actualizar</string>
+    <string name="update_install">Instalar</string>
+    <string name="update_retry">Reintentar</string>
+    <string name="update_later">Más tarde</string>
+    <string name="update_whats_new">Novedades</string>
+    <string name="update_whats_new_title">Novedades de HomeFi %1$s</string>
+    <string name="update_no_notes">Esta versión no tiene notas. Los detalles están en su página.</string>
+    <string name="update_close">Cerrar</string>
+    <string name="update_release_page">Página de la versión</string>
+    <string name="update_music_hint">Android pregunta antes de instalar; la música se detiene mientras se instala</string>
+    <string name="update_install_hint">Verificada y lista: Android pregunta antes de instalar</string>
+    <string name="update_permission_title">Permite que HomeFi instale sus actualizaciones</string>
+    <string name="update_permission_text">Android lo pide una sola vez: activa «Permitir de esta fuente» para HomeFi, vuelve y toca Instalar.</string>
+    <string name="update_permission_open">Abrir ajustes</string>
+    <string name="update_no_apk">Esta versión aún no tiene app de Android. Los detalles están en su página.</string>
+    <string name="update_no_checksum">La versión no trae la suma de verificación de la app, así que no se instaló.</string>
+    <string name="update_bad_checksum">La descarga no coincide con la suma de verificación de la versión, así que no se instaló. Inténtalo de nuevo.</string>
+    <string name="update_bad_package">La descarga no es esta versión de HomeFi, así que no se instaló.</string>
+    <string name="update_download_failed">La descarga falló. Inténtalo de nuevo en un momento.</string>
+    <string name="update_no_installer">Este dispositivo no tiene instalador de apps.</string>
+    <string name="update_summary">HomeFi %1$s · %2$s disponible</string>
 </resources>

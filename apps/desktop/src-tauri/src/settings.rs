@@ -268,11 +268,43 @@ pub struct SoundUiSettings {
     pub layer_chip: bool,
     /// Suggestion cards (a taste layer for what you listen to most).
     pub suggestions: bool,
+    /// How a taste rule's editor opens: `auto` (the curve editor when the rule
+    /// has bands, else the three sliders), `simple` or `advanced`.
+    pub taste_editor: String,
 }
 
 impl Default for SoundUiSettings {
     fn default() -> Self {
-        Self { react_deck: true, react_room: true, layer_chip: true, suggestions: true }
+        Self { react_deck: true, react_room: true, layer_chip: true, suggestions: true, taste_editor: "auto".into() }
+    }
+}
+
+/// How updates are installed once downloaded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateInstall {
+    /// A banner offers it; the restart is the user's call.
+    #[default]
+    Ask,
+    /// Downloaded by itself and installed after a few minutes with nothing
+    /// playing, downloading or shared (HomeFi restarts).
+    Idle,
+}
+
+/// Settings → About → Updates (the same options as Android's).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdateSettings {
+    /// Look for a new version on launch and every 6 hours.
+    pub auto_check: bool,
+    /// Offer beta versions too (GitHub pre-releases).
+    pub prereleases: bool,
+    pub install: UpdateInstall,
+}
+
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self { auto_check: true, prereleases: false, install: UpdateInstall::Ask }
     }
 }
 
@@ -336,6 +368,9 @@ pub struct DesktopSettings {
     /// Surround devices (stereo on 5.1 / 7.1 speakers) and resampler quality.
     #[serde(deserialize_with = "lenient")]
     pub output: OutputOptions,
+    /// Looking for and installing new versions.
+    #[serde(deserialize_with = "lenient")]
+    pub updates: UpdateSettings,
 }
 
 /// A section written by a newer version (unknown values) reads as its
@@ -389,6 +424,7 @@ impl Default for DesktopSettings {
             album_versions: Default::default(),
             crossfade: CrossfadeSettings::default(),
             output: OutputOptions::default(),
+            updates: UpdateSettings::default(),
         }
     }
 }
@@ -483,6 +519,17 @@ mod tests {
         assert_eq!(bad.theme, "dark");
         assert!(!bad.crossfade.is_on());
         assert_eq!(bad.output, OutputOptions::default());
+    }
+
+    #[test]
+    fn updates_are_checked_and_asked_by_default() {
+        let old: DesktopSettings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(old.updates, UpdateSettings { auto_check: true, prereleases: false, install: UpdateInstall::Ask });
+        let set: DesktopSettings =
+            serde_json::from_str(r#"{"updates":{"auto_check":false,"prereleases":true,"install":"idle"}}"#).unwrap();
+        assert_eq!(set.updates, UpdateSettings { auto_check: false, prereleases: true, install: UpdateInstall::Idle });
+        let bad: DesktopSettings = serde_json::from_str(r#"{"theme":"dark","updates":{"install":"always"}}"#).unwrap();
+        assert_eq!((bad.theme.as_str(), bad.updates), ("dark", UpdateSettings::default()));
     }
 
     #[test]

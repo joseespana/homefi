@@ -102,10 +102,14 @@
 <div class="hit" data-row in:item|global={{ skip: !enter }} class:openable class:track={hit.kind === "track"} class:now-row={isCurrent} class:live={playing} class:deleting bind:this={row} role="group" aria-label={hit.title} oncontextmenu={queueMenu}>
   {#if index != null}
     <!-- the one play control of a track row: the number (or the cover, below) -->
-    <span class="n">
-      {#if playing}<span class="num sound"><Icon name="volume" size={14} /></span>{:else}<span class="num">{index}</span>{/if}
-      {#if hit.kind === "track"}<span class="go"><Icon name={playing ? "pause" : "play"} size={14} /></span>{/if}
-    </span>
+    {#if hit.kind === "track"}
+      <button class="n go-btn" onclick={play} aria-label="{playing ? 'Pause' : isCurrent ? 'Resume' : 'Play'} {hit.title}" title={playing ? "Pause" : isCurrent ? "Resume" : "Play"}>
+        {#if playing}<span class="num sound"><Icon name="volume" size={14} /></span>{:else}<span class="num">{index}</span>{/if}
+        <span class="go"><Icon name={playing ? "pause" : "play"} size={14} /></span>
+      </button>
+    {:else}
+      <span class="n"><span class="num">{index}</span></span>
+    {/if}
   {/if}
   <button
     class="main"
@@ -339,6 +343,29 @@
   .go {
     display: none;
     color: var(--accent-text);
+  }
+  /* the number is the row's play button: it reacts like one */
+  .go-btn {
+    padding: 0;
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    transition: background 0.15s, transform 0.15s;
+  }
+  .go-btn:hover {
+    background: color-mix(in srgb, var(--accent-text) 18%, transparent);
+    transform: scale(1.08);
+  }
+  .go-btn:active {
+    transform: scale(0.94);
+  }
+  .go-btn:focus-visible .go {
+    display: inline;
+  }
+  .go-btn:focus-visible .num {
+    display: none;
   }
   .num.sound {
     display: inline-flex;

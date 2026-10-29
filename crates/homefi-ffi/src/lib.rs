@@ -25,8 +25,10 @@ mod ai;
 mod eq;
 mod runtime;
 mod share;
+mod update;
 mod versions;
 
+pub use update::AppRelease;
 pub use versions::{AlbumEditionPref, AlbumExplicitPref, AlbumSpatialPref, AlbumVersionHit, AlbumVersionPrefs};
 
 const LIBRARY_CACHE: &str = "library_cache.json";

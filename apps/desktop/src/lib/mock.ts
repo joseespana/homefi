@@ -17,6 +17,24 @@ let albumVersions: AlbumVersionPrefs = { group: !url.has("ungrouped"), explicit:
 // playback: crossfade (?crossfade turns it on) and surround output
 let crossfadeMock: CrossfadeSettings = { mode: url.has("crossfade") ? "on" : "off", seconds: 6, curve: "equalPower", smart: true, skipAlbumRuns: true, onManualSkip: true, manualSeconds: 1.5, minTrackSeconds: 0, lowPowerFallback: true };
 let outputMock: OutputOptions = { surround: "frontOnly", resampler: "high" };
+let updateMock: import("./api").UpdateView = {
+  current: "0.1.0",
+  status: url.has("update") ? "available" : "upToDate",
+  version: url.has("update") ? "1.2.0" : null,
+  notes: "### Added\n\n- **Auto-update**: HomeFi offers new versions on every platform.\n- A `Check now` button in Settings → About.\n\n### Fixed\n\n- Guests on Windows get the reason when the hub stops.",
+  date: Date.now() - 3_600_000,
+  prerelease: false,
+  pageUrl: "https://github.com/joseespana/homefi/releases/tag/v1.2.0",
+  inPlace: url.get("update") !== "manual",
+  installKind: url.get("update") === "manual" ? "manual" : "app",
+  manualReason: url.get("update") === "manual" ? "translocated" : null,
+  downloaded: 0,
+  total: null,
+  error: null,
+  lastChecked: Date.now() - 1_800_000,
+  afterSong: false,
+  dismissed: false,
+};
 let terms = url.has("terms") ? { tidal_terms_accepted: 0, tidal_terms_accepted_at: null as number | null } : { tidal_terms_accepted: 1, tidal_terms_accepted_at: Date.now() - 86_400_000 as number | null };
 
 const albums = [
@@ -295,11 +313,12 @@ const handlers: Record<string, (args: any) => unknown> = {
     if (typeof key === "string" && key.startsWith("bad")) throw `The ${provider} key isn't valid. Check it in Settings.`;
   },
   ai_default_model: ({ provider }) => (aiModels[provider]?.find((m) => m[1]) ?? ["model-a"])[0],
-  eq_assistant_start: async ({ language }) => {
+  eq_assistant_start: async ({ language, focusRule, guided }) => {
     assistantStep = 0;
     assistantEs = String(language).toLowerCase().startsWith("es");
     await wait(700);
-    return assistantTurn("");
+    const refine = focusRule && !guided ? soundMock.refine(focusRule, assistantEs) : null;
+    return refine ?? assistantTurn("");
   },
   eq_assistant_reply: async ({ text }) => {
     await wait(900);
@@ -388,6 +407,30 @@ const handlers: Record<string, (args: any) => unknown> = {
     return null;
   },
   app_info: () => ({ version: "0.1.0", appDir: "~/.homefi", ffmpeg: false, platform: "macos" }),
+  // ?update: a new version is out (?update=manual: one that can't install itself)
+  update_status: () => updateMock,
+  update_check: async () => {
+    await new Promise((r) => setTimeout(r, 600));
+    updateMock = { ...updateMock, status: url.has("update") ? "available" : "upToDate", dismissed: false, lastChecked: Date.now() };
+    emit("update", updateMock);
+    return updateMock;
+  },
+  update_download: async () => {
+    const total = 18_400_000;
+    for (let got = 0; got <= total; got += 2_300_000) {
+      updateMock = { ...updateMock, status: "downloading", downloaded: got, total };
+      emit("update", updateMock);
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    updateMock = { ...updateMock, status: "ready", downloaded: total, total };
+    emit("update", updateMock);
+  },
+  update_restart: ({ when }: { when: string }) => {
+    updateMock = when === "song_end" && state.status === "playing" ? { ...updateMock, afterSong: true } : { ...updateMock, status: "installing" };
+    emit("update", updateMock);
+    return null;
+  },
+  update_dismiss: () => ((updateMock = { ...updateMock, dismissed: true, afterSong: false }), emit("update", updateMock), null),
   // ?signedout starts without a Tidal account; the fake sign-in approves on the second poll
   account: () => account,
   start_login: () => ((polls = 0), { deviceCode: "mock", userCode: "HFI-42X", url: "https://link.tidal.com/HFI42X", expiresIn: 300, interval: 1 }),
@@ -426,7 +469,7 @@ const handlers: Record<string, (args: any) => unknown> = {
   crossfade_set: ({ crossfade }: { crossfade: CrossfadeSettings }) => ((crossfadeMock = { ...crossfade, seconds: Math.min(12, Math.max(1, crossfade.seconds)) }), crossfadeMock),
   output_options_get: () => outputMock,
   output_options_set: ({ options }: { options: OutputOptions }) => ((outputMock = options), outputMock),
-  get_settings: () => ({ download_dir: "~/Music/homefi", library_dirs: ["~/Music"], quality: "max", embed_cover: true, embed_lyrics: false, skip_existing: true, volume: 0.72, output_device: null, room: { signal_chain: url.get("signal") !== "off", signal_style: (url.get("signal") === "detailed" ? "detailed" : "compact") as "compact", signal_animate: !url.has("still"), vu_meters: true, visualizer: true, halo: true, mascot: true, mascot_style: url.get("style") ?? "auto", mascot_dance: url.get("dance") ?? "auto", mascot_specials: "sometimes", mascot_limbs: "white", mascot_turns: (url.get("turns") ?? "all") as "all", mascot_size: Number(url.get("size") ?? 0), mascot_free: new URLSearchParams(location.search).has("float"), mascot_x: 0.85, mascot_y: 0.75, mascot_everywhere: false, mascot_right_click: true, mascot_temper: "normal", album_colors: true, layout: (url.get("layout") ?? "classic") as "classic", layout_everywhere: !url.has("roomonly"), immersive_shade: (url.get("shade") ?? "auto") as "auto", lyrics_mode: (url.get("lyrics") === "karaoke" ? "karaoke" : "normal") as "normal", lyrics_size: (url.get("lyricsize") ?? "medium") as "medium", lyrics_auto_open: url.has("lyrics"), lyrics_mascot: !url.has("nosinger"), lyrics_offset_ms: 0, motion: (url.get("motion") ?? "auto") as "auto" }, theme: (new URLSearchParams(location.search).get("theme") ?? "system") as "system", recent_folders: [], progress_style: "wavy", progress_thickness: "medium", progress_animated: true, lazy_lists: !url.has("whole"), share: shareSettings, ai: aiSettings, eq: eqMock.settings(), eq_presets: eqPresets, eq_ui: eqUi, album_versions: albumVersions, crossfade: crossfadeMock, output: outputMock, ...soundMock.settings(), ...terms }),
+  get_settings: () => ({ download_dir: "~/Music/homefi", library_dirs: ["~/Music"], quality: "max", embed_cover: true, embed_lyrics: false, skip_existing: true, volume: 0.72, output_device: null, room: { signal_chain: url.get("signal") !== "off", signal_style: (url.get("signal") === "detailed" ? "detailed" : "compact") as "compact", signal_animate: !url.has("still"), vu_meters: true, visualizer: true, halo: true, mascot: true, mascot_style: url.get("style") ?? "auto", mascot_dance: url.get("dance") ?? "auto", mascot_specials: "sometimes", mascot_limbs: "white", mascot_turns: (url.get("turns") ?? "all") as "all", mascot_size: Number(url.get("size") ?? 0), mascot_free: new URLSearchParams(location.search).has("float"), mascot_x: 0.85, mascot_y: 0.75, mascot_everywhere: false, mascot_right_click: true, mascot_temper: "normal", album_colors: true, layout: (url.get("layout") ?? "classic") as "classic", layout_everywhere: !url.has("roomonly"), immersive_shade: (url.get("shade") ?? "auto") as "auto", lyrics_mode: (url.get("lyrics") === "karaoke" ? "karaoke" : "normal") as "normal", lyrics_size: (url.get("lyricsize") ?? "medium") as "medium", lyrics_auto_open: url.has("lyrics"), lyrics_mascot: !url.has("nosinger"), lyrics_offset_ms: 0, motion: (url.get("motion") ?? "auto") as "auto" }, theme: (new URLSearchParams(location.search).get("theme") ?? "system") as "system", recent_folders: [], progress_style: "wavy", progress_thickness: "medium", progress_animated: true, lazy_lists: !url.has("whole"), share: shareSettings, ai: aiSettings, eq: eqMock.settings(), eq_presets: eqPresets, eq_ui: eqUi, album_versions: albumVersions, crossfade: crossfadeMock, output: outputMock, updates: { auto_check: true, prereleases: false, install: "ask" as const }, ...soundMock.settings(), ...terms }),
   set_settings: ({ settings }) => (settings.eq && eqMock.set(settings.eq), soundMock.setSettings(settings), (state = { ...state, ...flagsFor(state.stream?.device ?? "WH-1000XM5") }), (aiSettings = settings.ai ?? aiSettings), (eqPresets = settings.eq_presets ?? eqPresets), (eqUi = settings.eq_ui ?? eqUi), (albumVersions = settings.album_versions ?? albumVersions), (crossfadeMock = settings.crossfade ?? crossfadeMock), (outputMock = settings.output ?? outputMock), (terms = { tidal_terms_accepted: settings.tidal_terms_accepted, tidal_terms_accepted_at: settings.tidal_terms_accepted_at }), emit("settings", settings), settings),
   // ?nolyrics: none (an instrumental); ?plainlyrics: not synced; ?lyricserror: Tidal fails; ?lyricswait: never answers
   lyrics: async () => {

@@ -420,6 +420,13 @@ pub fn blocks_shuffle(app: &AppHandle) -> bool {
 }
 
 /// The app closes: the hub says goodbye, the party cache goes.
+impl Share {
+    /// Hosting a session or in someone's: an update doesn't restart HomeFi by itself.
+    pub fn in_session(&self) -> bool {
+        self.hub.lock().unwrap().is_some() || self.guest.lock().unwrap().is_some()
+    }
+}
+
 pub fn shutdown(app: &AppHandle) {
     let share = app.state::<Share>();
     if let Some(g) = share.guest.lock().unwrap().take() {

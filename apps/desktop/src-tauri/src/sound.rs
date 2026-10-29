@@ -212,6 +212,49 @@ pub fn sound_now(app: AppHandle) -> NowSound {
     NowSound { context, scopes, rule }
 }
 
+/// What a taste rule's editor draws: the output's own profile (faint, when
+/// the equalizer is on), the rule's curve alone and both together as the
+/// player runs them (with the preamp), plus what the taste caps changed.
+#[derive(Debug, Clone, Serialize)]
+pub struct TastePreview {
+    /// The output it would play on (the one playing, else the chosen one).
+    pub output: Option<String>,
+    pub device: Option<dsp::EqProfile>,
+    pub taste: dsp::EqProfile,
+    pub combined: dsp::EqProfile,
+    /// The rule's curve as it will play (in range, safe for the output).
+    pub bands: Vec<dsp::TasteBand>,
+    pub notes: Vec<String>,
+    pub small_speaker: bool,
+}
+
+#[tauri::command(async)]
+pub fn taste_preview(app: AppHandle, rule: TasteRule) -> TastePreview {
+    let state = app.state::<AppState>();
+    let settings = state.settings();
+    let output = state.player.snapshot().stream.map(|s| s.device).or(settings.output_device.clone());
+    let small = output.as_deref().is_some_and(dsp::is_built_in_speaker);
+    let device = output
+        .as_deref()
+        .and_then(|o| settings.eq.profile_for(o))
+        .or(settings.eq.default_profile.as_ref())
+        .filter(|_| settings.eq.enabled)
+        .map(dsp::EqProfile::clamped);
+    let (bands, tilt, notes) = dsp::clamp_taste_curve(&rule.bands, rule.tilt, small);
+    let base = device.clone().unwrap_or_else(|| dsp::EqProfile::flat(""));
+    let mut combined = dsp::with_taste_rule(&base, &bands, tilt, small);
+    combined.preamp_db = dsp::auto_preamp_db(&combined);
+    TastePreview {
+        output,
+        device,
+        taste: dsp::taste_profile(&bands, tilt),
+        combined,
+        bands,
+        notes,
+        small_speaker: small,
+    }
+}
+
 fn output_kind(app: &AppHandle) -> OutputKind {
     let device = app.state::<AppState>().player.snapshot().stream.map(|s| s.device);
     match device {

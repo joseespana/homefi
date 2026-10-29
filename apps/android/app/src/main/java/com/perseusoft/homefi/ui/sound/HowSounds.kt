@@ -53,7 +53,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.perseusoft.homefi.R
 import com.perseusoft.homefi.core.SoundReaction
 import com.perseusoft.homefi.core.TasteScope
-import com.perseusoft.homefi.core.Tilt
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.player.EqPanel
 import com.perseusoft.homefi.player.EqTab
@@ -158,7 +157,7 @@ fun HowSoundsSheet(onDismiss: () -> Unit) {
                     Spacer(Modifier.width(6.dp))
                     Column(Modifier.weight(1f)) {
                         Text(rule.label, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(tiltWords(rule.tilt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        Text(LocalContext.current.homefi.sound.ruleWords(rule), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     }
                 } else {
                     Text(
@@ -233,17 +232,23 @@ fun SoundForDialog(scope: TasteScope, onDismiss: () -> Unit) {
     val haptics = haptics()
     val phrase = scope.phrase()
     if (manual) {
-        TiltDialog(
+        val aiOn = remember { app.ai.hasProvider() }
+        TasteRuleDialog(
             title = stringResource(R.string.sound_for_title, phrase),
             subtitle = stringResource(R.string.sound_for_hint, phrase),
-            initial = existing?.tilt ?: Tilt(0f, 0f, null),
-            initialLabel = existing?.label ?: "",
+            scope = scope,
+            initial = existing,
             onDismiss = onDismiss,
-            onSave = { tilt, label ->
-                app.sound.setRule(scope, tilt, label)
+            onSave = { tilt, bands, label ->
+                app.sound.setRule(scope, tilt, label, bands = bands)
                 onDismiss()
             },
             onDelete = existing?.let { r -> { app.sound.removeRule(r.id); onDismiss() } },
+            onRefine = if (aiOn) { tilt, bands, label ->
+                app.sound.setRule(scope, tilt, label, bands = bands)
+                app.sound.ruleFor(scope)?.let(app.sound::refine)
+                onDismiss()
+            } else null,
         )
         return
     }
@@ -257,7 +262,7 @@ fun SoundForDialog(scope: TasteScope, onDismiss: () -> Unit) {
                 existing?.let {
                     Spacer(Modifier.size(8.dp))
                     Text(
-                        stringResource(R.string.sound_for_existing, "${it.label} · ${tiltWords(it.tilt)}"),
+                        stringResource(R.string.sound_for_existing, "${it.label} · ${app.sound.ruleWords(it)}"),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                     )

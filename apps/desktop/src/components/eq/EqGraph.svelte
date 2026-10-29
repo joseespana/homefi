@@ -17,6 +17,10 @@
   let {
     profile,
     compare = null,
+    curve = null,
+    background = null,
+    notes = null,
+    gainLimits = EQ_LIMITS.gainDb,
     editable = false,
     selected = $bindable(null),
     labels = true,
@@ -28,8 +32,16 @@
     onremove,
   }: {
     profile: EqProfile | null;
-    /** Drawn dashed underneath ("before"). */
+    /** Drawn dashed underneath ("before", or what plays combined). */
     compare?: EqProfile | null;
+    /** Draws the main curve from this instead of `profile` (handles stay on `profile`'s bands). */
+    curve?: EqProfile | null;
+    /** A faint curve behind everything (the output's own profile under a taste layer). */
+    background?: EqProfile | null;
+    /** One line per band (the assistant's), shown on hover and with the selected band. */
+    notes?: (string | undefined)[] | null;
+    /** Gain range a drag stays in. */
+    gainLimits?: readonly [number, number];
     editable?: boolean;
     selected?: number | null;
     /** Band numbers on the handles. */
@@ -48,6 +60,7 @@
   let freqs = $state<number[]>([]);
   let main = $state<number[]>([]);
   let before = $state<number[]>([]);
+  let back = $state<number[]>([]);
   let band = $state<number[]>([]);
   let dragging = $state<number | null>(null);
 
@@ -71,14 +84,20 @@
   }
   const drawMain = latest((v) => (main = v));
   const drawBefore = latest((v) => (before = v));
+  const drawBack = latest((v) => (back = v));
   const drawBand = latest((v) => (band = v));
   function plain<T>(v: T): T {
     return JSON.parse(JSON.stringify(v));
   }
   $effect(() => {
-    const p = profile ? plain(profile) : null;
+    const p = curve ? plain(curve) : profile ? plain(profile) : null;
     freqs;
     drawMain(p);
+  });
+  $effect(() => {
+    const b = background ? plain(background) : null;
+    freqs;
+    drawBack(b);
   });
   $effect(() => {
     const c = compare ? plain(compare) : null;
@@ -112,6 +131,7 @@
   const mainPath = $derived(path(main));
   const area = $derived(mainPath ? `${mainPath}L${x(20000)},${y(0)}L${x(20)},${y(0)}Z` : "");
   const beforePath = $derived(path(before));
+  const backPath = $derived(path(back));
   const bandPath = $derived(path(band));
   const bandArea = $derived(bandPath ? `${bandPath}L${x(20000)},${y(0)}L${x(20)},${y(0)}Z` : "");
 
@@ -158,7 +178,7 @@
       if (!m || !profile) return;
       const b = profile.bands[m.i];
       const freqHz = Math.round(clamp(fAt(m.px), EQ_LIMITS.freqHz));
-      const gainDb = Math.round(clamp(dbAt(m.py), [-range, range]) * 10) / 10;
+      const gainDb = Math.round(clamp(dbAt(m.py), [Math.max(-range, gainLimits[0]), Math.min(range, gainLimits[1])]) * 10) / 10;
       onedit?.(m.i, hasGain(b.kind) ? { freqHz, gainDb } : { freqHz });
     });
   }
@@ -241,7 +261,7 @@
     const b = i !== null ? profile?.bands[i] : null;
     if (!b || i === null) return null;
     const hx = x(b.freqHz);
-    return { i, hx, hy: handleY(i), text: `${formatHz(b.freqHz)}${hasGain(b.kind) ? ` · ${formatDb(b.gainDb)}` : ""} · Q ${b.q.toFixed(2)}` };
+    return { i, hx, hy: handleY(i), text: `${formatHz(b.freqHz)}${hasGain(b.kind) ? ` · ${formatDb(b.gainDb)}` : ""} · Q ${b.q.toFixed(2)}`, note: notes?.[i] || "" };
   });
 </script>
 
@@ -278,6 +298,7 @@
     {#if labelDb(d)}<text class="axis" x={PAD.l - 6} y={y(d) + 3.5} text-anchor="end">{d > 0 ? `+${d}` : d}</text>{/if}
   {/each}
 
+  {#if backPath}<path class="back" d={backPath} />{/if}
   {#if beforePath}<path class="before" d={beforePath} />{/if}
   {#if bandArea}<path class="band-area" d={bandArea} />{/if}
   {#if area}<path class="area" d={area} fill="url(#eq-fill)" />{/if}
@@ -300,6 +321,7 @@
         onfocus={() => (selected = i)}
         onkeydown={(e) => key(e, i)}
       >
+        {#if notes?.[i]}<title>{notes[i]}</title>{/if}
         <circle class="hit" r="16" />
         {#if hasGain(b.kind)}<circle class="dot" r={labels ? 9 : 7} />{:else}<rect class="dot" x={labels ? -8 : -6} y={labels ? -8 : -6} width={labels ? 16 : 12} height={labels ? 16 : 12} rx="3" />{/if}
         {#if labels}<text class="num" y="3.5" text-anchor="middle">{i + 1}</text>{/if}
@@ -308,9 +330,10 @@
   {/if}
 
   {#if tip && editable}
-    {@const right = tip.hx > width - 150}
+    {@const right = tip.hx > width - (tip.note ? 330 : 150)}
     <g class="tip" transform="translate({right ? tip.hx - 14 : tip.hx + 14},{Math.max(PAD.t + 12, Math.min(PAD.t + plotH - 12, tip.hy - 18))})">
       <text text-anchor={right ? "end" : "start"}>{tip.text}</text>
+      {#if tip.note}<text class="note" y="14" text-anchor={right ? "end" : "start"}>{tip.note.length > 64 ? `${tip.note.slice(0, 62)}…` : tip.note}</text>{/if}
     </g>
   {/if}
 </svg>
@@ -357,6 +380,18 @@
     stroke-width: 1.6;
     stroke-dasharray: 5 4;
     opacity: 0.8;
+  }
+  .back {
+    fill: none;
+    stroke: var(--muted);
+    stroke-width: 1.4;
+    opacity: 0.35;
+  }
+  .tip text.note {
+    font-family: var(--font-sans, inherit);
+    font-weight: 500;
+    font-size: 10.5px;
+    fill: var(--muted);
   }
   .band-area {
     fill: color-mix(in srgb, var(--primary) 16%, transparent);

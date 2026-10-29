@@ -73,6 +73,9 @@ impl_from_str!(AudioFormat { "original" => AudioFormat::Original, "flac" => Audi
 pub struct Config {
     pub enable_cache: bool,
     pub debug: bool,
+    /// The CLI says (at most once a day, on stderr) when a newer HomeFi is out.
+    /// It never installs anything. `HOMEFI_NO_UPDATE_CHECK=1` turns it off too.
+    pub update_check: bool,
     pub metadata: MetadataConfig,
     pub cover: CoverConfig,
     pub download: DownloadConfig,
@@ -85,6 +88,7 @@ impl Default for Config {
         Self {
             enable_cache: true,
             debug: false,
+            update_check: true,
             metadata: MetadataConfig::default(),
             cover: CoverConfig::default(),
             download: DownloadConfig::default(),
@@ -329,6 +333,8 @@ mod tests {
         let config = Config::from_toml(EXAMPLE_CONFIG).unwrap();
         assert_eq!(config.download.track_quality, TrackQuality::High);
         assert_eq!(config.templates.track(), DEFAULT_TEMPLATE);
+        assert!(config.update_check);
+        assert!(!Config::from_toml("update_check = false").unwrap().update_check);
     }
 
     #[test]

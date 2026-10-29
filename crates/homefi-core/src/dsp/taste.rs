@@ -1,19 +1,38 @@
-//! Taste layers: a [`Tilt`] that applies only to some music (a genre, a
+//! Taste layers: a sound that applies only to some music (a genre, a
 //! playlist, an artist, an album or one track), on top of the output's own
-//! profile. The most specific rule that matches what plays wins:
-//! track > album > playlist > artist > genre.
+//! profile. A rule is a [`Tilt`] (three broad knobs) and / or a parametric
+//! curve of up to [`MAX_TASTE_BANDS`] [`TasteBand`]s. The most specific rule
+//! that matches what plays wins: track > album > playlist > artist > genre.
 //!
 //! Persisted like [`super::EqSettings`]: stable camelCase JSON, and an
 //! unreadable rule is dropped instead of failing the whole file.
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use super::Tilt;
+use super::{EqBand, EqBandKind, Tilt};
 
 /// Each taste adjustment (bass, treble, clarity) stays within ± this (dB).
 pub const MAX_TILT_DB: f32 = 6.0;
 /// Rules kept at most (oldest manual ones are never dropped silently: callers cap first).
 pub const MAX_RULES: usize = 200;
+/// Bands of a rule's parametric curve.
+pub const MAX_TASTE_BANDS: usize = 8;
+/// Each taste band boosts or cuts at most this (dB).
+pub const MAX_TASTE_BAND_DB: f32 = 9.0;
+/// The whole taste layer (bands and tilt together) never boosts more than
+/// this anywhere (dB); larger boosts are scaled down.
+pub const MAX_TASTE_BOOST_DB: f32 = 12.0;
+/// Width of taste peaks: from very broad to surgical (no needle-thin notches).
+pub const MIN_TASTE_Q: f32 = 0.3;
+pub const MAX_TASTE_Q: f32 = 8.0;
+/// Shelves and pass filters past this Q ring (a bump at the corner).
+pub const MAX_TASTE_SLOPE_Q: f32 = 2.0;
+/// A taste high-pass only trims rumble / what a small speaker can't play...
+pub const MAX_TASTE_HIGHPASS_HZ: f32 = 300.0;
+/// ...and a low-pass only tames the very top.
+pub const MIN_TASTE_LOWPASS_HZ: f32 = 4_000.0;
+/// Below this, small speakers get no boost: it moves to [`super::SMALL_SPEAKER_BASS_HZ`].
+pub const SMALL_SPEAKER_MIN_BOOST_HZ: f32 = 150.0;
 
 /// A Tidal id (or a file path for local tracks) and a name. Two refs are the
 /// same thing when both ids are set and equal, else when the names match
@@ -178,17 +197,63 @@ pub enum TasteCreator {
     Reaction,
 }
 
+/// One band of a taste curve: an [`EqBand`] (same JSON fields) and, when the
+/// assistant made it, one plain line on what it does.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TasteBand {
+    #[serde(flatten)]
+    pub band: EqBand,
+    /// "Softens the harsh edge of the cymbals" (may be empty).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+}
+
+impl TasteBand {
+    pub fn new(kind: EqBandKind, freq_hz: f32, gain_db: f32, q: f32) -> Self {
+        Self { band: EqBand::new(kind, freq_hz, gain_db, q), note: String::new() }
+    }
+
+    pub fn with_note(mut self, note: impl Into<String>) -> Self {
+        self.note = note.into();
+        self
+    }
+
+    /// The same filter at about the same place: same kind, within a third of
+    /// an octave (peaks also of a similar width). Used to edit a curve instead
+    /// of stacking a second band on top of the first.
+    pub fn same_place(&self, other: &EqBand) -> bool {
+        let (a, b) = (&self.band, other);
+        a.kind == b.kind
+            && (a.freq_hz / b.freq_hz).log2().abs() <= 1.0 / 3.0
+            && (a.kind != EqBandKind::Peak || (a.q / b.q).log2().abs() <= 1.5)
+    }
+}
+
+impl From<EqBand> for TasteBand {
+    fn from(band: EqBand) -> Self {
+        Self { band, note: String::new() }
+    }
+}
+
 /// A taste adjustment for some music.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TasteRule {
     pub id: String,
     pub scope: TasteScope,
+    /// The three broad knobs (simple rules; kept for old rules).
     #[serde(default)]
     pub tilt: Tilt,
+    /// The parametric curve, on top of the tilt (at most [`MAX_TASTE_BANDS`]).
+    #[serde(default, deserialize_with = "lenient_bands", skip_serializing_if = "Vec::is_empty")]
+    pub bands: Vec<TasteBand>,
     /// What the user sees ("More punch for Electronic").
     #[serde(default)]
     pub label: String,
+    /// Why, in a sentence or two (the assistant's words; may be empty).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub explanation: String,
     #[serde(default, deserialize_with = "lenient_creator")]
     pub created_by: TasteCreator,
     #[serde(default = "yes")]
@@ -202,8 +267,238 @@ fn yes() -> bool {
 impl TasteRule {
     /// A new, enabled rule with a fresh id; the tilt is brought in range.
     pub fn new(scope: TasteScope, tilt: Tilt, label: impl Into<String>, created_by: TasteCreator) -> Self {
-        Self { id: new_id(), scope, tilt: tilt.clamped(MAX_TILT_DB), label: label.into(), created_by, enabled: true }
+        Self {
+            id: new_id(),
+            scope,
+            tilt: tilt.clamped(MAX_TILT_DB),
+            bands: Vec::new(),
+            label: label.into(),
+            explanation: String::new(),
+            created_by,
+            enabled: true,
+        }
     }
+
+    /// The rule with `bands` as its curve (brought in range, see [`clamp_taste_curve`]).
+    pub fn with_bands(mut self, bands: Vec<TasteBand>) -> Self {
+        self.bands = bands;
+        self.clamp();
+        self
+    }
+
+    /// Tilt and curve in range, in place (any output; see [`clamp_taste_curve`]).
+    pub fn clamp(&mut self) {
+        let (bands, tilt, _) = clamp_taste_curve(&self.bands, self.tilt, false);
+        self.bands = bands;
+        self.tilt = tilt;
+    }
+
+    /// `true` when it changes nothing (a neutral tilt and no audible band).
+    pub fn is_neutral(&self) -> bool {
+        self.tilt.is_neutral() && self.bands.iter().all(|b| b.band.is_neutral())
+    }
+
+    /// The curve's filters for the kind of output (clamped, audible ones only).
+    pub fn curve_for(&self, small_speaker: bool) -> (Vec<EqBand>, Tilt) {
+        let (bands, tilt, _) = clamp_taste_curve(&self.bands, self.tilt, small_speaker);
+        (bands.into_iter().map(|b| b.band).filter(|b| !b.is_neutral()).collect(), tilt)
+    }
+}
+
+/// `bands` and `tilt` brought within the taste caps, plus what had to change
+/// (plain English, for the assistant to explain):
+/// - at most [`MAX_TASTE_BANDS`] bands; every value finite and in range;
+/// - each band within ±[`MAX_TASTE_BAND_DB`]; peaks Q [`MIN_TASTE_Q`]..[`MAX_TASTE_Q`],
+///   shelves and passes up to [`MAX_TASTE_SLOPE_Q`];
+/// - a high-pass at most at [`MAX_TASTE_HIGHPASS_HZ`], a low-pass at least at [`MIN_TASTE_LOWPASS_HZ`];
+/// - on a `small_speaker`, boosts below [`SMALL_SPEAKER_MIN_BOOST_HZ`] become a
+///   ≤ [`super::SMALL_SPEAKER_MAX_BASS_DB`] lift at [`super::SMALL_SPEAKER_BASS_HZ`]
+///   with a high-pass below (they can't play deep bass);
+/// - the summed boost of bands and tilt at most [`MAX_TASTE_BOOST_DB`] anywhere.
+pub fn clamp_taste_curve(bands: &[TasteBand], tilt: Tilt, small_speaker: bool) -> (Vec<TasteBand>, Tilt, Vec<String>) {
+    use super::{SMALL_SPEAKER_BASS_HZ, SMALL_SPEAKER_HIGHPASS_HZ, SMALL_SPEAKER_MAX_BASS_DB};
+    let mut notes = Vec::new();
+    let mut tilt = tilt.clamped(MAX_TILT_DB);
+    if small_speaker && tilt.bass_db > SMALL_SPEAKER_MAX_BASS_DB {
+        tilt.bass_db = SMALL_SPEAKER_MAX_BASS_DB;
+    }
+    if bands.len() > MAX_TASTE_BANDS {
+        notes.push(format!("only the first {MAX_TASTE_BANDS} bands are kept"));
+    }
+    let mut out: Vec<TasteBand> = Vec::with_capacity(bands.len().min(MAX_TASTE_BANDS));
+    for tb in bands.iter().take(MAX_TASTE_BANDS) {
+        let asked = tb.band;
+        let mut b = asked.clamped();
+        let at = hz(b.freq_hz);
+        if b.kind.has_gain() && b.gain_db.abs() > MAX_TASTE_BAND_DB {
+            notes.push(format!(
+                "{at}: {:+.1} dB lowered to {:+.0} dB (each band ±{MAX_TASTE_BAND_DB:.0})",
+                b.gain_db,
+                MAX_TASTE_BAND_DB.copysign(b.gain_db)
+            ));
+            b.gain_db = b.gain_db.clamp(-MAX_TASTE_BAND_DB, MAX_TASTE_BAND_DB);
+        }
+        let (lo, hi) =
+            if b.kind == EqBandKind::Peak { (MIN_TASTE_Q, MAX_TASTE_Q) } else { (MIN_TASTE_Q, MAX_TASTE_SLOPE_Q) };
+        if b.q < lo || b.q > hi {
+            let q = b.q.clamp(lo, hi);
+            notes.push(format!("{at}: Q {:.2} set to {q:.2} ({lo}..{hi} for this kind)", b.q));
+            b.q = q;
+        }
+        if b.kind == EqBandKind::HighPass && b.freq_hz > MAX_TASTE_HIGHPASS_HZ {
+            notes.push(format!(
+                "high-pass moved from {at} to {MAX_TASTE_HIGHPASS_HZ:.0} Hz (it only trims the lowest bass)"
+            ));
+            b.freq_hz = MAX_TASTE_HIGHPASS_HZ;
+        }
+        if b.kind == EqBandKind::LowPass && b.freq_hz < MIN_TASTE_LOWPASS_HZ {
+            notes
+                .push(format!("low-pass moved from {at} to {} (it only tames the very top)", hz(MIN_TASTE_LOWPASS_HZ)));
+            b.freq_hz = MIN_TASTE_LOWPASS_HZ;
+        }
+        if small_speaker
+            && b.enabled
+            && b.gain_db > 0.0
+            && matches!(b.kind, EqBandKind::Peak | EqBandKind::LowShelf)
+            && b.freq_hz < SMALL_SPEAKER_MIN_BOOST_HZ
+        {
+            notes.push(format!(
+                "built-in speaker: the {at} boost became a {SMALL_SPEAKER_BASS_HZ:.0} Hz lift (they can't play deep bass)"
+            ));
+            b = EqBand::new(EqBandKind::Peak, SMALL_SPEAKER_BASS_HZ, b.gain_db.min(SMALL_SPEAKER_MAX_BASS_DB), 0.9);
+        }
+        out.push(TasteBand { band: b, note: tb.note.trim().chars().take(140).collect() });
+    }
+    let moved = notes.iter().any(|n| n.starts_with("built-in speaker"));
+    if moved
+        && !out.iter().any(|b| b.band.enabled && b.band.kind == EqBandKind::HighPass)
+        && out.len() < MAX_TASTE_BANDS
+    {
+        out.push(TasteBand::new(EqBandKind::HighPass, SMALL_SPEAKER_HIGHPASS_HZ, 0.0, 0.707));
+    }
+    // the summed boost: scale every boost down until the peak fits
+    let mut scaled = false;
+    for _ in 0..6 {
+        let peak = taste_peak_db(&out, tilt);
+        if peak <= MAX_TASTE_BOOST_DB + 0.05 {
+            break;
+        }
+        let k = (MAX_TASTE_BOOST_DB - 0.05) / peak;
+        for b in out.iter_mut().filter(|b| b.band.kind.has_gain() && b.band.gain_db > 0.0) {
+            b.band.gain_db = (b.band.gain_db * k * 10.0).floor() / 10.0;
+        }
+        for v in [&mut tilt.bass_db, &mut tilt.treble_db] {
+            if *v > 0.0 {
+                *v = (*v * k * 10.0).floor() / 10.0;
+            }
+        }
+        if let Some(c) = tilt.clarity_db.as_mut().filter(|c| **c > 0.0) {
+            *c = (*c * k * 10.0).floor() / 10.0;
+        }
+        scaled = true;
+    }
+    if scaled {
+        notes.push(format!("boosts scaled down: the whole taste curve stays within +{MAX_TASTE_BOOST_DB:.0} dB"));
+    }
+    (out, tilt, notes)
+}
+
+/// Largest boost (dB) of a taste curve: its bands and tilt shelves summed.
+fn taste_peak_db(bands: &[TasteBand], tilt: Tilt) -> f32 {
+    // cheap bound first (a band never lifts much past its gain): most rules stop here
+    let boosts = |v: f32| v.max(0.0);
+    let gains = bands.iter().filter(|b| b.band.enabled && b.band.kind.has_gain()).map(|b| boosts(b.band.gain_db));
+    let bound =
+        gains.sum::<f32>() + boosts(tilt.bass_db) + boosts(tilt.treble_db) + boosts(tilt.clarity_db.unwrap_or(0.0));
+    if bound * 1.25 <= MAX_TASTE_BOOST_DB {
+        return bound;
+    }
+    let p = super::taste_profile(bands, tilt);
+    super::response_db(&p, &super::log_freqs(256), 192_000).into_iter().fold(0f32, f32::max)
+}
+
+/// `120 Hz`, `3.2 kHz`, `10 kHz` (for messages).
+pub fn hz(f: f32) -> String {
+    if f >= 1000.0 {
+        let k = f / 1000.0;
+        let s = if k >= 10.0 { format!("{k:.0}") } else { format!("{k:.1}") };
+        format!("{} kHz", s.trim_end_matches(".0"))
+    } else {
+        format!("{f:.0} Hz")
+    }
+}
+
+/// `3.2k`, `120 Hz` (for short summaries).
+fn hz_short(f: f32) -> String {
+    if f >= 1000.0 {
+        hz(f).replace(" kHz", "k")
+    } else {
+        format!("{f:.0} Hz")
+    }
+}
+
+/// `-2 dB 3.2k`, `HP 80 Hz`.
+pub fn band_words(b: &EqBand) -> String {
+    match b.kind {
+        EqBandKind::HighPass => format!("HP {}", hz_short(b.freq_hz)),
+        EqBandKind::LowPass => format!("LP {}", hz_short(b.freq_hz)),
+        _ => format!("{} dB {}", db_words(b.gain_db), hz_short(b.freq_hz)),
+    }
+}
+
+/// `+1.5`, `-2`.
+fn db_words(db: f32) -> String {
+    format!("{db:+.1}").replace(".0", "")
+}
+
+/// `+2 dB bass, -1 dB treble` / `+2 dB de bajo, -1 dB de agudos`.
+pub fn tilt_words(t: Tilt, es: bool) -> String {
+    let mut parts = Vec::new();
+    let mut push = |db: f32, en: &str, es_word: &str| {
+        if db.abs() >= 0.05 {
+            let v = format!("{db:+.1}").replace(".0", "");
+            parts.push(if es { format!("{v} dB de {es_word}") } else { format!("{v} dB {en}") });
+        }
+    };
+    push(t.bass_db, "bass", "bajo");
+    push(t.treble_db, "treble", "agudos");
+    push(t.clarity_db.unwrap_or(0.0), "clarity", "claridad");
+    if parts.is_empty() {
+        return if es { "sin cambios" } else { "no change" }.into();
+    }
+    parts.join(", ")
+}
+
+/// A rule's curve in a line: `3 bands · -2 dB 3.2k, +1.5 dB 120 Hz, HP 80 Hz`
+/// (biggest first, at most three, then `…`), with the tilt after it when it
+/// changes something. Spanish when `es`.
+pub fn curve_summary(rule: &TasteRule, es: bool) -> String {
+    let bands: Vec<&EqBand> = rule.bands.iter().map(|b| &b.band).filter(|b| !b.is_neutral()).collect();
+    let mut parts = Vec::new();
+    if !bands.is_empty() {
+        let mut sorted = bands.clone();
+        let weight = |b: &EqBand| if b.kind.has_gain() { b.gain_db.abs() } else { 0.5 };
+        sorted.sort_by(|a, b| weight(b).total_cmp(&weight(a)));
+        let mut list: Vec<String> = sorted.iter().take(3).map(|b| band_words(b)).collect();
+        if sorted.len() > 3 {
+            list.push("…".into());
+        }
+        let n = bands.len();
+        let count = match (n, es) {
+            (1, false) => "1 band".to_owned(),
+            (1, true) => "1 banda".to_owned(),
+            (n, false) => format!("{n} bands"),
+            (n, true) => format!("{n} bandas"),
+        };
+        parts.push(format!("{count} · {}", list.join(", ")));
+    }
+    if !rule.tilt.is_neutral() {
+        parts.push(tilt_words(rule.tilt, es));
+    }
+    if parts.is_empty() {
+        return if es { "sin cambios" } else { "no change" }.into();
+    }
+    parts.join(" · ")
 }
 
 /// A fresh rule id (time and a counter, unique within a run and across runs).
@@ -233,7 +528,7 @@ impl TasteSettings {
     /// Adds `rule`, or replaces the one with its id or its scope (keeping that
     /// one's id). The first rule turns the layers on. Returns the stored rule.
     pub fn upsert(&mut self, mut rule: TasteRule) -> TasteRule {
-        rule.tilt = rule.tilt.clamped(MAX_TILT_DB);
+        rule.clamp();
         if self.rules.is_empty() {
             self.enabled = true;
         }
@@ -264,11 +559,11 @@ impl TasteSettings {
         before != self.rules.len()
     }
 
-    /// Every tilt in range, ids filled in.
+    /// Every tilt and curve in range, ids filled in.
     pub fn clamped(&self) -> Self {
         let mut s = self.clone();
         for r in &mut s.rules {
-            r.tilt = r.tilt.clamped(MAX_TILT_DB);
+            r.clamp();
             if r.id.trim().is_empty() {
                 r.id = new_id();
             }
@@ -409,6 +704,12 @@ fn lenient_creator<'de, D: Deserializer<'de>>(d: D) -> Result<TasteCreator, D::E
     })
 }
 
+/// Unreadable bands are dropped (an unknown kind reads as a peak, see [`EqBand`]).
+fn lenient_bands<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<TasteBand>, D::Error> {
+    let values = Option::<Vec<serde_json::Value>>::deserialize(d)?.unwrap_or_default();
+    Ok(values.into_iter().filter_map(|v| serde_json::from_value(v).ok()).collect())
+}
+
 /// Unreadable rules (an unknown scope from a newer version...) are dropped.
 fn lenient_rules<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<TasteRule>, D::Error> {
     let values = Option::<Vec<serde_json::Value>>::deserialize(d)?.unwrap_or_default();
@@ -542,6 +843,105 @@ mod tests {
         }
         let w: W = serde_json::from_str(r#"{"taste":{"enabled":"yes"}}"#).unwrap();
         assert_eq!(w.taste, TasteSettings::default());
+    }
+
+    #[test]
+    fn curves_load_old_rules_and_round_trip() {
+        // a rule from before curves: no bands, no explanation, same JSON back
+        let old = r#"{"id":"r1","scope":{"kind":"genre","name":"Pop"},"tilt":{"bassDb":2.0,"trebleDb":0.0,"clarityDb":null},"label":"x","createdBy":"ai","enabled":true}"#;
+        let r: TasteRule = serde_json::from_str(old).unwrap();
+        assert!(r.bands.is_empty() && r.explanation.is_empty());
+        assert_eq!(serde_json::to_value(&r).unwrap(), serde_json::from_str::<serde_json::Value>(old).unwrap());
+        // a curve: the band's own fields plus its note; bad bands are dropped
+        let r: TasteRule = serde_json::from_str(
+            r#"{"id":"r2","scope":{"kind":"artist","id":"","name":"David Guetta"},"explanation":"Punch",
+                "bands":[{"kind":"peak","freqHz":3200,"gainDb":-2,"q":3,"note":"softens the cymbals"},
+                         {"kind":"lowShelf","freqHz":"nope"},{"kind":"hyperShelf","freqHz":60,"gainDb":1}]}"#,
+        )
+        .unwrap();
+        assert_eq!(r.bands.len(), 2);
+        assert_eq!(r.bands[0].note, "softens the cymbals");
+        assert_eq!((r.bands[0].band.freq_hz, r.bands[0].band.gain_db, r.bands[0].band.q), (3200.0, -2.0, 3.0));
+        assert!(r.bands[0].band.enabled);
+        assert_eq!(r.bands[1].band.kind, EqBandKind::Peak, "unknown kinds read as a peak");
+        let json = serde_json::to_value(&r).unwrap();
+        assert_eq!(json["bands"][0]["note"], "softens the cymbals");
+        assert_eq!(json["bands"][0]["freqHz"], 3200.0);
+        assert!(json["bands"][1].get("note").is_none());
+        assert_eq!(serde_json::from_value::<TasteRule>(json).unwrap(), r);
+    }
+
+    #[test]
+    fn taste_curves_stay_within_the_caps() {
+        let wild = vec![
+            TasteBand::new(EqBandKind::Peak, 1000.0, 20.0, 30.0),
+            TasteBand::new(EqBandKind::HighPass, 2000.0, 0.0, 0.7),
+            TasteBand::new(EqBandKind::LowPass, 1000.0, 0.0, 0.7),
+            TasteBand::new(EqBandKind::HighShelf, 8000.0, -15.0, 5.0),
+            TasteBand::new(EqBandKind::Peak, f32::NAN, f32::NAN, f32::NAN),
+        ];
+        let (b, _, notes) = clamp_taste_curve(&wild, Tilt::default(), false);
+        assert_eq!((b[0].band.gain_db, b[0].band.q), (MAX_TASTE_BAND_DB, MAX_TASTE_Q));
+        assert_eq!(b[1].band.freq_hz, MAX_TASTE_HIGHPASS_HZ);
+        assert_eq!(b[2].band.freq_hz, MIN_TASTE_LOWPASS_HZ);
+        assert_eq!((b[3].band.gain_db, b[3].band.q), (-MAX_TASTE_BAND_DB, MAX_TASTE_SLOPE_Q));
+        assert!(b[4].band.freq_hz.is_finite() && b[4].band.gain_db == 0.0);
+        assert!(notes.len() >= 5, "{notes:?}");
+        // more than 8 bands: the first 8
+        let many: Vec<TasteBand> =
+            (0..12).map(|i| TasteBand::new(EqBandKind::Peak, 100.0 * (i + 1) as f32, -1.0, 1.0)).collect();
+        let (b, _, notes) = clamp_taste_curve(&many, Tilt::default(), false);
+        assert_eq!(b.len(), MAX_TASTE_BANDS);
+        assert!(notes.iter().any(|n| n.contains("first 8")));
+        // stacked boosts: scaled until the whole curve fits in +12 dB
+        let stacked = vec![
+            TasteBand::new(EqBandKind::Peak, 100.0, 9.0, 0.7),
+            TasteBand::new(EqBandKind::LowShelf, 120.0, 9.0, 0.7),
+            TasteBand::new(EqBandKind::Peak, 3000.0, -4.0, 2.0),
+        ];
+        let tilt = Tilt { bass_db: 6.0, ..Default::default() };
+        let (b, t, notes) = clamp_taste_curve(&stacked, tilt, false);
+        let peak = crate::dsp::response_db(&crate::dsp::taste_profile(&b, t), &crate::dsp::log_freqs(512), 48_000)
+            .into_iter()
+            .fold(0f32, f32::max);
+        assert!(peak <= MAX_TASTE_BOOST_DB + 0.1, "{peak}");
+        assert!(peak > MAX_TASTE_BOOST_DB - 1.5, "not scaled more than needed: {peak}");
+        assert_eq!(b[2].band.gain_db, -4.0, "cuts stay");
+        assert!(notes.iter().any(|n| n.contains("+12 dB")));
+    }
+
+    #[test]
+    fn small_speakers_get_no_deep_boosts_in_curves() {
+        let deep = vec![
+            TasteBand::new(EqBandKind::LowShelf, 80.0, 6.0, 0.7).with_note("thump"),
+            TasteBand::new(EqBandKind::Peak, 60.0, -3.0, 1.0),
+        ];
+        let (b, t, notes) = clamp_taste_curve(&deep, Tilt { bass_db: 6.0, ..Default::default() }, true);
+        assert_eq!((b[0].band.kind, b[0].band.freq_hz), (EqBandKind::Peak, crate::dsp::SMALL_SPEAKER_BASS_HZ));
+        assert!(b[0].band.gain_db <= crate::dsp::SMALL_SPEAKER_MAX_BASS_DB);
+        assert_eq!(b[0].note, "thump");
+        assert_eq!(b[1].band.gain_db, -3.0, "a cut stays a cut");
+        assert!(b.iter().any(|b| b.band.kind == EqBandKind::HighPass));
+        assert_eq!(t.bass_db, crate::dsp::SMALL_SPEAKER_MAX_BASS_DB);
+        assert!(notes.iter().any(|n| n.starts_with("built-in speaker")));
+    }
+
+    #[test]
+    fn curve_summaries() {
+        let mut r = rule(TasteScope::Genre { name: "Rock".into() }, 0.0).with_bands(vec![
+            TasteBand::new(EqBandKind::Peak, 3200.0, -2.0, 3.0),
+            TasteBand::new(EqBandKind::LowShelf, 120.0, 1.5, 0.7),
+            TasteBand::new(EqBandKind::HighPass, 30.0, 0.0, 0.7),
+            TasteBand::new(EqBandKind::Peak, 7000.0, -1.0, 4.0),
+        ]);
+        assert_eq!(curve_summary(&r, false), "4 bands · -2 dB 3.2k, +1.5 dB 120 Hz, -1 dB 7k, …");
+        r.bands.truncate(1);
+        r.tilt.bass_db = 2.0;
+        assert_eq!(curve_summary(&r, true), "1 banda · -2 dB 3.2k · +2 dB de bajo");
+        assert_eq!(hz(10_000.0), "10 kHz");
+        assert_eq!(hz(3150.0), "3.2 kHz");
+        assert!(!r.is_neutral());
+        assert!(rule(TasteScope::Genre { name: "x".into() }, 0.0).is_neutral());
     }
 
     #[test]

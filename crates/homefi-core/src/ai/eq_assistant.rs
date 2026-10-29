@@ -18,8 +18,10 @@ use super::guided::{GuidedEq, GuidedState};
 use super::{resolve_model, AiConfig};
 use crate::dsp::autoeq::{AutoEq, HeadphoneEntry};
 use crate::dsp::{
-    auto_preamp_db, safe_tilt, with_taste_for, EqBand, EqBandKind, EqProfile, EqSettings, EqSource, ItemRef,
-    LoudnessMode, LoudnessSettings, NowPlayingContext, TasteCreator, TasteRule, TasteScope, TasteSettings, Tilt,
+    auto_preamp_db, clamp_taste_curve, curve_summary, log_freqs, resolve_taste, response_db, taste_profile,
+    with_taste_for, with_taste_rule, EqBand, EqBandKind, EqProfile, EqSettings, EqSource, ItemRef, LoudnessMode,
+    LoudnessSettings, NowPlayingContext, TasteBand, TasteCreator, TasteRule, TasteScope, TasteSettings, Tilt,
+    MAX_TASTE_BANDS, MAX_TASTE_BAND_DB, MAX_TASTE_BOOST_DB,
 };
 use crate::error::Result;
 
@@ -104,6 +106,10 @@ pub struct AssistantContext {
     /// `id` of the output playing now.
     #[serde(default)]
     pub active_output: Option<String>,
+    /// Opened from one rule's editor ("Ask the AI to refine"): the id of that
+    /// rule; the conversation starts from its curve.
+    #[serde(default)]
+    pub focus_rule: Option<String>,
 }
 
 impl AssistantContext {
@@ -125,6 +131,12 @@ impl AssistantContext {
             Some(o) => o.kind == OutputKind::BuiltIn,
             None => !self.outputs.is_empty() && self.outputs.iter().all(|o| o.kind == OutputKind::BuiltIn),
         }
+    }
+
+    /// The rule being refined, if the assistant was opened for one.
+    pub(crate) fn focus(&self) -> Option<&TasteRule> {
+        let id = self.focus_rule.as_deref()?.trim();
+        self.taste.rules.iter().find(|r| r.id == id)
     }
 
     pub(crate) fn top_genre(&self) -> Option<&str> {
@@ -161,6 +173,10 @@ pub struct AssistantTurn {
     /// Loudness changed this turn: save and apply it.
     #[serde(default)]
     pub loudness: Option<LoudnessSettings>,
+    /// A taste layer proposed this turn, not saved: show its curve and the
+    /// notes of its bands; "apply" answers yes (then it comes in `taste`).
+    #[serde(default)]
+    pub taste_proposal: Option<TasteRule>,
 }
 
 /// Everything needed to resume a conversation later (no key, no model).
@@ -181,6 +197,9 @@ pub struct AssistantState {
     pub proposed_at: u32,
     #[serde(default)]
     pub confirmed: bool,
+    /// The taste layer on the table (see [`AssistantTurn::taste_proposal`]).
+    #[serde(default)]
+    pub taste_proposal: Option<TasteRule>,
 }
 
 /// A line of the conversation as the user saw it.
@@ -235,14 +254,33 @@ impl EqAssistant {
         &self.state
     }
 
-    /// The first question.
+    /// The first question (or, opened for one rule, what its curve does now
+    /// and what to change).
     pub async fn start(&mut self) -> Result<AssistantTurn> {
-        let kickoff = if self.state.context.spanish() {
-            "(El usuario abrió el asistente del ecualizador. Salúdalo en una frase y haz la primera pregunta.)"
-        } else {
-            "(The user opened the equalizer assistant. Greet them in one sentence and ask the first question.)"
+        let es = self.state.context.spanish();
+        let kickoff = match self.state.context.focus() {
+            Some(r) if es => format!(
+                "(El usuario abrió el asistente desde el editor de la capa «{}» ({}: {}) para afinarla. Llama analyze_sound con \
+                 ese scope, di en una o dos frases qué hace su curva ahora y pregunta qué quiere cambiar, con suggest_replies.)",
+                r.label,
+                r.scope.kind(),
+                r.scope.name()
+            ),
+            Some(r) => format!(
+                "(The user opened the assistant from the editor of the taste layer “{}” ({}: {}) to refine it. Call \
+                 analyze_sound with that scope, say in one or two sentences what its curve does now and ask what they'd like \
+                 to change, with suggest_replies.)",
+                r.label,
+                r.scope.kind(),
+                r.scope.name()
+            ),
+            None if es => {
+                "(El usuario abrió el asistente del ecualizador. Salúdalo en una frase y haz la primera pregunta.)".to_owned()
+            }
+            None => "(The user opened the equalizer assistant. Greet them in one sentence and ask the first question.)"
+                .to_owned(),
         };
-        self.state.messages = vec![Message::User { text: kickoff.to_owned() }];
+        self.state.messages = vec![Message::User { text: kickoff }];
         self.state.user_turns = 0;
         self.run().await
     }
@@ -319,7 +357,7 @@ impl EqAssistant {
         turn.proposal = self.state.proposal.clone();
         turn.confirmed = self.state.confirmed;
         turn.done = self.state.confirmed;
-        if turn.proposal.is_some() && !turn.confirmed {
+        if turn.proposal.is_some() && !turn.confirmed || turn.taste_proposal.is_some() {
             // the proposal card has its own Apply button
             turn.quick_replies.retain(|r| !super::guided::is_apply_or_cancel(r));
         }
@@ -382,12 +420,36 @@ impl EqAssistant {
                 (summary.to_string(), false, false)
             }
             "set_taste_rule" => match self.set_taste_rule(args) {
-                Ok(rule) => {
+                Ok((rule, adjusted)) => {
                     turn.taste = Some(self.state.context.taste.clone());
-                    (json!({ "ok": true, "rule": rule }).to_string(), false, false)
+                    turn.taste_proposal = None;
+                    let summary = curve_summary(&rule, self.state.context.spanish());
+                    (
+                        json!({ "ok": true, "rule": rule, "summary": summary, "adjusted": adjusted }).to_string(),
+                        false,
+                        false,
+                    )
                 }
                 Err(message) => (message, true, false),
             },
+            "propose_taste_rule" => match self.taste_curve(args, false) {
+                Ok((rule, adjusted)) => {
+                    let summary = curve_summary(&rule, self.state.context.spanish());
+                    self.state.taste_proposal = Some(rule.clone());
+                    turn.taste_proposal = Some(rule.clone());
+                    let next = "The app shows the curve and your band notes. Explain each band in one plain line, mention \
+                                anything in `adjusted`, and ask whether to apply it (suggest_replies). After a clear yes call \
+                                set_taste_rule with the same scope (the bands are kept).";
+                    (
+                        json!({ "ok": true, "rule": rule, "summary": summary, "adjusted": adjusted, "next": next })
+                            .to_string(),
+                        false,
+                        false,
+                    )
+                }
+                Err(message) => (message, true, false),
+            },
+            "analyze_sound" => (self.analyze_sound(args).to_string(), false, false),
             "remove_taste_rule" => match self.agreed() {
                 Ok(()) if self.state.context.taste.remove(&text("id")) => {
                     turn.taste = Some(self.state.context.taste.clone());
@@ -432,7 +494,14 @@ impl EqAssistant {
         }
         let base = base.unwrap_or_else(|| EqProfile::flat(""));
         let tilt = args.get("taste").map(taste_arg).unwrap_or_default();
-        let (mut profile, notes) = finish_profile_for(&base, tilt, output.kind == OutputKind::BuiltIn);
+        let (mut profile, mut notes) = finish_profile_for(&base, tilt, output.kind == OutputKind::BuiltIn);
+        // the model's own values out of range: say so, so it can explain
+        for b in base.bands.iter().take(crate::dsp::MAX_BANDS) {
+            let c = b.clamped();
+            if (c.freq_hz - b.freq_hz).abs() > 0.5 || (c.q - b.q).abs() > 0.005 {
+                notes.push(format!("{:.0} Hz band brought in range (20..20000 Hz, Q 0.1..10)", c.freq_hz));
+            }
+        }
         profile.source = EqSource::Assistant;
         profile.name = args
             .get("name")
@@ -482,23 +551,123 @@ impl EqAssistant {
         Ok(())
     }
 
-    fn set_taste_rule(&mut self, args: &Value) -> std::result::Result<TasteRule, String> {
+    /// Saves a taste layer (after a yes): its own values, else the proposal
+    /// on the table for that scope. Returns the rule and what was clamped.
+    fn set_taste_rule(&mut self, args: &Value) -> std::result::Result<(TasteRule, Vec<String>), String> {
         self.agreed()?;
-        let scope = scope_arg(args.get("scope"))?;
-        let tilt =
-            safe_tilt(args.get("tilt").map(taste_arg).unwrap_or_default(), self.state.context.on_small_speaker());
-        if tilt.is_neutral() {
-            return Err("that tilt changes nothing; to drop a rule use remove_taste_rule".into());
+        let (rule, notes) = self.taste_curve(args, true)?;
+        let stored = self.state.context.taste.upsert(rule);
+        if self.state.taste_proposal.as_ref().is_some_and(|p| p.scope.same_as(&stored.scope)) {
+            self.state.taste_proposal = None;
         }
-        let es = self.state.context.spanish();
-        let label = args
-            .get("label")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|l| !l.is_empty())
-            .map(|l| l.chars().take(60).collect())
-            .unwrap_or_else(|| super::reactions::describe(&scope, tilt, es));
-        Ok(self.state.context.taste.upsert(TasteRule::new(scope, tilt, label, TasteCreator::Ai)))
+        Ok((stored, notes))
+    }
+
+    /// A taste rule from the model's arguments, validated for the output
+    /// playing (not saved). Missing `bands` / `tilt` keep the ones it starts
+    /// from: the proposal on the table for that scope (`from_proposal`), else
+    /// the saved rule.
+    fn taste_curve(&self, args: &Value, from_proposal: bool) -> std::result::Result<(TasteRule, Vec<String>), String> {
+        let ctx = &self.state.context;
+        let scope = scope_arg(args.get("scope"))?;
+        let proposal = self.state.taste_proposal.as_ref().filter(|p| from_proposal && p.scope.same_as(&scope));
+        let start = proposal.or_else(|| ctx.taste.rule_for(&scope));
+        let mut notes = Vec::new();
+        let bands = match args.get("bands") {
+            Some(v) => {
+                let (bands, skipped) = bands_arg(v);
+                notes.extend(skipped);
+                bands
+            }
+            None => start.map(|r| r.bands.clone()).unwrap_or_default(),
+        };
+        let tilt = match args.get("tilt") {
+            Some(v) => taste_arg(v),
+            None => start.map(|r| r.tilt).unwrap_or_default(),
+        };
+        let (bands, tilt, adjusted) = clamp_taste_curve(&bands, tilt, ctx.on_small_speaker());
+        notes.extend(adjusted);
+        if tilt.is_neutral() && bands.iter().all(|b| b.band.is_neutral()) {
+            return Err(
+                "that changes nothing (no audible band, a flat tilt); to drop a rule use remove_taste_rule".into()
+            );
+        }
+        let text = |k: &str, max: usize| {
+            args.get(k)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(|l| l.chars().take(max).collect::<String>())
+        };
+        let es = ctx.spanish();
+        let label = text("label", 60)
+            .or_else(|| proposal.map(|p| p.label.clone()))
+            .unwrap_or_else(|| super::reactions::describe_curve(&scope, tilt, &bands, es));
+        let explanation =
+            text("explanation", 400).or_else(|| proposal.map(|p| p.explanation.clone())).unwrap_or_default();
+        let rule = TasteRule { bands, explanation, ..TasteRule::new(scope, tilt, label, TasteCreator::Ai) };
+        Ok((rule, notes))
+    }
+
+    /// What plays now on the active output (or for `scope`): the device
+    /// profile, the taste rule's curve and the summed response at 31 points.
+    fn analyze_sound(&self, args: &Value) -> Value {
+        let ctx = &self.state.context;
+        let output = ctx.active_output.as_deref().and_then(|id| ctx.output(id)).or(ctx.outputs.first());
+        let output_id = output.map(|o| o.id.clone()).unwrap_or_default();
+        let device = ctx.current.profile_for(&output_id).filter(|_| ctx.current.enabled).map(EqProfile::clamped);
+        let asked = args.get("scope").filter(|v| !v.is_null()).map(|v| scope_arg(Some(v)));
+        let (rule, from) = match &asked {
+            Some(Ok(scope)) => match self.state.taste_proposal.as_ref().filter(|p| p.scope.same_as(scope)) {
+                Some(p) => (Some(p.clone()), "proposal on the table"),
+                None => (ctx.taste.rule_for(scope).cloned(), "saved rule for that scope"),
+            },
+            _ => {
+                let now = ctx.now_playing.clone().unwrap_or_default();
+                (resolve_taste(&ctx.taste, &now).map(|(r, _)| r.clone()), "rule playing now")
+            }
+        };
+        let small = output.is_some_and(|o| o.kind == OutputKind::BuiltIn);
+        let base = device.clone().unwrap_or_else(|| EqProfile::flat(""));
+        let (bands, tilt) = rule.as_ref().map(|r| (r.bands.clone(), r.tilt)).unwrap_or_default();
+        let freqs = log_freqs(31);
+        let round = |v: f32| (v * 10.0).round() / 10.0;
+        let dev = response_db(&base, &freqs, 48_000);
+        let taste = response_db(&taste_profile(&bands, tilt), &freqs, 48_000);
+        let total_profile = with_taste_rule(&base, &bands, tilt, small);
+        let total = response_db(&total_profile, &freqs, 48_000);
+        let points: Vec<Value> = freqs
+            .iter()
+            .enumerate()
+            .map(|(i, f)| json!({ "hz": f.round(), "device": round(dev[i]), "taste": round(taste[i]), "total": round(total[i]) }))
+            .collect();
+        // extremes on a fine grid: 31 points can miss a narrow band
+        let fine = log_freqs(512);
+        let dense = response_db(&total_profile, &fine, 48_000);
+        let at = |pick: fn(f32, f32) -> bool| {
+            dense.iter().zip(&fine).fold((0f32, 1000f32), |acc, (&db, &f)| if pick(db, acc.0) { (db, f) } else { acc })
+        };
+        let ((max, max_hz), (min, min_hz)) = (at(|a, b| a > b), at(|a, b| a < b));
+        json!({
+            "output": output.map(|o| json!({ "id": o.id, "name": o.name, "kind": o.kind })),
+            "builtInSpeaker": small,
+            "equalizerOn": ctx.current.enabled,
+            "deviceProfile": device.map(|p| json!({ "name": p.name, "source": p.source, "bands": p.bands })),
+            "scopeError": match &asked { Some(Err(e)) => Some(e.clone()), _ => None },
+            "tasteRule": rule.as_ref().map(|r| json!({
+                "from": from, "id": r.id, "label": r.label, "scope": r.scope, "tilt": r.tilt, "bands": r.bands,
+                "summary": curve_summary(r, ctx.spanish()), "enabled": r.enabled,
+            })),
+            "tasteBandsLeft": MAX_TASTE_BANDS.saturating_sub(bands.len()),
+            "response": points,
+            "maxBoostDb": round(max),
+            "maxBoostHz": max_hz.round(),
+            "maxCutDb": round(min),
+            "maxCutHz": min_hz.round(),
+            "preampDb": round(auto_preamp_db(&total_profile)),
+            "tip": "Edit a band that is already there (same kind, about the same frequency) instead of stacking another one on \
+                    it, and don't redo what the device profile already corrects.",
+        })
     }
 
     fn set_loudness(&mut self, args: &Value) -> std::result::Result<LoudnessSettings, String> {
@@ -743,6 +912,63 @@ fn taste_arg(v: &Value) -> Tilt {
     }
 }
 
+/// A taste curve from the model: an array (or JSON text of one) of
+/// `{kind, freqHz, gainDb, q, note}`, lenient about names (`freq`, `gain`,
+/// `bell`, `hp`...). Bands without a frequency or of an unknown kind are
+/// skipped, and said so.
+pub(crate) fn bands_arg(v: &Value) -> (Vec<TasteBand>, Vec<String>) {
+    let v = match v {
+        Value::String(s) => serde_json::from_str(s).unwrap_or(Value::Null),
+        other => other.clone(),
+    };
+    let items = v.as_array().or_else(|| v.get("bands").and_then(Value::as_array)).cloned().unwrap_or_default();
+    let mut bands = Vec::new();
+    let mut notes = Vec::new();
+    for (i, item) in items.iter().enumerate() {
+        let num = |keys: &[&str]| keys.iter().find_map(|k| item.get(*k).and_then(Value::as_f64)).map(|x| x as f32);
+        let text = |keys: &[&str]| keys.iter().find_map(|k| item.get(*k).and_then(Value::as_str)).map(str::trim);
+        let kind_text = text(&["kind", "type"]).unwrap_or("peak").to_lowercase().replace(['_', '-', ' '], "");
+        let kind = match kind_text.as_str() {
+            "peak" | "peaking" | "bell" | "pk" | "eq" => EqBandKind::Peak,
+            "lowshelf" | "ls" | "lsc" | "bassshelf" => EqBandKind::LowShelf,
+            "highshelf" | "hs" | "hsc" | "trebleshelf" => EqBandKind::HighShelf,
+            "highpass" | "hp" | "hpf" | "lowcut" => EqBandKind::HighPass,
+            "lowpass" | "lp" | "lpf" | "highcut" => EqBandKind::LowPass,
+            other => {
+                notes.push(format!(
+                    "band {}: unknown kind `{other}`, skipped (peak, lowShelf, highShelf, highPass, lowPass)",
+                    i + 1
+                ));
+                continue;
+            }
+        };
+        let Some(freq) = num(&["freqHz", "freq_hz", "freq", "frequency", "hz"]) else {
+            notes.push(format!("band {}: no freqHz, skipped", i + 1));
+            continue;
+        };
+        let q =
+            num(&["q", "Q"]).unwrap_or(if kind == EqBandKind::Peak { 1.0 } else { std::f32::consts::FRAC_1_SQRT_2 });
+        let gain = num(&["gainDb", "gain_db", "gain", "db"]).unwrap_or(0.0);
+        let mut band = TasteBand::new(kind, freq, gain, q);
+        band.band.enabled = item.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+        band.note = text(&["note", "why", "explanation", "reason"]).unwrap_or_default().to_owned();
+        bands.push(band);
+    }
+    (bands, notes)
+}
+
+fn tilt_schema() -> Value {
+    json!({
+        "type": "object",
+        "description": "Broad adjustments, each -6..6 dB",
+        "properties": {
+            "bassDb": { "type": "number", "description": "low shelf at 105 Hz (on built-in speakers: a lift at 200 Hz, max +3)" },
+            "trebleDb": { "type": "number", "description": "high shelf at 10 kHz" },
+            "clarityDb": { "type": "number", "description": "wide peak at 3 kHz (voices, detail)" }
+        }
+    })
+}
+
 fn quick_replies(v: Option<&Value>) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for o in v.and_then(Value::as_array).into_iter().flatten() {
@@ -772,15 +998,43 @@ fn tools() -> Vec<Tool> {
         },
         "required": ["kind", "freqHz", "gainDb", "q"]
     });
-    let tilt = json!({
+    let taste_band = json!({
         "type": "object",
-        "description": "Broad adjustments, each -6..6 dB",
         "properties": {
-            "bassDb": { "type": "number", "description": "low shelf at 105 Hz (on built-in speakers: a lift at 200 Hz, max +3)" },
-            "trebleDb": { "type": "number", "description": "high shelf at 10 kHz" },
-            "clarityDb": { "type": "number", "description": "wide peak at 3 kHz (voices, detail)" }
-        }
+            "kind": { "type": "string", "enum": ["peak", "lowShelf", "highShelf", "highPass", "lowPass"] },
+            "freqHz": { "type": "number", "minimum": 20, "maximum": 20000 },
+            "gainDb": { "type": "number", "minimum": -MAX_TASTE_BAND_DB, "maximum": MAX_TASTE_BAND_DB, "description": "unused by passes" },
+            "q": { "type": "number", "minimum": 0.3, "maximum": 8, "description": "peaks: 0.5 wide .. 4 narrow; shelves and passes ~0.7" },
+            "note": { "type": "string", "description": "What it does, one plain line in the user's language" }
+        },
+        "required": ["kind", "freqHz", "gainDb", "q", "note"]
     });
+    let scope = json!({
+        "type": "object",
+        "properties": {
+            "kind": { "type": "string", "enum": ["genre", "playlist", "artist", "album", "track"] },
+            "id": { "type": "string", "description": "Tidal id when known (playlists: their uuid)" },
+            "name": { "type": "string" }
+        },
+        "required": ["kind", "name"]
+    });
+    let taste_rule = |extra: &str| {
+        json!({
+            "type": "object",
+            "properties": {
+                "scope": scope.clone(),
+                "label": { "type": "string", "description": "Short name the user sees, in their language (\"More punch for Electronic\")" },
+                "explanation": { "type": "string", "description": "Why, in one or two plain sentences in the user's language" },
+                "bands": {
+                    "type": "array", "items": taste_band.clone(), "maxItems": MAX_TASTE_BANDS,
+                    "description": format!("The whole parametric curve of the layer (replaces the old one). {extra}")
+                },
+                "tilt": tilt_schema()
+            },
+            "required": ["scope"]
+        })
+    };
+    let tilt = tilt_schema();
     vec![
         tool(
             "suggest_replies",
@@ -839,27 +1093,25 @@ fn tools() -> Vec<Tool> {
             json!({ "type": "object", "properties": {} }),
         ),
         tool(
+            "analyze_sound",
+            "What plays now: the output's device profile, the taste layer's curve (for `scope`, else the one playing now) and \
+             their summed response in dB at 31 points from 20 Hz to 20 kHz. Call it before designing or changing a curve, so \
+             you edit what is there instead of stacking bands.",
+            json!({ "type": "object", "properties": { "scope": scope.clone() } }),
+        ),
+        tool(
+            "propose_taste_rule",
+            "Show a taste layer to the user without saving it: the app draws its curve with your band notes. Then ask; after a \
+             clear yes call set_taste_rule with the same scope. Values are validated and clamped (see `adjusted`).",
+            taste_rule("Omit to keep the current curve."),
+        ),
+        tool(
             "set_taste_rule",
-            "Create or update the taste layer for one genre, playlist, artist, album or track (one rule per scope; the most \
-             specific one plays: track > album > playlist > artist > genre). Only after the user clearly said yes to it. Each \
-             value -6..6 dB, usually 1 to 3.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "scope": {
-                        "type": "object",
-                        "properties": {
-                            "kind": { "type": "string", "enum": ["genre", "playlist", "artist", "album", "track"] },
-                            "id": { "type": "string", "description": "Tidal id when known (playlists: their uuid)" },
-                            "name": { "type": "string" }
-                        },
-                        "required": ["kind", "name"]
-                    },
-                    "tilt": tilt,
-                    "label": { "type": "string", "description": "Short name the user sees, in their language (\"More punch for Electronic\")" }
-                },
-                "required": ["scope", "tilt"]
-            }),
+            "Save the taste layer for one genre, playlist, artist, album or track (one rule per scope; the most specific one \
+             plays: track > album > playlist > artist > genre). Only after the user clearly said yes to it. Give `bands` (a \
+             parametric curve, few bands, each within ±9 dB) and / or `tilt` (broad knobs, each -6..6 dB). Omitted fields keep \
+             the proposal on the table for that scope, else the saved rule's. The whole layer never boosts more than +12 dB.",
+            taste_rule("Omit to keep the proposal's / saved curve; [] removes it."),
         ),
         tool(
             "remove_taste_rule",
@@ -888,23 +1140,29 @@ fn tools() -> Vec<Tool> {
 /// still apply.
 fn phrase_examples(es: bool) -> &'static str {
     if es {
-        "| Dicen | Bandas propias (`profile`) | Sobre AutoEq (`taste`) |
-|---|---|---|
-| \"le falta bajo\", \"suena flaco\" | lowShelf ~100 Hz +2..3 dB (built-in: peak 200 Hz +2..3, Q 0.9) | bassDb +2..3 |
-| \"retumba\", \"el bajo embarra\" | peak 80-200 Hz -2..3 dB, Q ~1 | bassDb -2..3 |
-| \"chillón\", \"áspero\", \"las eses pican\" | peak 3-8 kHz -2 dB, Q ~2 (sibilance: 6-8 kHz) | trebleDb -2 |
-| \"apagado\", \"sin brillo\" | highShelf 8-10 kHz +2 dB | trebleDb +2 |
-| \"las voces se oyen lejos\", \"no se oyen las voces\" | peak 1-3 kHz +1.5..2 dB, Q ~1 | clarityDb +1.5..2 |
-| \"me cansa a volumen alto\" | highShelf 10 kHz -1..2 dB | trebleDb -1..2, and suggest a lower volume (and set_loudness if songs jump in level) |"
+        "| Dicen | Bandas propias (`profile`) | Sobre AutoEq (`taste`) | Curva de una capa (`bands`, con su `note`) |
+|---|---|---|---|
+| \"le falta bajo\", \"suena flaco\" | lowShelf ~100 Hz +2..3 dB (built-in: peak 200 Hz +2..3, Q 0.9) | bassDb +2..3 | lowShelf 90 Hz +2 dB Q 0.7: \"más cuerpo abajo\" |
+| \"le falta pegada\", \"el bombo no golpea\" | peak 60-80 Hz +2 dB, Q ~1.2 | bassDb +2 | peak 70 Hz +2 dB Q 1.2: \"más golpe del bombo\"; peak 300 Hz -1 dB Q 1.4: \"lo mantiene limpio\" |
+| \"retumba\", \"el bajo embarra\" | peak 80-200 Hz -2..3 dB, Q ~1 | bassDb -2..3 | peak 150 Hz -2 dB Q 1: \"menos retumbe\"; peak 300 Hz -1.5 dB Q 1.2: \"quita lo embarrado\" |
+| \"suena frío\", \"le falta calidez\" | peak 150-250 Hz +1.5 dB, Q 0.7 | bassDb +1 | peak 180 Hz +1.5 dB Q 0.6 (ancho): \"calidez\" |
+| \"chillón\", \"áspero\", \"las eses pican\" | peak 3-8 kHz -2 dB, Q ~2 (sibilance: 6-8 kHz) | trebleDb -2 | peak 3.2 kHz -2 dB Q 3 (estrecho): \"suaviza el filo de los platillos\"; eses: peak 7 kHz -2..3 dB Q 4: \"eses más suaves\" |
+| \"apagado\", \"sin brillo\" | highShelf 8-10 kHz +2 dB | trebleDb +2 | highShelf 9 kHz +1.5 dB Q 0.7: \"más aire\" |
+| \"las voces se oyen lejos\", \"no se oyen las voces\" | peak 1-3 kHz +1.5..2 dB, Q ~1 | clarityDb +1.5..2 | peak 2 kHz +1.5 dB Q 1: \"acerca las voces\" |
+| \"me cansa a volumen alto\" | highShelf 10 kHz -1..2 dB | trebleDb -1..2, and suggest a lower volume (and set_loudness if songs jump in level) | peak 3 kHz -1 dB Q 1.5 y highShelf 10 kHz -1 dB: \"menos fatiga\" |
+| \"el parlante distorsiona\", \"zumba\" | highPass 60-100 Hz | - | highPass 80 Hz Q 0.7: \"no le pide bajo que no puede dar\" |"
     } else {
-        "| They say | Own bands (`profile`) | On top of AutoEq (`taste`) |
-|---|---|---|
-| \"thin\", \"needs more bass\" | lowShelf ~100 Hz +2..3 dB (built-in: peak 200 Hz +2..3, Q 0.9) | bassDb +2..3 |
-| \"boomy\", \"muddy bass\" | peak 80-200 Hz -2..3 dB, Q ~1 | bassDb -2..3 |
-| \"harsh\", \"shrill\", \"sibilant\" | peak 3-8 kHz -2 dB, Q ~2 (sibilance: 6-8 kHz) | trebleDb -2 |
-| \"dull\", \"muffled\" | highShelf 8-10 kHz +2 dB | trebleDb +2 |
-| \"vocals buried\", \"voices sound far away\" | peak 1-3 kHz +1.5..2 dB, Q ~1 | clarityDb +1.5..2 |
-| \"fatiguing at high volume\" | highShelf 10 kHz -1..2 dB | trebleDb -1..2, and suggest a lower volume (and set_loudness if songs jump in level) |"
+        "| They say | Own bands (`profile`) | On top of AutoEq (`taste`) | A layer's curve (`bands`, with their `note`) |
+|---|---|---|---|
+| \"thin\", \"needs more bass\" | lowShelf ~100 Hz +2..3 dB (built-in: peak 200 Hz +2..3, Q 0.9) | bassDb +2..3 | lowShelf 90 Hz +2 dB Q 0.7: \"fuller low end\" |
+| \"no punch\", \"weak kick\" | peak 60-80 Hz +2 dB, Q ~1.2 | bassDb +2 | peak 70 Hz +2 dB Q 1.2: \"more kick\"; peak 300 Hz -1 dB Q 1.4: \"keeps it clean\" |
+| \"boomy\", \"muddy bass\" | peak 80-200 Hz -2..3 dB, Q ~1 | bassDb -2..3 | peak 150 Hz -2 dB Q 1: \"less boom\"; peak 300 Hz -1.5 dB Q 1.2: \"clears the mud\" |
+| \"cold\", \"lacks warmth\" | peak 150-250 Hz +1.5 dB, Q 0.7 | bassDb +1 | peak 180 Hz +1.5 dB Q 0.6 (wide): \"warmth\" |
+| \"harsh\", \"shrill\", \"sibilant\" | peak 3-8 kHz -2 dB, Q ~2 (sibilance: 6-8 kHz) | trebleDb -2 | peak 3.2 kHz -2 dB Q 3 (narrow): \"softens the harsh edge of the cymbals\"; sibilance: peak 7 kHz -2..3 dB Q 4: \"softer s's\" |
+| \"dull\", \"muffled\" | highShelf 8-10 kHz +2 dB | trebleDb +2 | highShelf 9 kHz +1.5 dB Q 0.7: \"more air\" |
+| \"vocals buried\", \"voices sound far away\" | peak 1-3 kHz +1.5..2 dB, Q ~1 | clarityDb +1.5..2 | peak 2 kHz +1.5 dB Q 1: \"brings voices forward\" |
+| \"fatiguing at high volume\" | highShelf 10 kHz -1..2 dB | trebleDb -1..2, and suggest a lower volume (and set_loudness if songs jump in level) | peak 3 kHz -1 dB Q 1.5 and highShelf 10 kHz -1 dB: \"less fatigue\" |
+| \"the speaker distorts\", \"it buzzes\" | highPass 60-100 Hz | - | highPass 80 Hz Q 0.7: \"doesn't ask for bass it can't play\" |"
     }
 }
 
@@ -927,7 +1185,9 @@ fn system_prompt(state: &AssistantState) -> String {
         "notes": ctx.notes,
         "questionsAskedSoFar": state.user_turns,
         "proposalOnTheTable": state.proposal.as_ref().map(|p| json!({ "outputId": p.output_id, "name": p.profile.name })),
+        "tasteProposalOnTheTable": state.taste_proposal.as_ref().map(|r| json!({ "scope": r.scope, "label": r.label })),
         "tasteLayers": ctx.taste.rules.len(),
+        "refiningRule": ctx.focus().map(|r| json!({ "id": r.id, "label": r.label, "scope": r.scope, "tilt": r.tilt, "bands": r.bands })),
         "loudness": ctx.loudness.mode,
         "nowPlaying": ctx.now_playing.as_ref().map(|n| json!({
             "title": n.title, "album": n.album.as_ref().map(|a| &a.name),
@@ -965,11 +1225,28 @@ What people say and what it usually needs (starting points, gentle; one or two c
 {examples}
 
 Taste layers (after the device step, or right away when the device is already set up):
-- Taste layers tilt the sound for some music only: a genre, a playlist, an artist, an album or one track, on top of the \
-output's profile. The most specific one plays (track > album > playlist > artist > genre).
+- Taste layers change the sound for some music only: a genre, a playlist, an artist, an album or one track, on top of the \
+output's profile. The most specific one plays (track > album > playlist > artist > genre). A layer is a simple `tilt` (bass, \
+treble, clarity knobs) and / or a parametric curve of up to {MAX_TASTE_BANDS} `bands`: as precise as the user's own equalizer.
 - Look at listening_summary and list_taste_rules, then offer at most two concrete layers that fit what they listen to (for \
-example \"a bit more bass for Electronic, +2 dB\"). Say what each does in plain words and ask; call set_taste_rule only after a \
-clear yes. Keep it to few questions; if they don't care, leave it.
+example \"a bit more bass for Electronic, +2 dB\"). Show a curve with propose_taste_rule (the app draws it with your band notes), \
+say what it does in plain words and ask; call set_taste_rule only after a clear yes. Keep it to few questions; if they don't \
+care, leave it.
+- When the user opened you to refine one layer (`refiningRule`), work on that layer only.
+
+Designing a curve (`bands` of propose_taste_rule / set_taste_rule):
+- First call analyze_sound (with the scope) to see what already plays: the device profile, the layer's curve and the summed \
+response. Edit a band that is already there (same kind, about the same frequency) instead of stacking another one on it, and \
+don't redo what the device profile already corrects.
+- Surgical fixes: harshness is a narrow cut (Q 2-4) somewhere in 2-5 kHz; sibilance a narrow cut (Q 3-5) in 5-9 kHz; mud a \
+cut around 200-400 Hz; warmth a wide lift (Q 0.5-0.8) in 100-250 Hz; deep bass a low shelf under ~90 Hz; vocal presence a \
+gentle peak in 1-3 kHz (Q ~1); air a high shelf around 9-12 kHz; on small speakers a high-pass at 60-100 Hz instead of a \
+bass boost.
+- Prefer cuts over boosts (a cut can't clip). Use few bands: usually 1 to 4. Each band within ±{MAX_TASTE_BAND_DB:.0} dB \
+(usually within ±3), Q 0.3-8 for peaks; the whole layer never boosts more than +{MAX_TASTE_BOOST_DB:.0} dB anywhere.
+- Explain each band in one plain line in the user's language, as its `note` and in your message: \"-2 dB at 3.2 kHz, narrow: \
+softens the harsh edge of the cymbals\".
+- The app validates every value and lists in `adjusted` what it had to change: tell the user when that matters.
 - Loudness normalization (set_loudness) evens out songs that are much louder or quieter than the rest. Suggest it when they \
 mention jumps in volume; it changes the level, so the sound is no longer bit-perfect.
 
@@ -977,7 +1254,7 @@ Be honest:
 - With the equalizer on, the sound is processed, so it is no longer bit-perfect. Say so once, simply, when you propose.
 - Never promise \"studio quality\", miracles or a \"perfect\" sound. AutoEq corrections come from measurements of one unit \
 towards an average target (Harman); fit and each person's ears change the result, so invite them to try it and adjust.
-- The app caps boosts at +12 dB and lowers the preamp automatically so it never clips. Suggest moderate volume. If they mention \
+- The app caps boosts at +12 dB and lowers the preamp automatically so it never clips (device profile and taste layer together). Suggest moderate volume. If they mention \
 pain, ringing or hearing loss, suggest lowering the volume and seeing a professional; you are not a doctor.
 - Don't invent headphone measurements: use the tools.
 
@@ -1252,6 +1529,120 @@ pub(crate) mod tests {
         assert!(results.iter().any(|r| r.call_id == "s6" && r.is_error));
         assert!(results.iter().any(|r| r.call_id == "s0" && r.content.contains("Electronic")));
         assert!(results.iter().any(|r| r.call_id == "s7" && r.content.contains("Más pegada")));
+    }
+
+    #[tokio::test]
+    async fn taste_curves_are_proposed_analyzed_and_saved_after_a_yes() {
+        let server = MockServer::start().await;
+        let guetta = json!({"kind": "artist", "name": "David Guetta"});
+        let curve = json!([
+            {"kind": "peak", "freqHz": 3200, "gainDb": -2, "q": 3, "note": "suaviza el filo de los platillos"},
+            {"kind": "lowShelf", "freqHz": 90, "gainDb": 2, "q": 0.7, "note": "más cuerpo abajo"},
+            {"kind": "peak", "freqHz": 7000, "gainDb": -14, "q": 12, "note": "eses más suaves"},
+            {"kind": "notch", "freqHz": 50},
+        ]);
+        let config = AiConfig::new(AiProvider::Anthropic, "m", Some("k".into())).with_base_url(server.uri());
+        let mut ctx = context();
+        ctx.active_output = Some("dac".into());
+        ctx.current.enabled = true;
+        ctx.current.per_output.insert(
+            "dac".into(),
+            EqProfile {
+                name: "HD 650".into(),
+                bands: vec![EqBand::new(EqBandKind::LowShelf, 105.0, 6.0, 0.7)],
+                ..Default::default()
+            },
+        );
+        let mut a = EqAssistant::new(config, ctx);
+        // drive the scripted turns directly with run_tool, as the model would
+        let mut turn = AssistantTurn::default();
+        let call = |id: &str, name: &str, input: Value| ToolCall { id: id.into(), name: name.into(), arguments: input };
+        let (out, err, _) = a.run_tool(&call("a1", "analyze_sound", json!({"scope": guetta})), &mut turn).await;
+        assert!(!err);
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["response"].as_array().unwrap().len(), 31);
+        assert_eq!(v["deviceProfile"]["name"], "HD 650");
+        assert!(v["tasteRule"].is_null());
+        assert!(v["response"][0]["device"].as_f64().unwrap() > 5.0, "{}", v["response"][0]);
+
+        let (out, err, _) = a
+            .run_tool(&call("a2", "propose_taste_rule", json!({"scope": guetta, "label": "Más pegada para Guetta", "explanation": "Menos filo, más cuerpo.", "bands": curve})), &mut turn)
+            .await;
+        assert!(!err, "{out}");
+        let v: Value = serde_json::from_str(&out).unwrap();
+        let adjusted: Vec<String> = serde_json::from_value(v["adjusted"].clone()).unwrap();
+        assert!(adjusted.iter().any(|n| n.contains("notch")), "{adjusted:?}");
+        assert!(adjusted.iter().any(|n| n.contains("-9 dB")), "{adjusted:?}");
+        let proposal = turn.taste_proposal.clone().expect("a curve on the table");
+        assert_eq!(proposal.bands.len(), 3);
+        assert_eq!((proposal.bands[2].band.gain_db, proposal.bands[2].band.q), (-MAX_TASTE_BAND_DB, 8.0));
+        assert_eq!(proposal.bands[0].note, "suaviza el filo de los platillos");
+        assert!(a.state.context.taste.rules.is_empty(), "nothing saved yet");
+        // analyze again: the proposal is what it looks at
+        let (out, _, _) = a.run_tool(&call("a1b", "analyze_sound", json!({"scope": guetta})), &mut turn).await;
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["tasteRule"]["from"], "proposal on the table");
+        assert_eq!(v["tasteRule"]["bands"].as_array().unwrap().len(), 3);
+
+        // saving before the user answered is refused
+        let (_, err, _) = a.run_tool(&call("a4", "set_taste_rule", json!({"scope": guetta})), &mut turn).await;
+        assert!(err);
+        a.state.user_turns = 1;
+        let mut turn = AssistantTurn::default();
+        let (out, err, _) = a.run_tool(&call("a5", "set_taste_rule", json!({"scope": guetta})), &mut turn).await;
+        assert!(!err, "{out}");
+        let saved = turn.taste.clone().expect("saved");
+        let r = &saved.rules[0];
+        assert_eq!(
+            (r.label.as_str(), r.explanation.as_str(), r.created_by),
+            ("Más pegada para Guetta", "Menos filo, más cuerpo.", TasteCreator::Ai)
+        );
+        assert_eq!(r.bands, proposal.bands);
+        assert!(a.state.taste_proposal.is_none());
+        // and the next analysis sees the saved rule playing on top of the HD 650
+        let (out, _, _) = a.run_tool(&call("a6", "analyze_sound", json!({"scope": guetta})), &mut turn).await;
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["tasteRule"]["from"], "saved rule for that scope");
+        assert!(v["maxCutDb"].as_f64().unwrap() < -5.0);
+        // a flat curve is refused
+        let (_, err, _) = a
+            .run_tool(&call("a7", "set_taste_rule", json!({"scope": guetta, "bands": [], "tilt": {}})), &mut turn)
+            .await;
+        assert!(err);
+    }
+
+    #[test]
+    fn bands_from_the_model_are_read_leniently() {
+        let (b, notes) = bands_arg(&json!(
+            r#"[{"type":"HP","freq":80},{"kind":"bell","frequency":2000,"gain":1.5,"why":"voces"},{"gainDb":3}]"#
+        ));
+        assert_eq!(b.len(), 2);
+        assert_eq!((b[0].band.kind, b[0].band.freq_hz), (EqBandKind::HighPass, 80.0));
+        assert_eq!(
+            (b[1].band.kind, b[1].band.gain_db, b[1].band.q, b[1].note.as_str()),
+            (EqBandKind::Peak, 1.5, 1.0, "voces")
+        );
+        assert_eq!(notes.len(), 1);
+    }
+
+    #[test]
+    fn refining_a_rule_starts_from_it() {
+        let mut ctx = context();
+        let rule = ctx.taste.upsert(
+            TasteRule::new(
+                TasteScope::Artist { id: String::new(), name: "Bach".into() },
+                Tilt::default(),
+                "Bach suave",
+                TasteCreator::Manual,
+            )
+            .with_bands(vec![TasteBand::new(EqBandKind::Peak, 3000.0, -2.0, 2.0)]),
+        );
+        ctx.focus_rule = Some(rule.id.clone());
+        let state = AssistantState { context: ctx, ..Default::default() };
+        let prompt = system_prompt(&state);
+        assert!(prompt.contains("refiningRule") && prompt.contains("Bach suave"));
+        assert!(prompt.contains("analyze_sound") && prompt.contains("Prefer cuts over boosts"));
+        assert!(prompt.contains("softens the harsh edge of the cymbals") || prompt.contains("suaviza el filo"));
     }
 
     #[test]

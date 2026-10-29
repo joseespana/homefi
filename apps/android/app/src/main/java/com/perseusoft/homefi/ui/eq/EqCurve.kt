@@ -70,13 +70,19 @@ fun EqBandKind.hasGain(): Boolean = this != EqBandKind.LOW_PASS && this != EqBan
 /**
  * The frequency response on a log axis. With [onDrag] the band points can be dragged
  * (sideways = frequency, up and down = gain); a touch away from every point scrolls the
- * page as usual. [compare] draws a second, dashed curve (the "before" of a proposal).
+ * page as usual. [compare] draws a second, dashed curve (the "before" of a proposal, or
+ * what plays with a taste layer). [curve] draws the main line from another profile than
+ * the points' (a taste layer's tilt and bands), and [background] a faint line behind it
+ * all (the output's own profile under a layer).
  */
 @Composable
 fun EqCurve(
     profile: EqProfile?,
     modifier: Modifier = Modifier,
     compare: EqProfile? = null,
+    curve: EqProfile? = null,
+    background: EqProfile? = null,
+    maxRange: Float = 24f,
     selected: Int? = null,
     dimmed: Boolean = false,
     showPoints: Boolean = true,
@@ -85,14 +91,15 @@ fun EqCurve(
     onDragEnd: () -> Unit = {},
 ) {
     val scheme = MaterialTheme.colorScheme
-    val response = remember(profile) { responseOf(profile) }
+    val response = remember(profile, curve) { responseOf(curve ?: profile) }
     val before = remember(compare) { compare?.let(::responseOf) }
+    val behind = remember(background) { background?.let(::responseOf) }
     val peak = remember(response, before) {
         val all = response + before.orEmpty() + profile?.bands.orEmpty().map { it.gainDb }
         all.maxOfOrNull(::abs) ?: 0f
     }
     // the scale grows for big boosts and settles back smoothly
-    val range by animateFloatAsState(max(12f, (peak + 3f).coerceAtMost(24f)), LocalMotion.current.tween(250), label = "eq-range")
+    val range by animateFloatAsState(max(12f, (peak + 3f).coerceAtMost(max(12f, maxRange))), LocalMotion.current.tween(250), label = "eq-range")
     val alpha by animateFloatAsState(if (dimmed) 0.4f else 1f, LocalMotion.current.tween(200), label = "eq-dim")
     val measurer = rememberTextMeasurer()
     val labelStyle = TextStyle(color = scheme.onSurfaceVariant, fontSize = 10.sp)
@@ -134,7 +141,7 @@ fun EqCurve(
                         change.consume()
                         moved = true
                         val freq = fractionToFreq(change.position.x / w)
-                        val gain = yToGain(change.position.y, h, latestRange)
+                        val gain = yToGain(change.position.y, h, latestRange).coerceIn(-maxRange, maxRange)
                         drag?.invoke(i, freq, gain)
                     }
                 }
@@ -159,6 +166,9 @@ fun EqCurve(
             drawLine(if (db == 0f) scheme.outline else scheme.outlineVariant, Offset(0f, y), Offset(w, y), if (db == 0f) 1.5f else 1f)
             if (db != 0f) drawText(measurer, "%+d".format(db.toInt()), Offset(3.dp.toPx(), y - 13.dp.toPx()), labelStyle)
             db += step
+        }
+        if (behind != null) {
+            drawPath(curvePath(behind, w, h, range), scheme.onSurfaceVariant.copy(alpha = 0.35f), style = Stroke(1.5.dp.toPx()))
         }
         if (before != null) {
             drawPath(curvePath(before, w, h, range), scheme.onSurfaceVariant.copy(alpha = 0.7f), style = Stroke(2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))))

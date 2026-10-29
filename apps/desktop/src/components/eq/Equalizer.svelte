@@ -5,10 +5,11 @@
   // live a moment later (lib/eq.svelte.ts).
   import { onDestroy, untrack } from "svelte";
   import { api, EQ_LIMITS, errorText, outputIcon, type EqBandKind, type EqProfile, type EqUiSettings, type HeadphoneEntry, type Tilt } from "../../lib/api";
-  import { BAND_KINDS, OTHER_OUTPUTS, clamp, copyProfile, eq, flatProfile, formatDb, formatHz, hasGain, newBand, sourceLabel } from "../../lib/eq.svelte";
-  import { item, pop, rise } from "../../lib/motion";
+  import { OTHER_OUTPUTS, clamp, copyProfile, eq, flatProfile, formatDb, newBand, sourceLabel } from "../../lib/eq.svelte";
+  import { pop, rise } from "../../lib/motion";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
+  import BandList from "./BandList.svelte";
   import EqGraph from "./EqGraph.svelte";
   import HeadphoneSearch from "./HeadphoneSearch.svelte";
   import TasteRules from "../sound/TasteRules.svelte";
@@ -339,22 +340,7 @@
         {#if !profile?.bands.length}
           <p class="muted small">No bands: the sound goes through unchanged. Add one, pick a preset, or find your headphones.</p>
         {:else}
-          <div class="bands" role="list">
-            <div class="brow headrow" aria-hidden="true"><span>#</span><span>On</span><span>Type</span><span>Frequency</span><span>Gain</span><span>Q</span><span></span></div>
-            {#each profile.bands as b, i (i)}
-              <div class="brow" role="listitem" class:selected={selected === i} class:off={!b.enabled} in:item onpointerdown={() => (selected = i)}>
-                <span class="n">{i + 1}</span>
-                <input type="checkbox" checked={b.enabled} aria-label="Band {i + 1} on" onchange={(e) => editBand(i, { enabled: e.currentTarget.checked })} />
-                <select value={b.kind} aria-label="Band {i + 1} type" onchange={(e) => editBand(i, { kind: e.currentTarget.value as EqBandKind })}>
-                  {#each BAND_KINDS as k}<option value={k.id}>{k.label}</option>{/each}
-                </select>
-                <label class="unit"><input type="number" min="20" max="20000" step="1" value={b.freqHz} aria-label="Band {i + 1} frequency" onchange={(e) => editBand(i, { freqHz: Number(e.currentTarget.value) })} /><span>Hz</span></label>
-                <label class="unit"><input type="number" min="-24" max="24" step="0.1" value={b.gainDb} disabled={!hasGain(b.kind)} aria-label="Band {i + 1} gain" onchange={(e) => editBand(i, { gainDb: Number(e.currentTarget.value) })} /><span>dB</span></label>
-                <input type="number" min="0.1" max="10" step="0.05" value={b.q} aria-label="Band {i + 1} Q" onchange={(e) => editBand(i, { q: Number(e.currentTarget.value) })} />
-                <button class="icon-btn mini" title="Remove band" aria-label="Remove band {i + 1}" onclick={() => removeBand(i)}><Icon name="x" size={14} /></button>
-              </div>
-            {/each}
-          </div>
+          <BandList bands={profile.bands} bind:selected onedit={(i, patch) => editBand(i, patch)} onremove={removeBand} />
         {/if}
       </section>
     </div>
@@ -781,70 +767,6 @@
     color: var(--on-primary-strong);
     transform: translateY(1px);
   }
-  .bands {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .brow {
-    display: grid;
-    grid-template-columns: 26px 26px minmax(110px, 1.1fr) minmax(100px, 1fr) minmax(90px, 1fr) minmax(70px, 0.7fr) 30px;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 6px;
-    border-radius: min(10px, var(--r-max));
-    border: 1px solid transparent;
-  }
-  .brow.selected {
-    border-color: color-mix(in srgb, var(--primary) 55%, transparent);
-    background: color-mix(in srgb, var(--primary) 9%, transparent);
-  }
-  .brow.off > :not(input[type="checkbox"]):not(button) {
-    opacity: 0.5;
-  }
-  .headrow {
-    font-size: 10.5px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--faint);
-  }
-  .n {
-    font: 700 12px var(--font-mono);
-    color: var(--accent-text);
-    text-align: center;
-  }
-  .brow input[type="checkbox"] {
-    width: 16px;
-    height: 16px;
-    accent-color: var(--primary-strong);
-  }
-  .brow select,
-  .brow input[type="number"] {
-    width: 100%;
-    min-width: 0;
-    padding: 5px 8px;
-    font-size: 13px;
-    font-variant-numeric: tabular-nums;
-  }
-  .unit {
-    position: relative;
-    display: flex;
-    align-items: center;
-  }
-  .unit span {
-    position: absolute;
-    right: 8px;
-    font-size: 11px;
-    color: var(--faint);
-    pointer-events: none;
-  }
-  .unit input {
-    padding-right: 30px !important;
-  }
-  .unit input::-webkit-inner-spin-button {
-    display: none;
-  }
   .taste {
     display: flex;
     flex-direction: column;
@@ -864,11 +786,5 @@
     align-items: center;
     gap: 6px;
     color: var(--danger);
-  }
-  @container (max-width: 640px) {
-    .brow {
-      grid-template-columns: 20px 20px minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.8fr) 28px;
-      gap: 4px;
-    }
   }
 </style>

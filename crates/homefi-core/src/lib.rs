@@ -31,6 +31,7 @@ pub mod share;
 pub mod stream;
 pub mod stream_cache;
 pub mod template;
+pub mod update;
 
 pub use error::{Error, Result};
 

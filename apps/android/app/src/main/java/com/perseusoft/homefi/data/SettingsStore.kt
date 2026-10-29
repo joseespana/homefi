@@ -237,10 +237,16 @@ data class AppSettings(
     val signalAnimate: Boolean = true,
     /** A taste suggestion card in the equalizer's taste rules. */
     val soundSuggestions: Boolean = true,
+    /** How a taste rule's editor opens: `auto` (the curve when it has bands), `simple` or `advanced`. */
+    val tasteEditor: String = "auto",
     /** Version of the personal-use notice accepted before connecting Tidal; 0 = never. */
     val tidalTermsAccepted: Int = 0,
     /** When it was accepted (epoch ms); 0 = never. */
     val tidalTermsAcceptedAt: Long = 0L,
+    /** Look for a new HomeFi at most every 6 hours while the app is open (official build only). */
+    val updateAutoCheck: Boolean = true,
+    /** Offer beta versions too (GitHub pre-releases). */
+    val updatePrereleases: Boolean = false,
 ) {
     /** How the core groups album lists (the same preferences as the desktop's). */
     val albumVersions: AlbumVersionPrefs
@@ -336,8 +342,11 @@ class SettingsStore(context: Context) {
         signalStyle = SignalStyle.of(prefs.getString("signal_style", null)),
         signalAnimate = prefs.getBoolean("signal_animate", true),
         soundSuggestions = prefs.getBoolean("sound_suggestions", true),
+        tasteEditor = prefs.getString("taste_editor", null)?.takeIf { it in listOf("auto", "simple", "advanced") } ?: "auto",
         tidalTermsAccepted = prefs.getInt("tidal_terms_accepted", 0),
         tidalTermsAcceptedAt = prefs.getLong("tidal_terms_accepted_at", 0L),
+        updateAutoCheck = prefs.getBoolean("update_auto_check", true),
+        updatePrereleases = prefs.getBoolean("update_prereleases", false),
     )
 
     private fun stringMap(key: String): Map<String, String> = runCatching {
@@ -440,8 +449,11 @@ class SettingsStore(context: Context) {
             .putString("signal_style", next.signalStyle.key)
             .putBoolean("signal_animate", next.signalAnimate)
             .putBoolean("sound_suggestions", next.soundSuggestions)
+            .putString("taste_editor", next.tasteEditor)
             .putInt("tidal_terms_accepted", next.tidalTermsAccepted)
             .putLong("tidal_terms_accepted_at", next.tidalTermsAcceptedAt)
+            .putBoolean("update_auto_check", next.updateAutoCheck)
+            .putBoolean("update_prereleases", next.updatePrereleases)
             .apply()
         _settings.value = next
     }

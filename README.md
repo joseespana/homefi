@@ -39,6 +39,31 @@ Checksums: [SHA256SUMS](https://github.com/joseespana/homefi/releases/latest/dow
 - **Windows**: SmartScreen may say "Windows protected your PC": **More info → Run anyway**.
 - **Android**: allow installing apps from your browser or file manager when asked.
 
+### Updates
+
+Once installed, HomeFi tells you when a new version is out, on every platform:
+
+- **Desktop**: a small card "HomeFi 1.2.0 is available · What's new · Update now · Later". The update
+  downloads in the background (signed; the app checks the signature before installing it) and
+  "Restart now" or "When the song ends" finishes it: the music is never stopped without asking.
+  macOS (the app in Applications), Windows (setup .exe or MSI) and Linux (AppImage, .deb, .rpm; the
+  packages ask for your password) update in place; anything else gets a **Download** button to the
+  release page. Settings → About → Updates: check automatically (on launch and every 6 hours,
+  default on), include pre-releases (off), install "Ask" (default) or "When HomeFi is idle"
+  (after 5 minutes with no music, downloads or shared session), Check now, last checked.
+- **Android** (the official `HomeFi-android.apk`): checks at most every 6 hours while the app is
+  open; **Update** downloads the APK, checks its SHA-256 against the release's `SHA256SUMS` and
+  opens Android's installer (allow "Install unknown apps" for HomeFi the first time). Settings →
+  About → Updates has the same options. Builds with another package name (the Astell&Kern one,
+  debug builds) don't update themselves.
+- **CLI**: a one-line notice on stderr, at most once a day: `A new version 1.2.0 is available: <url>`.
+  It never installs anything. It's skipped when stderr isn't a terminal, with
+  `HOMEFI_NO_UPDATE_CHECK=1`, or with `update_check = false` in `config.toml`.
+
+Privacy: the only calls are to GitHub's public releases API and the release files. No account,
+no identifiers and nothing about you or your music is sent (GitHub sees the request like any web
+page visit: your IP address and a `HomeFi/<version>` user agent).
+
 HomeFi is a Rust + Kotlin rewrite of [tiddl](https://github.com/oskvr37/tiddl). It keeps
 tiddl's config file, path templates and CLI flags, so existing setups keep working.
 
@@ -112,6 +137,9 @@ Coming from tiddl? Copy `~/.tiddl/config.toml` and `auth.json` into `~/.homefi/`
 
 If the default client credentials stop working, set `HOMEFI_AUTH=<CLIENT_ID>;<CLIENT_SECRET>`.
 
+Once a day the CLI may print `A new version X is available: <url>` on stderr (see [Updates](#updates));
+`HOMEFI_NO_UPDATE_CHECK=1` or `update_check = false` turns it off.
+
 ## Android app
 
 Features:
@@ -131,6 +159,15 @@ Features:
   Download each. Album pages show their labels and "Other versions". Settings → Tidal account → Album
   versions: one card per album on / off, and which release the card shows (explicit or clean, stereo or
   Dolby Atmos, original or latest remaster; the highest quality wins among the rest).
+- **Taste layers** (also on the desktop): a sound for one genre, playlist, artist, album or track, on
+  top of the output's own equalizer profile; the most specific one plays. A layer is three knobs
+  (**Simple**: bass, treble, clarity) and / or a full parametric curve of up to 8 bands (**Advanced**:
+  peak, shelves, high- and low-pass, drawn over the output's profile with what plays dashed). Each band
+  stays within ±9 dB and the whole layer never boosts more than +12 dB; the automatic preamp covers the
+  device profile and the layer together, so nothing clips. The assistant designs curves too (narrow
+  cuts for harshness or sibilance, wide lifts for warmth) and explains every band in one line; "Ask the
+  AI to refine it" opens it on one rule. "How does it sound?" turns a tap into a change (with AI, up to
+  2 bands per tap). Settings → Sound picks which editor opens first.
 - **Crossfade** (also on the desktop, off by default so playback stays gapless and bit-perfect):
   Settings → Playback. The next song starts while the current one fades out, 1 to 12 s, with an
   equal-power, S-curve or linear curve. "Skip the silence" fades from where the music really ends into
@@ -191,7 +228,8 @@ git tag v0.2.0 && git push --follow-tags
 
 The tag triggers `.github/workflows/release.yml`. It builds the CLI for Linux (x86_64/arm64),
 macOS (arm64/x86_64) and Windows, plus the signed APK, then publishes a GitHub release with
-checksums and the matching `CHANGELOG.md` section. `make dist` builds the same artifacts locally
+checksums, the matching `CHANGELOG.md` section and the desktop updater's signed `latest.json`.
+`make dist` builds the same artifacts locally
 into `dist/`. Signing setup is described in [docs/releasing.md](docs/releasing.md).
 
 ## Development

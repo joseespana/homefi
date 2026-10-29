@@ -113,6 +113,9 @@ import com.perseusoft.homefi.data.ShareSettings
 import com.perseusoft.homefi.data.SignalStyle
 import com.perseusoft.homefi.data.Storage
 import com.perseusoft.homefi.data.ThemeMode
+import com.perseusoft.homefi.data.UpdateStatus
+import com.perseusoft.homefi.ui.WhatsNewDialog
+import androidx.compose.foundation.layout.Spacer
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.share.net.ShareNetworkMode
 import com.perseusoft.homefi.ui.player.DanceId
@@ -224,7 +227,10 @@ private enum class SettingsPage(val title: Int, val icon: ImageVector, val keywo
             R.string.sharing_bluetooth, R.string.sharing_play_along_default, R.string.sharing_guest_opens_player,
         ),
     ),
-    ABOUT(R.string.settings_about, Icons.Rounded.Info, listOf(R.string.tidal_terms_title, R.string.tidal_terms)),
+    ABOUT(R.string.settings_about, Icons.Rounded.Info, listOf(
+        R.string.update_title, R.string.update_check_now, R.string.update_auto, R.string.update_prereleases,
+        R.string.update_keywords, R.string.tidal_terms_title, R.string.tidal_terms,
+    )),
 }
 
 /** Lower case without accents or format placeholders, so "musica" finds "música". */
@@ -292,7 +298,14 @@ fun SettingsScreen(loggedIn: Boolean, onLogin: () -> Unit, onLoggedOut: () -> Un
                         SettingsPage.AI -> aiSummary(settings.ai)
                         SettingsPage.SHARING ->
                             "${stringResource(settings.share.network.label())} · ${app.share.sessionName(settings.share)}"
-                        SettingsPage.ABOUT -> "HomeFi ${BuildConfig.VERSION_NAME}"
+                        SettingsPage.ABOUT -> {
+                            val update by app.updates.state.collectAsStateWithLifecycle()
+                            val newer = update.release?.version?.takeIf {
+                                update.status in setOf(UpdateStatus.AVAILABLE, UpdateStatus.DOWNLOADING, UpdateStatus.READY)
+                            }
+                            if (newer != null) stringResource(R.string.update_summary, BuildConfig.VERSION_NAME, newer)
+                            else "HomeFi ${BuildConfig.VERSION_NAME}"
+                        }
                     }
                 },
                 onOpen = { page = it },
@@ -638,6 +651,7 @@ private fun AboutSettings() {
         modifier = Modifier.padding(16.dp),
     )
     val settings by LocalContext.current.homefi.settings.settings.collectAsStateWithLifecycle()
+    UpdateSettingsSection()
     Header(R.string.tidal_terms_title)
     Text(
         stringResource(R.string.tidal_terms),
@@ -656,6 +670,66 @@ private fun AboutSettings() {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
     )
+}
+
+/** Settings → About → Updates: the same options as the desktop's (installing is Android's to ask). */
+@Composable
+private fun UpdateSettingsSection() {
+    val app = LocalContext.current.homefi
+    val updates = app.updates
+    val settings by app.settings.settings.collectAsStateWithLifecycle()
+    Header(R.string.update_title)
+    if (!updates.enabled) {
+        // the SR35 build (another app's id) and debug builds
+        Hint(R.string.update_usb)
+        return
+    }
+    val ui by updates.state.collectAsStateWithLifecycle()
+    var notes by remember { mutableStateOf(false) }
+    val release = ui.release
+    if (notes && release != null) WhatsNewDialog(release, onDismiss = { notes = false }, onOpenPage = updates::openPage)
+    val line = when (ui.status) {
+        UpdateStatus.CHECKING -> stringResource(R.string.update_checking)
+        UpdateStatus.UP_TO_DATE -> stringResource(R.string.update_up_to_date, BuildConfig.VERSION_NAME)
+        UpdateStatus.AVAILABLE -> stringResource(R.string.update_available, release?.version.orEmpty())
+        UpdateStatus.DOWNLOADING -> stringResource(R.string.update_downloading, release?.version.orEmpty())
+        UpdateStatus.READY -> stringResource(R.string.update_ready, release?.version.orEmpty())
+        UpdateStatus.ERROR -> ui.error ?: stringResource(R.string.update_failed, release?.version.orEmpty())
+        UpdateStatus.IDLE -> "HomeFi ${BuildConfig.VERSION_NAME}"
+    }
+    Text(line, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+    Text(
+        if (ui.lastChecked > 0) {
+            val at = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(ui.lastChecked))
+            stringResource(R.string.update_last_checked, at)
+        } else {
+            stringResource(R.string.update_never_checked)
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp),
+    )
+    Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedButton(
+            onClick = { updates.check(manual = true) },
+            enabled = ui.status != UpdateStatus.CHECKING && ui.status != UpdateStatus.DOWNLOADING,
+        ) { Text(stringResource(R.string.update_check_now)) }
+        Spacer(Modifier.width(8.dp))
+        when (ui.status) {
+            UpdateStatus.AVAILABLE -> TextButton(onClick = updates::download) { Text(stringResource(R.string.update_update)) }
+            UpdateStatus.READY -> TextButton(onClick = updates::install) { Text(stringResource(R.string.update_install)) }
+            else -> Unit
+        }
+        if (release != null && ui.status != UpdateStatus.UP_TO_DATE) {
+            TextButton(onClick = { notes = true }) { Text(stringResource(R.string.update_whats_new)) }
+        }
+    }
+    Toggle(R.string.update_auto, settings.updateAutoCheck) { v -> app.settings.update { it.copy(updateAutoCheck = v) } }
+    Hint(R.string.update_auto_hint)
+    Toggle(R.string.update_prereleases, settings.updatePrereleases) { v -> app.settings.update { it.copy(updatePrereleases = v) } }
+    Hint(R.string.update_prereleases_hint)
+    Hint(R.string.update_install_note)
+    Hint(R.string.update_privacy)
 }
 
 /** Layout and seek bar of the full-screen player, with live previews. */

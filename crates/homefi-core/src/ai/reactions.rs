@@ -4,9 +4,13 @@
 //!
 //! Without AI the steps are fixed and safe ([`STEP_DB`] per tap, capped at
 //! [`MAX_TILT_DB`]) and the rule goes to the rule shaping the music right now
-//! (else the track's main genre, artist, album or the track). With AI one short call picks the scope
-//! sensibly and words the line; its tilt is validated the same way, and any
-//! failure falls back to the fixed steps.
+//! (else the track's main genre, artist, album or the track). A step is a
+//! tilt knob, or one well-placed band where a knob is too blunt ("too boomy"
+//! cuts 120 Hz, "too bright" softens 8 kHz and the harsh 3.5 kHz edge). With
+//! AI one short call picks the scope, the change (tilt and / or curve bands)
+//! and words the line; it is validated the same way (at most
+//! [`MAX_AI_STEP_DB`] per knob or band and [`MAX_AI_BANDS_PER_TAP`] bands per
+//! tap), and any failure falls back to the fixed steps.
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -17,16 +21,21 @@ use serde_json::{json, Value};
 use super::chat::{chat, Message, Tool};
 use super::eq_assistant::{scope_arg, OutputKind};
 use super::{resolve_model, AiConfig};
+use crate::dsp::taste::hz;
 use crate::dsp::{
-    resolve_taste, safe_tilt, LoudnessMode, LoudnessSettings, NowPlayingContext, TasteCreator, TasteRule, TasteScope,
-    TasteSettings, Tilt,
+    clamp_taste_curve, resolve_taste, safe_tilt, EqBand, EqBandKind, LoudnessMode, LoudnessSettings, NowPlayingContext,
+    TasteBand, TasteCreator, TasteRule, TasteScope, TasteSettings, Tilt, MAX_TASTE_BANDS, MAX_TILT_DB,
 };
 use crate::error::Result;
 
+pub use crate::dsp::taste::tilt_words;
+
 /// dB changed per tap.
 pub const STEP_DB: f32 = 2.0;
-/// The AI may move each value at most this much per reaction.
-const MAX_AI_STEP_DB: f32 = 3.0;
+/// The AI may move each value (tilt knob or band) at most this much per reaction.
+pub const MAX_AI_STEP_DB: f32 = 3.0;
+/// Curve bands the AI may change (add, move, remove) per reaction.
+pub const MAX_AI_BANDS_PER_TAP: usize = 2;
 /// Target change (LUFS) per "too quiet" / "too loud".
 const LOUDNESS_STEP: f32 = 2.0;
 /// Undo entries kept.
@@ -187,11 +196,111 @@ pub fn react_guided(reaction: SoundReaction, ctx: &ReactionContext) -> ReactionR
                 .into();
         return out;
     };
-    let base = base_tilt(ctx, &scope);
-    let tilt = safe_tilt(base.plus(reaction.step()), ctx.small_speaker());
-    let rule = rule_for(ctx, scope, tilt, None, TasteCreator::Reaction);
-    finish(&mut out, rule, base, es);
+    let (base, base_bands) = base_curve(ctx, &scope);
+    let tilt_step = |step: Tilt| (safe_tilt(base.plus(step), ctx.small_speaker()), base_bands.clone());
+    let (tilt, bands) = match guided_move(reaction, base, &base_bands) {
+        Move::Tilt(step) => tilt_step(step),
+        Move::Band(spot, delta) => match band_step(&base_bands, spot, delta, es) {
+            Some(bands) => (base, bands),
+            // a full curve with nothing at that place: the knob instead
+            None => tilt_step(reaction.step()),
+        },
+    };
+    let rule = rule_for(ctx, scope, tilt, bands, None, TasteCreator::Reaction);
+    finish(&mut out, rule, base, &base_bands, es);
     out
+}
+
+/// A fixed place for a guided band (kind, frequency, Q).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Spot(EqBandKind, f32, f32);
+
+/// "Too boomy": the boom lives around 120 Hz.
+const BOOM: Spot = Spot(EqBandKind::Peak, 120.0, 1.0);
+/// "Too bright": the top octave and a half, gently.
+const BRIGHT: Spot = Spot(EqBandKind::HighShelf, 8_000.0, 0.7);
+/// The harsh edge (cymbals, "s", strained voices).
+const HARSH: Spot = Spot(EqBandKind::Peak, 3_500.0, 2.0);
+
+impl Spot {
+    fn band(self, gain_db: f32) -> EqBand {
+        EqBand::new(self.0, self.1, gain_db, self.2)
+    }
+
+    /// Gain of the curve's band at this place (0 when there is none).
+    fn gain_in(self, bands: &[TasteBand]) -> f32 {
+        let me = self.band(0.0);
+        bands.iter().find(|b| b.band.enabled && b.same_place(&me)).map_or(0.0, |b| b.band.gain_db)
+    }
+
+    fn note(self, cut: bool, es: bool) -> &'static str {
+        match (self, cut, es) {
+            (BOOM, true, false) => "less boom",
+            (BOOM, true, true) => "menos retumbe",
+            (BRIGHT, true, false) => "softer highs",
+            (BRIGHT, true, true) => "agudos más suaves",
+            (HARSH, true, false) => "softens the harsh edge",
+            (HARSH, true, true) => "suaviza la aspereza",
+            _ => "",
+        }
+    }
+}
+
+enum Move {
+    Tilt(Tilt),
+    Band(Spot, f32),
+}
+
+/// The fixed step of a reaction: undo the opposite change first (a bass
+/// boost before cutting the boom...), then a knob or a well-placed band.
+fn guided_move(reaction: SoundReaction, tilt: Tilt, bands: &[TasteBand]) -> Move {
+    let knob = Move::Tilt(reaction.step());
+    match reaction {
+        SoundReaction::NeedsBass if BOOM.gain_in(bands) < 0.0 => Move::Band(BOOM, STEP_DB),
+        SoundReaction::TooBoomy if tilt.bass_db <= 0.0 => Move::Band(BOOM, -STEP_DB),
+        SoundReaction::TooBright if tilt.treble_db <= 0.0 => {
+            // spread it: the shelf first, then the harsh edge, alternating
+            let (shelf, edge) = (BRIGHT.gain_in(bands), HARSH.gain_in(bands));
+            let at_limit = |g: f32| g <= -MAX_TILT_DB + 0.05;
+            let spot = match (at_limit(shelf), at_limit(edge)) {
+                (false, true) => BRIGHT,
+                (true, false) => HARSH,
+                _ if shelf.abs() <= edge.abs() => BRIGHT,
+                _ => HARSH,
+            };
+            Move::Band(spot, -STEP_DB)
+        }
+        SoundReaction::Dull if BRIGHT.gain_in(bands) < 0.0 => Move::Band(BRIGHT, STEP_DB),
+        SoundReaction::Dull if HARSH.gain_in(bands) < 0.0 => Move::Band(HARSH, STEP_DB),
+        SoundReaction::VocalsBuried if HARSH.gain_in(bands) < 0.0 => Move::Band(HARSH, STEP_DB),
+        _ => knob,
+    }
+}
+
+/// `bands` with `delta` dB at `spot` (joining the band already there, within
+/// ±[`MAX_TILT_DB`]; a band back at 0 is removed). `None` when the curve is
+/// full and has no band there.
+fn band_step(bands: &[TasteBand], spot: Spot, delta: f32, es: bool) -> Option<Vec<TasteBand>> {
+    let me = spot.band(0.0);
+    let mut out = bands.to_vec();
+    match out.iter().position(|b| b.band.enabled && b.same_place(&me)) {
+        Some(i) => {
+            let g = (out[i].band.gain_db + delta).clamp(-MAX_TILT_DB, MAX_TILT_DB);
+            if g.abs() < 0.05 {
+                out.remove(i);
+            } else {
+                out[i].band.gain_db = g;
+            }
+        }
+        None if out.len() < MAX_TASTE_BANDS => {
+            out.push(
+                TasteBand::from(spot.band(delta.clamp(-MAX_TILT_DB, MAX_TILT_DB)))
+                    .with_note(spot.note(delta < 0.0, es)),
+            );
+        }
+        None => return None,
+    }
+    Some(out)
 }
 
 /// The reaction with AI: one short call that chooses the scope and words the
@@ -218,13 +327,15 @@ async fn react_ai(reaction: SoundReaction, ctx: &ReactionContext, config: &AiCon
     }
     let es = ctx.es();
     let guided = react_guided(reaction, ctx);
+    let playing = resolve_taste(&ctx.taste, &ctx.now_playing).map(|(r, _)| r.id.clone());
     let facts = json!({
         "reaction": reaction,
         "nowPlaying": ctx.now_playing,
         "scopeHint": ctx.scope_hint,
         "builtInSpeaker": ctx.small_speaker(),
         "rules": ctx.taste.rules,
-        "suggestedByFixedSteps": guided.rule.as_ref().map(|r| json!({ "scope": r.scope, "tilt": r.tilt })),
+        "playingRuleId": playing,
+        "suggestedByFixedSteps": guided.rule.as_ref().map(|r| json!({ "scope": r.scope, "tilt": r.tilt, "bands": r.bands })),
     });
     let system = reaction_system(es, &facts);
     let tool = Tool {
@@ -248,6 +359,21 @@ async fn react_ai(reaction: SoundReaction, ctx: &ReactionContext, config: &AiCon
                         "bassDb": { "type": "number" }, "trebleDb": { "type": "number" }, "clarityDb": { "type": "number" }
                     }
                 },
+                "bands": {
+                    "type": "array",
+                    "maxItems": MAX_TASTE_BANDS,
+                    "description": "The scope's whole curve after this tap: its current bands with at most 2 changed (added, \
+                                    moved or removed) by at most 3 dB each. Omit to keep the curve as it is.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "kind": { "type": "string", "enum": ["peak", "lowShelf", "highShelf", "highPass", "lowPass"] },
+                            "freqHz": { "type": "number" }, "gainDb": { "type": "number" }, "q": { "type": "number" },
+                            "note": { "type": "string", "description": "What it does, a few words in the user's language" }
+                        },
+                        "required": ["kind", "freqHz", "gainDb", "q"]
+                    }
+                },
                 "label": { "type": "string", "description": "Short rule name in the user's language" },
                 "message": { "type": "string", "description": "One line for the user" }
             },
@@ -261,8 +387,8 @@ async fn react_ai(reaction: SoundReaction, ctx: &ReactionContext, config: &AiCon
     let Ok(scope) = scope_arg(args.get("scope")) else { return Ok(None) };
     let scope = valid_scope(scope, ctx).or_else(|| ctx.default_scope());
     let Some(scope) = scope else { return Ok(None) };
-    let base = base_tilt(ctx, &scope);
-    let wanted = args.get("tilt").map(tilt_arg).unwrap_or_default();
+    let (base, base_bands) = base_curve(ctx, &scope);
+    let wanted = args.get("tilt").map(tilt_arg).unwrap_or(base);
     // at most a few dB per tap, in range, safe for the speaker
     let step = |from: f32, to: f32| from + (to - from).clamp(-MAX_AI_STEP_DB, MAX_AI_STEP_DB);
     let tilt = Tilt {
@@ -274,18 +400,85 @@ async fn react_ai(reaction: SoundReaction, ctx: &ReactionContext, config: &AiCon
         },
     };
     let tilt = safe_tilt(tilt, ctx.small_speaker());
-    if tilt == base {
+    let bands = match args.get("bands") {
+        Some(v) => limit_band_step(&base_bands, &super::eq_assistant::bands_arg(v).0),
+        None => base_bands.clone(),
+    };
+    let (bands, tilt, _) = clamp_taste_curve(&bands, tilt, ctx.small_speaker());
+    if tilt == base && bands == base_bands {
         return Ok(None);
     }
     let label = args.get("label").and_then(Value::as_str).map(str::trim).filter(|l| !l.is_empty());
-    let rule = rule_for(ctx, scope, tilt, label.map(|l| l.chars().take(60).collect()), TasteCreator::Ai);
+    let rule = rule_for(ctx, scope, tilt, bands, label.map(|l| l.chars().take(60).collect()), TasteCreator::Ai);
     let mut out =
         ReactionResult { taste: ctx.taste.clone(), loudness: ctx.loudness, by_ai: true, ..Default::default() };
-    finish(&mut out, rule, base, es);
+    finish(&mut out, rule, base, &base_bands, es);
     if let Some(m) = args.get("message").and_then(Value::as_str).map(str::trim).filter(|m| !m.is_empty()) {
         out.message = m.lines().next().unwrap_or(m).chars().take(140).collect();
     }
     Ok(Some(out))
+}
+
+/// The model's new curve, applied to `base` one tap's worth: at most
+/// [`MAX_AI_BANDS_PER_TAP`] bands change (the biggest changes), each by at
+/// most [`MAX_AI_STEP_DB`]; the rest stays as it was.
+fn limit_band_step(base: &[TasteBand], wanted: &[TasteBand]) -> Vec<TasteBand> {
+    let gain = |b: &TasteBand| if b.band.kind.has_gain() { b.band.gain_db } else { 0.0 };
+    // (base index, wanted index, size of the change)
+    let mut used = vec![false; base.len()];
+    let mut changes: Vec<(Option<usize>, Option<usize>, f32)> = Vec::new();
+    for (wi, w) in wanted.iter().enumerate() {
+        let at = base.iter().enumerate().position(|(i, b)| !used[i] && b.same_place(&w.band));
+        let size = match at {
+            Some(bi) => {
+                used[bi] = true;
+                let b = &base[bi];
+                let moved = (w.band.freq_hz / b.band.freq_hz).log2().abs() > 0.02 || (w.band.q - b.band.q).abs() > 0.01;
+                (gain(w) - gain(b)).abs().max(if moved { 0.1 } else { 0.0 })
+            }
+            // a new pass filter counts as a change too
+            None => gain(w).abs().max(if w.band.kind.has_gain() { 0.0 } else { 1.0 }),
+        };
+        changes.push((at, Some(wi), size));
+    }
+    for (bi, b) in base.iter().enumerate().filter(|(i, _)| !used[*i]) {
+        changes.push((Some(bi), None, gain(b).abs().max(if b.band.kind.has_gain() { 0.0 } else { 1.0 })));
+    }
+    changes.retain(|c| c.2 >= 0.05);
+    changes.sort_by(|a, b| b.2.total_cmp(&a.2));
+    changes.truncate(MAX_AI_BANDS_PER_TAP);
+    let step = |d: f32| d.clamp(-MAX_AI_STEP_DB, MAX_AI_STEP_DB);
+    let mut out: Vec<Option<TasteBand>> = base.iter().cloned().map(Some).collect();
+    let mut added = Vec::new();
+    for (bi, wi, _) in changes {
+        match (bi, wi) {
+            (Some(bi), Some(wi)) => {
+                let (b, w) = (&base[bi], &wanted[wi]);
+                let mut next = w.clone();
+                next.band.gain_db = gain(b) + step(gain(w) - gain(b));
+                if next.note.is_empty() {
+                    next.note = b.note.clone();
+                }
+                out[bi] = Some(next);
+            }
+            (None, Some(wi)) => {
+                let mut next = wanted[wi].clone();
+                next.band.gain_db = step(gain(&next));
+                added.push(next);
+            }
+            (Some(bi), None) => {
+                let b = &base[bi];
+                let left = gain(b) - step(gain(b));
+                out[bi] = (b.band.kind.has_gain() && left.abs() >= 0.05).then(|| {
+                    let mut kept = b.clone();
+                    kept.band.gain_db = left;
+                    kept
+                });
+            }
+            (None, None) => {}
+        }
+    }
+    out.into_iter().flatten().chain(added).take(MAX_TASTE_BANDS).collect()
 }
 
 /// Each reaction with its label in the user's language and the usual change
@@ -294,12 +487,17 @@ fn reaction_examples(es: bool) -> String {
     let rows = [
         (
             SoundReaction::NeedsBass,
-            "bassDb +2..3 (built-in speaker: the app lifts 200 Hz instead, at most +3 in total)",
+            "bassDb +2..3 (built-in speaker: the app lifts 200 Hz instead, at most +3 in total); first undo a cut band \
+             around 100-150 Hz if the curve has one",
         ),
-        (SoundReaction::TooBoomy, "bassDb -2..3"),
-        (SoundReaction::TooBright, "trebleDb -2 (and clarityDb -1 if the voices are the harsh part)"),
-        (SoundReaction::Dull, "trebleDb +2"),
-        (SoundReaction::VocalsBuried, "clarityDb +1.5..2"),
+        (SoundReaction::TooBoomy, "bassDb -2..3 if the tilt boosts bass, else a band: peak 120-150 Hz -2 dB, Q 1"),
+        (
+            SoundReaction::TooBright,
+            "trebleDb -2 (and clarityDb -1 if the voices are the harsh part), or bands: highShelf 8 kHz -2 dB Q 0.7 for \
+             brightness, peak 3-4 kHz -2 dB Q 2 for a harsh edge, peak 6-8 kHz -2 dB Q 4 for sibilance",
+        ),
+        (SoundReaction::Dull, "trebleDb +2, or raise a treble cut band of the curve first, or highShelf 9 kHz +1.5 dB"),
+        (SoundReaction::VocalsBuried, "clarityDb +1.5..2, or peak 2 kHz +1.5 dB Q 1 (raise a 3-4 kHz cut first)"),
     ];
     rows.iter()
         .map(|(r, change)| {
@@ -316,12 +514,16 @@ fn reaction_system(es: bool, facts: &Value) -> String {
     format!(
         "You adjust the sound of HomeFi, a music player, from one tap of the listener (\"how does it sound?\"). Call \
 set_taste_rule exactly once: pick the scope (the scope hint if there is one; else usually the main genre; the artist, album \
-or track when the rules show the genre already sounds right for other music), and the new tilt: the current one of that scope \
-(or the rule in effect) moved 1 to 3 dB in the direction of the reaction. Bass is a low shelf at 105 Hz, treble a high shelf \
-at 10 kHz, clarity a wide peak at 3 kHz. On a built-in speaker never add more than +3 dB of bass. Usual changes per tap \
-(gentle; the app allows at most {MAX_AI_STEP_DB} dB per tap):
+or track when the rules show the genre already sounds right for other music), and the change, starting from the current \
+tilt and curve of that scope (or of the rule in effect, `playingRuleId`): move the tilt 1 to 3 dB in the direction of the \
+reaction, and / or send `bands`, the scope's whole curve with at most {MAX_AI_BANDS_PER_TAP} bands changed. Bass is a low \
+shelf at 105 Hz, treble a high shelf at 10 kHz, clarity a wide peak at 3 kHz; bands are for anything more precise. Edit a \
+band that is already there instead of adding another at the same place; prefer cuts. On a built-in speaker never add more \
+than +3 dB of bass, nor boost below 150 Hz. Usual changes per tap (gentle; the app allows at most {MAX_AI_STEP_DB} dB per \
+tap, per knob or band):
 {examples}
-`message`: one short line in {language} saying what changed and for which music. Facts (JSON): {facts}"
+`message`: one short line in {language} saying what changed and for which music (\"-2 dB at 3.5 kHz for Rock: softer \
+cymbals\"). Facts (JSON): {facts}"
     )
 }
 
@@ -338,12 +540,12 @@ fn valid_scope(scope: TasteScope, ctx: &ReactionContext) -> Option<TasteScope> {
         .find(|s| s.same_as(&scope))
 }
 
-/// The tilt to start from: the scope's own rule, else the one playing now
-/// (so a narrower rule doesn't lose what a broader one did).
-fn base_tilt(ctx: &ReactionContext, scope: &TasteScope) -> Tilt {
+/// The tilt and curve to start from: the scope's own rule, else the one
+/// playing now (so a narrower rule doesn't lose what a broader one did).
+fn base_curve(ctx: &ReactionContext, scope: &TasteScope) -> (Tilt, Vec<TasteBand>) {
     match ctx.taste.rule_for(scope) {
-        Some(r) => r.tilt,
-        None => resolve_taste(&ctx.taste, &ctx.now_playing).map(|(_, t)| t).unwrap_or_default(),
+        Some(r) => (r.tilt, r.bands.clone()),
+        None => resolve_taste(&ctx.taste, &ctx.now_playing).map(|(r, t)| (t, r.bands.clone())).unwrap_or_default(),
     }
 }
 
@@ -351,19 +553,20 @@ fn rule_for(
     ctx: &ReactionContext,
     scope: TasteScope,
     tilt: Tilt,
+    bands: Vec<TasteBand>,
     label: Option<String>,
     by: TasteCreator,
 ) -> TasteRule {
     let es = ctx.es();
-    let label = label.unwrap_or_else(|| describe(&scope, tilt, es));
+    let label = label.unwrap_or_else(|| describe_curve(&scope, tilt, &bands, es));
     match ctx.taste.rule_for(&scope) {
         // keep its id and who made it first (a manual rule stays manual)
-        Some(old) => TasteRule { tilt, label, enabled: true, ..old.clone() },
-        None => TasteRule::new(scope, tilt, label, by),
+        Some(old) => TasteRule { tilt, bands, label, enabled: true, ..old.clone() },
+        None => TasteRule { bands, ..TasteRule::new(scope, tilt, label, by) },
     }
 }
 
-fn finish(out: &mut ReactionResult, rule: TasteRule, before: Tilt, es: bool) {
+fn finish(out: &mut ReactionResult, rule: TasteRule, before: Tilt, before_bands: &[TasteBand], es: bool) {
     let stored = out.taste.upsert(rule);
     out.taste.enabled = true;
     let change = Tilt {
@@ -371,20 +574,65 @@ fn finish(out: &mut ReactionResult, rule: TasteRule, before: Tilt, es: bool) {
         treble_db: stored.tilt.treble_db - before.treble_db,
         clarity_db: Some(stored.tilt.clarity_db.unwrap_or(0.0) - before.clarity_db.unwrap_or(0.0)),
     };
+    let mut words = Vec::new();
+    if !change.is_neutral() {
+        words.push(tilt_words(change, es));
+    }
+    words.extend(band_changes(before_bands, &stored.bands, es));
     let name = stored.scope.name().to_owned();
-    out.message = if change.is_neutral() {
+    out.message = if words.is_empty() {
         if es {
             format!("Ya está al máximo seguro para {name}.")
         } else {
             format!("That's already the safe limit for {name}.")
         }
     } else if es {
-        format!("{} para {name}.", capitalize(&tilt_words(change, true)))
+        format!("{} para {name}.", capitalize(&words.join(", ")))
     } else {
-        format!("{} for {name}.", capitalize(&tilt_words(change, false)))
+        format!("{} for {name}.", capitalize(&words.join(", ")))
     };
     out.rule = Some(stored);
     out.undo_token = new_token();
+}
+
+/// What changed in a curve: `-2 dB at 8 kHz`, `high-pass at 80 Hz` / `-2 dB en 8 kHz`.
+fn band_changes(before: &[TasteBand], after: &[TasteBand], es: bool) -> Vec<String> {
+    let gain = |b: &EqBand| if b.kind.has_gain() { b.gain_db } else { 0.0 };
+    let words = |b: &EqBand, delta: f32| -> Option<String> {
+        if !b.kind.has_gain() {
+            let what = match (b.kind == EqBandKind::HighPass, es) {
+                (true, false) => "high-pass",
+                (true, true) => "paso alto",
+                (false, false) => "low-pass",
+                (false, true) => "paso bajo",
+            };
+            return Some(format!("{what} {} {}", if es { "en" } else { "at" }, hz(b.freq_hz)));
+        }
+        (delta.abs() >= 0.05).then(|| {
+            let v = format!("{delta:+.1}").replace(".0", "");
+            format!("{v} dB {} {}", if es { "en" } else { "at" }, hz(b.freq_hz))
+        })
+    };
+    let mut out = Vec::new();
+    let mut matched = vec![false; before.len()];
+    for a in after {
+        let at = before.iter().enumerate().position(|(i, b)| !matched[i] && a.same_place(&b.band));
+        match at {
+            Some(i) => {
+                matched[i] = true;
+                if a.band.kind.has_gain() {
+                    out.extend(words(&a.band, gain(&a.band) - gain(&before[i].band)));
+                }
+            }
+            None => out.extend(words(&a.band, gain(&a.band))),
+        }
+    }
+    for (b, _) in before.iter().zip(&matched).filter(|(_, m)| !**m) {
+        if b.band.kind.has_gain() {
+            out.extend(words(&b.band, -gain(&b.band)));
+        }
+    }
+    out
 }
 
 fn loudness_step(reaction: SoundReaction, l: LoudnessSettings) -> LoudnessSettings {
@@ -426,22 +674,52 @@ fn tilt_arg(v: &Value) -> Tilt {
     }
 }
 
-/// `+2 dB bass, -1 dB treble` / `+2 dB de bajo, -1 dB de agudos`.
-pub fn tilt_words(t: Tilt, es: bool) -> String {
-    let mut parts = Vec::new();
-    let mut push = |db: f32, en: &str, es_word: &str| {
-        if db.abs() >= 0.05 {
-            let v = format!("{db:+.1}").replace(".0", "");
-            parts.push(if es { format!("{v} dB de {es_word}") } else { format!("{v} dB {en}") });
+/// A rule's default label from its biggest change, a tilt knob or a curve
+/// band: "Less harsh · Rock" / "Menos áspero · Rock".
+pub fn describe_curve(scope: &TasteScope, t: Tilt, bands: &[TasteBand], es: bool) -> String {
+    let knob = [t.bass_db.abs(), t.treble_db.abs(), t.clarity_db.unwrap_or(0.0).abs()].into_iter().fold(0f32, f32::max);
+    let biggest = bands
+        .iter()
+        .map(|b| &b.band)
+        .filter(|b| b.kind.has_gain() && !b.is_neutral())
+        .max_by(|a, b| a.gain_db.abs().total_cmp(&b.gain_db.abs()));
+    let what = match biggest {
+        Some(b) if b.gain_db.abs() > knob => band_label(b, es),
+        None if knob < 0.05 && bands.iter().any(|b| b.band.enabled && b.band.kind == EqBandKind::HighPass) => {
+            if es {
+                "Bajo más limpio"
+            } else {
+                "Cleaner bass"
+            }
         }
+        _ => return describe(scope, t, es),
     };
-    push(t.bass_db, "bass", "bajo");
-    push(t.treble_db, "treble", "agudos");
-    push(t.clarity_db.unwrap_or(0.0), "clarity", "claridad");
-    if parts.is_empty() {
-        return if es { "sin cambios" } else { "no change" }.into();
+    format!("{what} · {}", scope.name())
+}
+
+fn band_label(b: &EqBand, es: bool) -> &'static str {
+    let up = b.gain_db > 0.0;
+    let f = b.freq_hz;
+    match (f, up, es) {
+        (f, true, false) if f < 250.0 => "More bass",
+        (f, true, true) if f < 250.0 => "Más bajo",
+        (f, false, false) if f < 250.0 => "Tighter bass",
+        (f, false, true) if f < 250.0 => "Bajo más firme",
+        (f, true, false) if f < 1000.0 => "Fuller mids",
+        (f, true, true) if f < 1000.0 => "Medios más llenos",
+        (f, false, false) if f < 1000.0 => "Cleaner mids",
+        (f, false, true) if f < 1000.0 => "Medios más limpios",
+        (f, true, false) if f < 5000.0 => "Clearer vocals",
+        (f, true, true) if f < 5000.0 => "Voces más claras",
+        (f, false, false) if f < 5000.0 => "Less harsh",
+        (f, false, true) if f < 5000.0 => "Menos áspero",
+        (f, false, false) if f < 9000.0 && b.kind == EqBandKind::Peak => "Softer s's",
+        (f, false, true) if f < 9000.0 && b.kind == EqBandKind::Peak => "Eses más suaves",
+        (_, true, false) => "More air",
+        (_, true, true) => "Más aire",
+        (_, false, false) => "Softer highs",
+        (_, false, true) => "Agudos más suaves",
     }
-    parts.join(", ")
 }
 
 /// A rule's default label: "More bass · Electronic" / "Más bajo · Electronic".
@@ -520,7 +798,7 @@ impl UndoStack {
 mod tests {
     use super::*;
     use crate::ai::AiProvider;
-    use crate::dsp::{ItemRef, SourceContext, MAX_TILT_DB};
+    use crate::dsp::{ItemRef, SourceContext};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -571,10 +849,111 @@ mod tests {
         let r = react_guided(SoundReaction::TooBright, &c);
         let rule = r.rule.unwrap();
         assert_eq!(rule.scope.kind(), "album");
-        // keeps the genre's +2 bass, adds -2 treble
-        assert_eq!((rule.tilt.bass_db, rule.tilt.treble_db), (2.0, -2.0));
-        assert_eq!(r.message, "-2 dB de agudos para Homework.");
+        // keeps the genre's +2 bass, softens the top with a band
+        assert_eq!((rule.tilt.bass_db, rule.tilt.treble_db), (2.0, 0.0));
+        assert_eq!(rule.bands.len(), 1);
+        let b = rule.bands[0].band;
+        assert_eq!((b.kind, b.freq_hz, b.gain_db), (EqBandKind::HighShelf, 8000.0, -STEP_DB));
+        assert_eq!(rule.bands[0].note, "agudos más suaves");
+        assert_eq!(r.message, "-2 dB en 8 kHz para Homework.");
         assert_eq!(r.taste.rules.len(), 2);
+    }
+
+    #[test]
+    fn guided_bands_go_where_a_knob_is_too_blunt() {
+        let mut c = ctx("en");
+        let tap = |c: &mut ReactionContext, r: SoundReaction| {
+            let out = react_guided(r, c);
+            c.taste = out.taste.clone();
+            out
+        };
+        // too bright: the 8 kHz shelf, then the harsh 3.5 kHz edge, alternating
+        let r = tap(&mut c, SoundReaction::TooBright);
+        assert_eq!(r.message, "-2 dB at 8 kHz for Electronic.");
+        let r = tap(&mut c, SoundReaction::TooBright);
+        assert_eq!(r.message, "-2 dB at 3.5 kHz for Electronic.");
+        let rule = r.rule.unwrap();
+        assert_eq!(rule.bands.len(), 2);
+        assert_eq!((rule.bands[1].band.kind, rule.bands[1].band.q), (EqBandKind::Peak, 2.0));
+        assert_eq!(rule.label, "Less harsh · Electronic");
+        for _ in 0..10 {
+            tap(&mut c, SoundReaction::TooBright);
+        }
+        let bands = &c.taste.rules[0].bands;
+        assert_eq!(bands.len(), 2, "taps join the same bands");
+        assert!(bands.iter().all(|b| b.band.gain_db == -MAX_TILT_DB), "{bands:?}");
+        // dull undoes the shelf cut first
+        let r = tap(&mut c, SoundReaction::Dull);
+        assert_eq!(r.message, "+2 dB at 8 kHz for Electronic.");
+        assert_eq!(c.taste.rules[0].tilt.treble_db, 0.0);
+        // too boomy without a bass boost: a cut at 120 Hz; more bass takes it back out
+        let mut c = ctx("en");
+        let r = tap(&mut c, SoundReaction::TooBoomy);
+        assert_eq!(r.message, "-2 dB at 120 Hz for Electronic.");
+        let r = tap(&mut c, SoundReaction::NeedsBass);
+        assert!(r.rule.unwrap().bands.is_empty(), "back at 0: the band goes");
+        assert_eq!(c.taste.rules[0].tilt.bass_db, 0.0);
+    }
+
+    #[tokio::test]
+    async fn ai_curves_change_two_bands_a_tap_at_most() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "content": [{"type": "tool_use", "id": "c1", "name": "set_taste_rule", "input": {
+                    "scope": {"kind": "genre", "name": "Electronic"},
+                    "bands": [
+                        {"kind": "peak", "freqHz": 3400, "gainDb": -8, "q": 2.5, "note": "menos filo"},
+                        {"kind": "peak", "freqHz": 7000, "gainDb": -2, "q": 4},
+                        {"kind": "highShelf", "freqHz": 9000, "gainDb": -1, "q": 0.7},
+                        {"kind": "bell", "freqHz": 60, "gainDb": 1, "q": 1}
+                    ],
+                    "message": "Menos filo para Electronic."
+                }}],
+                "stop_reason": "tool_use"
+            })))
+            .mount(&server)
+            .await;
+        let config = AiConfig::new(AiProvider::Anthropic, "m", Some("k".into())).with_base_url(server.uri());
+        let mut c = ctx("es");
+        // the genre already has a 3.5 kHz cut
+        c.taste.upsert(
+            TasteRule::new(TasteScope::Genre { name: "Electronic".into() }, Tilt::default(), "x", TasteCreator::Manual)
+                .with_bands(vec![TasteBand::new(EqBandKind::Peak, 3500.0, -2.0, 2.0)]),
+        );
+        let r = react(SoundReaction::TooBright, &c, Some(&config)).await;
+        assert!(r.by_ai, "{}", r.message);
+        let rule = r.rule.unwrap();
+        assert_eq!(rule.created_by, TasteCreator::Manual, "a manual rule stays manual");
+        // the two biggest changes: the existing cut (-6 → capped at -3 more) and the new 7 kHz cut
+        assert_eq!(rule.bands.len(), 2, "{:?}", rule.bands);
+        assert_eq!(rule.bands[0].band.gain_db, -5.0);
+        assert_eq!(rule.bands[0].band.freq_hz, 3400.0);
+        assert_eq!(rule.bands[0].note, "menos filo");
+        assert_eq!((rule.bands[1].band.freq_hz, rule.bands[1].band.gain_db), (7000.0, -2.0));
+        assert_eq!(r.message, "Menos filo para Electronic.");
+    }
+
+    #[test]
+    fn band_steps_are_limited() {
+        let base = vec![
+            TasteBand::new(EqBandKind::Peak, 100.0, -6.0, 1.0),
+            TasteBand::new(EqBandKind::HighPass, 40.0, 0.0, 0.7),
+        ];
+        // the model drops everything: the cut eases by 3 dB, the high-pass (1 change) goes too
+        let out = limit_band_step(&base, &[]);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].band.gain_db, -3.0);
+        // nothing changes: the same curve
+        assert_eq!(limit_band_step(&base, &base), base);
+        let words = band_changes(&base, &out, false);
+        assert_eq!(words, ["+3 dB at 100 Hz"]);
+        assert_eq!(band_changes(&[], &base[1..], true), ["paso alto en 40 Hz"]);
+        assert_eq!(
+            describe_curve(&TasteScope::Genre { name: "Rock".into() }, Tilt::default(), &base, true),
+            "Bajo más firme · Rock"
+        );
     }
 
     #[test]

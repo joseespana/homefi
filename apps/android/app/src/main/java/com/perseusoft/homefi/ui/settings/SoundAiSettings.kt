@@ -9,7 +9,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -142,6 +144,22 @@ internal fun SoundSettings() {
     Hint(R.string.sound_settings_layer_chip_hint)
     Toggle(R.string.sound_settings_suggestions, appSettings.soundSuggestions) { v -> app.settings.update { it.copy(soundSuggestions = v) } }
     Hint(R.string.sound_settings_suggestions_hint)
+    Text(
+        stringResource(R.string.taste_editor_setting),
+        style = MaterialTheme.typography.bodyLarge,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp),
+    )
+    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp)) {
+        listOf("auto" to R.string.taste_editor_auto, "simple" to R.string.taste_mode_simple, "advanced" to R.string.taste_mode_advanced).forEach { (id, label) ->
+            SelectChip(
+                selected = appSettings.tasteEditor == id,
+                onClick = { haptics.tick(); app.settings.update { it.copy(tasteEditor = id) } },
+                label = { Text(stringResource(label)) },
+                modifier = Modifier.padding(end = 8.dp),
+            )
+        }
+    }
+    Hint(R.string.taste_editor_setting_hint)
 }
 
 @Composable

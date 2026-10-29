@@ -10,9 +10,10 @@
   import Icon from "../Icon.svelte";
   import EqGraph from "./EqGraph.svelte";
   import SuggestionCard from "../sound/SuggestionCard.svelte";
-  import { sound, tiltWords } from "../../lib/sound.svelte";
+  import TasteProposal from "../sound/TasteProposal.svelte";
+  import { ruleWords, sound } from "../../lib/sound.svelte";
 
-  type Msg = { id: number; from: "bot" | "me" | "error"; text: string; proposal?: EqProposal; before?: EqProfile | null; settled?: boolean; retry?: () => void };
+  type Msg = { id: number; from: "bot" | "me" | "error"; text: string; proposal?: EqProposal; before?: EqProfile | null; tasteProposal?: TasteRule; settled?: boolean; retry?: () => void };
 
   const lang = uiLanguage();
   let providers = $state<AiProviderInfo[]>([]);
@@ -51,7 +52,7 @@
     // the card repeats the explanation only when the text doesn't say it already
     const shown = p && !turn.confirmed ? p : undefined;
     // "before" is what the output plays with now, kept as it was when proposed
-    push({ from: "bot", text: turn.text, proposal: shown, before: shown ? beforeOf(shown.output_id) : null });
+    push({ from: "bot", text: turn.text, proposal: shown, before: shown ? beforeOf(shown.output_id) : null, tasteProposal: turn.taste_proposal ?? undefined });
     quick = turn.quick_replies;
     done = turn.done;
     if (turn.confirmed && p) {
@@ -61,9 +62,10 @@
       if (turn.done) jump = setTimeout(() => openEq(), 2200);
     }
     if (turn.taste) {
-      const before = new Set(rulesBefore.map((r) => `${r.id}:${JSON.stringify(r.tilt)}`));
-      const changed = turn.taste.rules.filter((r) => !before.has(`${r.id}:${JSON.stringify(r.tilt)}`));
-      tasteSaved = changed.length ? changed.map((r) => `${r.label} (${tiltWords(r.tilt)})`).join(" · ") : "Your taste layers were updated";
+      const key = (r: TasteRule) => `${r.id}:${JSON.stringify(r.tilt)}:${JSON.stringify(r.bands ?? [])}`;
+      const before = new Set(rulesBefore.map(key));
+      const changed = turn.taste.rules.filter((r) => !before.has(key(r)));
+      tasteSaved = changed.length ? changed.map((r) => `${r.label} (${ruleWords(r)})`).join(" · ") : "Your taste layers were updated";
     }
     if (turn.loudness) tasteSaved = [tasteSaved, `Loudness: ${turn.loudness.mode}`].filter(Boolean).join(" · ");
   }
@@ -88,6 +90,15 @@
   $effect(() => {
     const n = sound.assistantNotes;
     if (n) untrack(() => ((notes = n), (sound.assistantNotes = null), (phase = "intro")));
+  });
+  // "Ask the AI to refine" a rule: the AI starts from its curve right away
+  let focus = $state<string | null>(null);
+  $effect(() => {
+    const f = sound.assistantFocus;
+    if (f) untrack(() => ((focus = f), (sound.assistantFocus = null), (phase = "intro")));
+  });
+  $effect(() => {
+    if (focus && loaded && aiReady && phase === "intro") untrack(() => start(false));
   });
 
   /** The rules before the last request, to say which ones the turn changed. */
@@ -114,7 +125,9 @@
     done = false;
     applied = null;
     tasteSaved = null;
-    run(() => api.eqAssistantStart(asGuided, lang, notes.trim() || null));
+    const f = asGuided ? null : focus;
+    focus = null;
+    run(() => api.eqAssistantStart(asGuided, lang, notes.trim() || null, f));
   }
 
   function send(reply: string) {
@@ -122,7 +135,7 @@
     if (!t || thinking) return;
     text = "";
     // answering settles the proposal on the table
-    messages = messages.map((m) => (m.proposal ? { ...m, settled: true } : m));
+    messages = messages.map((m) => (m.proposal || m.tasteProposal ? { ...m, settled: true } : m));
     push({ from: "me", text: t });
     run(() => api.eqAssistantReply(t));
   }
@@ -147,7 +160,7 @@
   }
 
   // with a proposal card on the table its own Apply button stands for the "Apply" reply
-  const pending = $derived(messages.some((m) => m.proposal && !m.settled));
+  const pending = $derived(messages.some((m) => (m.proposal || m.tasteProposal) && !m.settled));
   const chips = $derived(pending ? quick.filter((q) => !/^(apply|aplicar)$/i.test(q.trim())) : quick);
 
   function beforeOf(output: string): EqProfile | null {
@@ -230,6 +243,9 @@
                   <span class="text">{m.text}</span>
                   {#if m.retry && m.id === messages[messages.length - 1].id}<button class="link" onclick={() => ((messages = messages.filter((x) => x.id !== m.id)), m.retry?.())}>Try again</button>{/if}
                 </div>
+              {/if}
+              {#if m.tasteProposal}
+                <TasteProposal rule={m.tasteProposal} open={!m.settled && !done} busy={thinking} onapply={() => send(lang === "es" ? "Sí, aplícalo" : "Yes, apply it")} onkeep={() => keepTalking(m)} />
               {/if}
               {#if m.proposal}
                 {@const p = m.proposal}

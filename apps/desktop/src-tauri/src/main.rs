@@ -9,6 +9,7 @@ mod settings;
 mod share;
 mod sound;
 mod stream;
+mod updater;
 
 use std::sync::{Arc, Mutex};
 
@@ -119,6 +120,7 @@ fn main() {
         sound::output_options_get,
         sound::output_options_set,
         sound::sound_now,
+        sound::taste_preview,
         sound::sound_react,
         sound::sound_undo,
         sound::taste_suggest,
@@ -147,10 +149,17 @@ fn main() {
         share::share_play_along,
         share::share_probe,
         share::share_parse_link,
+        updater::update_status,
+        updater::update_check,
+        updater::update_download,
+        updater::update_restart,
+        updater::update_dismiss,
     ]);
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        // in-app updates (Rust side only: the webview gets no updater permission)
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // cover://localhost/<url-encoded path>: embedded (or folder) cover art of a local file
         .register_asynchronous_uri_scheme_protocol("cover", |_ctx, request, responder| {
             let path = percent_decode(request.uri().path().trim_start_matches('/'));
@@ -199,6 +208,7 @@ fn main() {
                         let track = snapshot.current.and_then(|i| snapshot.queue.get(i)).and_then(|p| state.track(p));
                         media::update(&app, &snapshot, track.clone());
                         share::on_player(&app, &snapshot);
+                        updater::on_player(&app, &snapshot);
                         let _ = app.emit("player", PlayerView { snapshot, track });
                     })
                     .await;
@@ -235,6 +245,8 @@ fn main() {
             app.manage(share::Share::default());
             media::init(app.handle(), player);
             share::init(app.handle());
+            app.manage(updater::Updates::new(&app_dir, app.package_info().version.to_string()));
+            tauri::async_runtime::spawn(updater::run(app.handle().clone()));
 
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(commands::download_worker(handle.clone(), jobs_rx));

@@ -62,8 +62,15 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.perseusoft.homefi.R
+import androidx.compose.runtime.remember
+import com.perseusoft.homefi.core.EqProfile
 import com.perseusoft.homefi.core.EqProposal
+import com.perseusoft.homefi.core.EqSource
+import com.perseusoft.homefi.core.TasteRule
+import com.perseusoft.homefi.core.tasteCombinedProfile
+import com.perseusoft.homefi.core.tasteCurveProfile
 import com.perseusoft.homefi.homefi
+import com.perseusoft.homefi.ui.sound.phrase
 import com.perseusoft.homefi.ui.haptics
 import com.perseusoft.homefi.ui.theme.Button
 import com.perseusoft.homefi.ui.theme.Card
@@ -89,7 +96,7 @@ fun AssistantScreen(onClose: () -> Unit, onEqualizer: () -> Unit, vm: AssistantV
     var text by rememberSaveable { mutableStateOf("") }
 
     // new messages, the typing dots and the proposal scroll into view
-    val count = ui.lines.size + (if (ui.typing) 1 else 0) + (if (ui.proposal != null && !ui.proposalAside) 1 else 0) + (if (ui.error != null) 1 else 0)
+    val count = ui.lines.size + (if (ui.typing) 1 else 0) + (if (ui.proposal != null && !ui.proposalAside) 1 else 0) + (if (ui.tasteProposal != null) 1 else 0) + (if (ui.error != null) 1 else 0)
     LaunchedEffect(count, ui.applied) {
         if (count > 0) list.animateScrollToItem(list.layoutInfo.totalItemsCount.coerceAtLeast(1) - 1)
     }
@@ -141,6 +148,17 @@ fun AssistantScreen(onClose: () -> Unit, onEqualizer: () -> Unit, vm: AssistantV
                         before = before,
                         outputName = proposal.outputId.ifBlank { null }?.let { outputLabel(it, connected) } ?: stringResource(R.string.eq_output_default),
                         onApply = { haptics.confirm(); vm.apply() },
+                        onKeepTalking = { haptics.tick(); vm.keepTalking() },
+                        modifier = chatMotion(),
+                    )
+                }
+            }
+            ui.tasteProposal?.let { rule ->
+                item(key = "taste-proposal-${rule.id}") {
+                    TasteProposalCard(
+                        rule = rule,
+                        enabled = !ui.typing,
+                        onApply = { haptics.confirm(); vm.applyTaste() },
                         onKeepTalking = { haptics.tick(); vm.keepTalking() },
                         modifier = chatMotion(),
                     )
@@ -300,6 +318,57 @@ private fun ProposalCard(
                 OutlinedButton(onClick = onKeepTalking) { Text(stringResource(R.string.assistant_keep_talking)) }
                 Spacer(Modifier.width(8.dp))
                 Button(onClick = onApply) { Text(stringResource(R.string.assistant_apply)) }
+            }
+        }
+    }
+}
+
+/**
+ * A taste layer the assistant proposes (not saved yet): its curve over the output's own
+ * profile (faint), what plays with both (dashed), each band with its one-line reason.
+ */
+@Composable
+private fun TasteProposalCard(rule: TasteRule, enabled: Boolean, onApply: () -> Unit, onKeepTalking: () -> Unit, modifier: Modifier) {
+    val app = LocalContext.current.homefi
+    val scheme = MaterialTheme.colorScheme
+    val device = remember { app.sound.deviceProfile() }
+    val small = remember { app.sound.smallSpeaker() }
+    val curve = remember(rule) { runCatching { tasteCurveProfile(rule) }.getOrNull() }
+    val combined = remember(rule, device) { runCatching { tasteCombinedProfile(device, rule, small) }.getOrNull() }
+    val points = remember(rule) { EqProfile(name = "", preampDb = 0f, bands = rule.bands.map { it.band }, source = EqSource.Manual) }
+    Card(modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Text(stringResource(R.string.taste_proposal_title, rule.scope.phrase()), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text(rule.label, style = MaterialTheme.typography.bodySmall, color = scheme.primary)
+            Spacer(Modifier.height(8.dp))
+            EqCurve(profile = points, curve = curve, background = device, compare = combined, maxRange = 12f, modifier = Modifier.fillMaxWidth().height(140.dp))
+            Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Legend(scheme.primary, stringResource(R.string.taste_legend_layer), dashed = false)
+                Spacer(Modifier.width(16.dp))
+                Legend(scheme.onSurfaceVariant, stringResource(R.string.taste_legend_sum), dashed = true)
+            }
+            rule.bands.forEachIndexed { i, b ->
+                val band = b.band
+                val what = buildList {
+                    if (band.kind.hasGain()) add(stringResource(R.string.eq_db, formatDb(band.gainDb))) else add(stringResource(band.kind.labelRes()))
+                    add("${formatHz(band.freqHz)} Hz")
+                    add("Q %.1f".format(band.q))
+                }.joinToString(" · ")
+                Row(Modifier.padding(top = 6.dp)) {
+                    Text("${i + 1}", style = MaterialTheme.typography.labelMedium, color = scheme.primary, modifier = Modifier.width(18.dp))
+                    Column {
+                        Text(what, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                        if (b.note.isNotBlank()) Text(b.note, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                    }
+                }
+            }
+            if (rule.explanation.isNotBlank()) {
+                Text(rule.explanation, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp))
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.End) {
+                OutlinedButton(onClick = onKeepTalking, enabled = enabled) { Text(stringResource(R.string.taste_proposal_keep)) }
+                Spacer(Modifier.width(8.dp))
+                Button(onClick = onApply, enabled = enabled) { Text(stringResource(R.string.taste_proposal_apply)) }
             }
         }
     }

@@ -30,6 +30,8 @@
   import SoundFor from "./components/sound/SoundFor.svelte";
   import { sound } from "./lib/sound.svelte";
   import Notifications from "./components/Notifications.svelte";
+  import UpdateBanner from "./components/UpdateBanner.svelte";
+  import { updates } from "./lib/update.svelte";
   import { fillsRoom, layoutOf, skinOf } from "./lib/layouts";
   import { share } from "./lib/share.svelte";
   import { shownSource } from "./lib/source.svelte";
@@ -47,6 +49,7 @@
   $effect(() => {
     app.init().then(() => {
       share.init();
+      updates.init();
       // dev: open a view from the URL, e.g. http://localhost:1420/#albums
       if (import.meta.env.DEV && location.hash.length > 1) app.view = { name: location.hash.slice(1) } as typeof app.view;
       ready = true;
@@ -218,6 +221,7 @@
 {#if share.joinForm}<JoinDialog />{/if}
 {#if offerHere}<NearbyBanner />{/if}
 {#if sound.forScope}<SoundFor />{/if}
+{#if updates.banner}<UpdateBanner />{/if}
 {#if app.confirmDialog}<ConfirmDialog />{/if}
 <Notifications />
 

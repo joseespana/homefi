@@ -37,6 +37,15 @@
     "linux": {
       "deb": { "depends": ["libasound2"] },
       "rpm": { "depends": ["alsa-lib"] }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA0REY3REI4N0RCNUEyM0EKUldRNm9yVjl1SDNmQkFkWE1ZeGZIcnVjdzVXNFpWZk90KzZiYkJsMlN5OG0zN1RXVkJLWUNMWlAK",
+      "endpoints": ["https://github.com/joseespana/homefi/releases/latest/download/latest.json"],
+      "requireSignedVersion": true,
+      "windows": { "installMode": "passive" }
     }
   }
 }

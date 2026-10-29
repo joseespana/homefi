@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  import { api, type EqProfile, type OutputDevice } from "../lib/api";
+  import { api, type EqProfile, type OutputDevice, type TasteRule } from "../lib/api";
 
   // what the tooltips fetch once and keep: a profile's curve, the outputs' rates
   const curves = new Map<string, Promise<number[]>>();
@@ -48,13 +48,14 @@
     speaker: "Speakers",
   };
 
-  function curveOf(profile: EqProfile, rate: number, tilt: { bassDb: number; trebleDb: number; clarityDb?: number | null } | null): Promise<number[]> {
-    const key = JSON.stringify([profile, rate, tilt]);
+  function curveOf(profile: EqProfile, rate: number, rule: TasteRule | null): Promise<number[]> {
+    const key = JSON.stringify([profile, rate, rule?.tilt, rule?.bands]);
     let c = curves.get(key);
     if (!c) {
       c = (async () => {
         const freqs = Array.from({ length: 48 }, (_, i) => 20 * Math.pow(1000, i / 47));
-        const p = tilt ? await api.eqWithTaste(profile, tilt) : profile;
+        // the taste curve's bands play too: the core combines them as the player does
+        const p = rule?.bands?.length ? (await api.tastePreview(rule)).combined : rule ? await api.eqWithTaste(profile, rule.tilt) : profile;
         return api.eqResponse(p, freqs, rate);
       })();
       c.catch(() => curves.delete(key));
@@ -75,7 +76,7 @@
   // Settings → Listening room → Signal chain (and the room's Customize menu).
   import { khz, outputIcon, type PlayerState } from "../lib/api";
   import { flatProfile, formatDb, sourceLabel } from "../lib/eq.svelte";
-  import { LOUDNESS_MODES, scopePhrase, sound, tiltWords } from "../lib/sound.svelte";
+  import { LOUDNESS_MODES, ruleWords, scopePhrase, sound } from "../lib/sound.svelte";
   import { useSource } from "../lib/source.svelte";
   import { app } from "../lib/state.svelte";
   import { visual } from "../lib/visual.svelte";
@@ -185,7 +186,7 @@
     if (!stream) return;
     const profile = eqProfile && p?.eq_profile ? eqProfile : rule ? flatProfile() : null;
     if (!profile) return (curve = null);
-    curveOf(profile, stream.output_rate, rule?.tilt ?? null)
+    curveOf(profile, stream.output_rate, rule)
       .then((c) => (curve = c))
       .catch(() => (curve = null));
   }
@@ -405,7 +406,8 @@
           {#if rule}
             <dt>Taste layer</dt><dd>{rule.label}</dd>
             <dt>For</dt><dd>{scopePhrase(rule.scope)}</dd>
-            <dt>Tilt</dt><dd>{tiltWords(rule.tilt)}</dd>
+            <dt>Sound</dt><dd>{ruleWords(rule)}</dd>
+            {#if rule.bands?.length}<dt>Taste bands</dt><dd>{rule.bands.filter((b) => b.enabled).length} of {rule.bands.length} on · up to {(eqProfile?.bands.length ?? 0) + rule.bands.length + 3} filters in all</dd>{/if}
           {:else if tasteLabel}
             <dt>Taste layer</dt><dd>{tasteLabel}</dd>
           {/if}

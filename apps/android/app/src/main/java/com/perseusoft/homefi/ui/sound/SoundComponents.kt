@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
@@ -17,23 +16,16 @@ import androidx.compose.material.icons.rounded.Category
 import androidx.compose.material.icons.rounded.Hearing
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -224,50 +216,6 @@ fun TiltSliders(tilt: Tilt, inset: androidx.compose.ui.unit.Dp = 16.dp, onChange
     DbSlider(stringResource(R.string.eq_clarity), stringResource(R.string.eq_db, formatDb(c)), c, r, inset) {
         onChange(tilt.copy(clarityDb = step(it).takeIf { v -> v != 0f }))
     }
-}
-
-/** A small tilt editor: name, bass / treble / clarity; [onDelete] adds a delete button. */
-@Composable
-fun TiltDialog(
-    title: String,
-    subtitle: String?,
-    initial: Tilt,
-    initialLabel: String?,
-    onDismiss: () -> Unit,
-    onSave: (Tilt, String?) -> Unit,
-    onDelete: (() -> Unit)? = null,
-) {
-    var tilt by remember { mutableStateOf(initial) }
-    var label by rememberSaveable { mutableStateOf(initialLabel.orEmpty()) }
-    val haptics = haptics()
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                if (initialLabel != null) {
-                    OutlinedTextField(
-                        value = label,
-                        onValueChange = { label = it.take(60) },
-                        label = { Text(stringResource(R.string.sound_rule_name)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    )
-                }
-                TiltSliders(tilt, inset = 0.dp) { tilt = it }
-                if (onDelete != null) {
-                    TextButton(onClick = { haptics.tick(); onDelete() }) {
-                        Text(stringResource(R.string.sound_rule_delete), color = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { haptics.confirm(); onSave(tilt, label.takeIf { initialLabel != null }) }) { Text(stringResource(R.string.sound_save)) }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
-    )
 }
 
 /**

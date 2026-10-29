@@ -1,5 +1,6 @@
 mod progress;
 mod search;
+mod update;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -241,8 +242,10 @@ async fn run(cli: Cli) -> Result<()> {
     let omit_cache = cli.omit_cache || !session.config().enable_cache;
     let debug = cli.debug || session.config().debug;
     let session = session.omit_cache(omit_cache).debug(debug);
+    // "A new version is available" (at most once a day, never installs)
+    let notice = update::start(&session);
 
-    match cli.command {
+    let result = match cli.command {
         Command::Auth(cmd) => auth(&session, cmd).await,
         Command::Config(cmd) => config(&session, cmd),
         Command::Download(args) => download(&session, args).await,
@@ -251,7 +254,11 @@ async fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
         Command::Play { files, device, volume, seconds } => play(files, device, volume, seconds).await,
+    };
+    if result.is_ok() {
+        notice.finish().await;
     }
+    result
 }
 
 async fn auth(session: &Session, cmd: AuthCommand) -> Result<()> {

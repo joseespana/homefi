@@ -1,14 +1,16 @@
 // Development-only taste layers / loudness / reactions for mock.ts: the same
 // rules as homefi-core (most specific wins, ±2 dB per tap capped at ±6, undo).
 // ?taste starts with a few rules; ?loudness with normalization on (Auto);
-// ?nosuggest makes the suggestion fail quietly.
-import type { AssistantTurn, LoudnessSettings, NowPlayingContext, NowSound, ReactionResult, SoundReaction, SoundUiSettings, TasteRule, TasteScope, TasteSettings, Tilt, Track } from "./api";
+// ?nosuggest makes the suggestion fail quietly. "Ask the AI to refine" a rule
+// answers with a 4-band curve on the table; "yes" saves it.
+import type { AssistantTurn, LoudnessSettings, NowPlayingContext, NowSound, ReactionResult, SoundReaction, SoundUiSettings, TasteBand, TasteRule, TasteScope, TasteSettings, Tilt, Track } from "./api";
 
 const url = new URLSearchParams(location.search);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const copy = <T>(v: T): T => JSON.parse(JSON.stringify(v));
 
 const rule = (id: string, scope: TasteScope, tilt: Tilt, label: string, createdBy: TasteRule["createdBy"], enabled = true): TasteRule => ({ id, scope, tilt, label, createdBy, enabled });
+const band = (kind: TasteBand["kind"], freqHz: number, gainDb: number, q: number, note = ""): TasteBand => ({ kind, freqHz, gainDb, q, enabled: true, note });
 
 let taste: TasteSettings = url.has("taste")
   ? {
@@ -18,6 +20,15 @@ let taste: TasteSettings = url.has("taste")
         rule("r2", { kind: "album", id: "", name: "Kind of Blue" }, { bassDb: 0, trebleDb: 1, clarityDb: 1.5 }, "A touch more detail · Kind of Blue", "manual"),
         rule("r3", { kind: "playlist", id: "1", name: "Every song, ever" }, { bassDb: 2, trebleDb: -1.5, clarityDb: null }, "Warmer · Every song, ever", "ai"),
         rule("r4", { kind: "artist", id: "", name: "Radiohead" }, { bassDb: 0, trebleDb: -2, clarityDb: 1 }, "Softer highs · Radiohead", "guided", false),
+        {
+          ...rule("r5", { kind: "artist", id: "", name: "David Guetta" }, { bassDb: 2, trebleDb: 0, clarityDb: null }, "More punch for David Guetta", "ai"),
+          bands: [band("peak", 3200, -2, 3, "Softens the harsh edge of the cymbals"), band("peak", 65, 1.5, 1.2, "More kick from the drum"), band("peak", 320, -1.5, 1.4, "Clears the mud so the kick stays tight")],
+          explanation: "A tighter, punchier low end and less bite on the cymbals at high volume.",
+        },
+        {
+          ...rule("r6", { kind: "album", id: "", name: "Random Access Memories" }, { bassDb: 0, trebleDb: 0, clarityDb: null }, "Less harsh · Random Access Memories", "manual"),
+          bands: [band("peak", 7000, -2.5, 4), band("highShelf", 11000, 1, 0.7)],
+        },
       ],
     }
   : { enabled: false, rules: [] };
@@ -25,6 +36,8 @@ let loudness: LoudnessSettings = { mode: url.has("loudness") ? "auto" : "off", t
 let soundUi: SoundUiSettings = { react_deck: true, react_room: true, layer_chip: true, suggestions: !url.has("nosuggest") };
 const undo = new Map<string, { taste: TasteSettings; loudness: LoudnessSettings }>();
 let suggesting: "Electronic" | "Jazz" | null = null;
+/** The rule a refine conversation works on, and the curve proposed for it. */
+let refining: { id: string; proposal: TasteRule | null } | null = null;
 
 const KIND_RANK: Record<string, number> = { track: 5, album: 4, playlist: 3, artist: 2, genre: 1 };
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase() && a.trim() !== "";
@@ -149,8 +162,46 @@ export const soundMock = {
     const loud = loudness.mode === "off" ? 0 : track?.album === "Kind of Blue" ? 3.4 : -4.2 + (loudness.targetLufs + 14);
     return { ...eq, eq_active: eq.eq_active || !!r, taste_rule: r?.id ?? null, taste_label: r?.label ?? null, loudness_db: Math.round(loud * 10) / 10 };
   },
-  /** The mock assistant: an answer to the suggestion card (null when it isn't one). */
+  /** "Ask the AI to refine": what the curve does now and a 4-band proposal. */
+  refine(id: string, es: boolean): AssistantTurn | null {
+    const r = taste.rules.find((x) => x.id === id);
+    if (!r) return null;
+    const say = (en: string, s: string) => (es ? s : en);
+    const proposal: TasteRule = {
+      ...copy(r),
+      createdBy: "ai",
+      bands: [
+        band("peak", 3200, -2.5, 3, say("−2.5 dB at 3.2 kHz, narrow: softens the harsh edge of the cymbals", "−2,5 dB en 3,2 kHz, estrecho: suaviza el filo de los platillos")),
+        band("peak", 7200, -2, 4.5, say("−2 dB at 7.2 kHz, very narrow: tames the hissing s's", "−2 dB en 7,2 kHz, muy estrecho: doma las eses que silban")),
+        band("peak", 65, 2, 1.2, say("+2 dB at 65 Hz: more kick from the drum", "+2 dB en 65 Hz: más golpe del bombo")),
+        band("peak", 320, -1.5, 1.4, say("−1.5 dB at 320 Hz: clears the mud so the kick stays tight", "−1,5 dB en 320 Hz: quita lo embarrado para que el bombo quede firme")),
+      ],
+      tilt: { bassDb: 0, trebleDb: 0, clarityDb: null },
+      explanation: say("Narrow cuts where the harshness lives, a bit more kick and less mud.", "Cortes estrechos donde vive la aspereza, un poco más de bombo y menos barro."),
+    };
+    refining = { id, proposal };
+    return {
+      text: say(
+        `Right now “${r.label}” lifts the bass and softens 3.2 kHz a little. You said the cymbals still bite: here's a cleaner curve with 4 bands. Apply it?`,
+        `Ahora «${r.label}» sube el bajo y suaviza un poco los 3,2 kHz. Dijiste que los platillos aún pican: te propongo una curva más limpia con 4 bandas. ¿La aplico?`,
+      ),
+      quick_replies: [say("Less bass", "Menos bajo"), say("Keep it subtler", "Más sutil")],
+      proposal: null,
+      confirmed: false,
+      done: false,
+      taste_proposal: proposal,
+    };
+  },
+  /** The mock assistant: an answer to the suggestion card or a refine (null when it isn't one). */
   reply(text: string): AssistantTurn | null {
+    if (refining?.proposal) {
+      const p = refining.proposal;
+      refining = null;
+      const base: AssistantTurn = { text: "", quick_replies: [], proposal: null, confirmed: false, done: true };
+      if (!/^(s[ií]|yes|ok|dale|claro|apply|aplic)/i.test(text.trim())) return { ...base, text: "OK, nothing changed." };
+      taste = { enabled: true, rules: taste.rules.map((x) => (x.id === p.id ? p : x)) };
+      return { ...base, text: `Done: “${p.label}” now has ${p.bands?.length ?? 0} bands.`, taste: copy(taste) };
+    }
     const genre = suggesting;
     if (!genre) return null;
     suggesting = null;

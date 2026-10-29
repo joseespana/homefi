@@ -97,7 +97,6 @@ import com.perseusoft.homefi.ui.haptics
 import com.perseusoft.homefi.ui.sound.label
 import com.perseusoft.homefi.ui.sound.labelRes
 import com.perseusoft.homefi.ui.sound.phrase
-import com.perseusoft.homefi.ui.sound.tiltWords
 import com.perseusoft.homefi.ui.theme.Bevel
 import com.perseusoft.homefi.ui.theme.FilledTonalButton
 import com.perseusoft.homefi.ui.theme.LocalMotion
@@ -837,7 +836,8 @@ private fun EqDetails(f: ChainFacts, onOpen: () -> Unit) {
     }
     val r = f.rule
     if (r != null) {
-        Fact(R.string.signal_taste, listOf(r.label.ifBlank { r.scope.phrase() }, tiltWords(r.tilt)).joinToString(" · "))
+        Fact(R.string.signal_taste, listOf(r.label.ifBlank { r.scope.phrase() }, LocalContext.current.homefi.sound.ruleWords(r)).joinToString(" · "))
+        if (r.bands.isNotEmpty()) Fact(R.string.signal_taste_bands, stringResource(R.string.signal_taste_bands_value, r.bands.count { it.band.enabled }, r.bands.size))
         Fact(R.string.signal_profile_source, r.createdBy.label())
     } else {
         Fact(R.string.signal_taste, stringResource(R.string.signal_taste_none))

@@ -323,6 +323,10 @@ pub struct AssistantContext {
     /// `id` of the output playing now.
     #[uniffi(default = None)]
     pub active_output: Option<String>,
+    /// "Ask the AI to refine" from a rule's editor: that rule's id. The AI
+    /// starts from its curve (the guided wizard ignores it).
+    #[uniffi(default = None)]
+    pub focus_rule: Option<String>,
 }
 
 impl From<AssistantContext> for ai::AssistantContext {
@@ -341,6 +345,7 @@ impl From<AssistantContext> for ai::AssistantContext {
             listening: c.listening.map(Into::into),
             now_playing: c.now_playing.map(Into::into),
             active_output: c.active_output.filter(|o| !o.trim().is_empty()),
+            focus_rule: c.focus_rule.filter(|r| !r.trim().is_empty()),
         }
     }
 }
@@ -370,6 +375,10 @@ pub struct AssistantTurn {
     /// Loudness changed this turn: save and apply it.
     #[uniffi(default = None)]
     pub loudness: Option<LoudnessSettings>,
+    /// A taste layer proposed this turn (not saved): show its curve and band
+    /// notes; "apply" replies yes, and the saved rules come in `taste`.
+    #[uniffi(default = None)]
+    pub taste_proposal: Option<TasteRule>,
 }
 
 impl From<ai::AssistantTurn> for AssistantTurn {
@@ -386,6 +395,7 @@ impl From<ai::AssistantTurn> for AssistantTurn {
             done: t.done,
             taste: t.taste.map(Into::into),
             loudness: t.loudness.map(Into::into),
+            taste_proposal: t.taste_proposal.map(Into::into),
         }
     }
 }
@@ -673,6 +683,7 @@ mod tests {
             listening: None,
             now_playing: None,
             active_output: None,
+            focus_rule: None,
         };
         let s = EqAssistantSession::guided(context, dir.display().to_string());
         assert!(!s.is_ai());

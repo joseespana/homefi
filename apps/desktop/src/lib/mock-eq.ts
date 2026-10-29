@@ -2,7 +2,7 @@
 // homefi-core's `dsp` module (curves, auto preamp, taste) and a small fake
 // AutoEq. ?eq starts with the equalizer on (HD 650 on "External Headphones");
 // ?autoeqoffline makes AutoEq fail like it does without internet.
-import type { EqBand, EqProfile, EqSettings, HeadphoneEntry, Tilt } from "./api";
+import type { EqBand, EqProfile, EqSettings, HeadphoneEntry, TasteBand, TastePreview, TasteRule, Tilt } from "./api";
 
 const url = new URLSearchParams(location.search);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -83,7 +83,8 @@ function magnitudeDb([b0, b1, b2, a1, a2]: number[], f: number, fs: number): num
 }
 
 function response(p: EqProfile, freqs: number[], fs = 48000): number[] {
-  const stages = p.bands.slice(0, 10).filter((b) => !neutral(b)).map((b) => coefficients(b, fs || 48000));
+  // a track's combined profile holds up to 22 stages (device 10 + taste 8 + tilt / high-pass 4)
+  const stages = p.bands.slice(0, 22).filter((b) => !neutral(b)).map((b) => coefficients(b, fs || 48000));
   return freqs.map((f) => stages.reduce((sum, c) => sum + magnitudeDb(c, f, fs || 48000), 0));
 }
 
@@ -119,6 +120,33 @@ function withTaste(p: EqProfile, t: Tilt): EqProfile {
   return out;
 }
 
+/** homefi-core's taste caps, roughly: each band ±9 dB, peaks Q 0.3..8, at most 8. */
+function clampCurve(bands: TasteBand[]): { bands: TasteBand[]; notes: string[] } {
+  const notes: string[] = [];
+  const out = bands.slice(0, 8).map((b) => {
+    const gainDb = clamp(b.gainDb, -9, 9, 0);
+    const q = clamp(b.q, 0.3, b.kind === "peak" ? 8 : 2, 0.707);
+    if (gainDb !== b.gainDb) notes.push(`${Math.round(b.freqHz)} Hz: lowered to ${gainDb} dB (each band ±9)`);
+    return { ...b, gainDb, q };
+  });
+  return { bands: out, notes };
+}
+
+function tasteProfile(bands: TasteBand[], t: Tilt): EqProfile {
+  const tilt = withTaste({ name: "", preampDb: 0, bands: [], source: { kind: "manual" } }, t);
+  return { ...tilt, preampDb: 0, bands: [...tilt.bands, ...bands.map(({ note: _note, ...b }) => b)] };
+}
+
+function preview(rule: TasteRule): TastePreview {
+  const output = Object.keys(settings.perOutput)[0] ?? null;
+  const device = settings.enabled ? (output ? settings.perOutput[output] : settings.defaultProfile) : null;
+  const { bands, notes } = clampCurve(rule.bands ?? []);
+  const base = device ? withTaste(device, rule.tilt) : withTaste({ name: "", preampDb: 0, bands: [], source: { kind: "manual" } }, rule.tilt);
+  const combined: EqProfile = { ...base, bands: [...base.bands, ...bands.map(({ note: _note, ...b }) => b)] };
+  combined.preampDb = autoPreamp(combined);
+  return { output: output ?? "This computer", device, taste: tasteProfile(bands, rule.tilt), combined, bands, notes, small_speaker: false };
+}
+
 function profileFor(output: string): EqProfile | null {
   return settings.perOutput[output] ?? settings.defaultProfile ?? null;
 }
@@ -143,6 +171,7 @@ export const eqMock = {
     eq_log_freqs: ({ n }: { n: number }) => logFreqs(n),
     eq_auto_preamp: ({ profile }: { profile: EqProfile }) => autoPreamp(profile),
     eq_with_taste: ({ profile, tilt }: { profile: EqProfile; tilt: Tilt }) => withTaste(profile, tilt),
+    taste_preview: ({ rule }: { rule: TasteRule }) => preview(rule),
     autoeq_search: async ({ query }: { query: string }) => {
       await wait(300);
       if (url.has("autoeqoffline")) throw "Couldn't download the headphone list from AutoEq. Check your connection and try again.";

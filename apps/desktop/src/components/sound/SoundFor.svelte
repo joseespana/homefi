@@ -2,31 +2,41 @@
   // "Sound for this album / playlist / artist / track": ask the assistant
   // (the easy way), or set the taste layer by hand. Esc / backdrop closes.
   import { untrack } from "svelte";
-  import type { Tilt } from "../../lib/api";
+  import type { TasteBand, Tilt } from "../../lib/api";
   import { dialog, fade } from "../../lib/motion";
-  import { creatorLabel, scopeIcon, scopePhrase, sound, tiltWords } from "../../lib/sound.svelte";
+  import { app } from "../../lib/state.svelte";
+  import { creatorLabel, ruleNeutral, ruleWords, scopeIcon, scopePhrase, sound } from "../../lib/sound.svelte";
   import Icon from "../Icon.svelte";
-  import TiltEditor from "./TiltEditor.svelte";
+  import TasteCurveEditor from "./TasteCurveEditor.svelte";
 
   const target = $derived(sound.forScope!);
   const existing = $derived(sound.ruleFor(target.scope));
   let tilt = $state<Tilt>({ bassDb: 0, trebleDb: 0, clarityDb: 0 });
+  let bands = $state<TasteBand[]>([]);
   let label = $state("");
   let manual = $state(false);
   $effect(() => {
     const r = existing;
     untrack(() => {
       tilt = r ? { bassDb: r.tilt.bassDb, trebleDb: r.tilt.trebleDb, clarityDb: r.tilt.clarityDb ?? 0 } : { bassDb: 0, trebleDb: 0, clarityDb: 0 };
+      bands = r ? JSON.parse(JSON.stringify(r.bands ?? [])) : [];
       label = r?.label ?? "";
       manual = !!r;
     });
   });
-  const neutral = $derived(Math.abs(tilt.bassDb) < 0.05 && Math.abs(tilt.trebleDb) < 0.05 && Math.abs(tilt.clarityDb ?? 0) < 0.05);
+  const neutral = $derived(ruleNeutral({ tilt, bands }));
   const close = () => (sound.forScope = null);
+  const aiOn = $derived(!!app.settings?.ai?.provider);
 
   async function save() {
-    await sound.setRule(target.scope, tilt, label);
+    await sound.setRule(target.scope, tilt, label, "manual", bands);
     close();
+  }
+  /** Saves what's set by hand, then the assistant refines that curve. */
+  async function refine() {
+    await sound.setRule(target.scope, tilt, label, "manual", bands);
+    const r = sound.ruleFor(target.scope);
+    if (r) sound.refine(r);
   }
   async function remove() {
     if (existing) await sound.removeRule(existing.id);
@@ -48,7 +58,7 @@
     </div>
 
     {#if existing}
-      <p class="now"><Icon name="layers" size={14} /> <b>{existing.label}</b> <span class="muted">· {tiltWords(existing.tilt)} · {creatorLabel(existing.createdBy)}</span></p>
+      <p class="now"><Icon name="layers" size={14} /> <b>{existing.label}</b> <span class="muted">· {ruleWords(existing)} · {creatorLabel(existing.createdBy)}</span></p>
     {:else}
       <p class="muted">A taste layer changes how {scopePhrase(target.scope)} sounds, on top of your headphones' profile. Everything else stays as it is.</p>
     {/if}
@@ -61,21 +71,21 @@
 
     {#if manual}
       <div class="manual">
-        <TiltEditor bind:tilt />
+        <TasteCurveEditor bind:tilt bind:bands rule={existing} height={180} onrefine={aiOn && !neutral ? refine : null} />
         <label class="lbl">
           <span class="cap">Name</span>
           <input bind:value={label} maxlength="60" placeholder="e.g. More punch for this album" />
         </label>
       </div>
     {:else}
-      <button class="link" onclick={() => (manual = true)}>Or set it by hand (bass, treble, clarity)</button>
+      <button class="link" onclick={() => (manual = true)}>Or set it by hand (three sliders, or the full curve)</button>
     {/if}
 
     <div class="actions">
       {#if existing}<button class="btn tonal danger-text" onclick={remove}><Icon name="trash" size={14} /> Remove</button>{/if}
       <span class="grow"></span>
       <button class="btn tonal" onclick={close}>Cancel</button>
-      {#if manual}<button class="btn primary" disabled={neutral} title={neutral ? "Move a slider first" : undefined} onclick={save}>Save</button>{/if}
+      {#if manual}<button class="btn primary" disabled={neutral} title={neutral ? "Move a slider or add a band first" : undefined} onclick={save}>Save</button>{/if}
     </div>
   </div>
 </div>
@@ -92,7 +102,9 @@
   }
   .dialog {
     container-type: inline-size;
-    width: min(520px, calc(100vw - 32px));
+    width: min(640px, calc(100vw - 32px));
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
     padding: 20px 22px;
     display: flex;
     flex-direction: column;

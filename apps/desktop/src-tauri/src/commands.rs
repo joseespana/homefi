@@ -999,6 +999,7 @@ pub async fn download_worker<R: Runtime>(app: AppHandle<R>, mut jobs: mpsc::Unbo
 // ----------------------------------------------------------------- library
 
 pub async fn rescan<R: Runtime>(app: &AppHandle<R>) -> CmdResult<Vec<TrackView>> {
+    forget_local_playlists();
     // one scan at a time: a second request waits for it, then scans what changed since
     static SCANNING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let _one = SCANNING.lock().await;
@@ -1024,18 +1025,40 @@ pub struct LocalPlaylistView {
     pub tracks: Vec<String>,
 }
 
+/// The .m3u files found under the music folders, kept until the folders change or the
+/// library is rescanned: finding them walks every folder, and the view asks often.
+static LOCAL_PLAYLISTS: Mutex<Option<FoundPlaylists>> = Mutex::new(None);
+
+/// The music folders looked through, and what was found there.
+type FoundPlaylists = (Vec<PathBuf>, Arc<Vec<LocalPlaylistView>>);
+
+/// Forgets the .m3u files found, so the next `local_playlists` looks again.
+pub fn forget_local_playlists() {
+    *LOCAL_PLAYLISTS.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
 #[tauri::command]
-pub async fn local_playlists(state: State<'_, AppState>) -> CmdResult<Vec<LocalPlaylistView>> {
+pub async fn local_playlists(state: State<'_, AppState>) -> CmdResult<Arc<Vec<LocalPlaylistView>>> {
     let roots = state.settings().library_roots();
-    let found = tokio::task::spawn_blocking(move || homefi_core::m3u::find(&roots)).await.map_err(err)?;
-    Ok(found
-        .into_iter()
-        .map(|p| LocalPlaylistView {
-            name: p.name,
-            path: p.path.to_string_lossy().into_owned(),
-            tracks: p.tracks.iter().map(|t| t.to_string_lossy().into_owned()).collect(),
-        })
-        .collect())
+    if let Some((seen, lists)) = LOCAL_PLAYLISTS.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        if *seen == roots {
+            return Ok(lists.clone());
+        }
+    }
+    let walk = roots.clone();
+    let found = tokio::task::spawn_blocking(move || homefi_core::m3u::find(&walk)).await.map_err(err)?;
+    let lists: Arc<Vec<LocalPlaylistView>> = Arc::new(
+        found
+            .into_iter()
+            .map(|p| LocalPlaylistView {
+                name: p.name,
+                path: p.path.to_string_lossy().into_owned(),
+                tracks: p.tracks.iter().map(|t| t.to_string_lossy().into_owned()).collect(),
+            })
+            .collect(),
+    );
+    *LOCAL_PLAYLISTS.lock().unwrap_or_else(|e| e.into_inner()) = Some((roots, lists.clone()));
+    Ok(lists)
 }
 
 #[tauri::command(async)]

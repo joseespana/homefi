@@ -115,4 +115,27 @@
     <string name="ai_model_small_warning">Small model: cheaper, but it may make more mistakes.</string>
     <string name="sound_layers_toggle">Use taste layers</string>
     <string name="sound_summary_eq_off_rules">EQ off · %1$d taste rules</string>
+    <!-- taste rule curves (Simple / Advanced editor) -->
+    <string name="taste_mode_simple">Simple</string>
+    <string name="taste_mode_advanced">Advanced</string>
+    <string name="taste_mode_advanced_count">Advanced · %1$d</string>
+    <string name="taste_simple_plus_bands">Plus a curve of %1$d bands: see Advanced.</string>
+    <string name="taste_also_tilt">Also from Simple: %1$s</string>
+    <string name="taste_bands_heading">Bands (%1$d of %2$d)</string>
+    <string name="taste_band_add">Band</string>
+    <string name="taste_bands_empty">No bands yet. A narrow cut fixes harshness; a wide lift adds warmth. Drag a point on the curve to move it.</string>
+    <string name="taste_legend_layer">This layer</string>
+    <string name="taste_legend_sum">What plays (dashed)</string>
+    <string name="taste_kept_safe">Kept safe: %1$s</string>
+    <string name="taste_refine">Ask the AI to refine it</string>
+    <string name="taste_refine_notes">Refine “%1$s” (%2$s).</string>
+    <string name="taste_proposal_title">Proposed layer for %1$s</string>
+    <string name="taste_proposal_apply">Apply</string>
+    <string name="taste_proposal_keep">Keep talking</string>
+    <string name="taste_editor_setting">A rule\'s editor opens in</string>
+    <string name="taste_editor_auto">Auto</string>
+    <string name="taste_editor_setting_hint">Simple: bass, treble and clarity sliders. Advanced: the full curve with bands. Auto: the curve when the rule has bands.</string>
+    <string name="taste_save_disabled">Move a slider or add a band first</string>
+    <string name="signal_taste_bands">Taste bands</string>
+    <string name="signal_taste_bands_value">%1$d of %2$d on</string>
 </resources>

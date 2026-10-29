@@ -1,7 +1,7 @@
 //! The realtime equalizer: biquads in series, transposed direct form II,
 //! one state per channel and band.
 
-use super::{Biquad, EqBand, EqProfile, MAX_BANDS, MAX_PREAMP_DB, MIN_PREAMP_DB};
+use super::{Biquad, EqBand, EqProfile, MAX_PREAMP_DB, MAX_STAGES, MIN_PREAMP_DB};
 
 /// How long a profile change glides from the old filters to the new ones.
 const RAMP_SECONDS: f64 = 0.02;
@@ -16,23 +16,24 @@ pub fn glide_frames(sample_rate: u32) -> u32 {
 const DENORMAL: f64 = 1e-25;
 
 /// The filters of a profile at one sample rate: fixed size and `Copy`, so it
-/// can be handed to the audio callback without allocating.
+/// can be handed to the audio callback without allocating. Holds up to
+/// [`MAX_STAGES`] (a track's output profile plus its taste curve).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EqDesign {
-    stages: [Biquad; MAX_BANDS],
+    stages: [Biquad; MAX_STAGES],
     len: usize,
     gain: f64,
 }
 
 impl EqDesign {
     /// Changes nothing; [`Equalizer`] skips the samples entirely.
-    pub const BYPASS: Self = Self { stages: [Biquad::IDENTITY; MAX_BANDS], len: 0, gain: 1.0 };
+    pub const BYPASS: Self = Self { stages: [Biquad::IDENTITY; MAX_STAGES], len: 0, gain: 1.0 };
 
     /// The enabled, non-neutral bands of `profile` (clamped) with `preamp_db`
     /// in front, at `sample_rate` Hz.
     pub fn new(profile: &EqProfile, preamp_db: f32, sample_rate: u32) -> Self {
         let mut d = Self::BYPASS;
-        let bands = profile.bands.iter().take(MAX_BANDS).map(|b| b.clamped()).filter(|b| !b.is_neutral());
+        let bands = profile.bands.iter().take(MAX_STAGES).map(|b| b.clamped()).filter(|b| !b.is_neutral());
         for band in bands {
             d.stages[d.len] = Biquad::design(&band, sample_rate);
             d.len += 1;
@@ -93,7 +94,7 @@ pub struct Equalizer {
     /// Frames left in the glide, of `ramp_len`.
     ramp_left: u32,
     ramp_len: u32,
-    /// `[z1, z2]` per channel and stage: `state[ch * MAX_BANDS + stage]`.
+    /// `[z1, z2]` per channel and stage: `state[ch * MAX_STAGES + stage]`.
     state: Vec<[f64; 2]>,
 }
 
@@ -113,7 +114,7 @@ impl Equalizer {
             to: design,
             ramp_left: 0,
             ramp_len: glide_frames(sample_rate),
-            state: vec![[0.0; 2]; channels * MAX_BANDS],
+            state: vec![[0.0; 2]; channels * MAX_STAGES],
         }
     }
 
@@ -172,7 +173,7 @@ impl Equalizer {
             };
             let mut blew_up = false;
             for (ch, sample) in frame.iter_mut().enumerate() {
-                let state = &mut self.state[ch * MAX_BANDS..ch * MAX_BANDS + design.len];
+                let state = &mut self.state[ch * MAX_STAGES..ch * MAX_STAGES + design.len];
                 let y = run(&design, state, *sample);
                 if y.is_finite() {
                     *sample = y as f32;
@@ -337,6 +338,40 @@ mod tests {
         let mut eq = Equalizer::with_design(plan.design, RATE, 1);
         for f in [30.0, 60.0, 120.0, 1000.0, 3000.0, 12_000.0, 18_000.0] {
             let mut out = sine(f, RATE as usize / 2, 1, peak_amp);
+            eq.process_interleaved(&mut out);
+            let max = out[4800..].iter().fold(0f32, |m, s| m.max(s.abs()));
+            assert!(max <= 1.001, "{f} Hz peaks at {max}");
+            eq.reset();
+        }
+    }
+
+    #[test]
+    fn device_and_a_full_taste_curve_never_clip() {
+        use super::super::{
+            sound_plan, EqSettings, NowPlayingContext, TasteBand, TasteCreator, TasteRule, TasteScope, TasteSettings,
+        };
+        let mut eq = EqSettings { enabled: true, ..Default::default() };
+        let device: Vec<EqBand> =
+            (0..10).map(|i| EqBand::new(EqBandKind::Peak, 40.0 * 2f32.powi(i), 4.0, 1.0)).collect();
+        eq.per_output.insert("dac".into(), EqProfile { bands: device, ..Default::default() });
+        let curve: Vec<TasteBand> =
+            (0..8).map(|i| TasteBand::new(EqBandKind::Peak, 50.0 * 2f32.powi(i), 6.0, 0.8)).collect();
+        let mut taste = TasteSettings::default();
+        taste.upsert(
+            TasteRule::new(
+                TasteScope::Genre { name: "Dub".into() },
+                Tilt { bass_db: 6.0, treble_db: 6.0, clarity_db: Some(6.0) },
+                "",
+                TasteCreator::Ai,
+            )
+            .with_bands(curve),
+        );
+        let ctx = NowPlayingContext { genres: vec!["Dub".into()], ..Default::default() };
+        let plan = sound_plan(&eq, &taste, "dac", &ctx, 0.0, RATE);
+        assert!(plan.design.stages().len() > super::super::MAX_BANDS);
+        let mut eq = Equalizer::with_design(plan.design, RATE, 1);
+        for f in [30.0, 60.0, 120.0, 250.0, 500.0, 1000.0, 3000.0, 6400.0, 12_000.0] {
+            let mut out = sine(f, RATE as usize / 2, 1, 1.0);
             eq.process_interleaved(&mut out);
             let max = out[4800..].iter().fold(0f32, |m, s| m.max(s.abs()));
             assert!(max <= 1.001, "{f} Hz peaks at {max}");

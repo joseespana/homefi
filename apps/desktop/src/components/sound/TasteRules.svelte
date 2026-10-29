@@ -1,13 +1,13 @@
 <script lang="ts">
   // The equalizer's "Taste rules" tab: every taste layer (scope, tilt, who made
   // it, on / off, edit, delete), what plays now, a suggestion and loudness.
-  import type { TasteRule, Tilt } from "../../lib/api";
+  import type { TasteBand, TasteRule, Tilt } from "../../lib/api";
   import { item, rise } from "../../lib/motion";
-  import { LOUDNESS_MODES, SCOPE_KINDS, creatorLabel, scopeIcon, sound, tiltWords } from "../../lib/sound.svelte";
+  import { LOUDNESS_MODES, SCOPE_KINDS, creatorLabel, ruleWords, scopeIcon, sound } from "../../lib/sound.svelte";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
   import SuggestionCard from "./SuggestionCard.svelte";
-  import TiltEditor from "./TiltEditor.svelte";
+  import TasteCurveEditor from "./TasteCurveEditor.svelte";
 
   // the playing rule follows the music (and the rules)
   const playingKey = $derived(`${app.player?.current}|${app.player?.taste_rule}|${sound.taste.rules.length}`);
@@ -22,16 +22,25 @@
   const rules = $derived([...taste.rules].sort((a, b) => rank(a) - rank(b) || a.scope.name.localeCompare(b.scope.name)));
   const now = $derived(sound.now);
 
-  let editing = $state<{ id: string; tilt: Tilt; label: string } | null>(null);
+  let editing = $state<{ id: string; tilt: Tilt; bands: TasteBand[]; label: string } | null>(null);
   function edit(r: TasteRule) {
-    editing = { id: r.id, tilt: { bassDb: r.tilt.bassDb, trebleDb: r.tilt.trebleDb, clarityDb: r.tilt.clarityDb ?? 0 }, label: r.label };
+    editing = { id: r.id, tilt: { bassDb: r.tilt.bassDb, trebleDb: r.tilt.trebleDb, clarityDb: r.tilt.clarityDb ?? 0 }, bands: JSON.parse(JSON.stringify(r.bands ?? [])), label: r.label };
   }
   async function saveEdit() {
     if (!editing) return;
-    const { id, tilt, label } = editing;
+    const { id, tilt, bands, label } = editing;
     editing = null;
-    await sound.patchRule(id, { tilt, label: label.trim() || undefined });
+    await sound.patchRule(id, { tilt, bands, label: label.trim() || undefined });
   }
+  /** Saves what's in the editor, then the assistant goes on from that curve. */
+  async function refine() {
+    if (!editing) return;
+    const id = editing.id;
+    await saveEdit();
+    const r = sound.taste.rules.find((x) => x.id === id);
+    if (r) sound.refine(r);
+  }
+  const aiOn = $derived(!!app.settings?.ai?.provider);
   async function remove(r: TasteRule) {
     const ok = await app.confirm({ title: `Remove “${r.label}”?`, text: `The ${r.scope.kind} ${r.scope.name} goes back to the output's own sound.`, confirmLabel: "Remove", danger: true });
     if (ok) await sound.removeRule(r.id);
@@ -78,12 +87,14 @@
                 </div>
                 <div class="line2 muted">
                   <span class="scope">{r.scope.kind} · {r.scope.name || "untitled"}</span>
-                  <span class="mono">{tiltWords(r.tilt)}</span>
+                  <span class="mono" title={(r.bands ?? []).map((b) => b.note).filter(Boolean).join("\n") || undefined}>{ruleWords(r)}</span>
                   <span class="badge {r.createdBy}">{creatorLabel(r.createdBy)}</span>
                 </div>
+                {#if r.explanation && editing?.id !== r.id}<p class="why muted">{r.explanation}</p>{/if}
                 {#if editing?.id === r.id}
                   <div class="editor" in:rise={{ y: 6, duration: 200 }}>
-                    <TiltEditor bind:tilt={editing.tilt} compact />
+                    {#if r.explanation}<p class="why muted">{r.explanation}</p>{/if}
+                    <TasteCurveEditor bind:tilt={editing.tilt} bind:bands={editing.bands} rule={r} onrefine={aiOn ? refine : null} />
                     <div class="erow">
                       <input bind:value={editing.label} maxlength="60" aria-label="Rule name" />
                       <button class="btn tonal small" onclick={() => (editing = null)}>Cancel</button>
@@ -109,7 +120,7 @@
       <h3><Icon name="music" size={16} /> Playing now</h3>
       {#if now?.context}
         <p class="small"><b>{now.context.title ?? "This track"}</b>{#if now.context.genres.length}<span class="muted"> · {now.context.genres.join(", ")}</span>{/if}</p>
-        <p class="small {now.rule ? 'accent' : 'muted'}">{now.rule ? `Layer: ${now.rule.label} (${tiltWords(now.rule.tilt)})` : "No taste layer for it: the output's profile alone."}</p>
+        <p class="small {now.rule ? 'accent' : 'muted'}">{now.rule ? `Layer: ${now.rule.label} (${ruleWords(now.rule)})` : "No taste layer for it: the output's profile alone."}</p>
         <div class="scopes">
           {#each now.scopes as s (s.kind + s.name)}
             <button class="chip" onclick={() => (sound.forScope = { scope: s, label: s.name || s.kind })}><Icon name={scopeIcon(s.kind)} size={12} /> <span class="ellipsis">{s.kind === "genre" ? s.name : `This ${s.kind}`}</span></button>
@@ -355,7 +366,13 @@
     width: 28px;
     height: 28px;
   }
+  .why {
+    margin: 2px 0 0;
+    font-size: 12px;
+    line-height: 1.4;
+  }
   .editor {
+    container-type: inline-size;
     margin-top: 8px;
     padding: 10px;
     border-radius: min(10px, var(--r-max));

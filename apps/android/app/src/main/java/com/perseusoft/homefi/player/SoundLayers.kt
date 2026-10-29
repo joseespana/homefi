@@ -7,6 +7,7 @@ import com.perseusoft.homefi.R
 import com.perseusoft.homefi.core.AssistantContext
 import com.perseusoft.homefi.core.AssistantTurn
 import com.perseusoft.homefi.core.EqAssistantSession
+import com.perseusoft.homefi.core.EqProfile
 import com.perseusoft.homefi.core.EqSettings
 import com.perseusoft.homefi.core.ItemRef
 import com.perseusoft.homefi.core.ListeningSummary
@@ -16,6 +17,7 @@ import com.perseusoft.homefi.core.ReactionContext
 import com.perseusoft.homefi.core.ReplayGain
 import com.perseusoft.homefi.core.SoundReaction
 import com.perseusoft.homefi.core.SourceContext
+import com.perseusoft.homefi.core.TasteBand
 import com.perseusoft.homefi.core.TasteCreator
 import com.perseusoft.homefi.core.TasteRule
 import com.perseusoft.homefi.core.TasteScope
@@ -28,6 +30,7 @@ import com.perseusoft.homefi.core.readTrackInfo
 import com.perseusoft.homefi.core.resolveTaste
 import com.perseusoft.homefi.core.soundReact
 import com.perseusoft.homefi.core.soundUndo
+import com.perseusoft.homefi.core.tasteCurveSummary
 import com.perseusoft.homefi.core.tasteNewRule
 import com.perseusoft.homefi.core.tasteRemove
 import com.perseusoft.homefi.core.tasteScopes
@@ -80,8 +83,11 @@ sealed interface AssistantHandoff {
     /** Go on from a suggestion card: its session and turn, and the answer tapped. */
     class Suggestion(val session: EqAssistantSession, val turn: AssistantTurn, val reply: String) : AssistantHandoff
 
-    /** Start over with these notes ("Sound for this album → Ask the assistant"). */
-    data class Notes(val text: String) : AssistantHandoff
+    /**
+     * Start over with these notes ("Sound for this album → Ask the assistant"); with
+     * [focusRule] the AI starts from that rule's curve ("Ask the AI to refine it").
+     */
+    data class Notes(val text: String, val focusRule: String? = null) : AssistantHandoff
 }
 
 /** The suggestion card of the taste rules tab. */
@@ -389,13 +395,40 @@ class SoundLayers(
 
     fun setLoudness(next: LoudnessSettings) = store.setLoudness(next)
 
-    /** Adds or replaces the rule for [scope] (the first rule turns the layers on). */
-    fun setRule(scope: TasteScope, tilt: Tilt, label: String? = null, createdBy: TasteCreator = TasteCreator.MANUAL) {
+    /** Adds or replaces the rule for [scope] (the first rule turns the layers on); [bands] null keeps its curve. */
+    fun setRule(
+        scope: TasteScope,
+        tilt: Tilt,
+        label: String? = null,
+        createdBy: TasteCreator = TasteCreator.MANUAL,
+        bands: List<TasteBand>? = null,
+    ) {
         val t = taste.value
         val old = t.rules.firstOrNull { sameScope(it.scope, scope) }
         val name = label?.trim()?.ifEmpty { null } ?: defaultLabel(scope, tilt)
-        val rule = old?.copy(tilt = tilt, label = name, enabled = true) ?: tasteNewRule(scope, tilt, name, createdBy)
+        val rule = old?.copy(tilt = tilt, label = name, enabled = true, bands = bands ?: old.bands)
+            ?: tasteNewRule(scope, tilt, name, createdBy).copy(bands = bands.orEmpty())
         store.setTaste(tasteUpsert(t, rule))
+    }
+
+    /** A rule in one line, from the core: `3 bands · −2 dB 3.2k, +1.5 dB 120 Hz · +2 dB bass`. */
+    fun ruleWords(rule: TasteRule): String = runCatching { tasteCurveSummary(rule, language()) }.getOrDefault(rule.label)
+
+    /** The output's own profile under the taste layers (when the equalizer is on). */
+    fun deviceProfile(): EqProfile? {
+        val eq = store.eq.value
+        return if (eq.enabled) runCatching { eqProfileFor(eq, equalizer.outputId.value) }.getOrNull() else null
+    }
+
+    /** The music plays on the phone's own speaker: no deep bass in taste curves. */
+    fun smallSpeaker(): Boolean = outputKind() == AssistantOutputKind.BUILT_IN
+
+    /** "Ask the AI to refine it": the assistant starts from this rule's curve. */
+    fun refine(rule: TasteRule) {
+        _soundFor.value = null
+        _howOpen.value = false
+        handoff = AssistantHandoff.Notes(app.getString(R.string.taste_refine_notes, rule.label, ruleWords(rule)), rule.id)
+        equalizer.open(EqPanel.ASSISTANT)
     }
 
     fun patchRule(id: String, transform: (TasteRule) -> TasteRule) {
@@ -476,7 +509,7 @@ class SoundLayers(
     }
 
     /** Everything the assistant knows before the first question. */
-    suspend fun assistantContext(notes: String?): AssistantContext {
+    suspend fun assistantContext(notes: String?, focusRule: String? = null): AssistantContext {
         val connected = outputs.outputs.value.map { o ->
             AssistantOutput(id = o.eqId, name = o.name.ifBlank { app.getString(o.kind.label()) }, kind = o.kind.forAssistant(), sampleRates = o.sampleRates.map { it.toUInt() })
         }
@@ -498,6 +531,7 @@ class SoundLayers(
             listening = listening(),
             nowPlaying = _now.value.context,
             activeOutput = nowId,
+            focusRule = focusRule,
         )
     }
 

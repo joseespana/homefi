@@ -62,6 +62,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.perseusoft.homefi.R
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.ui.downloads.DownloadsScreen
@@ -136,6 +138,8 @@ fun HomefiRoot(destinations: Flow<Destination>) {
             notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
+    // a new version is looked for at most every 6 hours, only while the app is in front
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { app.updates.onForeground() }
     LaunchedEffect(Unit) {
         app.player.connect() // restores a session that kept playing in the background
         destinations.collect {
@@ -319,8 +323,12 @@ fun HomefiRoot(destinations: Flow<Destination>) {
         // the hub's discreet notices, over every screen
         ShareNotices(Modifier.align(Alignment.TopCenter))
 
-        // sessions nearby: searched while the app is open, offered here outside Home
-        NearbySessions(offer = tab != Tab.HOME || playerOpen || guestOpen, Modifier.align(Alignment.TopCenter))
+        // "HomeFi X is available" above, then sessions nearby: searched while the app is open,
+        // offered here outside Home
+        Column(Modifier.align(Alignment.TopCenter)) {
+            UpdateCard()
+            NearbySessions(offer = tab != Tab.HOME || playerOpen || guestOpen)
+        }
     }
     }
 

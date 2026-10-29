@@ -439,7 +439,7 @@ private fun HoldButton(held: Boolean, enabled: Boolean, onHold: (Boolean) -> Uni
 }
 
 @Composable
-private fun BandRow(band: EqBand, selected: Boolean, onClick: () -> Unit) {
+internal fun BandRow(band: EqBand, selected: Boolean, onClick: () -> Unit, note: String? = null) {
     val scheme = MaterialTheme.colorScheme
     val motion = LocalMotion.current
     val container by animateColorAsState(if (selected) scheme.secondaryContainer else scheme.surface, motion.color(), label = "band")
@@ -451,13 +451,25 @@ private fun BandRow(band: EqBand, selected: Boolean, onClick: () -> Unit) {
     ListItem(
         colors = ListItemDefaults.colors(containerColor = container),
         headlineContent = { Text(stringResource(band.kind.labelRes()), color = if (band.enabled) scheme.onSurface else scheme.onSurfaceVariant) },
-        supportingContent = { Text(parts.joinToString("  ·  "), style = MaterialTheme.typography.bodySmall.numeric()) },
+        supportingContent = {
+            Column {
+                Text(parts.joinToString("  ·  "), style = MaterialTheme.typography.bodySmall.numeric())
+                if (!note.isNullOrBlank()) Text(note, style = MaterialTheme.typography.bodySmall, color = scheme.primary)
+            }
+        },
         modifier = Modifier.clickable(onClick = onClick),
     )
 }
 
 @Composable
-private fun BandEditor(band: EqBand, onChange: ((EqBand) -> EqBand) -> Unit, onKind: (EqBandKind) -> Unit, onRemove: () -> Unit) {
+internal fun BandEditor(
+    band: EqBand,
+    onChange: ((EqBand) -> EqBand) -> Unit,
+    onKind: (EqBandKind) -> Unit,
+    onRemove: () -> Unit,
+    gainRange: ClosedFloatingPointRange<Float> = -24f..24f,
+    qRange: ClosedFloatingPointRange<Float> = 0.1f..10f,
+) {
     val haptics = haptics()
     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
         Column(Modifier.padding(vertical = 8.dp)) {
@@ -475,13 +487,13 @@ private fun BandEditor(band: EqBand, onChange: ((EqBand) -> EqBand) -> Unit, onK
                 onChange { it.copy(freqHz = fractionToFreq(f)) }
             }
             if (band.kind.hasGain()) {
-                LabeledSlider(stringResource(R.string.eq_gain), stringResource(R.string.eq_db, formatDb(band.gainDb)), band.gainDb, -24f..24f) { g ->
+                LabeledSlider(stringResource(R.string.eq_gain), stringResource(R.string.eq_db, formatDb(band.gainDb)), band.gainDb, gainRange) { g ->
                     onChange { it.copy(gainDb = Math.round(g * 10) / 10f) }
                 }
             }
             // Q on a log scale: 0.1..10 with 1 in the middle
             LabeledSlider(stringResource(R.string.eq_q), "%.2f".format(band.q), (kotlin.math.log10(band.q) + 1f) / 2f, 0f..1f) { f ->
-                onChange { it.copy(q = Math.round(Math.pow(10.0, f * 2.0 - 1.0).toFloat() * 100) / 100f) }
+                onChange { it.copy(q = (Math.round(Math.pow(10.0, f * 2.0 - 1.0).toFloat() * 100) / 100f).coerceIn(qRange)) }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = band.enabled, onCheckedChange = { v -> haptics.toggle(v); onChange { it.copy(enabled = v) } }, modifier = Modifier.padding(start = 12.dp))

@@ -14,6 +14,12 @@ enable_cache = true
 # Save every Tidal API response to `<app dir>/api_debug` (for bug reports).
 debug = false
 
+# Say on stderr, at most once a day, when a newer HomeFi is out (a quiet
+# one-line notice with the download link; nothing is ever installed). The only
+# call is to GitHub's public releases API. Also skipped when stderr is not a
+# terminal, or with HOMEFI_NO_UPDATE_CHECK=1.
+update_check = true
+
 
 [templates]
 # Path templates, see docs/templating.md.

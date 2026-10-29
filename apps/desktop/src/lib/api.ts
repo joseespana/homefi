@@ -351,6 +351,47 @@ export interface Settings {
   crossfade: CrossfadeSettings;
   /** Stereo on surround devices and the resampler's quality. */
   output: OutputOptions;
+  /** Looking for and installing new versions (Settings → About). */
+  updates: UpdateSettings;
+}
+
+// ---------------------------------------------------------------- updates (src-tauri/src/updater.rs)
+
+export interface UpdateSettings {
+  /** On launch and every 6 hours. */
+  auto_check: boolean;
+  /** Beta versions too (GitHub pre-releases). */
+  prereleases: boolean;
+  /** `ask`: a banner offers it; `idle`: downloaded and installed when nothing plays, downloads or is shared. */
+  install: "ask" | "idle";
+}
+
+export type UpdateStatus = "idle" | "checking" | "upToDate" | "available" | "downloading" | "ready" | "installing" | "error";
+
+export interface UpdateView {
+  current: string;
+  status: UpdateStatus;
+  version: string | null;
+  /** Release notes (Markdown). */
+  notes: string | null;
+  /** Epoch ms. */
+  date: number | null;
+  prerelease: boolean;
+  /** The release page ("What's new" in the browser; "Download" when it can't update itself). */
+  pageUrl: string;
+  /** It can install itself; otherwise only "Download". */
+  inPlace: boolean;
+  installKind: "app" | "nsis" | "msi" | "appimage" | "deb" | "rpm" | "manual";
+  manualReason: "dev" | "dmg" | "translocated" | "not-app" | "no-appimage" | "no-pkexec" | "unknown" | "no-package" | null;
+  downloaded: number;
+  total: number | null;
+  error: string | null;
+  /** Epoch ms of the last check. */
+  lastChecked: number | null;
+  /** The restart waits for the song playing to end. */
+  afterSong: boolean;
+  /** "Later" was picked for this version. */
+  dismissed: boolean;
 }
 
 // ---------------------------------------------------------------- playback
@@ -396,6 +437,8 @@ export interface SoundUiSettings {
   layer_chip: boolean;
   /** Suggestion cards (a taste layer for what you listen to most). */
   suggestions: boolean;
+  /** How a taste rule's editor opens: the curve when it has bands (`auto`), the three sliders, or the curve. */
+  taste_editor?: "auto" | "simple" | "advanced";
 }
 
 /** How the equalizer screen looks and behaves (Settings → Sound). */
@@ -468,14 +511,40 @@ export type TasteScope =
 export type TasteScopeKind = TasteScope["kind"];
 export type TasteCreator = "manual" | "ai" | "guided" | "reaction";
 
-/** A tilt for some music, on top of the output's profile. The most specific rule plays: track > album > playlist > artist > genre. */
+/** One band of a taste rule's curve: an EqBand plus, from the assistant, what it does. */
+export interface TasteBand extends EqBand {
+  note?: string;
+}
+
+/** A taste layer for some music, on top of the output's profile: a tilt (three knobs) and / or a curve of up to 8 bands. The most specific rule plays: track > album > playlist > artist > genre. */
 export interface TasteRule {
   id: string;
   scope: TasteScope;
   tilt: Tilt;
+  /** The parametric curve (absent on simple and old rules). */
+  bands?: TasteBand[];
   label: string;
+  /** Why, in the assistant's words. */
+  explanation?: string;
   createdBy: TasteCreator;
   enabled: boolean;
+}
+
+/** What a rule's editor draws (src-tauri/src/sound.rs `taste_preview`). */
+export interface TastePreview {
+  /** The output it plays on. */
+  output: string | null;
+  /** That output's own profile (when the equalizer is on). */
+  device: EqProfile | null;
+  /** The rule's curve alone (tilt shelves and bands). */
+  taste: EqProfile;
+  /** Both, as the player runs them, with the preamp. */
+  combined: EqProfile;
+  /** The bands as they will play (in range, safe for the output). */
+  bands: TasteBand[];
+  /** What the taste caps changed (English). */
+  notes: string[];
+  small_speaker: boolean;
 }
 
 export interface TasteSettings {
@@ -564,6 +633,15 @@ export const EQ_LIMITS = {
   gainDb: [-24, 24],
   q: [0.1, 10],
   preampDb: [-60, 24],
+} as const;
+
+/** Caps of a taste rule's curve (homefi-core `dsp::taste`): each band ±9 dB, the whole layer ≤ +12 dB. */
+export const TASTE_LIMITS = {
+  maxBands: 8,
+  freqHz: [20, 20_000],
+  gainDb: [-9, 9],
+  q: [0.3, 8],
+  maxBoostDb: 12,
 } as const;
 
 // ---------------------------------------------------------------- shared control
@@ -896,6 +974,8 @@ export interface AssistantTurn {
   taste?: TasteSettings | null;
   /** Loudness changed this turn (already saved and applied). */
   loudness?: LoudnessSettings | null;
+  /** A taste layer proposed this turn (not saved yet): draw its curve and band notes. */
+  taste_proposal?: TasteRule | null;
 }
 
 export type StreamEvent = { status: "loading"; title: string } | { status: "ready" } | { status: "failed"; title: string; message: string };
@@ -1014,7 +1094,8 @@ export const api = {
   /** The model used when the settings name none. */
   aiDefaultModel: (provider: AiProviderId, baseUrl: string | null = null) => invoke<string>("ai_default_model", { provider, baseUrl }),
   /** Opens the EQ assistant with the AI of the settings, or the guided wizard (`guided`, or no provider). */
-  eqAssistantStart: (guided: boolean, language: string, notes: string | null = null) => invoke<AssistantTurn>("eq_assistant_start", { guided, language, notes }),
+  eqAssistantStart: (guided: boolean, language: string, notes: string | null = null, focusRule: string | null = null) =>
+    invoke<AssistantTurn>("eq_assistant_start", { guided, language, notes, focusRule }),
   eqAssistantReply: (text: string) => invoke<AssistantTurn>("eq_assistant_reply", { text }),
   eqAssistantClose: () => invoke<void>("eq_assistant_close"),
 
@@ -1032,6 +1113,8 @@ export const api = {
   outputOptionsSet: (options: OutputOptions) => invoke<OutputOptions>("output_options_set", { options }),
   /** The track playing, the scopes it offers and the rule that plays. */
   soundNow: () => invoke<NowSound>("sound_now"),
+  /** A rule's curve, the output's profile and both together, for its editor. */
+  tastePreview: (rule: TasteRule) => invoke<TastePreview>("taste_preview", { rule }),
   /** A reaction to what plays (AI when set up, else fixed safe steps); saved and applied. */
   soundReact: (reaction: SoundReaction, scope: TasteScope | null = null, language = "en") => invoke<ReactionResult>("sound_react", { reaction, scope, language }),
   /** Puts back what a reaction changed; false when already undone. */
@@ -1039,6 +1122,17 @@ export const api = {
   /** A proactive suggestion (a card); answers go to `eqAssistantReply`. */
   tasteSuggest: (language: string) => invoke<AssistantTurn>("taste_suggest", { language }),
   listeningSummary: () => invoke<ListeningSummary>("listening_summary"),
+
+  // new versions (src-tauri/src/updater.rs): only GitHub is asked, nothing about the user is sent
+  updateStatus: () => invoke<UpdateView>("update_status"),
+  /** "Check now". */
+  updateCheck: () => invoke<UpdateView>("update_check"),
+  /** "Update now": downloads and verifies it (progress in `on.update`). */
+  updateDownload: () => invoke<void>("update_download"),
+  /** Installs the downloaded update and restarts, now or when the song playing ends. */
+  updateRestart: (when: "now" | "song_end") => invoke<void>("update_restart", { when }),
+  /** "Later": hides the banner for this version until HomeFi starts again. */
+  updateDismiss: () => invoke<void>("update_dismiss"),
 };
 
 export const on = {
@@ -1056,6 +1150,7 @@ export const on = {
   shareDenied: (f: (reason: string) => void): Promise<UnlistenFn> => listen<string>("share-denied", (e) => f(e.payload)),
   shareNotice: (f: (n: ShareNotice) => void): Promise<UnlistenFn> => listen<ShareNotice>("share-notice", (e) => f(e.payload)),
   shareNearby: (f: (list: Nearby[]) => void): Promise<UnlistenFn> => listen<Nearby[]>("share-nearby", (e) => f(e.payload)),
+  update: (f: (v: UpdateView) => void): Promise<UnlistenFn> => listen<UpdateView>("update", (e) => f(e.payload)),
 };
 
 const isWindows = navigator.userAgent.includes("Windows");

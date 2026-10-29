@@ -8,6 +8,7 @@ import com.perseusoft.homefi.core.HomefiEngine
 import com.perseusoft.homefi.core.setLanguage
 import com.perseusoft.homefi.data.AccountStore
 import com.perseusoft.homefi.data.AiSetup
+import com.perseusoft.homefi.data.AppUpdater
 import com.perseusoft.homefi.data.DownloadRepository
 import com.perseusoft.homefi.data.KeyVault
 import com.perseusoft.homefi.data.SettingsStore
@@ -62,6 +63,9 @@ class HomefiApplication : Application(), SingletonImageLoader.Factory {
     /** Shared control / party mode, as hub or guest. */
     lateinit var share: ShareManager
         private set
+    /** "HomeFi X is available" (official build only; nothing about the user is sent). */
+    lateinit var updates: AppUpdater
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -88,6 +92,7 @@ class HomefiApplication : Application(), SingletonImageLoader.Factory {
         player = PlayerController(this) { mediaId -> library.find(mediaId) }
         share = ShareManager(this)
         lyrics = LyricsRepository(engine, appScope)
+        updates = AppUpdater(this, settings, appScope)
     }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader =

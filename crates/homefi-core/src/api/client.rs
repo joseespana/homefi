@@ -212,6 +212,7 @@ impl TidalClient {
     ) -> Result<T> {
         let url = format!("{}/{endpoint}", self.api_url);
         let key = Self::cache_key(&url, params);
+        let started = std::time::Instant::now();
         let decode_error =
             |e: serde_json::Error| Error::Decode { endpoint: endpoint.to_owned(), message: e.to_string() };
 
@@ -219,7 +220,7 @@ impl TidalClient {
             if let Some(body) = cache.get_async(&key, ttl).await {
                 // a stale shape (or a broken file) is fetched again
                 if let Ok(data) = serde_json::from_str::<T>(&body) {
-                    tracing::debug!("{endpoint} HIT");
+                    tracing::debug!("{endpoint} HIT ({:?})", started.elapsed());
                     return Ok(data);
                 }
             }
@@ -253,7 +254,7 @@ impl TidalClient {
             tokio::time::sleep(RETRY_DELAY).await;
         };
 
-        tracing::debug!("{endpoint} MISS [{status}]");
+        tracing::debug!("{endpoint} MISS [{status}] {} KB in {:?}", body.len() / 1024, started.elapsed());
         self.dump_debug(endpoint, params, status, || serde_json::from_str(&body).unwrap_or(Value::Null));
 
         if let (CachePolicy::Ttl(_), Some(cache)) = (policy, &self.cache) {

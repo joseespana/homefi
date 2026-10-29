@@ -37,6 +37,9 @@ class AiSetup(private val settings: SettingsStore, val keys: KeyVault) {
         return Ready(info, config(info, ai), key)
     }
 
+    /** An AI is set up (provider, and its key when it needs one): "Ask the AI to refine it" shows. */
+    fun hasProvider(): Boolean = ready() != null
+
     /** A plain class whose `toString` never prints [key]. */
     class Ready(val info: AiProviderInfo, val config: AiConfig, val key: String?) {
         override fun toString() = "Ready(${info.id})"

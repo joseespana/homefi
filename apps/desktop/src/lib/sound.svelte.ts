@@ -10,6 +10,7 @@ import {
   type NowSound,
   type SoundReaction,
   type SoundUiSettings,
+  type TasteBand,
   type TasteCreator,
   type TasteRule,
   type TasteScope,
@@ -20,7 +21,7 @@ import {
 import { uiLanguage } from "./eq.svelte";
 import { app } from "./state.svelte";
 
-export const SOUND_UI_DEFAULTS: SoundUiSettings = { react_deck: true, react_room: true, layer_chip: true, suggestions: true };
+export const SOUND_UI_DEFAULTS: SoundUiSettings = { react_deck: true, react_room: true, layer_chip: true, suggestions: true, taste_editor: "auto" };
 export const LOUDNESS_DEFAULTS: LoudnessSettings = { mode: "off", targetLufs: -14, preventClipping: true };
 export const TASTE_DEFAULTS: TasteSettings = { enabled: false, rules: [] };
 /** Each taste value stays within ± this (dB), like homefi-core. */
@@ -83,6 +84,39 @@ export function tiltWords(t: Tilt): string {
   return parts.length ? parts.join(" · ") : "No change";
 }
 
+const kHz = (f: number) => (f >= 1000 ? `${(f / 1000).toFixed(f >= 10_000 ? 0 : 1).replace(/\.0$/, "")}k` : `${Math.round(f)} Hz`);
+const dbWords = (db: number) => `${db > 0 ? "+" : "−"}${Math.abs(Math.round(db * 10) / 10)} dB`;
+const hasGain = (b: TasteBand) => b.kind === "peak" || b.kind === "lowShelf" || b.kind === "highShelf";
+const audible = (b: TasteBand) => b.enabled && (!hasGain(b) || Math.abs(b.gainDb) >= 0.05);
+
+/** `−2 dB 3.2k`, `HP 80 Hz`. */
+export function bandWords(b: TasteBand): string {
+  if (b.kind === "highPass") return `HP ${kHz(b.freqHz)}`;
+  if (b.kind === "lowPass") return `LP ${kHz(b.freqHz)}`;
+  return `${dbWords(b.gainDb)} ${kHz(b.freqHz)}`;
+}
+
+/** A rule's curve in a line, like homefi-core's `curve_summary`: `3 bands · −2 dB 3.2k, +1.5 dB 120 Hz, …` then the tilt. */
+export function ruleWords(r: { tilt: Tilt; bands?: TasteBand[] }): string {
+  const bands = (r.bands ?? []).filter(audible);
+  const parts: string[] = [];
+  if (bands.length) {
+    const weight = (b: TasteBand) => (hasGain(b) ? Math.abs(b.gainDb) : 0.5);
+    const top = [...bands].sort((a, b) => weight(b) - weight(a));
+    const list = top.slice(0, 3).map(bandWords);
+    if (top.length > 3) list.push("…");
+    parts.push(`${bands.length} band${bands.length === 1 ? "" : "s"} · ${list.join(", ")}`);
+  }
+  const t = tiltWords(r.tilt);
+  if (t !== "No change") parts.push(t);
+  return parts.length ? parts.join(" · ") : "No change";
+}
+
+/** The rule changes nothing (flat tilt, no audible band). */
+export function ruleNeutral(r: { tilt: Tilt; bands?: TasteBand[] }): boolean {
+  return tiltWords(r.tilt) === "No change" && !(r.bands ?? []).some(audible);
+}
+
 /** A short default label for a manual rule. */
 export function defaultLabel(scope: TasteScope, t: Tilt): string {
   const c = t.clarityDb ?? 0;
@@ -114,6 +148,8 @@ class SoundStore {
   handoff = $state<{ turn: AssistantTurn; reply: string | null } | null>(null);
   /** Notes to start the assistant with ("Sound for this album → Ask the AI"). */
   assistantNotes = $state<string | null>(null);
+  /** The rule "Ask the AI to refine" opened the assistant for. */
+  assistantFocus = $state<string | null>(null);
 
   get ui(): SoundUiSettings {
     return { ...SOUND_UI_DEFAULTS, ...(app.settings?.sound_ui ?? {}) };
@@ -184,15 +220,18 @@ class SoundStore {
   }
 
   /** Adds or replaces the rule for `scope` (the first rule turns taste layers on). */
-  async setRule(scope: TasteScope, tilt: Tilt, label?: string, createdBy: TasteCreator = "manual") {
+  async setRule(scope: TasteScope, tilt: Tilt, label?: string, createdBy: TasteCreator = "manual", bands?: TasteBand[]) {
     const t = copy(this.taste);
     const at = t.rules.findIndex((r) => sameScope(r.scope, scope));
+    const old = at >= 0 ? t.rules[at] : null;
     const rule: TasteRule = {
-      id: at >= 0 ? t.rules[at].id : newId(),
+      ...(old ?? {}),
+      id: old?.id ?? newId(),
       scope,
       tilt,
+      bands: bands ?? old?.bands ?? [],
       label: label?.trim() || defaultLabel(scope, tilt),
-      createdBy: at >= 0 ? t.rules[at].createdBy : createdBy,
+      createdBy: old?.createdBy ?? createdBy,
       enabled: true,
     };
     if (!t.rules.length) t.enabled = true;
@@ -221,6 +260,14 @@ class SoundStore {
   askAi(scope: TasteScope) {
     this.forScope = null;
     this.assistantNotes = `I'd like a taste layer for ${scopePhrase(scope)}.`;
+    app.view = { name: "assistant" };
+  }
+
+  /** "Ask the AI to refine": the assistant starts from this rule's curve (save the edits first). */
+  refine(rule: TasteRule) {
+    this.forScope = null;
+    this.assistantFocus = rule.id;
+    this.assistantNotes = `Refine “${rule.label}” (${ruleWords(rule)}).`;
     app.view = { name: "assistant" };
   }
 }

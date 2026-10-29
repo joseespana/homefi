@@ -7,6 +7,38 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Added
+- Updates on every platform. Desktop: "HomeFi X is available · What's new · Update now · Later"
+  with the release notes, a download progress bar and "Restart now" / "When the song ends" (the
+  music is never stopped without asking); macOS, Windows (setup and MSI) and Linux (AppImage,
+  .deb, .rpm) update in place through signed packages, other installs get a Download button.
+  Settings → About → Updates: check automatically (on launch and every 6 hours), include
+  pre-releases, install "Ask" or "When HomeFi is idle", Check now, last checked. Android (the
+  official app): the same card and options; the APK is checked against the release's
+  `SHA256SUMS` before Android's installer opens. Other builds (Astell&Kern, debug) say updates
+  come by USB. CLI: a quiet once-a-day notice on stderr (`HOMEFI_NO_UPDATE_CHECK=1` or
+  `update_check = false` turns it off). The only calls are to GitHub's public releases.
+- Releases carry the updater's `latest.json` and minisign signatures (a tag fails without the
+  `TAURI_SIGNING_PRIVATE_KEY` secrets).
+- Taste layers get full parametric curves. A rule keeps its bass / treble / clarity knobs and now
+  also holds up to 8 bands (peak, low / high shelf, high / low pass), each with an optional note
+  from the assistant. Old rules load unchanged. The rule editor (desktop and Android) has
+  **Simple** (the three sliders) and **Advanced** (the curve: drag, add, remove, Q with the wheel or
+  the band editor) drawn over the output's profile with what plays dashed; rule cards summarize the
+  curve ("3 bands · -2 dB 3.2k, +1.5 dB 65 Hz…"), and "Ask the AI to refine it" opens the assistant
+  on that rule. "Sound for this…" gets the same editor; Settings → Sound picks which tab opens.
+- Safety for curves: each band ±9 dB, peaks Q 0.3-8, a high-pass at most at 300 Hz and a low-pass
+  from 4 kHz, the whole layer at most +12 dB anywhere (boosts are scaled down), and on built-in
+  speakers no boost below 150 Hz (it becomes a lift at 200 Hz with a high-pass). The player runs
+  the output profile and the layer together (up to 22 filters, still no allocation in the audio
+  callback) with the automatic preamp computed on the combined response.
+- The EQ assistant designs curves: `set_taste_rule` / new `propose_taste_rule` take `bands`, the new
+  `analyze_sound` shows what already plays (device profile, layer, summed response at 31 points)
+  so it edits instead of stacking bands, and whatever was clamped is reported back for it to
+  explain. A proposed layer shows as a card with its curve, each band's reason, Apply and Keep
+  talking. "How does it sound?" with AI may change up to 2 bands per tap (3 dB each); without AI,
+  "too boomy" cuts 120 Hz and "too bright" softens 8 kHz and the harsh 3.5 kHz edge in turn.
+
 ## [1.1.0] - 2026-10-28
 
 Sound you set up by talking: an equalizer per output with measured headphone corrections,

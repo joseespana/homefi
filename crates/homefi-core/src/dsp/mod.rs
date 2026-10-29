@@ -25,12 +25,17 @@ pub use crossfade::{lenient_crossfade, CrossfadeMode, CrossfadeSettings, FadeCur
 pub use equalizer::{glide_frames, EqDesign, Equalizer};
 pub use loudness::{lenient_loudness, read_replay_gain, LoudnessMode, LoudnessSettings, ReplayGain};
 pub use taste::{
-    lenient_taste, resolve_taste, split_genres, ItemRef, NowPlayingContext, SourceContext, TasteCreator, TasteRule,
-    TasteScope, TasteSettings, MAX_TILT_DB,
+    clamp_taste_curve, curve_summary, lenient_taste, resolve_taste, split_genres, ItemRef, NowPlayingContext,
+    SourceContext, TasteBand, TasteCreator, TasteRule, TasteScope, TasteSettings, MAX_TASTE_BANDS, MAX_TASTE_BAND_DB,
+    MAX_TASTE_BOOST_DB, MAX_TILT_DB,
 };
 
 /// Bands a profile can hold (AutoEq profiles use exactly 10).
 pub const MAX_BANDS: usize = 10;
+/// Filters the player runs for one track at most: the output's profile, the
+/// taste rule's curve, its tilt shelves (3) and a small speaker's high-pass.
+/// [`EqDesign`] is this big, fixed, so the audio callback never allocates.
+pub const MAX_STAGES: usize = MAX_BANDS + MAX_TASTE_BANDS + 4;
 pub const MIN_FREQ_HZ: f32 = 20.0;
 pub const MAX_FREQ_HZ: f32 = 20_000.0;
 pub const MIN_GAIN_DB: f32 = -24.0;
@@ -293,6 +298,11 @@ const TASTE_CLARITY_Q: f32 = 0.9;
 /// that does the least. The preamp only goes down, if the boost needs room.
 /// The source is kept.
 pub fn with_taste(profile: &EqProfile, tilt: Tilt) -> EqProfile {
+    with_taste_in(profile, tilt, MAX_BANDS)
+}
+
+/// [`with_taste`] with room for `cap` bands.
+fn with_taste_in(profile: &EqProfile, tilt: Tilt, cap: usize) -> EqProfile {
     let mut out = profile.clamped();
     let wanted = [
         (EqBandKind::LowShelf, TASTE_BASS_HZ, tilt.bass_db, TASTE_SHELF_Q),
@@ -304,7 +314,7 @@ pub fn with_taste(profile: &EqProfile, tilt: Tilt) -> EqProfile {
         if !audible(gain) {
             continue; // zero or NaN
         }
-        add_taste(&mut out.bands, EqBand::new(kind, freq, gain, q).clamped());
+        add_taste(&mut out.bands, EqBand::new(kind, freq, gain, q).clamped(), cap);
         changed = true;
     }
     if changed {
@@ -325,17 +335,54 @@ pub const SMALL_SPEAKER_HIGHPASS_HZ: f32 = 90.0;
 /// high-pass at [`SMALL_SPEAKER_HIGHPASS_HZ`] (deep bass would only eat
 /// headroom and distort); cuts and the rest of the tilt are as usual.
 pub fn with_taste_for(profile: &EqProfile, tilt: Tilt, small_speaker: bool) -> EqProfile {
+    with_taste_for_in(profile, tilt, small_speaker, MAX_BANDS)
+}
+
+fn with_taste_for_in(profile: &EqProfile, tilt: Tilt, small_speaker: bool, cap: usize) -> EqProfile {
     if !small_speaker || tilt.bass_db <= 0.0 || !audible(tilt.bass_db) {
-        return with_taste(profile, tilt);
+        return with_taste_in(profile, tilt, cap);
     }
-    let mut out = with_taste(profile, Tilt { bass_db: 0.0, ..tilt });
+    let mut out = with_taste_in(profile, Tilt { bass_db: 0.0, ..tilt }, cap);
     let lift = tilt.bass_db.min(SMALL_SPEAKER_MAX_BASS_DB);
-    add_taste(&mut out.bands, EqBand::new(EqBandKind::Peak, SMALL_SPEAKER_BASS_HZ, lift, 0.9));
+    add_taste(&mut out.bands, EqBand::new(EqBandKind::Peak, SMALL_SPEAKER_BASS_HZ, lift, 0.9), cap);
     if !out.bands.iter().any(|b| b.enabled && b.kind == EqBandKind::HighPass) {
-        add_taste(&mut out.bands, EqBand::new(EqBandKind::HighPass, SMALL_SPEAKER_HIGHPASS_HZ, 0.0, 0.707));
+        add_taste(&mut out.bands, EqBand::new(EqBandKind::HighPass, SMALL_SPEAKER_HIGHPASS_HZ, 0.0, 0.707), cap);
     }
     out.preamp_db = out.preamp_db.min(auto_preamp_db(&out));
     out
+}
+
+/// The whole sound of a track: `profile` (the output's, ≤ [`MAX_BANDS`]) with
+/// a taste rule's `tilt` joined to it (see [`with_taste_for`]; here it never
+/// replaces one of the profile's bands) and the rule's curve `bands` after it,
+/// for the kind of output. At most [`MAX_STAGES`] bands, so do not
+/// [`EqProfile::clamp`] it (that keeps 10). The preamp only goes down, to
+/// leave room for the summed boost.
+pub fn with_taste_rule(profile: &EqProfile, bands: &[TasteBand], tilt: Tilt, small_speaker: bool) -> EqProfile {
+    let (curve, tilt, _) = clamp_taste_curve(bands, tilt, small_speaker);
+    let mut out = with_taste_for_in(profile, tilt, small_speaker, MAX_BANDS + 4);
+    let before = out.bands.len();
+    let room = MAX_STAGES.saturating_sub(before);
+    out.bands.extend(curve.into_iter().map(|b| b.band).filter(|b| !b.is_neutral()).take(room));
+    if out.bands.len() != before {
+        out.preamp_db = out.preamp_db.min(auto_preamp_db(&out));
+    }
+    out
+}
+
+/// A taste rule's curve alone as a profile (tilt shelves first, then its
+/// bands; no preamp), to draw it or measure it: [`response_db`] takes it.
+pub fn taste_profile(bands: &[TasteBand], tilt: Tilt) -> EqProfile {
+    let t = tilt.clamped(MAX_TILT_DB);
+    let shelves = [
+        (EqBandKind::LowShelf, TASTE_BASS_HZ, t.bass_db, TASTE_SHELF_Q),
+        (EqBandKind::HighShelf, TASTE_TREBLE_HZ, t.treble_db, TASTE_SHELF_Q),
+        (EqBandKind::Peak, TASTE_CLARITY_HZ, t.clarity_db.unwrap_or(0.0), TASTE_CLARITY_Q),
+    ];
+    let mut p = EqProfile::flat("");
+    p.bands.extend(shelves.into_iter().filter(|s| audible(s.2)).map(|(k, f, g, q)| EqBand::new(k, f, g, q)));
+    p.bands.extend(bands.iter().take(MAX_TASTE_BANDS).map(|b| b.band.clamped()));
+    p
 }
 
 /// A tilt safe for the kind of output: on small speakers the bass boost is
@@ -362,7 +409,7 @@ pub fn is_built_in_speaker(name: &str) -> bool {
         .any(|w| n.contains(w))
 }
 
-fn add_taste(bands: &mut Vec<EqBand>, taste: EqBand) {
+fn add_taste(bands: &mut Vec<EqBand>, taste: EqBand, cap: usize) {
     let octaves = |b: &EqBand| (b.freq_hz / taste.freq_hz).log2().abs();
     let same_kind = |b: &&mut EqBand| b.enabled && b.kind == taste.kind;
     // a band of the same shape and place: add to it
@@ -374,7 +421,7 @@ fn add_taste(bands: &mut Vec<EqBand>, taste: EqBand) {
         b.gain_db = (b.gain_db + taste.gain_db).clamp(MIN_GAIN_DB, MAX_GAIN_DB);
         return;
     }
-    if bands.len() < MAX_BANDS {
+    if bands.len() < cap {
         bands.push(taste);
         return;
     }
@@ -402,7 +449,9 @@ fn add_taste(bands: &mut Vec<EqBand>, taste: EqBand) {
 /// response of `profile`'s bands, so a full-scale signal never clips. Its own
 /// `preamp_db` is not looked at.
 pub fn auto_preamp_db(profile: &EqProfile) -> f32 {
-    let profile = profile.clamped();
+    // a track's combined profile may hold up to MAX_STAGES bands
+    let bands = profile.bands.iter().take(MAX_STAGES).map(|b| b.clamped()).collect();
+    let profile = EqProfile { bands, ..Default::default() };
     if profile.bands_flat() {
         return 0.0;
     }
@@ -419,7 +468,7 @@ pub fn response_db(profile: &EqProfile, freqs: &[f32], sample_rate: u32) -> Vec<
     let stages: Vec<Biquad> = profile
         .bands
         .iter()
-        .take(MAX_BANDS)
+        .take(MAX_STAGES)
         .map(|b| b.clamped())
         .filter(|b| !b.is_neutral())
         .map(|b| Biquad::design(&b, sample_rate))
@@ -483,13 +532,14 @@ pub fn track_profile<'a>(
     ctx: &NowPlayingContext,
 ) -> Option<(EqProfile, Option<&'a TasteRule>)> {
     let base = if eq.enabled { eq.profile_for(output_id) } else { None };
-    let rule = resolve_taste(taste, ctx).filter(|(_, t)| !t.is_neutral());
+    let rule =
+        resolve_taste(taste, ctx).filter(|(r, t)| !t.is_neutral() || r.bands.iter().any(|b| !b.band.is_neutral()));
     let (mut profile, used) = match (base, rule) {
         (None, None) => return None,
         (Some(b), None) => (b.clamped(), None),
         (b, Some((r, tilt))) => {
             let base = b.cloned().unwrap_or_else(|| EqProfile::flat(""));
-            (with_taste_for(&base, tilt, is_built_in_speaker(output_id)), Some(r))
+            (with_taste_rule(&base, &r.bands, tilt, is_built_in_speaker(output_id)), Some(r))
         }
     };
     let flat = if eq.auto_preamp || base.is_none() { profile.bands_flat() } else { profile.is_flat() };
@@ -879,6 +929,70 @@ mod tests {
         let (p, _) =
             track_profile(&EqSettings::default(), &taste, "MacBook Air Speakers", &genre_ctx("Electronic")).unwrap();
         assert!(p.bands.iter().any(|b| b.kind == EqBandKind::HighPass));
+    }
+
+    #[test]
+    fn a_full_device_profile_and_a_full_taste_curve_fit_together() {
+        // AutoEq-like: 10 bands, among them the 105 Hz / 10 kHz shelves the tilt joins
+        let mut bands: Vec<EqBand> = (0..8).map(|i| peak(150.0 * 1.6f32.powi(i), 2.0 - i as f32 * 0.5, 2.0)).collect();
+        bands.insert(0, EqBand::new(EqBandKind::LowShelf, 105.0, 4.0, 0.7));
+        bands.push(EqBand::new(EqBandKind::HighShelf, 10_000.0, -2.0, 0.7));
+        let device = EqProfile { name: "IEM".into(), bands: bands.clone(), ..Default::default() };
+        let curve: Vec<TasteBand> = (0..MAX_TASTE_BANDS)
+            .map(|i| {
+                TasteBand::new(EqBandKind::Peak, 90.0 * 2f32.powi(i as i32), if i % 2 == 0 { 2.0 } else { -2.0 }, 1.4)
+            })
+            .collect();
+        let mut eq = EqSettings { enabled: true, ..Default::default() };
+        eq.per_output.insert("dac".into(), device);
+        let mut taste = TasteSettings::default();
+        taste.upsert(
+            TasteRule::new(
+                TasteScope::Genre { name: "House".into() },
+                Tilt { bass_db: 2.0, treble_db: 1.0, clarity_db: Some(1.0) },
+                "Curve",
+                TasteCreator::Ai,
+            )
+            .with_bands(curve),
+        );
+        let (p, rule) = track_profile(&eq, &taste, "dac", &genre_ctx("House")).unwrap();
+        assert!(rule.is_some());
+        // the device's 10 (two shelves took the tilt), the clarity peak, the 8 taste bands
+        assert_eq!(p.bands.len(), 10 + 1 + MAX_TASTE_BANDS);
+        assert!(p.bands.len() <= MAX_STAGES);
+        assert_eq!(p.bands[0].gain_db, 6.0, "bass tilt joined the device shelf");
+        assert_eq!(&p.bands[1..9], &bands[1..9], "no device band was replaced");
+        let design = EqDesign::new(&p, p.preamp_db, 48_000);
+        assert_eq!(design.stages().len(), p.bands.iter().filter(|b| !b.is_neutral()).count());
+        // the preamp covers the summed response of everything
+        let max = response_db(&p, &log_freqs(1024), 48_000).into_iter().fold(f32::MIN, f32::max);
+        assert!(p.preamp_db <= -max + 0.01, "preamp {} for a {max} dB peak", p.preamp_db);
+        assert_eq!(p.preamp_db, auto_preamp_db(&p));
+        // the same with the equalizer off: the taste curve alone
+        eq.enabled = false;
+        let (p, _) = track_profile(&eq, &taste, "dac", &genre_ctx("House")).unwrap();
+        assert_eq!(p.bands.len(), 3 + MAX_TASTE_BANDS);
+        // a rule with only bands (no tilt) still plays
+        let mut only = TasteSettings::default();
+        only.upsert(
+            TasteRule::new(TasteScope::Genre { name: "House".into() }, Tilt::default(), "", TasteCreator::Manual)
+                .with_bands(vec![TasteBand::new(EqBandKind::Peak, 3500.0, -2.0, 2.0)]),
+        );
+        let (p, _) = track_profile(&eq, &only, "dac", &genre_ctx("House")).unwrap();
+        assert_eq!(p.bands.len(), 1);
+        assert_eq!(p.preamp_db, 0.0, "a cut needs no headroom");
+    }
+
+    #[test]
+    fn taste_profiles_draw_the_curve_alone() {
+        let p = taste_profile(
+            &[TasteBand::new(EqBandKind::Peak, 3200.0, -2.0, 3.0)],
+            Tilt { bass_db: 3.0, ..Default::default() },
+        );
+        assert_eq!(p.bands.len(), 2);
+        assert!((at(&p, 3200.0) + 2.0).abs() < 0.1);
+        assert!(at(&p, 30.0) > 2.5);
+        assert_eq!(p.preamp_db, 0.0);
     }
 
     #[test]

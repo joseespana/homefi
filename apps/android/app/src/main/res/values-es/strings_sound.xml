@@ -115,4 +115,27 @@
     <string name="ai_model_small_warning">Modelo pequeño: más barato, pero puede equivocarse más.</string>
     <string name="sound_layers_toggle">Usar capas de gusto</string>
     <string name="sound_summary_eq_off_rules">EQ apagado · %1$d reglas de gusto</string>
+    <!-- curvas de las reglas de gusto (editor Simple / Avanzado) -->
+    <string name="taste_mode_simple">Simple</string>
+    <string name="taste_mode_advanced">Avanzado</string>
+    <string name="taste_mode_advanced_count">Avanzado · %1$d</string>
+    <string name="taste_simple_plus_bands">Además, una curva de %1$d bandas: mírala en Avanzado.</string>
+    <string name="taste_also_tilt">También de Simple: %1$s</string>
+    <string name="taste_bands_heading">Bandas (%1$d de %2$d)</string>
+    <string name="taste_band_add">Banda</string>
+    <string name="taste_bands_empty">Aún no hay bandas. Un corte estrecho quita la aspereza; una subida ancha da calidez. Arrastra un punto de la curva para moverlo.</string>
+    <string name="taste_legend_layer">Esta capa</string>
+    <string name="taste_legend_sum">Lo que suena (punteado)</string>
+    <string name="taste_kept_safe">Se mantuvo seguro: %1$s</string>
+    <string name="taste_refine">Pedir a la IA que lo afine</string>
+    <string name="taste_refine_notes">Afinar «%1$s» (%2$s).</string>
+    <string name="taste_proposal_title">Capa propuesta para %1$s</string>
+    <string name="taste_proposal_apply">Aplicar</string>
+    <string name="taste_proposal_keep">Seguir hablando</string>
+    <string name="taste_editor_setting">El editor de una regla abre en</string>
+    <string name="taste_editor_auto">Auto</string>
+    <string name="taste_editor_setting_hint">Simple: deslizadores de bajo, agudos y claridad. Avanzado: la curva completa con bandas. Auto: la curva cuando la regla tiene bandas.</string>
+    <string name="taste_save_disabled">Mueve un deslizador o agrega una banda primero</string>
+    <string name="signal_taste_bands">Bandas de gusto</string>
+    <string name="signal_taste_bands_value">%1$d de %2$d activas</string>
 </resources>

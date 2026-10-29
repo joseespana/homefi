@@ -2,7 +2,8 @@
 # for a tag `vX.Y.Z` (created with `cargo xtask bump`), publishes a GitHub Release.
 #
 # - Desktop app: macOS (Apple Silicon, Intel) .dmg; Windows (x64, ARM64) setup .exe (+ .msi on x64);
-#   Linux (x86_64, arm64) .deb, .rpm and .AppImage
+#   Linux (x86_64, arm64) .deb, .rpm and .AppImage. Each one also carries a minisign signature for
+#   the in-app updater (TAURI_SIGNING_PRIVATE_KEY secrets), and a tag gets `latest.json`.
 # - CLI archives for the same platforms
 # - Android APK (arm64-v8a, armeabi-v7a, x86_64)
 name: Release
@@ -57,8 +58,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: macOS arm64, os: macos-latest, target: aarch64-apple-darwin, bundles: dmg }
-          - { name: macOS x64, os: macos-latest, target: x86_64-apple-darwin, bundles: dmg }
+          # `app` makes the updater's HomeFi.app.tar.gz next to the .dmg
+          - { name: macOS arm64, os: macos-latest, target: aarch64-apple-darwin, bundles: "app,dmg" }
+          - { name: macOS x64, os: macos-latest, target: x86_64-apple-darwin, bundles: "app,dmg" }
           - { name: Windows x64, os: windows-latest, target: x86_64-pc-windows-msvc, bundles: "nsis,msi" }
           # WiX (MSI) can't target ARM64: setup .exe only
           - { name: Windows arm64, os: windows-latest, target: aarch64-pc-windows-msvc, bundles: nsis }
@@ -122,10 +124,36 @@ jobs:
             echo "No Apple certificate: the app is ad-hoc signed (opens after \"Open Anyway\", see docs/releasing.md)"
           fi
 
+      # The in-app updater only installs files signed with this key (public key in tauri.conf.json,
+      # see docs/releasing.md). A tag fails without it: its users could never update in place.
+      - name: Updater signing key
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
+            [[ -n "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]] || echo "::warning::TAURI_SIGNING_PRIVATE_KEY_PASSWORD is not set: only a key without a password can sign"
+            echo "Updater artifacts will be signed"
+          elif [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set: a release must carry signed updater artifacts (see docs/releasing.md)"
+            exit 1
+          else
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set, this build has no updater artifacts"
+            echo '{"bundle":{"createUpdaterArtifacts":false}}' > "$RUNNER_TEMP/no-updater.json"
+            echo "TAURI_EXTRA_CONFIG=$RUNNER_TEMP/no-updater.json" >> "$GITHUB_ENV"
+          fi
+
       - name: Build
         working-directory: apps/desktop
         shell: bash
-        run: pnpm tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          extra=()
+          [[ -n "${TAURI_EXTRA_CONFIG:-}" ]] && extra=(--config "$TAURI_EXTRA_CONFIG")
+          pnpm tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} "${extra[@]}"
 
       - name: Collect installers
         shell: bash
@@ -142,11 +170,15 @@ jobs:
           bundle="target/${{ matrix.target }}/release/bundle"
           mkdir -p pkg
           shopt -s nullglob
-          for f in "$bundle"/dmg/*.dmg "$bundle"/nsis/*.exe "$bundle"/msi/*.msi \
+          # the updater's files carry a minisign signature next to them (`<file>.sig`); it goes
+          # into latest.json in the collect job, not into the release
+          for f in "$bundle"/dmg/*.dmg "$bundle"/macos/*.app.tar.gz "$bundle"/nsis/*.exe "$bundle"/msi/*.msi \
                    "$bundle"/deb/*.deb "$bundle"/rpm/*.rpm "$bundle"/appimage/*.AppImage; do
             ext="${f##*.}"
             [[ "$f" == */nsis/* ]] && ext="setup.exe"
+            [[ "$f" == *.app.tar.gz ]] && ext="app.tar.gz"
             /bin/cp "$f" "pkg/HomeFi-$label-$plat-$arch.$ext"
+            [[ -f "$f.sig" ]] && /bin/cp "$f.sig" "pkg/HomeFi-$label-$plat-$arch.$ext.sig"
           done
           ls -la pkg
           [[ -n "$(ls pkg)" ]] || { echo "::error::no installers were produced"; exit 1; }
@@ -277,6 +309,13 @@ jobs:
         with:
           path: pkg
           merge-multiple: true
+      # updater signatures: read into latest.json, not published as files
+      - name: Updater signatures
+        run: |
+          mkdir -p sigs
+          shopt -s nullglob
+          for f in pkg/*.sig; do mv "$f" sigs/; done
+          ls sigs
       # the same files without the version, so README links to releases/latest/download/<name> never break
       - name: Stable names
         env:
@@ -286,6 +325,76 @@ jobs:
             /bin/cp "$f" "${f/-$LABEL-/-}"
           done
           ls pkg
+      - name: Release notes
+        if: github.ref_type == 'tag'
+        run: |
+          awk -v v="${{ needs.version.outputs.version }}" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > changelog.md
+          /bin/cp changelog.md notes.md
+          cat >> notes.md <<'EOF'
+
+          ---
+          **Personal, non-commercial use only.** HomeFi is not affiliated with or endorsed by TIDAL and
+          requires your own paid TIDAL subscription. Don't share, sell, upload or distribute what you
+          download; you are responsible for complying with TIDAL's terms and your country's copyright
+          laws. See the [README](https://github.com/joseespana/homefi#readme) for the full notice.
+          EOF
+      # The in-app updater's manifest (Tauri's latest.json) for every tag, published with the
+      # release: /releases/latest/download/latest.json then always means the newest stable
+      # version (GitHub's "latest" skips pre-releases), and a pre-release's own latest.json is
+      # what the desktop app reads with "Include pre-releases" on. URLs point at this tag's
+      # versioned files, so a manifest never pairs a signature with another build's file.
+      - name: Updater manifest (latest.json)
+        if: github.ref_type == 'tag'
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          LABEL: ${{ needs.version.outputs.label }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import datetime, json, os, sys
+          version, label, repo = os.environ["VERSION"], os.environ["LABEL"], os.environ["REPO"]
+          base = f"https://github.com/{repo}/releases/download/v{version}"
+          # updater target(s) -> file of this release; the first target of each line is the
+          # platform's default (`{os}-{arch}`), the rest name the install type the app was set up from
+          files = [
+              (["darwin-aarch64", "darwin-aarch64-app"], f"HomeFi-{label}-macos-arm64.app.tar.gz"),
+              (["darwin-x86_64", "darwin-x86_64-app"], f"HomeFi-{label}-macos-x64.app.tar.gz"),
+              (["windows-x86_64", "windows-x86_64-nsis"], f"HomeFi-{label}-windows-x64.setup.exe"),
+              (["windows-x86_64-msi"], f"HomeFi-{label}-windows-x64.msi"),
+              (["windows-aarch64", "windows-aarch64-nsis"], f"HomeFi-{label}-windows-arm64.setup.exe"),
+              (["linux-x86_64", "linux-x86_64-appimage"], f"HomeFi-{label}-linux-x86_64.AppImage"),
+              (["linux-x86_64-deb"], f"HomeFi-{label}-linux-x86_64.deb"),
+              (["linux-x86_64-rpm"], f"HomeFi-{label}-linux-x86_64.rpm"),
+              (["linux-aarch64", "linux-aarch64-appimage"], f"HomeFi-{label}-linux-arm64.AppImage"),
+              (["linux-aarch64-deb"], f"HomeFi-{label}-linux-arm64.deb"),
+              (["linux-aarch64-rpm"], f"HomeFi-{label}-linux-arm64.rpm"),
+          ]
+          platforms, missing = {}, []
+          for targets, name in files:
+              sig = os.path.join("sigs", name + ".sig")
+              if not (os.path.isfile(os.path.join("pkg", name)) and os.path.isfile(sig)):
+                  missing.append(name)
+                  continue
+              entry = {"signature": open(sig).read().strip(), "url": f"{base}/{name}"}
+              for t in targets:
+                  platforms[t] = entry
+          for name in missing:
+              print(f"::warning::{name} or its signature is missing: not in latest.json")
+          if not platforms:
+              sys.exit("::error::no signed updater artifacts: is TAURI_SIGNING_PRIVATE_KEY set?")
+          manifest = {
+              "version": version,
+              "notes": open("changelog.md").read().strip(),
+              "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": platforms,
+          }
+          json.dump(manifest, open("pkg/latest.json", "w"), indent=2)
+          print(f"latest.json: {len(platforms)} targets")
+          PY
       - name: Checksums
         run: |
           cd pkg && sha256sum * > SHA256SUMS && cd ..
@@ -364,22 +473,6 @@ jobs:
             aws s3 cp manifest.json "s3://$R2_BUCKET/$latest/manifest.json" --endpoint-url "$endpoint" --content-type application/json --only-show-errors
           fi
           echo "Uploaded to r2://$R2_BUCKET/$dir${latest:+ and $latest}" >> "$GITHUB_STEP_SUMMARY"
-      - name: Release notes
-        if: github.ref_type == 'tag'
-        run: |
-          awk -v v="${{ needs.version.outputs.version }}" '
-            $0 ~ "^## \\[" v "\\]" { on = 1; next }
-            on && /^## \[/ { exit }
-            on { print }
-          ' CHANGELOG.md > notes.md
-          cat >> notes.md <<'EOF'
-
-          ---
-          **Personal, non-commercial use only.** HomeFi is not affiliated with or endorsed by TIDAL and
-          requires your own paid TIDAL subscription. Don't share, sell, upload or distribute what you
-          download; you are responsible for complying with TIDAL's terms and your country's copyright
-          laws. See the [README](https://github.com/joseespana/homefi#readme) for the full notice.
-          EOF
       - uses: softprops/action-gh-release@v2
         if: github.ref_type == 'tag' && needs.desktop.result == 'success' && needs.android.result == 'success'
         with:

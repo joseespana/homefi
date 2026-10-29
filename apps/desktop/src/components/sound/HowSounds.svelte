@@ -4,7 +4,7 @@
   // fixed safe steps). A note says what changed, with Undo.
   import type { TasteScope } from "../../lib/api";
   import { pop } from "../../lib/motion";
-  import { REACTIONS, scopeIcon, scopeShort, sound, tiltWords } from "../../lib/sound.svelte";
+  import { REACTIONS, ruleWords, scopeIcon, scopeShort, sound } from "../../lib/sound.svelte";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
 
@@ -72,7 +72,7 @@
 
       <div class="pfoot">
         {#if now?.rule}
-          <span class="active ellipsis" title={tiltWords(now.rule.tilt)}><Icon name="layers" size={13} /> {now.rule.label}</span>
+          <span class="active ellipsis" title={ruleWords(now.rule)}><Icon name="layers" size={13} /> {now.rule.label}</span>
         {:else}
           <span class="muted small">No taste layer for this music yet.</span>
         {/if}

@@ -39,12 +39,14 @@ app's settings.
 
 ## Personas
 
-Eight scripted listeners, Spanish and English: Sony WH-1000XM5 over Bluetooth
+Ten scripted listeners, Spanish and English: Sony WH-1000XM5 over Bluetooth
 (reggaetón, wants more bass), MacBook speakers (podcasts), Sennheiser HD 650 on
 a USB DAC (jazz, neutral), a car stereo (rock, noisy), AirPods Pro 2 (pop,
 harsh), a phone speaker (hip-hop, thin), a Beyerdynamic DT 770 Pro on a DAC with
 a Bluetooth speaker also connected (classical, dull) and Galaxy Buds2 Pro
-(house, boomy). Each answers the assistant's questions with its scripted
+(house, boomy), plus two taste-curve listeners: one opens the assistant to refine an existing
+"More punch for David Guetta" layer (cymbals too harsh, hissing s's) and one wants a layer for an
+artist on a phone speaker. Each answers the assistant's questions with its scripted
 replies in order ("I don't know, you decide" when they run out) and says yes
 to the first proposal.
 
@@ -52,13 +54,14 @@ to the first proposal.
 
 | Column | Passes when |
 | --- | --- |
-| `proposal` | A profile was proposed within 9 user replies (the turn is shown) |
+| `proposal` | A profile or a taste layer was proposed within 9 user replies (the turn is shown) |
 | `autoeq` | The headphone is in AutoEq and the model fetched its profile (`-` when there is none) |
 | `caps` | The model's own numbers respect the caps: taste within ±6 dB, bands at most +12 dB, and on built-in speakers no bass above +3 dB nor any boost below 150 Hz. The app clamps these anyway; this measures whether the model follows the rules |
+| `curves` | Every taste curve the model sent (`propose_taste_rule` / `set_taste_rule` with `bands`) has valid bands (known kind, ±9 dB, peaks Q 0.3-8, a note, no boost below 150 Hz on built-in speakers), came after an `analyze_sound`, and has no two bands of one kind within a third of an octave (stacking). The refine persona must design at least one curve; `-` when none was asked for |
 | `<=6 q` | At most 6 questions before the proposal |
 | `lang` | Every message is in the user's language (a word-count guess) |
 | `claims` | No "studio quality" / "calidad de estudio" / "perfect sound" promises |
-| `applied` | The model called `apply_eq` after the "yes" |
+| `applied` | The model called `apply_eq` (or saved the taste layer) after the "yes" |
 
 The last line adds up every check. Compare models by running the same command
 with a different `HOMEFI_EVAL_MODEL`. Results vary from run to run, so run it a

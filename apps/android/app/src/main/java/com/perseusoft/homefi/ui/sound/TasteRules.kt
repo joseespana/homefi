@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -102,7 +103,7 @@ fun TasteRulesTab() {
                             Icon(Icons.Rounded.Layers, null, Modifier.size(16.dp), tint = if (rule != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                if (rule != null) stringResource(R.string.sound_layer_now, "${rule.label} · ${tiltWords(rule.tilt)}") else stringResource(R.string.sound_no_layer),
+                                if (rule != null) stringResource(R.string.sound_layer_now, "${rule.label} · ${app.sound.ruleWords(rule)}") else stringResource(R.string.sound_no_layer),
                                 style = MaterialTheme.typography.bodySmall,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
@@ -156,17 +157,26 @@ fun TasteRulesTab() {
         if (rule == null) {
             editing = null
         } else {
-            TiltDialog(
+            val aiOn = remember { app.ai.hasProvider() }
+            fun save(tilt: com.perseusoft.homefi.core.Tilt, bands: List<com.perseusoft.homefi.core.TasteBand>, label: String?) {
+                app.sound.patchRule(rule.id) { it.copy(tilt = tilt, bands = bands, label = label?.trim()?.ifEmpty { null } ?: it.label) }
+            }
+            TasteRuleDialog(
                 title = stringResource(R.string.sound_rule_edit),
                 subtitle = rule.scope.phrase(),
-                initial = rule.tilt,
-                initialLabel = rule.label,
+                scope = rule.scope,
+                initial = rule,
                 onDismiss = { editing = null },
-                onSave = { tilt, label ->
-                    app.sound.patchRule(rule.id) { it.copy(tilt = tilt, label = label?.trim()?.ifEmpty { null } ?: it.label) }
+                onSave = { tilt, bands, label ->
+                    save(tilt, bands, label)
                     editing = null
                 },
                 onDelete = { editing = null; deleting = rule.id },
+                onRefine = if (aiOn) { tilt, bands, label ->
+                    save(tilt, bands, label)
+                    editing = null
+                    app.sound.taste.value.rules.firstOrNull { it.id == rule.id }?.let(app.sound::refine)
+                } else null,
             )
         }
     }
@@ -202,7 +212,8 @@ private fun RuleRow(rule: TasteRule, dimmed: Boolean, onToggle: (Boolean) -> Uni
         supportingContent = {
             Column {
                 Text(rule.scope.phrase(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(tiltWords(rule.tilt), style = MaterialTheme.typography.bodySmall)
+                Text(LocalContext.current.homefi.sound.ruleWords(rule), style = MaterialTheme.typography.bodySmall)
+                rule.explanation.ifBlank { null }?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                 QualityBadge(rule.createdBy.label(), Modifier.padding(top = 4.dp))
             }
         },

@@ -9,6 +9,10 @@ import com.perseusoft.homefi.core.AssistantTurn
 import com.perseusoft.homefi.core.EqAssistantSession
 import com.perseusoft.homefi.core.EqProfile
 import com.perseusoft.homefi.core.EqProposal
+import com.perseusoft.homefi.core.TasteRule
+import com.perseusoft.homefi.core.tasteDefaultSettings
+import com.perseusoft.homefi.core.tasteSettingsFromJson
+import com.perseusoft.homefi.core.tasteSettingsToJson
 import com.perseusoft.homefi.core.eqDefaultSettings
 import com.perseusoft.homefi.core.eqSettingsFromJson
 import com.perseusoft.homefi.core.eqSettingsToJson
@@ -35,6 +39,8 @@ data class AssistantUi(
     val proposal: EqProposal? = null,
     /** "Keep talking" put the proposal aside. */
     val proposalAside: Boolean = false,
+    /** A taste layer on the table (not saved): its curve and band notes, Apply / Keep talking. */
+    val tasteProposal: TasteRule? = null,
     val typing: Boolean = false,
     val error: String? = null,
     val ai: Boolean = false,
@@ -84,12 +90,12 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         start()
     }
 
-    fun restart(notes: String? = null) {
+    fun restart(notes: String? = null, focusRule: String? = null) {
         job?.cancel()
         prefs.edit().clear().apply()
         session?.close()
         session = null
-        viewModelScope.launch { start(notes) }
+        viewModelScope.launch { start(notes, focusRule) }
     }
 
     /**
@@ -100,7 +106,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         val h = home.sound.takeHandoff() ?: return
         opening.cancel()
         when (h) {
-            is AssistantHandoff.Notes -> restart(h.text)
+            is AssistantHandoff.Notes -> restart(h.text, h.focusRule)
             is AssistantHandoff.Suggestion -> {
                 job?.cancel()
                 prefs.edit().clear().apply()
@@ -118,9 +124,9 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private suspend fun start(notes: String? = null) {
+    private suspend fun start(notes: String? = null, focusRule: String? = null) {
         val ready = home.ai.ready()
-        val context = home.sound.assistantContext(notes)
+        val context = home.sound.assistantContext(notes, focusRule.takeIf { ready != null })
         val s = withContext(Dispatchers.Default) {
             if (ready != null) {
                 EqAssistantSession(ready.config, ready.key, context, home.autoeqCacheDir)
@@ -138,7 +144,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     fun send(text: String) {
         val t = text.trim()
         if (t.isEmpty() || _ui.value.typing || session == null) return
-        _ui.update { it.copy(lines = it.lines + ChatLine(nextId++, true, t), proposalAside = true) }
+        _ui.update { it.copy(lines = it.lines + ChatLine(nextId++, true, t), proposalAside = true, tasteProposal = null) }
         turn(t) { it.reply(t) }
     }
 
@@ -155,7 +161,13 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         send(getApplication<Application>().getString(R.string.assistant_apply_reply))
     }
 
-    fun keepTalking() = _ui.update { it.copy(proposalAside = true) }
+    fun keepTalking() = _ui.update { it.copy(proposalAside = true, tasteProposal = null) }
+
+    /** The taste proposal's Apply: the assistant is told yes and saves it (it comes back in `taste`). */
+    fun applyTaste() {
+        if (_ui.value.tasteProposal == null) return
+        send(getApplication<Application>().getString(R.string.assistant_apply_reply))
+    }
 
     private fun turn(text: String?, call: suspend (EqAssistantSession) -> AssistantTurn) {
         val s = session ?: return
@@ -189,6 +201,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                 replies = turn.quickReplies,
                 proposal = proposal,
                 proposalAside = turn.proposal == null || turn.confirmed,
+                tasteProposal = turn.tasteProposal,
                 typing = false,
                 done = turn.done,
                 applied = applied,
@@ -211,6 +224,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
             .putString(APPLIED, ui.applied)
             .putString(PROPOSAL, ui.proposal?.let(::proposalJson))
             .putBoolean(ASIDE, ui.proposalAside)
+            .putString(TASTE_PROPOSAL, ui.tasteProposal?.let { tasteSettingsToJson(tasteDefaultSettings().copy(rules = listOf(it))) })
             .apply()
     }
 
@@ -229,6 +243,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
             replies = replies,
             proposal = prefs.getString(PROPOSAL, null)?.let(::proposalOf),
             proposalAside = prefs.getBoolean(ASIDE, true),
+            tasteProposal = prefs.getString(TASTE_PROPOSAL, null)?.let { runCatching { tasteSettingsFromJson(it).rules.firstOrNull() }.getOrNull() },
             ai = ai,
             aiName = aiName.takeIf { ai },
             done = prefs.getBoolean(DONE, false),
@@ -249,6 +264,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         const val APPLIED = "applied"
         const val PROPOSAL = "proposal"
         const val ASIDE = "aside"
+        const val TASTE_PROPOSAL = "taste_proposal"
 
         // the profile goes through the settings' own JSON (as one per-output entry)
         fun proposalJson(p: EqProposal): String = JSONObject()
