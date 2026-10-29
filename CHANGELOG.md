@@ -7,6 +7,12 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-29
+
+HomeFi now updates itself: desktop and Android offer each new version (signed and checked)
+and never cut the music without asking. Taste layers become full parametric curves the AI
+designs band by band, and big playlist libraries no longer push the CPU to the top.
+
 ### Added
 - Updates on every platform. Desktop: "HomeFi X is available · What's new · Update now · Later"
   with the release notes, a download progress bar and "Restart now" / "When the song ends" (the
