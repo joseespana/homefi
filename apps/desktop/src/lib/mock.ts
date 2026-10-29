@@ -85,6 +85,7 @@ function coverSvg(path: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
+let mockMuted = false;
 let state: PlayerState = {
   status: url.has("guest") ? "paused" : "playing",
   queue: tracks.slice(0, big ? 700 : tracks.length).map((t) => t.path),
@@ -454,6 +455,12 @@ const handlers: Record<string, (args: any) => unknown> = {
   player_shuffle: ({ on }) => (state = { ...state, shuffle: on }),
   player_repeat: ({ mode }) => (state = { ...state, repeat: mode }),
   player_volume: ({ volume }) => (state = { ...state, volume }),
+  player_mute: ({ muted }) => {
+    mockMuted = !!muted;
+    emit("muted", mockMuted);
+    return null;
+  },
+  player_muted: () => mockMuted,
   visual: ({ bands }) => visual(bands),
   output_devices: () => [
     { name: "External Headphones", is_default: false, sample_rates: [44100, 48000, 88200, 96000], default_rate: 48000, max_channels: 2 },

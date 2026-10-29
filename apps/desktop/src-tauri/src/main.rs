@@ -97,6 +97,8 @@ fn main() {
         commands::player_shuffle,
         commands::player_repeat,
         commands::player_volume,
+        commands::player_mute,
+        commands::player_muted,
         commands::visual,
         commands::output_devices,
         commands::set_output,

@@ -7,6 +7,16 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Added
+- Mini player: a mute button (and the M key) that silences the sound without changing the saved
+  volume; every window follows it, and turning the volume brings the sound back.
+
+### Fixed
+- Surround and virtual 7.1 outputs (THX Spatial Audio and similar): the engine could put part of a
+  frame in the output buffer when it was nearly full, shifting every later sample onto the next
+  channel, heard as chirps. Only whole frames go in and out now.
+- The play button on numbered track rows sits in the middle of its circle.
+
 ## [1.2.0] - 2026-10-29
 
 HomeFi now updates itself: desktop and Android offer each new version (signed and checked)

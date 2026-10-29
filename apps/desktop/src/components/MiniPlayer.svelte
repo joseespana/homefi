@@ -53,6 +53,8 @@
     if (e.code === "Space") {
       e.preventDefault();
       if (src.can.toggle) src.toggle();
+    } else if (e.code === "KeyM") {
+      app.toggleMute();
     }
   }
 </script>
@@ -81,6 +83,16 @@
         <Icon name={playing ? "pause" : "play"} size={18} />
       </button>
       <button class="icon-btn key" aria-label="Next" onclick={() => src.next()} disabled={!src.can.next}><Icon name="next" size={16} /></button>
+      <button
+        class="icon-btn key mute"
+        class:on={app.muted}
+        aria-label={app.muted ? "Unmute" : "Mute"}
+        aria-pressed={app.muted}
+        title={app.muted ? "Unmute (M)" : "Mute (M)"}
+        onclick={() => app.toggleMute()}
+      >
+        <Icon name={app.muted ? "mute" : "volume"} size={15} />
+      </button>
       <span class="time">{formatTime(p?.position_ms ?? 0)} / {formatTime(duration)}</span>
     </div>
     <button class="bar" aria-label="Seek" onclick={seek}>
@@ -163,6 +175,10 @@
     align-items: center;
     gap: 4px;
     color: var(--m-key);
+  }
+  /* silenced: the button says so at a glance */
+  .mute.on {
+    color: #f87171;
   }
   .key {
     color: var(--m-key);

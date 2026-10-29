@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample};
 use homefi_core::dsp::{EqDesign, Equalizer};
-use ringbuf::traits::{Consumer, Split};
+use ringbuf::traits::{Consumer, Observer, Split};
 use ringbuf::{HeapCons, HeapProd, HeapRb};
 use serde::Serialize;
 
@@ -297,7 +297,9 @@ where
                 if scratch.len() < data.len() {
                     scratch.resize(data.len(), 0.0);
                 }
-                let got = consumer.pop_slice(&mut scratch[..data.len()]);
+                // whole frames only, so the channels never slide out of place
+                let want = whole_frames(data.len().min(consumer.occupied_len()), channels as usize);
+                let got = consumer.pop_slice(&mut scratch[..want]);
                 // after decoding / resampling, before the volume: allocation free
                 let start = shared.frames_played.load(Ordering::Relaxed);
                 run_eq(&mut eq, &shared, start, &mut scratch[..got], channels as usize);
@@ -332,6 +334,12 @@ where
         .map_err(|e| PlayerError::Output(e.to_string()))
 }
 
+/// `samples` rounded down to a whole number of frames of `channels`.
+pub(crate) fn whole_frames(samples: usize, channels: usize) -> usize {
+    let channels = channels.max(1);
+    samples / channels * channels
+}
+
 /// Runs the equalizer over `samples` (interleaved, the first frame is
 /// `start_frame`): new filters for the current track glide in at once, a
 /// queued track's filters at its first frame, so a track change and its
@@ -354,6 +362,39 @@ pub(crate) fn run_eq(eq: &mut Equalizer, shared: &Shared, start_frame: u64, samp
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn eight_channels_never_slide_when_the_ring_is_nearly_full() {
+        use ringbuf::traits::Producer;
+        // a ring whose free space is never a whole number of 8-channel frames
+        let (mut prod, mut cons) = HeapRb::<f32>::new(8 * 5 + 3).split();
+        let frame: Vec<f32> = (0..8).map(|c| c as f32).collect();
+        let mut pending: Vec<f32> = Vec::new();
+        let mut out = Vec::new();
+        for _ in 0..200 {
+            while pending.len() < 8 * 7 {
+                pending.extend_from_slice(&frame);
+            }
+            let room = whole_frames(prod.vacant_len().min(pending.len()), 8);
+            let pushed = prod.push_slice(&pending[..room]);
+            pending.drain(..pushed);
+            let mut buf = [0.0f32; 8 * 3];
+            let want = whole_frames(buf.len().min(cons.occupied_len()), 8);
+            let got = cons.pop_slice(&mut buf[..want]);
+            out.extend_from_slice(&buf[..got]);
+        }
+        assert!(out.len() > 8 * 100);
+        for (i, s) in out.iter().enumerate() {
+            assert_eq!(*s, (i % 8) as f32, "sample {i} landed on the wrong channel");
+        }
+    }
+
+    #[test]
+    fn whole_frames_rounds_down() {
+        assert_eq!(whole_frames(43, 8), 40);
+        assert_eq!(whole_frames(7, 2), 6);
+        assert_eq!(whole_frames(5, 0), 5);
+    }
+
     use homefi_core::dsp::{EqBand, EqBandKind, EqProfile};
 
     use super::*;

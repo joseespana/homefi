@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use homefi_core::catalog::SearchResults;
@@ -1371,10 +1371,36 @@ pub fn player_repeat(state: State<'_, AppState>, mode: RepeatMode) {
 #[tauri::command(async)]
 pub fn player_volume(app: AppHandle, volume: f32) -> CmdResult<()> {
     let state = app.state::<AppState>();
+    // turning the volume is hearing it again
+    if MUTED.swap(false, Ordering::Relaxed) {
+        let _ = app.emit("muted", false);
+    }
     if !crate::share::on_volume(&app, volume) {
         state.player.set_volume(volume);
     }
     state.save_settings(|s| s.volume = volume.clamp(0.0, 1.0)).map(drop)
+}
+
+/// Silenced from the deck or the mini player; the saved volume stays as it was.
+static MUTED: AtomicBool = AtomicBool::new(false);
+
+/// Silences (or brings back) the sound without changing the saved volume. Every
+/// window hears about it through the `muted` event.
+#[tauri::command]
+pub fn player_mute(app: AppHandle, muted: bool) -> CmdResult<()> {
+    MUTED.store(muted, Ordering::Relaxed);
+    let state = app.state::<AppState>();
+    let volume = if muted { 0.0 } else { state.settings().volume };
+    if !crate::share::on_volume(&app, volume) {
+        state.player.set_volume(volume);
+    }
+    let _ = app.emit("muted", muted);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn player_muted() -> bool {
+    MUTED.load(Ordering::Relaxed)
 }
 
 /// One visualizer frame: spectrum, waveform and peaks of what is playing (in
@@ -1546,6 +1572,8 @@ mod tests {
             "player_jump",
             "player_shuffle",
             "player_repeat",
+            "player_mute",
+            "player_muted",
             "tidal_cancel",
             "eq_response",
             "eq_log_freqs",

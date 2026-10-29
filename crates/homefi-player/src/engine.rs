@@ -907,7 +907,10 @@ impl Engine {
             let channels = output.channels.max(1) as usize;
 
             if !self.pending.is_empty() {
-                let pushed = output.producer.push_slice(&self.pending);
+                // whole frames only: a partial one would shift every later sample onto the
+                // next channel (heard on 7.1 / virtual surround as chirps)
+                let room = crate::output::whole_frames(output.producer.vacant_len().min(self.pending.len()), channels);
+                let pushed = output.producer.push_slice(&self.pending[..room]);
                 self.pushed_frames += (pushed / channels) as u64;
                 self.pending.drain(..pushed);
                 if !self.pending.is_empty() {

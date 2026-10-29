@@ -334,6 +334,7 @@ class AppState {
     this.watchFiles();
     this.tracks = await api.library();
     this.settings = await api.getSettings();
+    this.watchMute();
     // saved from another window (the mini player follows the skin and theme)
     on.settings((s) => (this.settings = s));
     this.player = await api.playerState();
@@ -355,6 +356,20 @@ class AppState {
     on.download((e) => this.onDownload(e));
   }
 
+  /** The sound is silenced (the saved volume is kept); every window follows it. */
+  muted = $state(false);
+
+  private watchMute() {
+    api.isMuted().then((m) => (this.muted = m)).catch(() => {});
+    on.muted((m) => (this.muted = m));
+  }
+
+  toggleMute() {
+    const next = !this.muted;
+    this.muted = next;
+    api.mute(next).catch(() => (this.muted = !next));
+  }
+
   /**
    * The mini player's window: only what it shows (theme, the player and the songs in
    * its queue), never the whole library, Tidal or downloads, so it opens at once even
@@ -362,6 +377,7 @@ class AppState {
    */
   async initMini() {
     this.settings = await api.getSettings();
+    this.watchMute();
     on.settings((s) => (this.settings = s));
     this.player = await api.playerState();
     this.learnQueue(this.player.queue);

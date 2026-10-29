@@ -349,10 +349,26 @@
     padding: 0;
     display: inline-grid;
     place-items: center;
+    /* not the number column's flex-end: the icon sits in the circle's middle */
+    place-content: center;
     width: 28px;
     height: 28px;
     border-radius: 999px;
     transition: background 0.15s, transform 0.15s;
+  }
+  /* number, speaker and play / pause share the circle's centre */
+  .go-btn > span {
+    grid-area: 1 / 1;
+    display: grid;
+    place-items: center;
+    line-height: 0;
+  }
+  .go-btn > .go {
+    display: none;
+  }
+  .track:hover .go-btn > .go,
+  .go-btn:focus-visible > .go {
+    display: grid;
   }
   .go-btn:hover {
     background: color-mix(in srgb, var(--accent-text) 18%, transparent);
@@ -360,9 +376,6 @@
   }
   .go-btn:active {
     transform: scale(0.94);
-  }
-  .go-btn:focus-visible .go {
-    display: inline;
   }
   .go-btn:focus-visible .num {
     display: none;

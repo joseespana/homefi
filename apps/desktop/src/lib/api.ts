@@ -1040,6 +1040,9 @@ export const api = {
   shuffle: (on: boolean) => invoke<void>("player_shuffle", { on }),
   repeat: (mode: Repeat) => invoke<void>("player_repeat", { mode }),
   volume: (volume: number) => invoke<void>("player_volume", { volume }),
+  /** Silences the sound without touching the saved volume. */
+  mute: (muted: boolean) => invoke<void>("player_mute", { muted }),
+  isMuted: () => invoke<boolean>("player_muted"),
   visual: (bands: number) => invoke<Visual>("visual", { bands }),
   outputDevices: () => invoke<OutputDevice[]>("output_devices"),
   setOutput: (name: string | null) => invoke<void>("set_output", { name }),
@@ -1140,6 +1143,7 @@ export const on = {
   download: (f: (e: DownloadEvent) => void): Promise<UnlistenFn> => listen<DownloadEvent>("download", (e) => f(e.payload)),
   settings: (f: (s: Settings) => void): Promise<UnlistenFn> => listen<Settings>("settings", (e) => f(e.payload)),
   library: (f: () => void): Promise<UnlistenFn> => listen("library", () => f()),
+  muted: (f: (muted: boolean) => void): Promise<UnlistenFn> => listen<boolean>("muted", (e) => f(e.payload)),
   artwork: (f: (p: ArtworkProgress) => void): Promise<UnlistenFn> => listen<ArtworkProgress>("artwork", (e) => f(e.payload)),
   stream: (f: (e: StreamEvent) => void): Promise<UnlistenFn> => listen<StreamEvent>("stream", (e) => f(e.payload)),
   upcoming: (f: (list: Upcoming[]) => void): Promise<UnlistenFn> => listen<Upcoming[]>("stream-upcoming", (e) => f(e.payload)),
