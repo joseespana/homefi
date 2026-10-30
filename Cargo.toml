@@ -2,6 +2,7 @@
 resolver = "2"
 members = ["crates/homefi-core", "crates/homefi-player", "crates/homefi-cli", "crates/homefi-ffi", "apps/desktop/src-tauri", "xtask"]
 default-members = ["crates/homefi-core", "crates/homefi-player", "crates/homefi-cli"]
+exclude = ["third_party"]
 
 [workspace.package]
 # Single source of truth for the release version (CLI, FFI and Android app).
@@ -53,6 +54,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 unicode-normalization = "0.1"
 url = "2"
 uniffi = "0.29"
+
+# cpal 0.16 with the device's speaker positions on Windows output streams
+# (see third_party/cpal/HOMEFI.md); drop it once cpal sends them itself.
+[patch.crates-io]
+cpal = { path = "third_party/cpal" }
 
 [profile.release]
 lto = "thin"

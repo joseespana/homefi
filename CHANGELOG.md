@@ -7,6 +7,11 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Fixed
+- Desktop (Windows): surround and virtual surround outputs such as Razer's "7.1 Surround Sound"
+  played with heavy interference. Streams now carry the device's speaker positions instead of
+  none, through a patched copy of cpal 0.16 (`third_party/cpal`, see its `HOMEFI.md`).
+
 ## [1.4.0] - 2026-10-30
 
 
