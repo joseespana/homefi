@@ -7,6 +7,8 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-30
+
 ### Fixed
 - Desktop (Windows): surround and virtual surround outputs such as Razer's "7.1 Surround Sound"
   played with heavy interference. Streams now carry the device's speaker positions instead of
