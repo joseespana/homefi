@@ -24,6 +24,13 @@ Pasanen, licensed under the MIT License. The profiles are downloaded from that
 repository when the user searches for them; the measurements belong to the
 sources credited there (oratory1990, crinacle, Rtings and others).
 
+Audio output (cpal)
+-------------------
+third_party/cpal is a copy of cpal 0.16.0 (https://github.com/rustaudio/cpal),
+Copyright the RustAudio developers, licensed under the Apache License,
+Version 2.0. HomeFi modified src/host/wasapi/device.rs (the Windows speaker
+positions); third_party/cpal/HOMEFI.md describes the change.
+
 Android APK
 -----------
 The Android app bundles the Media3 FFmpeg audio decoder built by the Jellyfin
