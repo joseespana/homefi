@@ -31,4 +31,5 @@
     <string name="crossfade_summary_off">Gapless</string>
     <string name="crossfade_now">Crossfading into %1$s</string>
     <string name="crossfade_now_untitled">Crossfading</string>
+    <string name="settings_playback_when">When to fade</string>
 </resources>

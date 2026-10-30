@@ -131,6 +131,8 @@ fun TasteRulesTab() {
             )
         }
 
+        item(key = "intensity") { com.perseusoft.homefi.ui.settings.TasteIntensityRow() }
+
         item(key = "loudness") {
             Column {
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))

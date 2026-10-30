@@ -155,10 +155,6 @@
   background: rgb(255 255 255 / 0.1);
   backdrop-filter: blur(12px);
 }
-:root[data-skin="immersive"] .segmented > button,
-:root[data-skin="immersive"] .settings .bars .bar,
-:root[data-skin="immersive"] .settings .search,
-:root[data-skin="immersive"] .settings .folder,
 :root[data-skin="immersive"] .filter,
 :root[data-skin="immersive"] .searchbox,
 :root[data-skin="immersive"] .link-card {
@@ -171,10 +167,7 @@
 :root[data-skin="immersive"] .searchbox {
   border-radius: 999px;
 }
-:root[data-skin="immersive"] .segmented > button.selected,
-:root[data-skin="immersive"] .settings .page.selected {
-  background: color-mix(in srgb, var(--room-accent) 22%, transparent) !important;
-}
+
 :root[data-skin="immersive"] .btn.tonal {
   background: rgb(255 255 255 / 0.14);
   backdrop-filter: blur(16px);
@@ -267,8 +260,7 @@
   mix-blend-mode: multiply;
 }
 :root[data-skin="vinyl"] h1,
-:root[data-skin="vinyl"] h2,
-:root[data-skin="vinyl"] .settings h3 {
+:root[data-skin="vinyl"] h2 {
   font-family: var(--font-display);
   letter-spacing: 0;
 }
@@ -322,9 +314,7 @@
 :root[data-skin="vinyl"] .badge {
   border-radius: 999px;
 }
-:root[data-skin="vinyl"] .settings .page.selected .badge {
-  border-radius: 50%;
-}
+
 :root[data-skin="vinyl"] .now-row {
   background: linear-gradient(90deg, rgb(194 121 58 / 0.28), rgb(194 121 58 / 0.06) 70%) !important;
   box-shadow: inset 0 0 0 1px rgb(194 121 58 / 0.5) !important;
@@ -419,18 +409,13 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
-:root[data-skin="studio"] h2,
-:root[data-skin="studio"] .settings h3,
-:root[data-skin="studio"] .settings .title {
+:root[data-skin="studio"] h2 {
   font: 700 11px var(--font);
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--muted);
 }
-:root[data-skin="studio"] .settings .title {
-  font-size: 12px;
-  color: #3ddc84;
-}
+
 :root[data-skin="studio"] .time,
 :root[data-skin="studio"] .num,
 :root[data-skin="studio"] .n,
@@ -484,34 +469,26 @@
 :root[data-skin="studio"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
 :root[data-skin="studio"] select,
 :root[data-skin="studio"] .filter,
-:root[data-skin="studio"] .searchbox,
-:root[data-skin="studio"] .settings .search {
+:root[data-skin="studio"] .searchbox {
   background: #111316;
   border-color: #2c3036;
 }
 :root[data-skin="studio"] .filter input,
-:root[data-skin="studio"] .searchbox input,
-:root[data-skin="studio"] .settings .search input {
+:root[data-skin="studio"] .searchbox input {
   border: 0 !important;
   box-shadow: none !important;
   background: transparent !important;
 }
-:root[data-skin="studio"] .segmented > button,
-:root[data-skin="studio"] .settings .bars .bar,
 :root[data-skin="studio"] .tabs > button {
   background: #1f2226;
   border: 1px solid #2c3036;
 }
-:root[data-skin="studio"] .segmented > button.selected,
 :root[data-skin="studio"] .tabs > button.active {
   background: #1f2226 !important;
   border-color: #3ddc84 !important;
   box-shadow: inset 0 -2px 0 #3ddc84 !important;
 }
-:root[data-skin="studio"] .settings .page.selected {
-  background: #1f2226;
-  box-shadow: inset 3px 0 0 #3ddc84;
-}
+
 :root[data-skin="studio"] ::-webkit-scrollbar-thumb {
   background: #2f343a;
   border-radius: 2px;
@@ -631,8 +608,7 @@
   font-family: var(--font-mono);
 }
 :root[data-skin="retro_amp"] .deck .hw,
-:root[data-skin="retro_amp"] .btn:not(.raised),
-:root[data-skin="retro_amp"] .settings .page .badge {
+:root[data-skin="retro_amp"] .btn:not(.raised) {
   background: #b8b8c8;
   color: #22222e;
   box-shadow: inset 1px 1px 0 #f0f0fa, inset -1px -1px 0 #55556a, 1px 1px 0 #000;
@@ -731,19 +707,13 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-:root[data-skin="retro_amp"] h2,
-:root[data-skin="retro_amp"] .settings h3,
-:root[data-skin="retro_amp"] .settings .title {
+:root[data-skin="retro_amp"] h2 {
   font: 700 11px var(--font);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: #e8e0b0;
 }
-:root[data-skin="retro_amp"] .settings .title {
-  display: inline-block;
-  padding: 2px 10px;
-  background: linear-gradient(90deg, #3a3a55, #8a7a3a, #3a3a55);
-}
+
 :root[data-skin="retro_amp"] .card,
 :root[data-skin="retro_amp"] .artist {
   padding: 6px;
@@ -760,8 +730,7 @@
 :root[data-skin="retro_amp"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
 :root[data-skin="retro_amp"] select,
 :root[data-skin="retro_amp"] .filter,
-:root[data-skin="retro_amp"] .searchbox,
-:root[data-skin="retro_amp"] .settings .search {
+:root[data-skin="retro_amp"] .searchbox {
   background: #000;
   color: var(--lcd);
   border: 0;
@@ -769,29 +738,21 @@
   font-family: var(--font-mono);
 }
 :root[data-skin="retro_amp"] .filter input,
-:root[data-skin="retro_amp"] .searchbox input,
-:root[data-skin="retro_amp"] .settings .search input {
+:root[data-skin="retro_amp"] .searchbox input {
   border: 0 !important;
   box-shadow: none !important;
   background: transparent !important;
 }
-:root[data-skin="retro_amp"] .segmented > button,
-:root[data-skin="retro_amp"] .settings .bars .bar,
-:root[data-skin="retro_amp"] .tabs > button,
-:root[data-skin="retro_amp"] .settings .folder {
+:root[data-skin="retro_amp"] .tabs > button {
   background: #23232f;
   border: 0;
   box-shadow: var(--bevel);
 }
-:root[data-skin="retro_amp"] .segmented > button.selected,
-:root[data-skin="retro_amp"] .tabs > button.active,
-:root[data-skin="retro_amp"] .settings .page.selected {
+:root[data-skin="retro_amp"] .tabs > button.active {
   background: #000 !important;
   box-shadow: var(--bevel-in) !important;
 }
-:root[data-skin="retro_amp"] .segmented > button.selected b,
-:root[data-skin="retro_amp"] .tabs > button.active,
-:root[data-skin="retro_amp"] .settings .page.selected b {
+:root[data-skin="retro_amp"] .tabs > button.active {
   color: var(--lcd) !important;
 }
 :root[data-skin="retro_amp"] .menu,
@@ -947,10 +908,7 @@
   font-size: 26px;
   letter-spacing: 0;
 }
-:root[data-skin="luna"] .settings .title,
-:root[data-skin="luna"] .settings h3 {
-  color: #0a246a;
-}
+
 /* XP buttons: rounded, light, navy border; primary is the green start button */
 :root[data-skin="luna"] .btn {
   height: 30px;
@@ -1024,35 +982,19 @@
 :root[data-skin="luna"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
 :root[data-skin="luna"] select,
 :root[data-skin="luna"] .filter,
-:root[data-skin="luna"] .searchbox,
-:root[data-skin="luna"] .settings .search {
+:root[data-skin="luna"] .searchbox {
   background: #fff;
   border: 1px solid #7f9db9;
   border-radius: 0;
 }
 :root[data-skin="luna"] .filter input,
-:root[data-skin="luna"] .searchbox input,
-:root[data-skin="luna"] .settings .search input {
+:root[data-skin="luna"] .searchbox input {
   border: 0 !important;
   box-shadow: none !important;
   background: transparent !important;
 }
 /* option groups: XP's group boxes */
-:root[data-skin="luna"] .segmented > button,
-:root[data-skin="luna"] .settings .bars .bar,
-:root[data-skin="luna"] .settings .folder {
-  background: linear-gradient(180deg, #ffffff, #f4f3ee);
-  border: 1px solid #c5c2b2;
-}
-:root[data-skin="luna"] .segmented > button.selected,
-:root[data-skin="luna"] .settings .bars .bar.selected {
-  background: #dde7fa !important;
-  border-color: #316ac5 !important;
-  box-shadow: inset 0 0 0 1px #316ac5 !important;
-}
-:root[data-skin="luna"] .segmented > button.selected b {
-  color: #0a246a !important;
-}
+
 :root[data-skin="luna"] .tabs > button {
   border-radius: 4px 4px 0 0;
   background: linear-gradient(180deg, #ffffff, #ecebe5);
@@ -1065,42 +1007,7 @@
   color: #000;
   box-shadow: inset 0 3px 0 #f8b636;
 }
-:root[data-skin="luna"] .settings nav {
-  padding: 8px;
-  border-radius: 4px;
-  background: linear-gradient(180deg, #7ba2e7, #6375d6);
-}
-:root[data-skin="luna"] .settings nav h1 {
-  color: #fff;
-  text-shadow: 1px 1px 0 #0a246a;
-}
-:root[data-skin="luna"] .settings nav .page {
-  color: #fff;
-  border-radius: 3px;
-}
-:root[data-skin="luna"] .settings nav .page small {
-  color: #dfe8fb;
-}
-:root[data-skin="luna"] .settings nav .page:hover:not(.selected) {
-  background: rgb(255 255 255 / 0.18);
-}
-:root[data-skin="luna"] .settings nav .page.selected {
-  background: #fff;
-}
-:root[data-skin="luna"] .settings nav .page.selected b {
-  color: #0a246a;
-}
-:root[data-skin="luna"] .settings nav .page.selected small {
-  color: #4b4b4b;
-}
-:root[data-skin="luna"] .settings nav .badge {
-  background: #fff;
-  color: #215dc6;
-}
-:root[data-skin="luna"] .settings nav .page.selected .badge {
-  background: #316ac5;
-  color: #fff;
-}
+
 :root[data-skin="luna"] .menu,
 :root[data-skin="luna"] .dialog,
 :root[data-skin="luna"] .sheet,
@@ -1249,12 +1156,7 @@
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
-:root[data-skin="aluminum"] .settings .title {
-  font-size: 20px;
-  color: #222;
-  text-transform: none;
-  letter-spacing: 0;
-}
+
 /* aqua pills */
 :root[data-skin="aluminum"] .btn {
   height: 26px;
@@ -1326,33 +1228,19 @@
   box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.18);
 }
 :root[data-skin="aluminum"] .filter,
-:root[data-skin="aluminum"] .searchbox,
-:root[data-skin="aluminum"] .settings .search {
+:root[data-skin="aluminum"] .searchbox {
   background: #fff;
   border: 1px solid #9a9a9a;
   border-radius: 999px;
   box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.2);
 }
 :root[data-skin="aluminum"] .filter input,
-:root[data-skin="aluminum"] .searchbox input,
-:root[data-skin="aluminum"] .settings .search input {
+:root[data-skin="aluminum"] .searchbox input {
   border: 0 !important;
   box-shadow: none !important;
   background: transparent !important;
 }
-:root[data-skin="aluminum"] .segmented > button,
-:root[data-skin="aluminum"] .settings .bars .bar,
-:root[data-skin="aluminum"] .settings .folder {
-  background: linear-gradient(180deg, #ffffff, #f0f0f0);
-  border: 1px solid #b5b5b5;
-  border-radius: 6px;
-}
-:root[data-skin="aluminum"] .segmented > button.selected,
-:root[data-skin="aluminum"] .settings .bars .bar.selected {
-  background: #edf3fe !important;
-  border-color: #3875d7 !important;
-  box-shadow: inset 0 0 0 1px #3875d7 !important;
-}
+
 :root[data-skin="aluminum"] .tabs > button {
   border-radius: 999px;
   background: linear-gradient(180deg, #fff, #ececec 50%, #dadada 51%, #f2f2f2);
@@ -1365,36 +1253,11 @@
   border-color: #3a3a3a;
 }
 /* the source list */
-:root[data-skin="aluminum"] .settings nav,
 :root[data-skin="aluminum"] .panel.queue-panel,
 :root[data-skin="aluminum"] .panel.queue-panel .head {
   background: #dfe5ee;
 }
-:root[data-skin="aluminum"] .settings nav {
-  padding: 8px;
-  border: 1px solid #a9b4c4;
-}
-:root[data-skin="aluminum"] .settings nav .page {
-  border-radius: 0;
-}
-:root[data-skin="aluminum"] .settings nav .page.selected {
-  background: linear-gradient(180deg, #6ea6f0, #3875d7);
-}
-:root[data-skin="aluminum"] .settings nav .page.selected b,
-:root[data-skin="aluminum"] .settings nav .page.selected small {
-  color: #fff !important;
-}
-:root[data-skin="aluminum"] .settings nav .page.selected .badge {
-  background: rgb(255 255 255 / 0.25);
-  color: #fff;
-}
-:root[data-skin="aluminum"] .settings nav .page:hover:not(.selected) {
-  background: rgb(255 255 255 / 0.5);
-}
-:root[data-skin="aluminum"] .settings nav .badge {
-  background: transparent;
-  color: #4a5b74;
-}
+
 :root[data-skin="aluminum"] .menu,
 :root[data-skin="aluminum"] .dialog,
 :root[data-skin="aluminum"] .sheet {
@@ -1590,32 +1453,18 @@
 :root[data-skin="web2000"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
 :root[data-skin="web2000"] select,
 :root[data-skin="web2000"] .filter,
-:root[data-skin="web2000"] .searchbox,
-:root[data-skin="web2000"] .settings .search {
+:root[data-skin="web2000"] .searchbox {
   background: #fff;
   border: 1px solid #c2c6cc;
   box-shadow: inset 0 2px 3px rgb(0 0 0 / 0.06);
 }
 :root[data-skin="web2000"] .filter input,
-:root[data-skin="web2000"] .searchbox input,
-:root[data-skin="web2000"] .settings .search input {
+:root[data-skin="web2000"] .searchbox input {
   border: 0 !important;
   box-shadow: none !important;
   background: transparent !important;
 }
-:root[data-skin="web2000"] .segmented > button,
-:root[data-skin="web2000"] .settings .bars .bar,
-:root[data-skin="web2000"] .settings .folder {
-  background: var(--gloss-gray);
-  border: 1px solid #d5d9de;
-  box-shadow: 0 2px 6px rgb(0 0 0 / 0.05);
-}
-:root[data-skin="web2000"] .segmented > button.selected,
-:root[data-skin="web2000"] .settings .bars .bar.selected {
-  background: linear-gradient(180deg, #fff8f0, #ffe9d4) !important;
-  border-color: #ff9a3c !important;
-  box-shadow: inset 0 0 0 1px #ff9a3c, 0 2px 8px rgb(255 122 0 / 0.2) !important;
-}
+
 :root[data-skin="web2000"] .tabs > button {
   border-radius: 10px 10px 0 0;
   background: var(--gloss-gray);
@@ -1629,13 +1478,7 @@
   border-color: #7ab232;
   text-shadow: 0 -1px 0 rgb(0 0 0 / 0.15);
 }
-:root[data-skin="web2000"] .settings nav .page.selected {
-  background: linear-gradient(180deg, #fff8f0, #ffe9d4);
-  box-shadow: inset 0 0 0 1px #ffc58f;
-}
-:root[data-skin="web2000"] .settings nav .page.selected .badge {
-  background: var(--gloss-orange);
-}
+
 :root[data-skin="web2000"] .menu,
 :root[data-skin="web2000"] .dialog,
 :root[data-skin="web2000"] .sheet,
@@ -1652,4 +1495,226 @@
   :root[data-skin] .card:hover {
     transform: none !important;
   }
+}
+
+/* ==========================================================================
+   Settings: each skin sets the variables the Settings building blocks read
+   (src/app.css, "Settings design system"); nothing here reaches into a
+   Settings component.
+   ========================================================================== */
+:root[data-skin="immersive"] {
+  --set-card-bg: var(--surface);
+  --set-card-border: var(--glass-border);
+  --set-card-r: 16px;
+  --set-ctl-bg: var(--glass);
+  --set-ctl-border: var(--glass-border);
+  --set-ctl-r: 14px;
+  --set-sel-bg: color-mix(in srgb, var(--room-accent) 22%, transparent);
+  --set-field-bg: var(--glass);
+  --set-field-border: var(--glass-border);
+  --set-field-r: 16px;
+  --set-nav-sel-bg: color-mix(in srgb, var(--room-accent) 22%, transparent);
+  --set-head-bg: color-mix(in srgb, var(--room-bg) 88%, #000);
+}
+:root[data-skin="vinyl"] {
+  --set-title-font: 700 24px/1.2 var(--font-display);
+  --set-group-font: 700 12px/1.2 var(--font-display);
+  --set-group-transform: none;
+  --set-group-spacing: 0.02em;
+  --set-card-r: 18px;
+  --set-card-bg: var(--surface);
+  --set-badge-r: 50%;
+  --set-nav-item-r: 14px;
+}
+:root[data-skin="studio"] {
+  --set-title-font: 700 12px/1.2 var(--font);
+  --set-title-color: #3ddc84;
+  --set-title-transform: uppercase;
+  --set-title-spacing: 0.16em;
+  --set-group-font: 700 11px/1.2 var(--font);
+  --set-group-spacing: 0.16em;
+  --set-group-bar: linear-gradient(180deg, var(--hw-top), var(--hw-bottom));
+  --set-group-bar-pad: 5px 10px;
+  --set-card-bg: #1a1d21;
+  --set-card-border: #2c3036;
+  --set-card-r: 4px;
+  --set-ctl-bg: #1f2226;
+  --set-ctl-border: #2c3036;
+  --set-ctl-r: 3px;
+  --set-sel-bg: #1f2226;
+  --set-sel-border: #3ddc84;
+  --set-sel-shadow: inset 0 -2px 0 #3ddc84;
+  --set-sel-fg: var(--text);
+  --set-field-bg: #111316;
+  --set-field-border: #2c3036;
+  --set-field-r: 3px;
+  --set-nav-sel-bg: #1f2226;
+  --set-nav-sel-fg: var(--text);
+  --set-nav-indicator: #3ddc84;
+  --set-nav-item-r: 3px;
+  --set-badge-r: 3px;
+  --switch-r: 3px;
+  --switch-knob-r: 2px;
+  --switch-w: 40px;
+  --switch-h: 20px;
+  --switch-off: #111316;
+  --switch-on: #12281c;
+  --switch-border: #2c3036;
+  --switch-knob: #5b626b;
+  --switch-knob-on: #3ddc84;
+  --switch-glow: 0 0 8px rgb(61 220 132 / 0.35);
+}
+:root[data-skin="retro_amp"] {
+  --set-title-font: 700 11px/1.4 var(--font);
+  --set-title-color: #e8e0b0;
+  --set-title-transform: uppercase;
+  --set-title-spacing: 0.14em;
+  --set-title-bar: linear-gradient(90deg, #3a3a55, #8a7a3a, #3a3a55);
+  --set-title-pad: 2px 10px;
+  --set-group-font: 700 11px/1.4 var(--font);
+  --set-group-color: #e8e0b0;
+  --set-group-spacing: 0.14em;
+  --set-group-bar: linear-gradient(90deg, #3a3a55, #8a7a3a, #3a3a55);
+  --set-group-bar-pad: 2px 10px;
+  --set-card-bg: #1c1c28;
+  --set-card-border: #3a3a50;
+  --set-divider: #2c2c3c;
+  --set-ctl-bg: #23232f;
+  --set-ctl-border: transparent;
+  --set-ctl-shadow: var(--bevel);
+  --set-ctl-hover: transparent;
+  --set-sel-bg: #000;
+  --set-sel-border: transparent;
+  --set-sel-shadow: var(--bevel-in);
+  --set-sel-fg: var(--lcd);
+  --set-field-bg: #000;
+  --set-field-border: transparent;
+  --set-field-shadow: var(--bevel-in);
+  --set-field-fg: var(--lcd);
+  --set-nav-item-r: 0;
+  --set-nav-sel-bg: #000;
+  --set-nav-sel-fg: var(--lcd);
+  --set-nav-indicator: var(--lcd);
+  --set-badge-bg: #b8b8c8;
+  --set-badge-fg: #22222e;
+  --set-badge-shadow: inset 1px 1px 0 #f0f0fa, inset -1px -1px 0 #55556a, 1px 1px 0 #000;
+  --set-badge-sel-bg: #b8b8c8;
+  --set-badge-sel-fg: #22222e;
+  --switch-w: 34px;
+  --switch-h: 18px;
+  --switch-r: 0;
+  --switch-knob-r: 0;
+  --switch-off: #000;
+  --switch-on: #000;
+  --switch-border: #5c5c7a;
+  --switch-knob: #3a3a50;
+  --switch-knob-on: var(--lcd);
+  --switch-glow: 0 0 8px rgb(0 224 0 / 0.45);
+}
+:root[data-skin="luna"] {
+  --set-title-font: 700 22px/1.2 var(--font-display);
+  --set-title-color: #0a246a;
+  --set-group-font: 700 12px/1.2 var(--font);
+  --set-group-color: #0a246a;
+  --set-group-transform: none;
+  --set-group-spacing: 0;
+  --set-card-bg: #fff;
+  --set-card-border: #d0d0bf;
+  --set-card-r: 4px;
+  --set-divider: #e3e0cf;
+  --set-ctl-bg: linear-gradient(180deg, #ffffff, #f4f3ee);
+  --set-ctl-border: #c5c2b2;
+  --set-ctl-r: 3px;
+  --set-sel-bg: #dde7fa;
+  --set-sel-border: #316ac5;
+  --set-sel-shadow: inset 0 0 0 1px #316ac5;
+  --set-sel-fg: #0a246a;
+  --set-field-bg: #fff;
+  --set-field-border: #7f9db9;
+  --set-field-r: 0;
+  --set-nav-bg: linear-gradient(180deg, #7ba2e7, #6375d6);
+  --set-nav-pad: 8px;
+  --set-nav-r: 4px;
+  --set-nav-fg: #fff;
+  --set-nav-muted: #dfe8fb;
+  --set-nav-caption: #dfe8fb;
+  --set-nav-item-r: 3px;
+  --set-nav-hover: rgb(255 255 255 / 0.18);
+  --set-nav-sel-bg: #fff;
+  --set-nav-sel-fg: #0a246a;
+  --set-nav-sel-muted: #4b4b4b;
+  --set-nav-indicator: transparent;
+  --set-badge-bg: #fff;
+  --set-badge-fg: #215dc6;
+  --set-badge-sel-bg: #316ac5;
+  --set-badge-sel-fg: #fff;
+  --switch-r: 2px;
+  --switch-knob-r: 1px;
+  --switch-off: #fff;
+  --switch-on: #fff;
+  --switch-border: #1c5180;
+  --switch-knob: #c5c2b2;
+  --switch-knob-on: #2ba02b;
+}
+:root[data-skin="aluminum"] {
+  --set-title-font: 700 20px/1.2 var(--font-display);
+  --set-title-color: #222;
+  --set-group-font: 700 12px/1.2 var(--font-display);
+  --set-group-color: #555;
+  --set-group-spacing: 0.06em;
+  --set-card-bg: linear-gradient(180deg, #ffffff, #f0f0f0);
+  --set-card-border: #b5b5b5;
+  --set-card-r: 6px;
+  --set-ctl-bg: linear-gradient(180deg, #ffffff, #f0f0f0);
+  --set-ctl-border: #b5b5b5;
+  --set-ctl-r: 6px;
+  --set-sel-bg: #edf3fe;
+  --set-sel-border: #3875d7;
+  --set-sel-shadow: inset 0 0 0 1px #3875d7;
+  --set-sel-fg: #1d4fa8;
+  --set-field-bg: #fff;
+  --set-field-border: #9a9a9a;
+  --set-field-shadow: inset 0 1px 2px rgb(0 0 0 / 0.2);
+  --set-field-r: 999px;
+  --set-nav-bg: #dfe5ee;
+  --set-nav-border: #a9b4c4;
+  --set-nav-pad: 8px;
+  --set-nav-item-r: 0;
+  --set-nav-hover: rgb(255 255 255 / 0.5);
+  --set-nav-sel-bg: linear-gradient(180deg, #6ea6f0, #3875d7);
+  --set-nav-sel-fg: #fff;
+  --set-nav-sel-muted: #fff;
+  --set-nav-indicator: transparent;
+  --set-badge-bg: transparent;
+  --set-badge-fg: #4a5b74;
+  --set-badge-sel-bg: rgb(255 255 255 / 0.25);
+  --set-badge-sel-fg: #fff;
+  --switch-off: #cfd4db;
+  --switch-on: #3875d7;
+  --switch-border: #8f8f8f;
+}
+:root[data-skin="web2000"] {
+  --set-title-font: 700 24px/1.2 var(--font-display);
+  --set-group-font: 700 12px/1.2 var(--font-display);
+  --set-group-transform: uppercase;
+  --set-group-spacing: 0.08em;
+  --set-group-rule: 2px solid #ffc58f;
+  --set-card-bg: #fff;
+  --set-card-border: #d5d9de;
+  --set-card-r: 4px;
+  --set-card-shadow: 0 2px 6px rgb(0 0 0 / 0.05);
+  --set-ctl-bg: var(--gloss-gray);
+  --set-ctl-border: #d5d9de;
+  --set-ctl-shadow: 0 2px 6px rgb(0 0 0 / 0.05);
+  --set-sel-bg: linear-gradient(180deg, #fff8f0, #ffe9d4);
+  --set-sel-border: #ff9a3c;
+  --set-sel-shadow: inset 0 0 0 1px #ff9a3c, 0 2px 8px rgb(255 122 0 / 0.2);
+  --set-field-bg: #fff;
+  --set-field-border: #c2c6cc;
+  --set-field-shadow: inset 0 2px 3px rgb(0 0 0 / 0.06);
+  --set-nav-sel-bg: linear-gradient(180deg, #fff8f0, #ffe9d4);
+  --set-nav-indicator: #ff9a3c;
+  --set-badge-sel-bg: var(--gloss-orange);
+  --switch-on: #7ab232;
+  --switch-off: #d5d9de;
 }

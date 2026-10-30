@@ -138,4 +138,12 @@
     <string name="taste_save_disabled">Mueve un deslizador o agrega una banda primero</string>
     <string name="signal_taste_bands">Bandas de gusto</string>
     <string name="signal_taste_bands_value">%1$d de %2$d activas</string>
+    <string name="intensity_title">Intensidad de los cambios</string>
+    <string name="intensity_subtle">Sutil</string>
+    <string name="intensity_balanced">Equilibrada</string>
+    <string name="intensity_bold">Atrevida</string>
+    <string name="intensity_subtle_hint">Sutil: se nota si prestas atención, %1$s–%2$s dB</string>
+    <string name="intensity_balanced_hint">Equilibrada: se nota claramente, %1$s–%2$s dB</string>
+    <string name="intensity_bold_hint">Atrevida: un cambio grande que no pasa desapercibido, %1$s–%2$s dB</string>
+    <string name="intensity_hint_plain">Qué tan fuertes son los cambios que proponen el asistente, las reacciones y el asistente guiado.</string>
 </resources>

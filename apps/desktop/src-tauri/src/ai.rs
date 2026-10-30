@@ -272,14 +272,17 @@ pub(crate) async fn suggest(app: &AppHandle, language: &str) -> CmdResult<Assist
     Ok(turn)
 }
 
-/// Saves a confirmed proposal as its output's profile and turns the equalizer on.
+/// Saves what a turn changed (taste rules, loudness) and a confirmed
+/// proposal as its output's profile, and turns the equalizer on.
 fn apply_confirmed(app: &AppHandle, turn: &AssistantTurn) -> CmdResult<()> {
     let state = app.state::<AppState>();
-    if turn.taste.is_some() || turn.loudness.is_some() {
-        let (taste, loudness) = (turn.taste.clone(), turn.loudness);
+    if turn.taste_change.is_some() || turn.loudness.is_some() {
+        let (change, loudness) = (turn.taste_change.clone(), turn.loudness);
         let saved = state.save_settings(|s| {
-            if let Some(t) = taste {
-                s.taste = t.clamped();
+            // merge what the turn changed into the rules as they are now: a copy taken when the
+            // conversation began would bring back the rules deleted since
+            if let Some(change) = &change {
+                s.taste.apply(change);
             }
             if let Some(l) = loudness {
                 s.loudness = l.clamped();
@@ -335,6 +338,10 @@ pub async fn eq_assistant_reply(app: AppHandle, text: String) -> CmdResult<Assis
     let Some(session) = slot.as_mut() else {
         return Err("the assistant isn't open".into());
     };
+    // the conversation may be older than the user's last edits (a suggestion card stays open for
+    // the whole run): give it the settings as they are now
+    let now = app.state::<AppState>().settings();
+    session.sync(now.taste, now.loudness, now.eq);
     let turn = session.reply(&text).await.map_err(err)?;
     apply_confirmed(&app, &turn)?;
     Ok(turn)

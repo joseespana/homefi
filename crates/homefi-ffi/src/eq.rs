@@ -288,11 +288,89 @@ pub struct TasteCurveCheck {
     pub notes: Vec<String>,
 }
 
+/// How strong what the assistant, the reactions and the guided wizard
+/// propose is. Rules the listener saves or edits keep the hard caps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum TasteIntensity {
+    Subtle,
+    Balanced,
+    Bold,
+}
+
+impl From<dsp::TasteIntensity> for TasteIntensity {
+    fn from(i: dsp::TasteIntensity) -> Self {
+        match i {
+            dsp::TasteIntensity::Subtle => Self::Subtle,
+            dsp::TasteIntensity::Balanced => Self::Balanced,
+            dsp::TasteIntensity::Bold => Self::Bold,
+        }
+    }
+}
+
+impl From<TasteIntensity> for dsp::TasteIntensity {
+    fn from(i: TasteIntensity) -> Self {
+        match i {
+            TasteIntensity::Subtle => Self::Subtle,
+            TasteIntensity::Balanced => Self::Balanced,
+            TasteIntensity::Bold => Self::Bold,
+        }
+    }
+}
+
+/// What an intensity lets a proposal do (all in dB, except the count).
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+pub struct TasteLimits {
+    /// The smallest main move of a proposal (its biggest band): "clearly audible".
+    pub main_move_min_db: f32,
+    pub main_move_max_db: f32,
+    /// Each proposed band stays within ± this.
+    pub band_db: f32,
+    /// Each proposed tilt knob stays within ± this.
+    pub tilt_db: f32,
+    /// A proposed curve never boosts more than this anywhere.
+    pub boost_db: f32,
+    /// A reaction moves each value at most this much per tap.
+    pub step_db: f32,
+    /// A reaction changes at most this many bands per tap.
+    pub bands_per_tap: u32,
+}
+
 /// Every taste rule and the switch for all of them (off until the first rule).
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct TasteSettings {
     pub enabled: bool,
     pub rules: Vec<TasteRule>,
+    /// How strong the assistant's, the reactions' and the wizard's proposals are.
+    pub intensity: TasteIntensity,
+}
+
+/// What changed in the taste rules (not what they are now): merge it into the
+/// saved settings with [`taste_apply_change`]. Assistant turns and reactions
+/// report this so a copy of the rules taken earlier never brings back a rule
+/// the listener deleted since.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct TasteChange {
+    /// Rules to add, or to replace by id (else by scope).
+    #[uniffi(default = [])]
+    pub upsert: Vec<TasteRule>,
+    /// Ids of the rules to remove.
+    #[uniffi(default = [])]
+    pub remove: Vec<String>,
+    /// Switch every layer on or off; `None` keeps it.
+    #[uniffi(default = None)]
+    pub enabled: Option<bool>,
+}
+
+impl From<dsp::TasteChange> for TasteChange {
+    fn from(c: dsp::TasteChange) -> Self {
+        Self { upsert: c.upsert.into_iter().map(Into::into).collect(), remove: c.remove, enabled: c.enabled }
+    }
+}
+
+impl From<TasteChange> for dsp::TasteChange {
+    fn from(c: TasteChange) -> Self {
+        Self { upsert: c.upsert.into_iter().map(Into::into).collect(), remove: c.remove, enabled: c.enabled }
+    }
 }
 
 /// An id (may be empty) and a name.
@@ -448,13 +526,13 @@ impl From<TasteRule> for dsp::TasteRule {
 
 impl From<dsp::TasteSettings> for TasteSettings {
     fn from(s: dsp::TasteSettings) -> Self {
-        Self { enabled: s.enabled, rules: s.rules.into_iter().map(Into::into).collect() }
+        Self { enabled: s.enabled, rules: s.rules.into_iter().map(Into::into).collect(), intensity: s.intensity.into() }
     }
 }
 
 impl From<TasteSettings> for dsp::TasteSettings {
     fn from(s: TasteSettings) -> Self {
-        Self { enabled: s.enabled, rules: s.rules.into_iter().map(Into::into).collect() }
+        Self { enabled: s.enabled, rules: s.rules.into_iter().map(Into::into).collect(), intensity: s.intensity.into() }
     }
 }
 
@@ -745,6 +823,31 @@ pub fn taste_upsert(taste: TasteSettings, rule: TasteRule) -> TasteSettings {
     let mut t = dsp::TasteSettings::from(taste);
     t.upsert(rule.into());
     t.into()
+}
+
+/// `taste` with `change` merged in, as the rules are now: removals, then
+/// upserts (by id, else by scope, keeping the stored rule's id), then the switch.
+#[uniffi::export]
+pub fn taste_apply_change(taste: TasteSettings, change: TasteChange) -> TasteSettings {
+    let mut t = dsp::TasteSettings::from(taste);
+    t.apply(&change.into());
+    t.into()
+}
+
+/// What `intensity` lets the assistant, the reactions and the wizard propose
+/// (the hard caps still apply to rules you save yourself).
+#[uniffi::export]
+pub fn taste_intensity_limits(intensity: TasteIntensity) -> TasteLimits {
+    let l = dsp::TasteIntensity::from(intensity).limits();
+    TasteLimits {
+        main_move_min_db: l.main_move_db.0,
+        main_move_max_db: l.main_move_db.1,
+        band_db: l.band_db,
+        tilt_db: l.tilt_db,
+        boost_db: l.boost_db,
+        step_db: l.step_db,
+        bands_per_tap: u32::try_from(l.bands_per_tap).unwrap_or(u32::MAX),
+    }
 }
 
 #[uniffi::export]

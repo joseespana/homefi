@@ -3,7 +3,7 @@
   // and the guided wizard. A confirmed proposal is already saved and applied by
   // the backend; then we jump to the equalizer.
   import { onDestroy, tick, untrack } from "svelte";
-  import { api, errorText, type AiProviderId, type AiProviderInfo, type AssistantTurn, type EqProfile, type EqProposal, type TasteRule } from "../../lib/api";
+  import { api, errorText, type AiProviderId, type AiProviderInfo, type AssistantTurn, type EqProfile, type EqProposal, type TasteChange, type TasteRule } from "../../lib/api";
   import { eq, uiLanguage } from "../../lib/eq.svelte";
   import { fade, rise } from "../../lib/motion";
   import { app } from "../../lib/state.svelte";
@@ -47,6 +47,14 @@
 
   const push = (m: Omit<Msg, "id">) => (messages = [...messages, { ...m, id: ++ids }]);
 
+  /** One line for what the turn saved and removed (removed rules are known by id only). */
+  function describeTasteChange(c: TasteChange): string | null {
+    const saved = c.upsert.map((r) => `${r.label} (${ruleWords(r)})`);
+    const removed = c.remove.map((id) => app.settings?.taste?.rules.find((r) => r.id === id)?.label ?? "a rule");
+    const parts = [saved.length ? saved.join(" · ") : null, removed.length ? `Removed: ${removed.join(" · ")}` : null, c.enabled === null ? null : `Taste layers ${c.enabled ? "on" : "off"}`];
+    return parts.filter(Boolean).join(" · ") || null;
+  }
+
   function handle(turn: AssistantTurn) {
     const p = turn.proposal;
     // the card repeats the explanation only when the text doesn't say it already
@@ -61,12 +69,7 @@
       // a taste offer may follow: stay for it
       if (turn.done) jump = setTimeout(() => openEq(), 2200);
     }
-    if (turn.taste) {
-      const key = (r: TasteRule) => `${r.id}:${JSON.stringify(r.tilt)}:${JSON.stringify(r.bands ?? [])}`;
-      const before = new Set(rulesBefore.map(key));
-      const changed = turn.taste.rules.filter((r) => !before.has(key(r)));
-      tasteSaved = changed.length ? changed.map((r) => `${r.label} (${ruleWords(r)})`).join(" · ") : "Your taste layers were updated";
-    }
+    if (turn.taste_change) tasteSaved = describeTasteChange(turn.taste_change);
     if (turn.loudness) tasteSaved = [tasteSaved, `Loudness: ${turn.loudness.mode}`].filter(Boolean).join(" · ");
   }
 
@@ -82,8 +85,7 @@
       done = false;
       applied = null;
       tasteSaved = null;
-      rulesBefore = JSON.parse(JSON.stringify(app.settings?.taste?.rules ?? []));
-      handle(h.turn);
+        handle(h.turn);
       if (h.reply) send(h.reply);
     });
   });
@@ -101,10 +103,7 @@
     if (focus && loaded && aiReady && phase === "intro") untrack(() => start(false));
   });
 
-  /** The rules before the last request, to say which ones the turn changed. */
-  let rulesBefore: TasteRule[] = [];
   async function run(action: () => Promise<AssistantTurn>) {
-    rulesBefore = JSON.parse(JSON.stringify(app.settings?.taste?.rules ?? []));
     thinking = true;
     quick = [];
     try {

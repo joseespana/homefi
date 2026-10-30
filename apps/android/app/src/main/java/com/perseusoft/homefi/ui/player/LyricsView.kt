@@ -659,11 +659,11 @@ private fun KaraokeLyrics(lyrics: Lyrics, time: State<Long>, palette: LyricsPale
             !mascot -> lines(Modifier.fillMaxSize())
             w > h && w >= 480.dp -> Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                 lines(Modifier.weight(1f).fillMaxHeight())
-                MascotView(Modifier.width(min(w.value * 0.34f, h.value).dp).fillMaxHeight(), singing = singing)
+                MascotView(Modifier.width(min(w.value * 0.34f, h.value).dp).fillMaxHeight(), singing = singing, danceButton = false)
             }
             else -> Column(Modifier.fillMaxSize()) {
                 lines(Modifier.weight(1f).fillMaxWidth())
-                MascotView(Modifier.fillMaxWidth().height((h * 0.36f).coerceIn(90.dp, 190.dp)), singing = singing)
+                MascotView(Modifier.fillMaxWidth().height((h * 0.36f).coerceIn(90.dp, 190.dp)), singing = singing, danceButton = false)
             }
         }
     }

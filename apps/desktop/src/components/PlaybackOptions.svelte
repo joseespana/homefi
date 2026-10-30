@@ -3,6 +3,10 @@
   // surround device. Same settings and meaning as Android's Playback section.
   import { api, type CrossfadeSettings, type FadeCurve, type OutputDevice, type OutputOptions, type ResamplerQuality, type Settings, type SurroundMode } from "../lib/api";
   import { app } from "../lib/state.svelte";
+  import ChoiceList from "./settings/ChoiceList.svelte";
+  import SettingsGroup from "./settings/SettingsGroup.svelte";
+  import SliderRow from "./settings/SliderRow.svelte";
+  import SwitchRow from "./settings/SwitchRow.svelte";
 
   let { settings, save }: { settings: Settings; save: (patch: Partial<Settings>) => Promise<void> | void } = $props();
 
@@ -40,152 +44,44 @@
   });
   const device = $derived(devices.find((d) => d.name === (settings.output_device ?? "")) ?? devices.find((d) => d.is_default) ?? null);
   const channels = $derived(Math.max(app.player?.stream?.output_channels ?? 0, device?.max_channels ?? 0));
-  const minLabel = $derived(xf.minTrackSeconds > 0 ? `${xf.minTrackSeconds} s` : `Auto (${xf.seconds * 2} s)`);
+  const minLabel = (seconds: number) => (seconds > 0 ? `${seconds} s` : `Auto (${xf.seconds * 2} s)`);
 </script>
 
-<section>
-  <h3>Crossfade</h3>
-  <label class="toggle top">
-    <input type="checkbox" checked={xf.mode === "on"} onchange={(e) => saveXf({ mode: e.currentTarget.checked ? "on" : "off" })} />
-    <span>Crossfade between songs<small class="muted">The next song starts while this one fades out. Off keeps every transition gapless and bit-perfect; during a fade the sound isn't bit-perfect.</small></span>
-  </label>
+<SettingsGroup title="Crossfade">
+  <SwitchRow
+    label="Crossfade between songs"
+    hint="The next song starts while this one fades out. Off keeps every transition gapless and bit-perfect; during a fade the sound isn't bit-perfect."
+    checked={xf.mode === "on"}
+    onchange={(on) => saveXf({ mode: on ? "on" : "off" })}
+  />
   {#if xf.mode === "on"}
-    <div class="row-setting">
-      <span class="label">Length <b class="mono">{xf.seconds} s</b></span>
-      <input type="range" min="1" max="12" step="0.5" value={xf.seconds} aria-label="Crossfade length" onchange={(e) => saveXf({ seconds: Number(e.currentTarget.value) })} />
-    </div>
-    <div class="row-setting">
-      <span class="label">Curve</span>
-      <div class="segmented compact">
-        {#each curves as c (c.id)}
-          <button class:selected={xf.curve === c.id} title={c.hint} onclick={() => saveXf({ curve: c.id })}><b>{c.label}</b></button>
-        {/each}
-      </div>
-      <small class="muted">{curves.find((c) => c.id === xf.curve)?.hint}</small>
-    </div>
-    <label class="toggle top">
-      <input type="checkbox" checked={xf.smart} onchange={(e) => saveXf({ smart: e.currentTarget.checked })} />
-      <span>Skip the silence<small class="muted">Fade from where the music really ends into where the next song starts (silence below −60 dB, up to 10 s)</small></span>
-    </label>
-    <label class="toggle top">
-      <input type="checkbox" checked={xf.skipAlbumRuns} onchange={(e) => saveXf({ skipAlbumRuns: e.currentTarget.checked })} />
-      <span>Keep albums gapless<small class="muted">No fade between songs of the same album played in order (live albums, mixes)</small></span>
-    </label>
-    <label class="toggle top">
-      <input type="checkbox" checked={xf.onManualSkip} onchange={(e) => saveXf({ onManualSkip: e.currentTarget.checked })} />
-      <span>Fade when I skip<small class="muted">A short fade on next, previous or picking a song, instead of a cut</small></span>
-    </label>
+    <SliderRow label="Length" min={1} max={12} step={0.5} value={xf.seconds} format={(n) => `${n} s`} onchange={(n) => saveXf({ seconds: n })} />
+    <ChoiceList label="Curve" options={curves} value={xf.curve} onchange={(id) => saveXf({ curve: id })} />
+    <SwitchRow label="Skip the silence" hint="Fade from where the music really ends into where the next song starts (silence below −60 dB, up to 10 s)" checked={xf.smart} onchange={(on) => saveXf({ smart: on })} />
+    <SwitchRow label="Keep albums gapless" hint="No fade between songs of the same album played in order (live albums, mixes)" checked={xf.skipAlbumRuns} onchange={(on) => saveXf({ skipAlbumRuns: on })} />
+    <SwitchRow label="Fade when I skip" hint="A short fade on next, previous or picking a song, instead of a cut" checked={xf.onManualSkip} onchange={(on) => saveXf({ onManualSkip: on })} />
     {#if xf.onManualSkip}
-      <div class="row-setting">
-        <span class="label">Skip fade <b class="mono">{xf.manualSeconds} s</b></span>
-        <input type="range" min="0.5" max="3" step="0.25" value={xf.manualSeconds} aria-label="Skip fade length" onchange={(e) => saveXf({ manualSeconds: Number(e.currentTarget.value) })} />
-      </div>
+      <SliderRow label="Skip fade" min={0.5} max={3} step={0.25} value={xf.manualSeconds} format={(n) => `${n} s`} onchange={(n) => saveXf({ manualSeconds: n })} />
     {/if}
-    <div class="row-setting">
-      <span class="label">Shortest song that fades <b class="mono">{minLabel}</b></span>
-      <input type="range" min="0" max="120" step="5" value={xf.minTrackSeconds} aria-label="Shortest song that fades" onchange={(e) => saveXf({ minTrackSeconds: Number(e.currentTarget.value) })} />
-      <small class="muted">Shorter songs (interludes, intros) play whole, with gapless transitions. 0 = twice the fade.</small>
-    </div>
+    <SliderRow
+      label="Shortest song that fades"
+      hint="Shorter songs (interludes, intros) play whole, with gapless transitions. 0 = twice the fade."
+      min={0}
+      max={120}
+      step={5}
+      value={xf.minTrackSeconds}
+      format={minLabel}
+      onchange={(n) => saveXf({ minTrackSeconds: n })}
+    />
   {/if}
+</SettingsGroup>
 
-  {#if channels > 2}
-    <h3>Surround speakers</h3>
-    <div class="row-setting">
-      <span class="label">Stereo on {channels === 8 ? "7.1" : channels === 6 ? "5.1" : `${channels}-channel`} speakers</span>
-      <div class="segmented compact">
-        {#each surrounds as m (m.id)}
-          <button class:selected={out.surround === m.id} title={m.hint} onclick={() => saveOut({ surround: m.id })}><b>{m.label}</b></button>
-        {/each}
-      </div>
-      <small class="muted">{surrounds.find((m) => m.id === out.surround)?.hint}. Surround files (5.1, 7.1) always play on their own speakers.</small>
-    </div>
-  {/if}
+{#if channels > 2}
+  <SettingsGroup title="Surround speakers" description="Surround files (5.1, 7.1) always play on their own speakers.">
+    <ChoiceList label="Stereo on {channels === 8 ? '7.1' : channels === 6 ? '5.1' : `${channels}-channel`} speakers" options={surrounds} value={out.surround} onchange={(id) => saveOut({ surround: id })} />
+  </SettingsGroup>
+{/if}
 
-  <h3>Resampling</h3>
-  <div class="row-setting">
-    <span class="label">Quality</span>
-    <div class="segmented compact">
-      {#each qualities as q (q.id)}
-        <button class:selected={out.resampler === q.id} title={q.hint} onclick={() => saveOut({ resampler: q.id })}><b>{q.label}</b></button>
-      {/each}
-    </div>
-    <small class="muted">{qualities.find((q) => q.id === out.resampler)?.hint}. Only used when the device can't play a song at its own rate.</small>
-  </div>
-</section>
-
-<style>
-  h3 {
-    margin: 0 0 8px;
-    font-size: 14px;
-  }
-  h3:not(:first-child) {
-    margin-top: 20px;
-  }
-  .toggle {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 0;
-  }
-  .toggle input {
-    flex: none;
-    width: 16px;
-    height: 16px;
-    accent-color: var(--primary-strong);
-  }
-  .toggle.top {
-    align-items: flex-start;
-  }
-  .toggle.top input {
-    margin-top: 3px;
-  }
-  .toggle span {
-    display: flex;
-    flex-direction: column;
-  }
-  .toggle small {
-    font-weight: 400;
-    font-size: 12px;
-  }
-  .row-setting {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin: 12px 0 6px;
-    max-width: 560px;
-  }
-  .row-setting .label {
-    font-size: 13px;
-    font-weight: 600;
-  }
-  .row-setting input[type="range"] {
-    accent-color: var(--primary-strong);
-  }
-  .segmented {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 160px));
-    gap: 8px;
-  }
-  .segmented button {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 8px 12px;
-    border-radius: min(12px, var(--r-max));
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    text-align: left;
-    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
-  }
-  .segmented button:hover:not(.selected) {
-    border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
-  }
-  .segmented button.selected {
-    border-color: var(--primary);
-    box-shadow: inset 0 0 0 1px var(--primary);
-    background: color-mix(in srgb, var(--primary) 14%, var(--surface));
-  }
-  .segmented button.selected b {
-    color: var(--primary);
-  }
-</style>
+<SettingsGroup title="Resampling" description="Only used when the device can't play a song at its own rate.">
+  <ChoiceList label="Resampling quality" options={qualities} value={out.resampler} onchange={(id) => saveOut({ resampler: id })} />
+</SettingsGroup>

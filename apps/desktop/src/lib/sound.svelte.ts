@@ -12,6 +12,7 @@ import {
   type SoundUiSettings,
   type TasteBand,
   type TasteCreator,
+  type TasteIntensity,
   type TasteRule,
   type TasteScope,
   type TasteScopeKind,
@@ -23,7 +24,13 @@ import { app } from "./state.svelte";
 
 export const SOUND_UI_DEFAULTS: SoundUiSettings = { react_deck: true, react_room: true, layer_chip: true, suggestions: true, taste_editor: "auto" };
 export const LOUDNESS_DEFAULTS: LoudnessSettings = { mode: "off", targetLufs: -14, preventClipping: true };
-export const TASTE_DEFAULTS: TasteSettings = { enabled: false, rules: [] };
+export const TASTE_DEFAULTS: TasteSettings = { enabled: false, rules: [], intensity: "balanced" };
+/** The size of the steps the assistant and reactions take (homefi-core `TasteIntensity`). */
+export const INTENSITIES: readonly { id: TasteIntensity; label: string; hint: string }[] = [
+  { id: "subtle", label: "Subtle", hint: "small, 1.5–3 dB" },
+  { id: "balanced", label: "Balanced", hint: "clearly audible, 3–5 dB" },
+  { id: "bold", label: "Bold", hint: "strong, 5–8 dB" },
+];
 /** Each taste value stays within ± this (dB), like homefi-core. */
 export const MAX_TILT_DB = 6;
 
@@ -155,7 +162,7 @@ class SoundStore {
     return { ...SOUND_UI_DEFAULTS, ...(app.settings?.sound_ui ?? {}) };
   }
   get taste(): TasteSettings {
-    return app.settings?.taste ?? TASTE_DEFAULTS;
+    return { ...TASTE_DEFAULTS, ...(app.settings?.taste ?? {}) };
   }
   get loudness(): LoudnessSettings {
     return { ...LOUDNESS_DEFAULTS, ...(app.settings?.loudness ?? {}) };

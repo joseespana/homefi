@@ -18,10 +18,10 @@ use super::guided::{GuidedEq, GuidedState};
 use super::{resolve_model, AiConfig};
 use crate::dsp::autoeq::{AutoEq, HeadphoneEntry};
 use crate::dsp::{
-    auto_preamp_db, clamp_taste_curve, curve_summary, log_freqs, resolve_taste, response_db, taste_profile,
-    with_taste_for, with_taste_rule, EqBand, EqBandKind, EqProfile, EqSettings, EqSource, ItemRef, LoudnessMode,
-    LoudnessSettings, NowPlayingContext, TasteBand, TasteCreator, TasteRule, TasteScope, TasteSettings, Tilt,
-    MAX_TASTE_BANDS, MAX_TASTE_BAND_DB, MAX_TASTE_BOOST_DB,
+    auto_preamp_db, clamp_taste_curve, clamp_taste_to, curve_summary, log_freqs, resolve_taste, response_db,
+    taste_profile, with_taste_for, with_taste_rule, EqBand, EqBandKind, EqProfile, EqSettings, EqSource, ItemRef,
+    LoudnessMode, LoudnessSettings, NowPlayingContext, TasteBand, TasteChange, TasteCreator, TasteIntensity, TasteRule,
+    TasteScope, TasteSettings, Tilt, MAX_TASTE_BANDS, MAX_TASTE_BAND_DB, MAX_TASTE_BOOST_DB,
 };
 use crate::error::Result;
 
@@ -139,6 +139,15 @@ impl AssistantContext {
         self.taste.rules.iter().find(|r| r.id == id)
     }
 
+    /// Replaces the copies of the user's settings with the ones they have now
+    /// (rules deleted or edited elsewhere since the conversation began), so
+    /// the model never works from, or writes back, stale rules.
+    pub fn sync(&mut self, taste: TasteSettings, loudness: LoudnessSettings, eq: EqSettings) {
+        self.taste = taste;
+        self.loudness = loudness;
+        self.current = eq;
+    }
+
     pub(crate) fn top_genre(&self) -> Option<&str> {
         let listened =
             self.listening.as_ref().and_then(|l| l.top_genres.iter().map(|g| g.trim()).find(|g| !g.is_empty()));
@@ -167,9 +176,12 @@ pub struct AssistantTurn {
     pub confirmed: bool,
     /// The conversation is over.
     pub done: bool,
-    /// Taste rules changed this turn (the user agreed): save and apply them.
+    /// What changed in the taste rules this turn (the user agreed): merge it
+    /// into the settings as they are now ([`TasteSettings::apply`]), save and
+    /// apply. A change, not a snapshot: a copy would bring back rules deleted
+    /// since the conversation began.
     #[serde(default)]
-    pub taste: Option<TasteSettings>,
+    pub taste_change: Option<TasteChange>,
     /// Loudness changed this turn: save and apply it.
     #[serde(default)]
     pub loudness: Option<LoudnessSettings>,
@@ -252,6 +264,11 @@ impl EqAssistant {
 
     pub fn state(&self) -> &AssistantState {
         &self.state
+    }
+
+    /// See [`AssistantContext::sync`].
+    pub fn sync(&mut self, taste: TasteSettings, loudness: LoudnessSettings, eq: EqSettings) {
+        self.state.context.sync(taste, loudness, eq);
     }
 
     /// The first question (or, opened for one rule, what its curve does now
@@ -421,7 +438,7 @@ impl EqAssistant {
             }
             "set_taste_rule" => match self.set_taste_rule(args) {
                 Ok((rule, adjusted)) => {
-                    turn.taste = Some(self.state.context.taste.clone());
+                    turn.taste_change.get_or_insert_with(TasteChange::default).push_upsert(rule.clone());
                     turn.taste_proposal = None;
                     let summary = curve_summary(&rule, self.state.context.spanish());
                     (
@@ -452,7 +469,7 @@ impl EqAssistant {
             "analyze_sound" => (self.analyze_sound(args).to_string(), false, false),
             "remove_taste_rule" => match self.agreed() {
                 Ok(()) if self.state.context.taste.remove(&text("id")) => {
-                    turn.taste = Some(self.state.context.taste.clone());
+                    turn.taste_change.get_or_insert_with(TasteChange::default).push_remove(text("id"));
                     (json!({ "removed": true }).to_string(), false, false)
                 }
                 Ok(()) => ("no rule with that id: see list_taste_rules".into(), true, false),
@@ -493,7 +510,9 @@ impl EqAssistant {
             }
         }
         let base = base.unwrap_or_else(|| EqProfile::flat(""));
-        let tilt = args.get("taste").map(taste_arg).unwrap_or_default();
+        let limits = self.state.context.taste.intensity.limits();
+        let asked_tilt = args.get("taste").map(taste_arg).unwrap_or_default();
+        let tilt = asked_tilt.clamped(limits.tilt_db);
         let (mut profile, mut notes) = finish_profile_for(&base, tilt, output.kind == OutputKind::BuiltIn);
         // the model's own values out of range: say so, so it can explain
         for b in base.bands.iter().take(crate::dsp::MAX_BANDS) {
@@ -501,6 +520,9 @@ impl EqAssistant {
             if (c.freq_hz - b.freq_hz).abs() > 0.5 || (c.q - b.q).abs() > 0.005 {
                 notes.push(format!("{:.0} Hz band brought in range (20..20000 Hz, Q 0.1..10)", c.freq_hz));
             }
+        }
+        if tilt != asked_tilt.clamped(MAX_TASTE_DB) {
+            notes.push(format!("taste knobs limited to ±{:.0} dB at this intensity", limits.tilt_db));
         }
         profile.source = EqSource::Assistant;
         profile.name = args
@@ -587,6 +609,14 @@ impl EqAssistant {
         };
         let (bands, tilt, adjusted) = clamp_taste_curve(&bands, tilt, ctx.on_small_speaker());
         notes.extend(adjusted);
+        // what the model proposes stays within the listener's intensity; a curve it only keeps is left alone
+        let (bands, tilt) = if args.get("bands").is_some() || args.get("tilt").is_some() {
+            let (bands, tilt, narrowed) = clamp_taste_to(&bands, tilt, &ctx.taste.intensity.limits());
+            notes.extend(narrowed);
+            (bands, tilt)
+        } else {
+            (bands, tilt)
+        };
         if tilt.is_neutral() && bands.iter().all(|b| b.band.is_neutral()) {
             return Err(
                 "that changes nothing (no audible band, a flat tilt); to drop a rule use remove_taste_rule".into()
@@ -768,6 +798,15 @@ impl EqSession {
         match self {
             Self::Ai(a) => a.reply(text).await,
             Self::Guided(g) => g.reply(text).await,
+        }
+    }
+
+    /// Gives the conversation the user's settings as they are now: call it
+    /// before every reply, since rules may have changed since it began.
+    pub fn sync(&mut self, taste: TasteSettings, loudness: LoudnessSettings, eq: EqSettings) {
+        match self {
+            Self::Ai(a) => a.sync(taste, loudness, eq),
+            Self::Guided(g) => g.sync(taste, loudness, eq),
         }
     }
 
@@ -1109,7 +1148,7 @@ fn tools() -> Vec<Tool> {
             "set_taste_rule",
             "Save the taste layer for one genre, playlist, artist, album or track (one rule per scope; the most specific one \
              plays: track > album > playlist > artist > genre). Only after the user clearly said yes to it. Give `bands` (a \
-             parametric curve, few bands, each within ±9 dB) and / or `tilt` (broad knobs, each -6..6 dB). Omitted fields keep \
+             parametric curve, few bands, each within the intensity's caps) and / or `tilt` (broad knobs, each -6..6 dB). Omitted fields keep \
              the proposal on the table for that scope, else the saved rule's. The whole layer never boosts more than +12 dB.",
             taste_rule("Omit to keep the proposal's / saved curve; [] removes it."),
         ),
@@ -1134,42 +1173,95 @@ fn tools() -> Vec<Tool> {
     ]
 }
 
-/// Plain phrases and the conservative change each one usually needs (in
-/// context examples align text with EQ better than rules alone: Aalborg/B&O,
-/// arXiv 2601.09448). The phrases are in the user's language; the caps below
+/// Plain phrases and the change each one usually needs at the Balanced
+/// intensity (in context examples align text with EQ better than rules
+/// alone: Aalborg/B&O, arXiv 2601.09448). The phrases are in the user's
+/// language; [`intensity_ladder`] says how to scale them and the caps below
 /// still apply.
 fn phrase_examples(es: bool) -> &'static str {
     if es {
         "| Dicen | Bandas propias (`profile`) | Sobre AutoEq (`taste`) | Curva de una capa (`bands`, con su `note`) |
 |---|---|---|---|
-| \"le falta bajo\", \"suena flaco\" | lowShelf ~100 Hz +2..3 dB (built-in: peak 200 Hz +2..3, Q 0.9) | bassDb +2..3 | lowShelf 90 Hz +2 dB Q 0.7: \"más cuerpo abajo\" |
-| \"le falta pegada\", \"el bombo no golpea\" | peak 60-80 Hz +2 dB, Q ~1.2 | bassDb +2 | peak 70 Hz +2 dB Q 1.2: \"más golpe del bombo\"; peak 300 Hz -1 dB Q 1.4: \"lo mantiene limpio\" |
-| \"retumba\", \"el bajo embarra\" | peak 80-200 Hz -2..3 dB, Q ~1 | bassDb -2..3 | peak 150 Hz -2 dB Q 1: \"menos retumbe\"; peak 300 Hz -1.5 dB Q 1.2: \"quita lo embarrado\" |
-| \"suena frío\", \"le falta calidez\" | peak 150-250 Hz +1.5 dB, Q 0.7 | bassDb +1 | peak 180 Hz +1.5 dB Q 0.6 (ancho): \"calidez\" |
-| \"chillón\", \"áspero\", \"las eses pican\" | peak 3-8 kHz -2 dB, Q ~2 (sibilance: 6-8 kHz) | trebleDb -2 | peak 3.2 kHz -2 dB Q 3 (estrecho): \"suaviza el filo de los platillos\"; eses: peak 7 kHz -2..3 dB Q 4: \"eses más suaves\" |
-| \"apagado\", \"sin brillo\" | highShelf 8-10 kHz +2 dB | trebleDb +2 | highShelf 9 kHz +1.5 dB Q 0.7: \"más aire\" |
-| \"las voces se oyen lejos\", \"no se oyen las voces\" | peak 1-3 kHz +1.5..2 dB, Q ~1 | clarityDb +1.5..2 | peak 2 kHz +1.5 dB Q 1: \"acerca las voces\" |
-| \"me cansa a volumen alto\" | highShelf 10 kHz -1..2 dB | trebleDb -1..2, and suggest a lower volume (and set_loudness if songs jump in level) | peak 3 kHz -1 dB Q 1.5 y highShelf 10 kHz -1 dB: \"menos fatiga\" |
+| \"le falta bajo\", \"suena flaco\" | lowShelf ~90 Hz +3..4 dB (built-in: peak 200 Hz +2..3, Q 0.9) | bassDb +3..4 | lowShelf 90 Hz +3.5 dB Q 0.7: \"más cuerpo abajo\"; peak 250 Hz -1.5 dB Q 1: \"sin embarrar\" |
+| \"le falta pegada\", \"el bombo no golpea\" | peak 60-80 Hz +3..4 dB, Q ~1.2 | bassDb +3 | peak 70 Hz +3.5 dB Q 1.2: \"más golpe del bombo\"; peak 300 Hz -2 dB Q 1.2: \"lo mantiene limpio\" |
+| \"retumba\", \"el bajo embarra\" | peak 80-200 Hz -3 dB, Q ~1 | bassDb -3 | peak 150 Hz -3 dB Q 1: \"menos retumbe\"; peak 300 Hz -2 dB Q 1.2: \"quita lo embarrado\" |
+| \"suena frío\", \"le falta calidez\" | peak 150-250 Hz +2..3 dB, Q 0.7 | bassDb +2 | peak 180 Hz +2.5 dB Q 0.6 (ancho): \"calidez\" |
+| \"chillón\", \"áspero\", \"las eses pican\" | peak 3-8 kHz -3 dB, Q ~2 (sibilance: 6-8 kHz) | trebleDb -3 | peak 3.2 kHz -3 dB Q 2.5: \"suaviza el filo de los platillos\"; eses: peak 7 kHz -3 dB Q 4: \"eses más suaves\" |
+| \"apagado\", \"sin brillo\" | highShelf 8-10 kHz +3 dB | trebleDb +3 | highShelf 9 kHz +3 dB Q 0.7: \"más aire\"; peak 3 kHz +1.5 dB Q 1: \"más definición\" |
+| \"las voces se oyen lejos\", \"no se oyen las voces\" | peak 1-3 kHz +2.5..3 dB, Q ~1 | clarityDb +3 | peak 2 kHz +3 dB Q 1: \"acerca las voces\"; peak 300 Hz -1.5 dB Q 1: \"más aire en las voces\" |
+| \"me cansa a volumen alto\" | highShelf 10 kHz -1.5..2 dB | trebleDb -2, and suggest a lower volume (and set_loudness if songs jump in level) | peak 3 kHz -1.5 dB Q 1.5 y highShelf 10 kHz -1.5 dB: \"menos fatiga\" |
 | \"el parlante distorsiona\", \"zumba\" | highPass 60-100 Hz | - | highPass 80 Hz Q 0.7: \"no le pide bajo que no puede dar\" |"
     } else {
         "| They say | Own bands (`profile`) | On top of AutoEq (`taste`) | A layer's curve (`bands`, with their `note`) |
 |---|---|---|---|
-| \"thin\", \"needs more bass\" | lowShelf ~100 Hz +2..3 dB (built-in: peak 200 Hz +2..3, Q 0.9) | bassDb +2..3 | lowShelf 90 Hz +2 dB Q 0.7: \"fuller low end\" |
-| \"no punch\", \"weak kick\" | peak 60-80 Hz +2 dB, Q ~1.2 | bassDb +2 | peak 70 Hz +2 dB Q 1.2: \"more kick\"; peak 300 Hz -1 dB Q 1.4: \"keeps it clean\" |
-| \"boomy\", \"muddy bass\" | peak 80-200 Hz -2..3 dB, Q ~1 | bassDb -2..3 | peak 150 Hz -2 dB Q 1: \"less boom\"; peak 300 Hz -1.5 dB Q 1.2: \"clears the mud\" |
-| \"cold\", \"lacks warmth\" | peak 150-250 Hz +1.5 dB, Q 0.7 | bassDb +1 | peak 180 Hz +1.5 dB Q 0.6 (wide): \"warmth\" |
-| \"harsh\", \"shrill\", \"sibilant\" | peak 3-8 kHz -2 dB, Q ~2 (sibilance: 6-8 kHz) | trebleDb -2 | peak 3.2 kHz -2 dB Q 3 (narrow): \"softens the harsh edge of the cymbals\"; sibilance: peak 7 kHz -2..3 dB Q 4: \"softer s's\" |
-| \"dull\", \"muffled\" | highShelf 8-10 kHz +2 dB | trebleDb +2 | highShelf 9 kHz +1.5 dB Q 0.7: \"more air\" |
-| \"vocals buried\", \"voices sound far away\" | peak 1-3 kHz +1.5..2 dB, Q ~1 | clarityDb +1.5..2 | peak 2 kHz +1.5 dB Q 1: \"brings voices forward\" |
-| \"fatiguing at high volume\" | highShelf 10 kHz -1..2 dB | trebleDb -1..2, and suggest a lower volume (and set_loudness if songs jump in level) | peak 3 kHz -1 dB Q 1.5 and highShelf 10 kHz -1 dB: \"less fatigue\" |
+| \"thin\", \"needs more bass\" | lowShelf ~90 Hz +3..4 dB (built-in: peak 200 Hz +2..3, Q 0.9) | bassDb +3..4 | lowShelf 90 Hz +3.5 dB Q 0.7: \"fuller low end\"; peak 250 Hz -1.5 dB Q 1: \"keeps it from getting muddy\" |
+| \"no punch\", \"weak kick\" | peak 60-80 Hz +3..4 dB, Q ~1.2 | bassDb +3 | peak 70 Hz +3.5 dB Q 1.2: \"more kick\"; peak 300 Hz -2 dB Q 1.2: \"keeps it clean\" |
+| \"boomy\", \"muddy bass\" | peak 80-200 Hz -3 dB, Q ~1 | bassDb -3 | peak 150 Hz -3 dB Q 1: \"less boom\"; peak 300 Hz -2 dB Q 1.2: \"clears the mud\" |
+| \"cold\", \"lacks warmth\" | peak 150-250 Hz +2..3 dB, Q 0.7 | bassDb +2 | peak 180 Hz +2.5 dB Q 0.6 (wide): \"warmth\" |
+| \"harsh\", \"shrill\", \"sibilant\" | peak 3-8 kHz -3 dB, Q ~2 (sibilance: 6-8 kHz) | trebleDb -3 | peak 3.2 kHz -3 dB Q 2.5: \"softens the harsh edge of the cymbals\"; sibilance: peak 7 kHz -3 dB Q 4: \"softer s's\" |
+| \"dull\", \"muffled\" | highShelf 8-10 kHz +3 dB | trebleDb +3 | highShelf 9 kHz +3 dB Q 0.7: \"more air\"; peak 3 kHz +1.5 dB Q 1: \"more definition\" |
+| \"vocals buried\", \"voices sound far away\" | peak 1-3 kHz +2.5..3 dB, Q ~1 | clarityDb +3 | peak 2 kHz +3 dB Q 1: \"brings voices forward\"; peak 300 Hz -1.5 dB Q 1: \"opens up the voices\" |
+| \"fatiguing at high volume\" | highShelf 10 kHz -1.5..2 dB | trebleDb -2, and suggest a lower volume (and set_loudness if songs jump in level) | peak 3 kHz -1.5 dB Q 1.5 and highShelf 10 kHz -1.5 dB: \"less fatigue\" |
 | \"the speaker distorts\", \"it buzzes\" | highPass 60-100 Hz | - | highPass 80 Hz Q 0.7: \"doesn't ask for bass it can't play\" |"
     }
+}
+
+/// Where each part of the spectrum lives and what people call it.
+const FREQUENCY_VOCABULARY: &str = "| Range | What it is | People say |
+|---|---|---|
+| 20-60 Hz | sub-bass | rumble, \"the floor shakes\" |
+| 60-120 Hz | punch, kick | punch, thump, \"the kick hits\" |
+| 120-250 Hz | warmth, boom | warm, fat, boomy |
+| 250-500 Hz | mud, boxiness | muddy, boxy, cluttered |
+| 500 Hz-2 kHz | body (1-1.5 kHz: nasal) | full, hollow, nasal |
+| 2-5 kHz | presence, attack | close, forward, harsh, shouty |
+| 5-9 kHz | sibilance, edge | \"s\" hiss, sizzle, bite |
+| 10 kHz and up | air | open, airy, dull when missing |";
+
+/// Starting points per genre at the Balanced intensity (always begin from
+/// analyze_sound, and never stack on top of the AutoEq device profile).
+const GENRE_STARTING_POINTS: &str =
+    "- Metal / nu-metal: lowShelf 90 Hz +3..4, peak 300 Hz -2..3 Q 1, peak 3 kHz +2..3 Q 1.2 \
+(if it is harsh: -2..3 at 3-4 kHz instead), highShelf 10 kHz -1..2 if it is tiring.
+- Rock: +2..3 at 100 Hz, +2 at 3-4 kHz, -2 at 8 kHz if it is harsh.
+- EDM / house: lowShelf 70 Hz +4..5, peak 250 Hz -2 Q 1, highShelf 10 kHz +2..3.
+- Hip-hop / trap / reggaetón: peak 55 Hz +4..5 Q 1, lowShelf 100 Hz +2, peak 2.5 kHz +1..2 Q 1.
+- Pop: +2..3 at 100 Hz, +2 at 3 kHz, highShelf 12 kHz +2..3.
+- Jazz / acoustic: peak 180 Hz +1.5..2 Q 0.6, highShelf 10 kHz +1.5..2, -1..2 at 3 kHz if it sounds forward.
+- Classical: ±1..2 at most; suggest loudness normalization (set_loudness) instead of a big curve.
+- Podcasts / voice: highPass 80 Hz, peak 250 Hz -2..3, peak 2.5 kHz +3..4 Q 1, peak 7 kHz -2..3 Q 4.";
+
+/// How big the moves are at the listener's intensity.
+fn intensity_ladder(intensity: TasteIntensity) -> String {
+    let rows = TasteIntensity::ALL.map(|i| {
+        let l = i.limits();
+        format!(
+            "| {}{} | {:.1}-{:.0} dB | x{} | ±{:.0} dB | ±{:.0} dB | +{:.0} dB |",
+            i.id(),
+            if i == intensity { " (the listener's)" } else { "" },
+            l.main_move_db.0,
+            l.main_move_db.1,
+            i.scale(),
+            l.band_db,
+            l.tilt_db,
+            l.boost_db
+        )
+    });
+    format!(
+        "| Intensity | Main move (the biggest band) | Scale of the examples | Per band | Tilt knobs | Whole curve boosts at most |
+|---|---|---|---|---|---|
+{}",
+        rows.join("\n")
+    )
 }
 
 fn system_prompt(state: &AssistantState) -> String {
     let ctx = &state.context;
     let language = if ctx.spanish() { "Spanish (neutral Latin American)" } else { "English" };
     let examples = phrase_examples(ctx.spanish());
+    let intensity = ctx.taste.intensity;
+    let ladder = intensity_ladder(intensity);
+    let (vocabulary, genres) = (FREQUENCY_VOCABULARY, GENRE_STARTING_POINTS);
     let outputs: Vec<Value> = ctx
         .outputs
         .iter()
@@ -1181,7 +1273,9 @@ fn system_prompt(state: &AssistantState) -> String {
     let context = json!({
         "outputs": outputs,
         "activeOutput": ctx.active_output,
+        "builtInSpeaker": ctx.on_small_speaker(),
         "equalizerOn": ctx.current.enabled,
+        "intensity": intensity.id(),
         "notes": ctx.notes,
         "questionsAskedSoFar": state.user_turns,
         "proposalOnTheTable": state.proposal.as_ref().map(|p| json!({ "outputId": p.output_id, "name": p.profile.name })),
@@ -1197,11 +1291,16 @@ fn system_prompt(state: &AssistantState) -> String {
         "topGenres": ctx.listening.as_ref().map(|l| l.top_genres.iter().take(5).collect::<Vec<_>>()),
     });
     format!(
-        "You are the equalizer assistant of HomeFi, a hi-fi music player. You help someone who is not an audio expert set up the \
-equalizer for the device they listen on.
+        "You are the sound engineer of HomeFi's listening room, a hi-fi music player. You help someone who is not an audio expert \
+shape the sound of what they play. Your goal is a clearly audible change that matches what they asked for, and then to \
+calibrate it with them: a change nobody can hear is a failed answer, and so is one that makes the music worse.
 
 Language: always answer in {language}, whatever language the tools use. Plain, warm words; no jargon unless you explain it in a \
 few words. Keep every message short (at most three sentences).
+
+Listening context (the JSON at the end): their outputs and whether the equalizer is on; `builtInSpeaker`; the device profile \
+of each output (`currentProfile`, an AutoEq correction when there is one: it already fixes the headphone towards a neutral \
+target, so never stack your changes on top of what it corrects); and their `intensity`, how strong your proposals may be.
 
 How to talk:
 - One question at a time, and call suggest_replies with 2 to 4 short answers for it.
@@ -1212,16 +1311,24 @@ model (then search_headphones; if several match, ask which one; if none, say so 
 only if relevant; the music they like; their taste (more bass, more clarity, less harsh, neutral); where they listen (home, \
 street, car, noisy places); how loud they usually listen and whether highs feel tiring.
 - When you know enough (or after {MAX_QUESTIONS} questions), call get_headphone_profile if there is a headphone, then propose_eq \
-with it as `headphone_path` plus a gentle `taste` (usually 1 to 4 dB). Without a measured headphone (car, speakers, built-in), \
-propose only `taste` or a few broad bands.
+with it as `headphone_path` plus a `taste` that makes the difference they asked for (size it with the intensity table below). \
+Without a measured headphone (car, speakers, built-in), propose only `taste` or a few broad bands.
 - After proposing, explain in plain words what changes and ask whether to apply it. Call apply_eq only after a clear yes; if \
 they want something different, propose again.
 
 Built-in speakers (laptop, phone, kind built_in): they can't play deep bass. Never boost below 150 Hz there; for \"more bass\" \
-use a gentle lift around 150-250 Hz (at most +3 dB) and the app adds a high-pass at 90 Hz. A car is different: it has real \
-speakers.
+use a modest lift around 150-250 Hz (at most +3 dB) and the app adds a high-pass at 90 Hz; there, prefer cuts for anything else. \
+A car is different: it has real speakers.
 
-What people say and what it usually needs (starting points, gentle; one or two changes at a time, never past the caps):
+Where things live in the spectrum (use these words with the user):
+{vocabulary}
+
+How big to go. The listener's intensity is {intensity_id}; the main move is the biggest band of your proposal, and the examples \
+below are written for Balanced (scale by intensity: Subtle x0.6, Bold x1.5). The app narrows anything beyond these caps and \
+lists it in `adjusted`.
+{ladder}
+
+What people say and what it usually needs (starting points at Balanced; two or three bands at a time, never past the caps):
 {examples}
 
 Taste layers (after the device step, or right away when the device is already set up):
@@ -1229,7 +1336,7 @@ Taste layers (after the device step, or right away when the device is already se
 output's profile. The most specific one plays (track > album > playlist > artist > genre). A layer is a simple `tilt` (bass, \
 treble, clarity knobs) and / or a parametric curve of up to {MAX_TASTE_BANDS} `bands`: as precise as the user's own equalizer.
 - Look at listening_summary and list_taste_rules, then offer at most two concrete layers that fit what they listen to (for \
-example \"a bit more bass for Electronic, +2 dB\"). Show a curve with propose_taste_rule (the app draws it with your band notes), \
+example \"more bass for Electronic\"). Show a curve with propose_taste_rule (the app draws it with your band notes), \
 say what it does in plain words and ask; call set_taste_rule only after a clear yes. Keep it to few questions; if they don't \
 care, leave it.
 - When the user opened you to refine one layer (`refiningRule`), work on that layer only.
@@ -1237,15 +1344,21 @@ care, leave it.
 Designing a curve (`bands` of propose_taste_rule / set_taste_rule):
 - First call analyze_sound (with the scope) to see what already plays: the device profile, the layer's curve and the summed \
 response. Edit a band that is already there (same kind, about the same frequency) instead of stacking another one on it, and \
-don't redo what the device profile already corrects.
-- Surgical fixes: harshness is a narrow cut (Q 2-4) somewhere in 2-5 kHz; sibilance a narrow cut (Q 3-5) in 5-9 kHz; mud a \
-cut around 200-400 Hz; warmth a wide lift (Q 0.5-0.8) in 100-250 Hz; deep bass a low shelf under ~90 Hz; vocal presence a \
-gentle peak in 1-3 kHz (Q ~1); air a high shelf around 9-12 kHz; on small speakers a high-pass at 60-100 Hz instead of a \
-bass boost.
-- Prefer cuts over boosts (a cut can't clip). Use few bands: usually 1 to 4. Each band within ±{MAX_TASTE_BAND_DB:.0} dB \
-(usually within ±3), Q 0.3-8 for peaks; the whole layer never boosts more than +{MAX_TASTE_BOOST_DB:.0} dB anywhere.
-- Explain each band in one plain line in the user's language, as its `note` and in your message: \"-2 dB at 3.2 kHz, narrow: \
+never redo what the device profile already corrects.
+- Think in zones and problems. Broad character (warmth, body, air, bass weight) is a shelf or a wide peak (Q 0.6-1); a specific \
+problem (a harsh spot, sibilance, a resonance) is a narrower peak (Q 2-4). Never a surgical notch (Q above 4 is for sibilance \
+only). Make the main move at least as big as the low end of the main-move range for the listener's intensity: a timid +1 dB \
+is inaudible.
+- Starting points by genre at Balanced (adapt them to what analyze_sound shows and to what the user said):
+{genres}
+- Cut when the complaint is a problem (harsh, boomy, muddy, tiring); boost when something is missing (bass, air, voices). The \
+app lowers the preamp automatically so a boost never clips. Use few bands: usually 2 to 4. Peaks Q 0.3-8; the whole layer \
+never boosts more than +{MAX_TASTE_BOOST_DB:.0} dB anywhere and no band passes ±{MAX_TASTE_BAND_DB:.0} dB.
+- Explain each band in one plain line in the user's language, as its `note` and in your message: \"-3 dB at 3.2 kHz, narrow: \
 softens the harsh edge of the cymbals\".
+- After the layer is applied (a clear yes and set_taste_rule), ask ONE calibration question with suggest_replies: \"More\" / \
+\"Less\" / \"Perfect\" (in the user's language). A tap on More is itself the yes: call analyze_sound, edit the SAME bands about \
+x1.5 and call set_taste_rule again; Less is about x0.6 the same way; Perfect ends it. Don't ask anything else after that.
 - The app validates every value and lists in `adjusted` what it had to change: tell the user when that matters.
 - Loudness normalization (set_loudness) evens out songs that are much louder or quieter than the rest. Suggest it when they \
 mention jumps in volume; it changes the level, so the sound is no longer bit-perfect.
@@ -1258,7 +1371,8 @@ towards an average target (Harman); fit and each person's ears change the result
 pain, ringing or hearing loss, suggest lowering the volume and seeing a professional; you are not a doctor.
 - Don't invent headphone measurements: use the tools.
 
-What the app knows (JSON): {context}"
+What the app knows (JSON): {context}",
+        intensity_id = intensity.id(),
     )
 }
 
@@ -1504,12 +1618,12 @@ pub(crate) mod tests {
         ctx.active_output = Some("mac".into());
         let mut a = EqAssistant::new(config, ctx);
         let t = a.suggest().await.unwrap();
-        assert!(t.taste.is_none(), "nothing changes before a yes");
+        assert!(t.taste_change.is_none(), "nothing changes before a yes");
         assert_eq!(t.quick_replies, ["Sí", "No"]);
         let t = a.reply("Sí").await.unwrap();
-        let taste = t.taste.expect("rules changed");
-        assert_eq!(taste.rules.len(), 1);
-        let r = &taste.rules[0];
+        let change = t.taste_change.expect("rules changed");
+        assert_eq!((change.upsert.len(), change.remove.len()), (1, 0));
+        let r = &change.upsert[0];
         assert_eq!((r.label.as_str(), r.created_by), ("Más pegada", TasteCreator::Ai));
         assert_eq!(r.tilt.bass_db, crate::dsp::SMALL_SPEAKER_MAX_BASS_DB);
         assert_eq!(t.loudness.map(|l| l.mode), Some(LoudnessMode::Auto));
@@ -1575,7 +1689,11 @@ pub(crate) mod tests {
         assert!(adjusted.iter().any(|n| n.contains("-9 dB")), "{adjusted:?}");
         let proposal = turn.taste_proposal.clone().expect("a curve on the table");
         assert_eq!(proposal.bands.len(), 3);
-        assert_eq!((proposal.bands[2].band.gain_db, proposal.bands[2].band.q), (-MAX_TASTE_BAND_DB, 8.0));
+        // -14 dB: the hard cap says -9, the Balanced intensity -7
+        let balanced = TasteIntensity::Balanced.limits().band_db;
+        assert!(balanced < MAX_TASTE_BAND_DB);
+        assert_eq!((proposal.bands[2].band.gain_db, proposal.bands[2].band.q), (-balanced, 8.0));
+        assert!(adjusted.iter().any(|n| n.contains("at this intensity")), "{adjusted:?}");
         assert_eq!(proposal.bands[0].note, "suaviza el filo de los platillos");
         assert!(a.state.context.taste.rules.is_empty(), "nothing saved yet");
         // analyze again: the proposal is what it looks at
@@ -1591,8 +1709,8 @@ pub(crate) mod tests {
         let mut turn = AssistantTurn::default();
         let (out, err, _) = a.run_tool(&call("a5", "set_taste_rule", json!({"scope": guetta})), &mut turn).await;
         assert!(!err, "{out}");
-        let saved = turn.taste.clone().expect("saved");
-        let r = &saved.rules[0];
+        let change = turn.taste_change.clone().expect("saved");
+        let r = &change.upsert[0];
         assert_eq!(
             (r.label.as_str(), r.explanation.as_str(), r.created_by),
             ("Más pegada para Guetta", "Menos filo, más cuerpo.", TasteCreator::Ai)
@@ -1609,6 +1727,73 @@ pub(crate) mod tests {
             .run_tool(&call("a7", "set_taste_rule", json!({"scope": guetta, "bands": [], "tilt": {}})), &mut turn)
             .await;
         assert!(err);
+    }
+
+    /// The bug "I delete it and it comes back": a turn used to carry a copy of
+    /// every rule, made when the conversation began.
+    #[tokio::test]
+    async fn a_turn_reports_a_change_not_a_snapshot() {
+        let config = AiConfig::new(AiProvider::Anthropic, "m", Some("k".into()));
+        let mut ctx = context();
+        let old = ctx.taste.upsert(TasteRule::new(
+            TasteScope::Genre { name: "Jazz".into() },
+            Tilt { bass_db: 1.0, ..Default::default() },
+            "Jazz",
+            TasteCreator::Manual,
+        ));
+        let mut a = EqAssistant::new(config, ctx);
+        a.state.user_turns = 1;
+        let call = |id: &str, name: &str, input: Value| ToolCall { id: id.into(), name: name.into(), arguments: input };
+        let rock = json!({"kind": "genre", "name": "Rock"});
+        let mut turn = AssistantTurn::default();
+        let (out, err, _) =
+            a.run_tool(&call("c1", "set_taste_rule", json!({"scope": rock, "tilt": {"bassDb": 3}})), &mut turn).await;
+        assert!(!err, "{out}");
+        let change = turn.taste_change.clone().expect("a change");
+        // only the rule of this turn: not the Jazz one the user already had
+        assert_eq!((change.upsert.len(), change.remove.len()), (1, 0));
+        assert_eq!(change.upsert[0].scope.name(), "Rock");
+
+        // the user deletes the Jazz rule on the settings screen; merging the change leaves it deleted
+        let mut now = TasteSettings::default();
+        now.upsert(change.upsert[0].clone());
+        now.apply(&change);
+        assert_eq!(now.rules.len(), 1);
+        assert!(!now.rules.iter().any(|r| r.id == old.id));
+
+        // set then remove in one turn nets out to a removal; removing records the id
+        let rock_id = change.upsert[0].id.clone();
+        let (_, err, _) = a.run_tool(&call("c2", "remove_taste_rule", json!({"id": rock_id})), &mut turn).await;
+        assert!(!err);
+        let change = turn.taste_change.unwrap();
+        assert!(change.upsert.is_empty() && change.remove == [rock_id]);
+    }
+
+    #[test]
+    fn sync_replaces_the_copy() {
+        let mut ctx = context();
+        let rule = ctx.taste.upsert(TasteRule::new(
+            TasteScope::Genre { name: "Jazz".into() },
+            Tilt { bass_db: 1.0, ..Default::default() },
+            "Jazz",
+            TasteCreator::Manual,
+        ));
+        let mut session = EqSession::guided(ctx);
+        // the rule is deleted, loudness and the equalizer changed since the conversation began
+        let loudness = LoudnessSettings { mode: LoudnessMode::Album, ..Default::default() };
+        let taste = TasteSettings { intensity: TasteIntensity::Bold, ..Default::default() };
+        let eq = EqSettings { enabled: true, ..Default::default() };
+        session.sync(taste.clone(), loudness, eq.clone());
+        let EqSession::Guided(g) = &session else { panic!("guided") };
+        let c = &g.state().context;
+        assert!(c.taste.rule_for(&rule.scope).is_none() && c.taste == taste);
+        assert_eq!((c.loudness, c.current.enabled), (loudness, true));
+        // the AI conversation too, and the model sees the new intensity
+        let mut session = EqSession::ai(AiConfig::new(AiProvider::Anthropic, "m", None), context());
+        session.sync(taste, loudness, eq);
+        let EqSession::Ai(a) = &session else { panic!("ai") };
+        assert!(a.state().context.taste.rules.is_empty());
+        assert!(system_prompt(a.state()).contains("\"intensity\":\"bold\""));
     }
 
     #[test]
@@ -1641,7 +1826,7 @@ pub(crate) mod tests {
         let state = AssistantState { context: ctx, ..Default::default() };
         let prompt = system_prompt(&state);
         assert!(prompt.contains("refiningRule") && prompt.contains("Bach suave"));
-        assert!(prompt.contains("analyze_sound") && prompt.contains("Prefer cuts over boosts"));
+        assert!(prompt.contains("analyze_sound") && prompt.contains("never redo what the device profile"));
         assert!(prompt.contains("softens the harsh edge of the cymbals") || prompt.contains("suaviza el filo"));
     }
 
@@ -1706,15 +1891,39 @@ pub(crate) mod tests {
         }
         assert!(!en.contains("le falta bajo") && !es.contains("vocals buried"));
         for prompt in [&es, &en] {
-            // the conservative changes, and the caps still there
-            for change in
-                ["lowShelf ~100 Hz +2..3 dB", "peak 200 Hz", "peak 80-200 Hz -2..3 dB, Q ~1", "peak 3-8 kHz -2 dB"]
-            {
+            // Balanced starting points, and the caps still there
+            for change in [
+                "lowShelf ~90 Hz +3..4 dB",
+                "peak 200 Hz",
+                "peak 80-200 Hz -3 dB, Q ~1",
+                "peak 3-8 kHz -3 dB",
+                "highShelf 8-10 kHz +3 dB",
+                "peak 1-3 kHz +2.5..3 dB",
+            ] {
                 assert!(prompt.contains(change), "{change}");
             }
-            assert!(prompt.contains("highShelf 8-10 kHz +2 dB") && prompt.contains("peak 1-3 kHz +1.5..2 dB"));
             assert!(prompt.contains("set_loudness if songs jump"));
             assert!(prompt.contains("caps boosts at +12 dB") && prompt.contains("at most +3 dB"));
+            // vocabulary, genre starting points and the intensity ladder
+            for part in [
+                "| 60-120 Hz | punch, kick |",
+                "| 250-500 Hz | mud, boxiness |",
+                "| 10 kHz and up | air |",
+                "Metal / nu-metal: lowShelf 90 Hz +3..4",
+                "Hip-hop / trap / reggaetón: peak 55 Hz +4..5 Q 1",
+                "Podcasts / voice: highPass 80 Hz",
+                "| subtle | 1.5-3 dB | x0.6 |",
+                "| balanced (the listener's) | 3.0-5 dB | x1 |",
+                "| bold | 5.0-8 dB | x1.5 |",
+                "Subtle x0.6, Bold x1.5",
+                "ONE calibration question",
+            ] {
+                assert!(prompt.contains(part), "{part}");
+            }
+            // no timid defaults any more
+            for timid in ["gentle", "usually within ±3", "usually 1 to 4 dB", "Prefer cuts over boosts"] {
+                assert!(!prompt.contains(timid), "{timid}");
+            }
             assert!(prompt.contains("studio quality"));
         }
     }

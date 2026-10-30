@@ -3,7 +3,7 @@
 // ?taste starts with a few rules; ?loudness with normalization on (Auto);
 // ?nosuggest makes the suggestion fail quietly. "Ask the AI to refine" a rule
 // answers with a 4-band curve on the table; "yes" saves it.
-import type { AssistantTurn, LoudnessSettings, NowPlayingContext, NowSound, ReactionResult, SoundReaction, SoundUiSettings, TasteBand, TasteRule, TasteScope, TasteSettings, Tilt, Track } from "./api";
+import type { AssistantTurn, LoudnessSettings, NowPlayingContext, NowSound, ReactionResult, SoundReaction, SoundUiSettings, TasteBand, TasteChange, TasteIntensity, TasteRule, TasteScope, TasteSettings, Tilt, Track } from "./api";
 
 const url = new URLSearchParams(location.search);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -15,6 +15,7 @@ const band = (kind: TasteBand["kind"], freqHz: number, gainDb: number, q: number
 let taste: TasteSettings = url.has("taste")
   ? {
       enabled: true,
+      intensity: "balanced",
       rules: [
         rule("r1", { kind: "genre", name: "Electronic" }, { bassDb: 4, trebleDb: 0, clarityDb: null }, "More punch · Electronic", "reaction"),
         rule("r2", { kind: "album", id: "", name: "Kind of Blue" }, { bassDb: 0, trebleDb: 1, clarityDb: 1.5 }, "A touch more detail · Kind of Blue", "manual"),
@@ -31,10 +32,11 @@ let taste: TasteSettings = url.has("taste")
         },
       ],
     }
-  : { enabled: false, rules: [] };
+  : { enabled: false, rules: [], intensity: "balanced" };
 let loudness: LoudnessSettings = { mode: url.has("loudness") ? "auto" : "off", targetLufs: -14, preventClipping: true };
 let soundUi: SoundUiSettings = { react_deck: true, react_room: true, layer_chip: true, suggestions: !url.has("nosuggest") };
-const undo = new Map<string, { taste: TasteSettings; loudness: LoudnessSettings }>();
+/** What undoes a reaction: the opposite taste change (merged on top of the rules as they are by then) and the loudness before. */
+const undo = new Map<string, { inverse: TasteChange; loudness: LoudnessSettings }>();
 let suggesting: "Electronic" | "Jazz" | null = null;
 /** The rule a refine conversation works on, and the curve proposed for it. */
 let refining: { id: string; proposal: TasteRule | null } | null = null;
@@ -42,6 +44,34 @@ let refining: { id: string; proposal: TasteRule | null } | null = null;
 const KIND_RANK: Record<string, number> = { track: 5, album: 4, playlist: 3, artist: 2, genre: 1 };
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase() && a.trim() !== "";
 const sameScope = (a: TasteScope, b: TasteScope) => a.kind === b.kind && (a.kind !== "genre" && b.kind !== "genre" && a.id && b.id ? a.id === b.id : same(a.name, b.name));
+
+const noChange = (): TasteChange => ({ upsert: [], remove: [], enabled: null });
+
+/** homefi-core's `TasteChange::apply`: upsert by id or scope, remove by id, never a whole replacement. */
+function merge(current: TasteSettings, change: TasteChange): TasteSettings {
+  let rules = current.rules.filter((r) => !change.remove.includes(r.id));
+  for (const u of change.upsert) {
+    const at = rules.findIndex((r) => r.id === u.id || sameScope(r.scope, u.scope));
+    rules = at >= 0 ? rules.map((r, i) => (i === at ? u : r)) : [...rules, u];
+  }
+  return { ...current, enabled: change.enabled ?? (change.upsert.length ? true : current.enabled), rules };
+}
+
+/** Applies `change` to the live taste and returns what undoes it. */
+function applyChange(change: TasteChange): TasteChange {
+  const inverse: TasteChange = { upsert: [], remove: [], enabled: change.enabled === null ? null : taste.enabled };
+  for (const u of change.upsert) {
+    const prior = taste.rules.find((r) => r.id === u.id || sameScope(r.scope, u.scope));
+    if (prior) inverse.upsert.push(copy(prior));
+    else inverse.remove.push(u.id);
+  }
+  for (const id of change.remove) {
+    const prior = taste.rules.find((r) => r.id === id);
+    if (prior) inverse.upsert.push(copy(prior));
+  }
+  taste = merge(taste, change);
+  return inverse;
+}
 
 export function contextOf(t: Track | null): NowPlayingContext | null {
   if (!t) return null;
@@ -93,27 +123,31 @@ const words = (t: Tilt) =>
     .map(([db, w]) => `${(db as number) > 0 ? "+" : ""}${db} dB ${w}`)
     .join(", ");
 
-const STEPS: Record<SoundReaction, Tilt> = {
-  needsBass: { bassDb: 2, trebleDb: 0 },
-  tooBoomy: { bassDb: -2, trebleDb: 0 },
-  tooBright: { bassDb: 0, trebleDb: -2 },
-  dull: { bassDb: 0, trebleDb: 2 },
-  vocalsBuried: { bassDb: 0, trebleDb: 0, clarityDb: 2 },
+/** dB of one tap for each change size (homefi-core: subtle 1.5–3, balanced 3–5, bold 5–8). */
+const STEP_DB: Record<TasteIntensity, number> = { subtle: 1.5, balanced: 3, bold: 5 };
+const SIGNS: Record<SoundReaction, Tilt> = {
+  needsBass: { bassDb: 1, trebleDb: 0 },
+  tooBoomy: { bassDb: -1, trebleDb: 0 },
+  tooBright: { bassDb: 0, trebleDb: -1 },
+  dull: { bassDb: 0, trebleDb: 1 },
+  vocalsBuried: { bassDb: 0, trebleDb: 0, clarityDb: 1 },
   tooQuiet: { bassDb: 0, trebleDb: 0 },
   tooLoud: { bassDb: 0, trebleDb: 0 },
   perfect: { bassDb: 0, trebleDb: 0 },
 };
 const LABELS: Record<string, string> = { needsBass: "More bass", tooBoomy: "Less bass", tooBright: "Softer highs", dull: "Brighter", vocalsBuried: "Clearer vocals" };
-const cap = (v: number) => Math.max(-6, Math.min(6, v));
+const TILT_CAP_DB = 8;
+const cap = (v: number) => Math.max(-TILT_CAP_DB, Math.min(TILT_CAP_DB, v));
 
 function react(reaction: SoundReaction, c: NowPlayingContext | null, hint: TasteScope | null): ReactionResult {
-  const out: ReactionResult = { rule: null, taste: copy(taste), loudness: { ...loudness }, message: "", undoToken: "", byAi: false };
+  const out: ReactionResult = { rule: null, taste: copy(taste), tasteChange: noChange(), loudness: { ...loudness }, message: "", undoToken: "", byAi: false };
   if (reaction === "perfect") {
     const r = resolve(c);
     return { ...out, message: r ? `Great, it stays as it is (“${r.label}”).` : "Great, nothing to change." };
   }
   const token = `u${Date.now()}`;
-  undo.set(token, { taste: copy(taste), loudness: { ...loudness } });
+  const loudnessBefore = { ...loudness };
+  undo.set(token, { inverse: noChange(), loudness: loudnessBefore });
   if (reaction === "tooQuiet" || reaction === "tooLoud") {
     if (loudness.mode === "off") {
       loudness = { ...loudness, mode: "auto" };
@@ -127,22 +161,26 @@ function react(reaction: SoundReaction, c: NowPlayingContext | null, hint: Taste
   if (!scope) return { ...out, message: "Nothing is playing; press play first." };
   const existing = taste.rules.find((r) => sameScope(r.scope, scope));
   const base = existing?.tilt ?? resolve(c)?.tilt ?? { bassDb: 0, trebleDb: 0, clarityDb: null };
-  const step = STEPS[reaction];
+  const sign = SIGNS[reaction];
+  const db = STEP_DB[taste.intensity];
+  const step: Tilt = { bassDb: sign.bassDb * db, trebleDb: sign.trebleDb * db, clarityDb: (sign.clarityDb ?? 0) * db };
   const tilt: Tilt = {
     bassDb: cap(base.bassDb + step.bassDb),
     trebleDb: cap(base.trebleDb + step.trebleDb),
-    clarityDb: base.clarityDb == null && step.clarityDb == null ? null : cap((base.clarityDb ?? 0) + (step.clarityDb ?? 0)),
+    clarityDb: base.clarityDb == null && !step.clarityDb ? null : cap((base.clarityDb ?? 0) + (step.clarityDb ?? 0)),
   };
   const r: TasteRule = existing
     ? { ...existing, tilt, label: `${LABELS[reaction]} · ${scope.name}`, enabled: true }
     : rule(`r${Date.now()}`, scope, tilt, `${LABELS[reaction]} · ${scope.name}`, url.has("aikey") ? "ai" : "reaction");
-  taste = { enabled: true, rules: existing ? taste.rules.map((x) => (x.id === r.id ? r : x)) : [...taste.rules, r] };
+  const tasteChange: TasteChange = { upsert: [r], remove: [], enabled: true };
+  undo.set(token, { inverse: applyChange(tasteChange), loudness: loudnessBefore });
   const change: Tilt = { bassDb: tilt.bassDb - base.bassDb, trebleDb: tilt.trebleDb - base.trebleDb, clarityDb: (tilt.clarityDb ?? 0) - (base.clarityDb ?? 0) };
   const said = words(change);
   return {
     ...out,
     rule: r,
     taste: copy(taste),
+    tasteChange,
     undoToken: token,
     byAi: url.has("aikey"),
     message: said ? (url.has("aikey") ? `Gave ${scope.name} a bit more of what was missing: ${said}.` : `${said[0].toUpperCase()}${said.slice(1)} for ${scope.name}.`) : `That's already the safe limit for ${scope.name}.`,
@@ -152,7 +190,7 @@ function react(reaction: SoundReaction, c: NowPlayingContext | null, hint: Taste
 export const soundMock = {
   settings: () => ({ taste, loudness, sound_ui: soundUi }),
   setSettings(s: { taste?: TasteSettings; loudness?: LoudnessSettings; sound_ui?: SoundUiSettings }) {
-    if (s.taste) taste = s.taste;
+    if (s.taste) taste = { ...s.taste };
     if (s.loudness) loudness = s.loudness;
     if (s.sound_ui) soundUi = s.sound_ui;
   },
@@ -199,8 +237,9 @@ export const soundMock = {
       refining = null;
       const base: AssistantTurn = { text: "", quick_replies: [], proposal: null, confirmed: false, done: true };
       if (!/^(s[ií]|yes|ok|dale|claro|apply|aplic)/i.test(text.trim())) return { ...base, text: "OK, nothing changed." };
-      taste = { enabled: true, rules: taste.rules.map((x) => (x.id === p.id ? p : x)) };
-      return { ...base, text: `Done: “${p.label}” now has ${p.bands?.length ?? 0} bands.`, taste: copy(taste) };
+      const taste_change: TasteChange = { upsert: [p], remove: [], enabled: null };
+      applyChange(taste_change);
+      return { ...base, text: `Done: “${p.label}” now has ${p.bands?.length ?? 0} bands.`, taste_change };
     }
     const genre = suggesting;
     if (!genre) return null;
@@ -210,8 +249,9 @@ export const soundMock = {
     const tilt: Tilt = genre === "Jazz" ? { bassDb: 0, trebleDb: 1, clarityDb: 1.5 } : { bassDb: 3, trebleDb: 0, clarityDb: null };
     const label = genre === "Jazz" ? "A touch more detail · Jazz" : "A bit more bass · Electronic";
     const r = rule(`r${Date.now()}`, { kind: "genre", name: genre }, tilt, label, url.has("aikey") ? "ai" : "guided");
-    taste = { enabled: true, rules: [...taste.rules.filter((x) => !sameScope(x.scope, r.scope)), r] };
-    return { ...base, text: `Done: “${label}”. You'll find it in Taste rules, to change or remove it.`, taste: copy(taste) };
+    const taste_change: TasteChange = { upsert: [r], remove: [], enabled: true };
+    applyChange(taste_change);
+    return { ...base, text: `Done: “${label}”. You'll find it in Taste rules, to change or remove it.`, taste_change };
   },
   handlers: (current: () => Track | null, changed: () => void) => ({
     taste_get: () => taste,
@@ -232,7 +272,7 @@ export const soundMock = {
       const before = undo.get(token);
       if (!before) return false;
       undo.delete(token);
-      taste = before.taste;
+      taste = merge(taste, before.inverse);
       loudness = before.loudness;
       changed();
       return true;

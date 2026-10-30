@@ -321,6 +321,106 @@ h2 {
   border: 2px solid var(--bg);
 }
 
+/* Settings design system (src/components/settings). Spacing, type roles and the
+   look of cards, controls, switches and the page list are tokens, so a skin
+   (src/skins.css) restyles Settings by overriding variables, never by reaching
+   into the components. cqi units resolve against the Settings container. */
+:root {
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  /* layout: page list, reading column; "wide" is the Settings width setting */
+  --set-nav-w: clamp(216px, 20cqi, 260px);
+  --set-rail-w: 64px;
+  --set-col-w: 720px;
+  --set-col-w-lg: 760px;
+  --set-col-w-wide: 960px;
+  /* the two columns of groups on very wide windows */
+  --set-colgroup-w: 640px;
+  --set-gap: clamp(16px, 2.2cqi, 40px);
+  /* the window's drag strip, the player bar under the page, and the room the floating mascot needs */
+  --set-drag-h: 34px;
+  --set-deck-h: 104px;
+  --set-mascot-clear: 120px;
+  --set-row-min: 56px;
+  --set-hit: 44px;
+  /* type roles */
+  --set-title-font: 600 24px/1.2 var(--font);
+  --set-title-color: var(--text);
+  --set-title-transform: none;
+  --set-title-spacing: normal;
+  --set-title-bar: transparent;
+  --set-title-pad: 0;
+  --set-group-font: 600 12px/1.2 var(--font);
+  --set-group-color: var(--muted);
+  --set-group-transform: uppercase;
+  --set-group-spacing: 0.06em;
+  --set-group-bar: transparent;
+  --set-group-bar-pad: 0;
+  --set-group-rule: none;
+  --set-label-font: 500 14px/1.35 var(--font);
+  --set-hint-font: 400 12.5px/1.45 var(--font);
+  /* group card */
+  --set-card-bg: var(--surface);
+  --set-card-border: var(--border);
+  --set-card-r: min(14px, var(--r-max));
+  --set-card-shadow: none;
+  --set-card-blur: none;
+  --set-divider: color-mix(in srgb, var(--border) 70%, transparent);
+  --set-row-hover: color-mix(in srgb, var(--text) 4%, transparent);
+  /* controls: segmented options, choice cards, fields, the search box */
+  --set-ctl-bg: var(--surface-2);
+  --set-ctl-border: var(--border);
+  --set-ctl-shadow: none;
+  --set-ctl-r: min(10px, var(--r-max));
+  --set-ctl-hover: color-mix(in srgb, var(--primary) 45%, var(--border));
+  --set-sel-bg: color-mix(in srgb, var(--primary) 14%, var(--surface));
+  --set-sel-border: var(--primary);
+  --set-sel-shadow: inset 0 0 0 1px var(--primary);
+  --set-sel-fg: var(--primary);
+  --set-field-bg: var(--surface-2);
+  --set-field-border: var(--border);
+  --set-field-shadow: none;
+  --set-field-fg: var(--text);
+  --set-field-r: min(10px, var(--r-max));
+  /* switch */
+  --switch-w: 44px;
+  --switch-h: 24px;
+  --switch-r: 999px;
+  --switch-knob-r: 999px;
+  --switch-off: var(--surface-3);
+  --switch-on: var(--primary-strong);
+  --switch-knob: #fff;
+  --switch-knob-on: #fff;
+  --switch-border: transparent;
+  --switch-glow: none;
+  /* page list */
+  --set-nav-bg: transparent;
+  --set-nav-border: transparent;
+  --set-nav-pad: 0;
+  --set-nav-r: 0;
+  --set-nav-fg: var(--text);
+  --set-nav-muted: var(--muted);
+  --set-nav-caption: var(--muted);
+  --set-nav-item-r: min(10px, var(--r-max));
+  --set-nav-hover: var(--surface-2);
+  --set-nav-sel-bg: color-mix(in srgb, var(--primary) 14%, var(--surface));
+  --set-nav-sel-fg: var(--primary);
+  --set-nav-sel-muted: var(--muted);
+  --set-nav-indicator: var(--primary);
+  --set-badge-bg: var(--surface-2);
+  --set-badge-fg: var(--primary);
+  --set-badge-r: min(9px, var(--r-max));
+  --set-badge-sel-bg: var(--primary);
+  --set-badge-sel-fg: var(--on-primary, #fff);
+  --set-badge-shadow: none;
+  --set-head-bg: color-mix(in srgb, var(--surface) 62%, transparent);
+}
+
 /* Motion (Settings → Look → Motion): lib/motion.ts sets <html data-motion>
    to full, subtle or off ("auto" is full, or subtle when the system asks for
    reduced motion). CSS animations take their pace from these, and the skin
@@ -368,7 +468,7 @@ h2 {
   }
 }
 /* a choice that was just made pops into place: tabs, segmented options, chips */
-:is(.tabs, .segmented, .seg, .modes, .chips) > button:is(.active, .selected, .on),
+:is(.tabs, .seg, .modes, .chips) > button:is(.active, .selected, .on),
 .web .tab.selected {
   animation: hf-pick calc(0.32s * var(--motion-speed)) var(--ease-pop);
 }

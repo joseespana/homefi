@@ -74,6 +74,7 @@
   //   compact   small stages, a living link between them, a status pill
   //   detailed  the big boxes (SignalChainDetailed)
   // Settings → Listening room → Signal chain (and the room's Customize menu).
+  import { portal } from "../lib/portal";
   import { khz, outputIcon, type PlayerState } from "../lib/api";
   import { flatProfile, formatDb, sourceLabel } from "../lib/eq.svelte";
   import { LOUDNESS_MODES, ruleWords, scopePhrase, sound } from "../lib/sound.svelte";
@@ -240,11 +241,6 @@
     output: "Click: change the output",
   };
 
-  // the tooltip leaves the chain (panels clip, glass makes `fixed` local): it lives on <body>
-  function portal(node: HTMLElement) {
-    document.body.appendChild(node);
-    return { destroy: () => node.remove() };
-  }
   $effect(() => {
     if (!open && !outputOpen) return;
     const away = () => ((outputOpen = false), close());

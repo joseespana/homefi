@@ -138,4 +138,12 @@
     <string name="taste_save_disabled">Move a slider or add a band first</string>
     <string name="signal_taste_bands">Taste bands</string>
     <string name="signal_taste_bands_value">%1$d of %2$d on</string>
+    <string name="intensity_title">Change intensity</string>
+    <string name="intensity_subtle">Subtle</string>
+    <string name="intensity_balanced">Balanced</string>
+    <string name="intensity_bold">Bold</string>
+    <string name="intensity_subtle_hint">Subtle: you notice it if you listen for it, %1$s–%2$s dB</string>
+    <string name="intensity_balanced_hint">Balanced: clearly noticeable, %1$s–%2$s dB</string>
+    <string name="intensity_bold_hint">Bold: a big change you can\'t miss, %1$s–%2$s dB</string>
+    <string name="intensity_hint_plain">How strong the changes the assistant, the reactions and the wizard propose are.</string>
 </resources>

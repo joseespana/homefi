@@ -5,7 +5,10 @@ import android.app.Application
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -67,7 +70,11 @@ import com.perseusoft.homefi.data.userMessage
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.player.EqPanel
 import com.perseusoft.homefi.player.EqTab
-import com.perseusoft.homefi.ui.sound.LoudnessControls
+import com.perseusoft.homefi.core.LoudnessMode
+import com.perseusoft.homefi.core.LoudnessSettings
+import com.perseusoft.homefi.ui.eq.formatDb
+import com.perseusoft.homefi.ui.sound.hintRes
+import com.perseusoft.homefi.ui.sound.labelRes
 import androidx.compose.material.icons.rounded.Layers
 import com.perseusoft.homefi.ui.ConfirmDialog
 import com.perseusoft.homefi.ui.SelectChip
@@ -102,75 +109,119 @@ internal fun soundSummary(): String {
 /** Settings → Sound: the equalizer's switches and the ways into its screens. */
 @Composable
 internal fun SoundSettings() {
-    val eq = LocalContext.current.homefi.equalizer
+    val app = LocalContext.current.homefi
+    val eq = app.equalizer
     val settings by eq.settings.collectAsStateWithLifecycle()
     val active by eq.active.collectAsStateWithLifecycle()
-    val haptics = haptics()
-    Header(R.string.eq_title)
-    Toggle(R.string.eq_on, settings.enabled) { eq.setEnabled(it) }
-    Hint(if (active) R.string.eq_not_bitperfect_note else R.string.eq_off_note)
-    Toggle(R.string.eq_preamp_auto, settings.autoPreamp) { v -> eq.update { it.copy(autoPreamp = v) } }
-    NavRow(Icons.Rounded.Equalizer, R.string.eq_open, soundSummary()) {
-        haptics.press()
-        eq.open(EqPanel.EQUALIZER)
-    }
-    NavRow(AiIcon, R.string.eq_assistant, stringResource(R.string.eq_assistant_hint)) {
-        haptics.press()
-        eq.open(EqPanel.ASSISTANT)
-    }
-
-    // ---- taste layers
-    val app = LocalContext.current.homefi
     val taste by app.sound.taste.collectAsStateWithLifecycle()
     val loudness by app.sound.loudness.collectAsStateWithLifecycle()
     val appSettings by app.settings.settings.collectAsStateWithLifecycle()
-    Header(R.string.sound_layers_on)
-    Toggle(R.string.sound_layers_toggle, taste.enabled) { app.sound.setEnabled(it) }
-    Hint(R.string.sound_layers_hint)
-    NavRow(Icons.Rounded.Layers, R.string.sound_open_rules, stringResource(R.string.sound_summary_rules, taste.rules.size)) {
-        haptics.press()
-        eq.open(EqPanel.EQUALIZER, EqTab.TASTE)
-    }
+    val haptics = haptics()
 
-    // ---- loudness
-    Header(R.string.sound_loudness)
-    LoudnessControls(loudness) { app.sound.setLoudness(it) }
-
-    // ---- "How does it sound?"
-    Header(R.string.sound_how)
-    Toggle(R.string.sound_settings_react_button, appSettings.soundReactButton) { v -> app.settings.update { it.copy(soundReactButton = v) } }
-    Hint(R.string.sound_settings_react_button_hint)
-    Toggle(R.string.sound_settings_layer_chip, appSettings.soundLayerChip) { v -> app.settings.update { it.copy(soundLayerChip = v) } }
-    Hint(R.string.sound_settings_layer_chip_hint)
-    Toggle(R.string.sound_settings_suggestions, appSettings.soundSuggestions) { v -> app.settings.update { it.copy(soundSuggestions = v) } }
-    Hint(R.string.sound_settings_suggestions_hint)
-    Text(
-        stringResource(R.string.taste_editor_setting),
-        style = MaterialTheme.typography.bodyLarge,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp),
-    )
-    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp)) {
-        listOf("auto" to R.string.taste_editor_auto, "simple" to R.string.taste_mode_simple, "advanced" to R.string.taste_mode_advanced).forEach { (id, label) ->
-            SelectChip(
-                selected = appSettings.tasteEditor == id,
-                onClick = { haptics.tick(); app.settings.update { it.copy(tasteEditor = id) } },
-                label = { Text(stringResource(label)) },
-                modifier = Modifier.padding(end = 8.dp),
-            )
+    SettingsGroup(title = stringResource(R.string.eq_title)) {
+        SwitchRow(
+            stringResource(R.string.eq_on), settings.enabled,
+            hint = stringResource(if (active) R.string.eq_not_bitperfect_note else R.string.eq_off_note),
+        ) { eq.setEnabled(it) }
+        RowDivider()
+        SwitchRow(stringResource(R.string.eq_preamp_auto), settings.autoPreamp) { v -> eq.update { it.copy(autoPreamp = v) } }
+        RowDivider()
+        NavRow(stringResource(R.string.eq_open), soundSummary()) {
+            haptics.press()
+            eq.open(EqPanel.EQUALIZER)
+        }
+        RowDivider()
+        NavRow(stringResource(R.string.eq_assistant), stringResource(R.string.eq_assistant_hint)) {
+            haptics.press()
+            eq.open(EqPanel.ASSISTANT)
         }
     }
-    Hint(R.string.taste_editor_setting_hint)
+
+    SettingsGroup(title = stringResource(R.string.sound_layers_on)) {
+        SwitchRow(
+            stringResource(R.string.sound_layers_toggle), taste.enabled,
+            hint = stringResource(R.string.sound_layers_hint),
+        ) { app.sound.setEnabled(it) }
+        RowDivider()
+        TasteIntensityRow()
+        RowDivider()
+        NavRow(stringResource(R.string.sound_open_rules), stringResource(R.string.sound_summary_rules, taste.rules.size)) {
+            haptics.press()
+            eq.open(EqPanel.EQUALIZER, EqTab.TASTE)
+        }
+    }
+
+    SettingsGroup(title = stringResource(R.string.sound_loudness)) {
+        LoudnessSettingsRows(loudness) { app.sound.setLoudness(it) }
+    }
+
+    SettingsGroup(title = stringResource(R.string.sound_how)) {
+        SwitchRow(
+            stringResource(R.string.sound_settings_react_button), appSettings.soundReactButton,
+            hint = stringResource(R.string.sound_settings_react_button_hint),
+        ) { v -> app.settings.update { it.copy(soundReactButton = v) } }
+        RowDivider()
+        SwitchRow(
+            stringResource(R.string.sound_settings_layer_chip), appSettings.soundLayerChip,
+            hint = stringResource(R.string.sound_settings_layer_chip_hint),
+        ) { v -> app.settings.update { it.copy(soundLayerChip = v) } }
+        RowDivider()
+        SwitchRow(
+            stringResource(R.string.sound_settings_suggestions), appSettings.soundSuggestions,
+            hint = stringResource(R.string.sound_settings_suggestions_hint),
+        ) { v -> app.settings.update { it.copy(soundSuggestions = v) } }
+        RowDivider()
+        SegmentedRow(
+            stringResource(R.string.taste_editor_setting), TASTE_EDITOR_IDS, appSettings.tasteEditor,
+            label = { stringResource(it.editorLabelRes()) },
+            onSelect = { id -> app.settings.update { it.copy(tasteEditor = id) } },
+            hint = stringResource(R.string.taste_editor_setting_hint),
+        )
+    }
 }
 
+private val TASTE_EDITOR_IDS = listOf("auto", "simple", "advanced")
+
+private fun String.editorLabelRes(): Int = when (this) {
+    "simple" -> R.string.taste_mode_simple
+    "advanced" -> R.string.taste_mode_advanced
+    else -> R.string.taste_editor_auto
+}
+
+/** Loudness mode, target and clipping guard as Settings rows (the EQ screen has its own layout). */
 @Composable
-private fun NavRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: Int, subtitle: String, onClick: () -> Unit) {
-    ListItem(
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
-        leadingContent = { Icon(icon, null, tint = MaterialTheme.colorScheme.primary) },
-        headlineContent = { Text(stringResource(title)) },
-        supportingContent = { Text(subtitle) },
-        trailingContent = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
-        modifier = Modifier.clickable(onClick = onClick),
+private fun LoudnessSettingsRows(loudness: LoudnessSettings, onChange: (LoudnessSettings) -> Unit) {
+    SegmentedRow(
+        stringResource(R.string.sound_loudness), LOUDNESS_MODES, loudness.mode,
+        label = { stringResource(it.labelRes()) },
+        onSelect = { m -> onChange(loudness.copy(mode = m)) },
+        hint = stringResource(loudness.mode.hintRes()),
+    )
+    Reveal(loudness.mode != LoudnessMode.OFF) {
+        RowDivider()
+        SliderRow(
+            stringResource(R.string.sound_loudness_target) + " · " +
+                stringResource(R.string.sound_loudness_lufs, formatDb(loudness.targetLufs).removePrefix("+")),
+            loudness.targetLufs, LUFS_RANGE,
+            onChange = { v -> onChange(loudness.copy(targetLufs = Math.round(v).toFloat())) },
+        )
+        RowDivider()
+        SwitchRow(
+            stringResource(R.string.sound_loudness_clipping), loudness.preventClipping,
+            hint = stringResource(R.string.sound_loudness_needs_tags),
+        ) { v -> onChange(loudness.copy(preventClipping = v)) }
+    }
+}
+
+private val LOUDNESS_MODES = listOf(LoudnessMode.OFF, LoudnessMode.AUTO, LoudnessMode.TRACK, LoudnessMode.ALBUM)
+private val LUFS_RANGE = -24f..-8f
+
+/** A row that opens a screen: a chevron on the right. */
+@Composable
+private fun NavRow(title: String, subtitle: String, onClick: () -> Unit) {
+    ActionRow(
+        title, hint = subtitle, onClick = onClick,
+        trailing = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
     )
 }
 
@@ -293,39 +344,45 @@ internal fun AiSettingsSection(vm: AiSettingsViewModel = viewModel()) {
     val providers = app.ai.providers
     val chosen = app.ai.provider(settings.ai.provider)
 
-    Header(R.string.ai_provider)
-    Hint(R.string.ai_used_for)
-    ProviderRow(stringResource(R.string.ai_none), null, selected = chosen == null) {
-        haptics.tick()
-        vm.selectProvider("")
-    }
-    providers.forEach { info ->
-        key(info.id) {
-            val status = when {
-                !info.needsKey -> stringResource(R.string.ai_key_not_needed)
-                info.id in saved -> stringResource(R.string.ai_key_saved)
-                else -> stringResource(R.string.ai_key_missing)
-            }
-            ProviderRow(info.name, status, selected = chosen?.id == info.id, badge = info.badge, hint = info.hint) {
+    SettingsGroup(title = stringResource(R.string.ai_provider), description = stringResource(R.string.ai_used_for)) {
+        Column(Modifier.selectableGroup()) {
+            ProviderRow(stringResource(R.string.ai_none), null, selected = chosen == null) {
                 haptics.tick()
-                vm.selectProvider(info.id)
+                vm.selectProvider("")
+            }
+            providers.forEach { info ->
+                key(info.id) {
+                    RowDivider()
+                    val status = when {
+                        !info.needsKey -> stringResource(R.string.ai_key_not_needed)
+                        info.id in saved -> stringResource(R.string.ai_key_saved)
+                        else -> stringResource(R.string.ai_key_missing)
+                    }
+                    ProviderRow(info.name, status, selected = chosen?.id == info.id, badge = info.badge, hint = info.hint) {
+                        haptics.tick()
+                        vm.selectProvider(info.id)
+                    }
+                }
             }
         }
     }
     Reveal(chosen != null) {
         if (chosen != null) key(chosen.id) { ProviderSetup(chosen, settings.ai, chosen.id in saved, vm) }
     }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.Top) {
-        Icon(Icons.Rounded.Lock, null, Modifier.size(18.dp).padding(top = 2.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.width(8.dp))
-        Text(
-            stringResource(R.string.ai_privacy, chosen?.name ?: stringResource(R.string.ai_privacy_provider)),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    SettingsGroup {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.Top) {
+            Icon(Icons.Rounded.Lock, null, Modifier.size(18.dp).padding(top = 2.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                stringResource(R.string.ai_privacy, chosen?.name ?: stringResource(R.string.ai_privacy_provider)),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ProviderRow(
     name: String,
@@ -335,26 +392,26 @@ private fun ProviderRow(
     hint: String = "",
     onClick: () -> Unit,
 ) {
-    ListItem(
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
-        leadingContent = { RadioButton(selected = selected, onClick = null) },
-        headlineContent = {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
             // the research's pick, the cheapest, one key for all, the private local one
             FlowRow(verticalArrangement = Arrangement.Center, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(name)
+                Text(name, style = MaterialTheme.typography.bodyLarge)
                 badge?.let { QualityBadge(stringResource(it.labelRes()), Modifier.align(Alignment.CenterVertically)) }
             }
-        },
-        supportingContent = if (status == null && hint.isBlank()) null else {
-            {
-                Column {
-                    if (hint.isNotBlank()) Text(hint)
-                    status?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) }
-                }
-            }
-        },
-        modifier = Modifier.clickable(onClick = onClick),
-    )
+            if (hint.isNotBlank()) Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            status?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) }
+        }
+        RadioButton(selected = selected, onClick = null)
+    }
 }
 
 private fun AiProviderBadge.labelRes(): Int = when (this) {
@@ -385,62 +442,63 @@ private fun ProviderSetup(info: AiProviderInfo, ai: AiSettings, hasKey: Boolean,
     var typed by remember { mutableStateOf("") }
     var removing by rememberSaveable { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+    SettingsGroup(title = stringResource(R.string.settings_ai_connection)) {
         if (info.keyUrl.isNotBlank()) {
-            TextButton(
+            ActionRow(
+                stringResource(R.string.ai_get_key),
                 onClick = {
                     try {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info.keyUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                     } catch (_: ActivityNotFoundException) {
                     }
                 },
-                modifier = Modifier.padding(horizontal = 8.dp),
-            ) {
-                Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(stringResource(R.string.ai_get_key))
-            }
+                trailing = { Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, Modifier.size(18.dp)) },
+            )
         }
 
         if (info.customBaseUrl) {
             var url by remember(info.id) { mutableStateOf(ai.baseUrls[info.id].orEmpty()) }
             val required = info.provider is AiProvider.OpenAiCompatible
-            OutlinedTextField(
-                value = url,
-                onValueChange = {
-                    url = it
-                    vm.setBaseUrl(info, it)
-                },
-                label = { Text(stringResource(R.string.ai_base_url)) },
-                placeholder = { if (info.defaultBaseUrl.isNotBlank()) Text(info.defaultBaseUrl) },
-                supportingText = {
-                    Text(
-                        if (required) stringResource(R.string.ai_base_url_required)
-                        else stringResource(R.string.ai_base_url_hint, info.defaultBaseUrl),
-                    )
-                },
-                isError = required && url.isBlank(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-            )
+            FieldRow { m ->
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = {
+                        url = it
+                        vm.setBaseUrl(info, it)
+                    },
+                    label = { Text(stringResource(R.string.ai_base_url)) },
+                    placeholder = { if (info.defaultBaseUrl.isNotBlank()) Text(info.defaultBaseUrl) },
+                    supportingText = {
+                        Text(
+                            if (required) stringResource(R.string.ai_base_url_required)
+                            else stringResource(R.string.ai_base_url_hint, info.defaultBaseUrl),
+                        )
+                    },
+                    isError = required && url.isBlank(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    modifier = m,
+                )
+            }
         }
 
         if (info.needsKey) {
-            OutlinedTextField(
-                value = typed,
-                onValueChange = { typed = it.trim() },
-                label = { Text(stringResource(R.string.ai_key)) },
-                supportingText = { Text(stringResource(if (hasKey) R.string.ai_key_replace else R.string.ai_key_missing)) },
-                leadingIcon = { if (hasKey) Icon(Icons.Rounded.CheckCircle, stringResource(R.string.ai_key_saved), tint = MaterialTheme.colorScheme.primary) },
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-            )
+            FieldRow { m ->
+                OutlinedTextField(
+                    value = typed,
+                    onValueChange = { typed = it.trim() },
+                    label = { Text(stringResource(R.string.ai_key)) },
+                    supportingText = { Text(stringResource(if (hasKey) R.string.ai_key_replace else R.string.ai_key_missing)) },
+                    leadingIcon = { if (hasKey) Icon(Icons.Rounded.CheckCircle, stringResource(R.string.ai_key_saved), tint = MaterialTheme.colorScheme.primary) },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+                    singleLine = true,
+                    modifier = m,
+                )
+            }
         }
 
-        FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val canCall = !info.needsKey || hasKey || typed.isNotBlank()
             OutlinedButton(onClick = { haptics.tick(); vm.test(info, typed) }, enabled = canCall && ui.status != KeyStatus.Testing) {
                 Text(stringResource(R.string.ai_test))
@@ -461,70 +519,61 @@ private fun ProviderSetup(info: AiProviderInfo, ai: AiSettings, hasKey: Boolean,
         }
         val status = when (val s = ui.status) {
             KeyStatus.Idle -> null
-            KeyStatus.Testing -> stringResource(R.string.ai_testing) to MaterialTheme.colorScheme.onSurfaceVariant
-            KeyStatus.Works -> stringResource(R.string.ai_test_ok) to MaterialTheme.colorScheme.primary
-            KeyStatus.Saved -> stringResource(R.string.ai_saved) to MaterialTheme.colorScheme.primary
-            KeyStatus.SaveFailed -> stringResource(R.string.ai_save_failed) to MaterialTheme.colorScheme.error
-            is KeyStatus.Failed -> s.message to MaterialTheme.colorScheme.error
+            KeyStatus.Testing -> stringResource(R.string.ai_testing) to false
+            KeyStatus.Works -> stringResource(R.string.ai_test_ok) to false
+            KeyStatus.Saved -> stringResource(R.string.ai_saved) to false
+            KeyStatus.SaveFailed -> stringResource(R.string.ai_save_failed) to true
+            is KeyStatus.Failed -> s.message to true
         }
-        status?.let { (text, color) ->
-            Text(text, color = color, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-        }
+        status?.let { (text, isError) -> SettingsNote(text, error = isError) }
+    }
 
-        // ---- model
-        Label(R.string.ai_model)
+    SettingsGroup(title = stringResource(R.string.settings_ai_model)) {
         val model = ai.models[info.id].orEmpty()
         val autoName = ui.defaultModel ?: info.defaultModel
-        Text(
-            if (model.isBlank()) autoName?.let { stringResource(R.string.ai_model_auto_named, it) } ?: stringResource(R.string.ai_model_auto) else model,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(horizontal = 16.dp),
-        )
-        val models = ui.models
-        if (models == null) {
-            TextButton(
-                onClick = { haptics.tick(); vm.loadModels(info, typed) },
-                enabled = !ui.loadingModels && (!info.needsKey || hasKey || typed.isNotBlank()),
-                modifier = Modifier.padding(horizontal = 8.dp),
-            ) {
-                if (ui.loadingModels) {
-                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(8.dp))
+        val autoLabel = autoName?.let { stringResource(R.string.ai_model_auto_named, it) } ?: stringResource(R.string.ai_model_auto)
+        StackedSetting(stringResource(R.string.ai_model)) {
+            Text(
+                if (model.isBlank()) autoLabel else model,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            val models = ui.models
+            if (models == null) {
+                TextButton(
+                    onClick = { haptics.tick(); vm.loadModels(info, typed) },
+                    enabled = !ui.loadingModels && (!info.needsKey || hasKey || typed.isNotBlank()),
+                ) {
+                    if (ui.loadingModels) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(stringResource(R.string.ai_models_load))
                 }
-                Text(stringResource(R.string.ai_models_load))
-            }
-        } else {
-            FlowRow(Modifier.padding(horizontal = 16.dp)) {
-                SelectChip(
-                    selected = model.isBlank(),
-                    onClick = { vm.setModel(info, "") },
-                    label = { Text(autoName?.let { stringResource(R.string.ai_model_auto_named, it) } ?: stringResource(R.string.ai_model_auto)) },
-                    modifier = Modifier.padding(end = 8.dp),
-                )
-                // the recommended ones first, small ones last
-                models.sortedWith(compareBy({ !it.recommended }, { !it.economical }, { it.small })).forEach { m ->
-                    key(m.id) {
-                        SelectChip(
-                            selected = model == m.id,
-                            onClick = { vm.setModel(info, m.id) },
-                            label = { Text(m.chipText()) },
-                            modifier = Modifier.padding(end = 8.dp),
-                        )
+            } else {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SelectChip(
+                        selected = model.isBlank(),
+                        onClick = { vm.setModel(info, "") },
+                        label = { Text(autoLabel) },
+                    )
+                    // the recommended ones first, small ones last
+                    models.sortedWith(compareBy({ !it.recommended }, { !it.economical }, { it.small })).forEach { m ->
+                        key(m.id) {
+                            SelectChip(
+                                selected = model == m.id,
+                                onClick = { vm.setModel(info, m.id) },
+                                label = { Text(m.chipText()) },
+                            )
+                        }
                     }
                 }
+                // a small model picked: cheaper, but it gets more wrong
+                if (models.firstOrNull { it.id == model }?.small == true) {
+                    Text(stringResource(R.string.ai_model_small_warning), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
             }
-            // a small model picked: cheaper, but it gets more wrong
-            if (models.firstOrNull { it.id == model }?.small == true) {
-                Text(
-                    stringResource(R.string.ai_model_small_warning),
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-            }
-        }
-        ui.modelsError?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp))
+            ui.modelsError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         }
     }
 

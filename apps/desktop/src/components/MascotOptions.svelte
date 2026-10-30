@@ -27,6 +27,11 @@
     { id: "normal", label: "Normal", hint: "6 quick clicks" },
     { id: "short", label: "Short-tempered", hint: "4 quick clicks" },
   ] as const;
+  const holds = [
+    { id: "menu", label: "Shows its actions", hint: "Pick a famous dance, wave, switch style or send it back" },
+    { id: "style", label: "Switches its style", hint: "Auto, then each style in turn" },
+    { id: "off", label: "Nothing", hint: "Right-click does nothing" },
+  ] as const;
   const limbs = [
     { id: "white", label: "White" },
     { id: "navy", label: "Navy" },
@@ -79,9 +84,16 @@
       <button class:on={(room.mascot_temper ?? "normal") === t.id} onclick={() => set({ mascot_temper: t.id })} title={t.hint}>{t.label}</button>
     {/each}
   </div>
+  <div class="sub">Right-click</div>
+  <div class="chips">
+    {#each holds as h}
+      <button class:on={(room.mascot_hold ?? "menu") === h.id} onclick={() => set({ mascot_hold: h.id })} title={h.hint}>{h.label}</button>
+    {/each}
+  </div>
+
   <label class="row">
-    <span>Right-click switches its style</span>
-    <input type="checkbox" checked={room.mascot_right_click ?? true} onchange={(e) => set({ mascot_right_click: e.currentTarget.checked })} />
+    <span>Dances button next to it</span>
+    <input type="checkbox" checked={room.mascot_dance_button ?? true} onchange={(e) => set({ mascot_dance_button: e.currentTarget.checked })} />
   </label>
 
   <div class="sub">Size</div>

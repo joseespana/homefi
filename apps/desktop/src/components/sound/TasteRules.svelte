@@ -3,7 +3,7 @@
   // it, on / off, edit, delete), what plays now, a suggestion and loudness.
   import type { TasteBand, TasteRule, Tilt } from "../../lib/api";
   import { item, rise } from "../../lib/motion";
-  import { LOUDNESS_MODES, SCOPE_KINDS, creatorLabel, ruleWords, scopeIcon, sound } from "../../lib/sound.svelte";
+  import { INTENSITIES, LOUDNESS_MODES, SCOPE_KINDS, creatorLabel, ruleWords, scopeIcon, sound } from "../../lib/sound.svelte";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
   import SuggestionCard from "./SuggestionCard.svelte";
@@ -57,6 +57,14 @@
           A little more bass for your electronic music, softer highs for one loud album… Each layer changes only its music, on top of your
           output's profile. When several match, the most specific plays: track › album › playlist › artist › genre.
         </p>
+      </div>
+      <div class="ctl">
+        <div class="modes" role="radiogroup" aria-label="Change size">
+          {#each INTENSITIES as i (i.id)}
+            <button role="radio" aria-checked={taste.intensity === i.id} class:on={taste.intensity === i.id} title="{i.label}: {i.hint}" onclick={() => sound.saveTaste({ ...taste, intensity: i.id })}>{i.label}</button>
+          {/each}
+        </div>
+        <small class="muted">Change size: {INTENSITIES.find((i) => i.id === taste.intensity)?.hint}</small>
       </div>
       <label class="switch" title={taste.enabled ? "Turn taste layers off" : "Turn taste layers on"}>
         <input type="checkbox" role="switch" checked={taste.enabled} onchange={(e) => sound.saveTaste({ ...taste, enabled: e.currentTarget.checked })} />
@@ -208,6 +216,17 @@
   }
   .warn-text {
     color: #d97706;
+  }
+  .ctl {
+    margin-left: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+  }
+  .ctl .modes {
+    margin-bottom: 0;
+    flex-wrap: nowrap;
   }
   .switch {
     flex: none;

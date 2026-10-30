@@ -47,6 +47,9 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
  */
 enum class Motion { AUTO, FULL, SUBTLE, OFF }
 
+/** How wide the Settings content column may grow: 640 dp, or 840 dp (same choice as the desktop). */
+enum class SettingsWidth { COMFORTABLE, WIDE }
+
 /** How the full-screen player is laid out. */
 /** Look of the player's seek bar. */
 enum class ProgressStyle { CLASSIC, WAVY, WAVEFORM, NEON, LED, MINIMAL }
@@ -75,6 +78,9 @@ enum class SignalStyle(val key: String) {
 
 /** Colour of the mascot's arms and legs; OFF draws none. */
 enum class MascotLimbs { WHITE, NAVY, ACCENT, OFF }
+
+/** What a long-press on the mascot does: open its actions (dances, wave, style), switch style, or nothing. */
+enum class MascotHold { MENU, STYLE, OFF }
 
 /** Shared control (car mode) and party mode: the hub's rules and this phone as a guest. */
 data class ShareSettings(
@@ -184,6 +190,8 @@ data class AppSettings(
     val motion: Motion = Motion.AUTO,
     /** A little buzz on the buttons worth feeling (play, skip, seek, options, downloads). */
     val haptics: Boolean = true,
+    /** Max width of the Settings content column on tablets and landscape. */
+    val settingsWidth: SettingsWidth = SettingsWidth.COMFORTABLE,
     /** Player stage: album cover, spectrum, VU meters or mascot. */
     val stage: Int = 0,
     val playerLayout: PlayerLayout = PlayerLayout.CLASSIC,
@@ -200,8 +208,10 @@ data class AppSettings(
     val mascotSpecials: Specials = Specials.SOMETIMES,
     val mascotLimbs: MascotLimbs = MascotLimbs.WHITE,
     val mascotTurns: Turns = Turns.ALL,
-    /** Long-press on the mascot switches to the next style. */
-    val mascotLongPress: Boolean = true,
+    /** What a long-press on the mascot does. */
+    val mascotHold: MascotHold = MascotHold.MENU,
+    /** A dances button next to the mascot in the player. */
+    val mascotDanceButton: Boolean = true,
     /** How many quick taps make it angry. */
     val mascotTemper: Temper = Temper.NORMAL,
     /** Where the user dragged the mascot, as a fraction of its stage (0 = centred). */
@@ -292,6 +302,7 @@ class SettingsStore(context: Context) {
             ?: ThemeMode.SYSTEM,
         motion = enumPref("motion", Motion.AUTO),
         haptics = prefs.getBoolean("haptics", true),
+        settingsWidth = enumPref("settings_width", SettingsWidth.COMFORTABLE),
         stage = prefs.getInt("stage", 0),
         playerLayout = prefs.getString("player_layout", null)
             ?.let { runCatching { PlayerLayout.valueOf(it) }.getOrNull() }
@@ -315,7 +326,11 @@ class SettingsStore(context: Context) {
         mascotTurns = prefs.getString("mascot_turns", null)
             ?.let { runCatching { Turns.valueOf(it) }.getOrNull() }
             ?: Turns.ALL,
-        mascotLongPress = prefs.getBoolean("mascot_long_press", true),
+        mascotHold = prefs.getString("mascot_hold", null)
+            ?.let { runCatching { MascotHold.valueOf(it) }.getOrNull() }
+            // before the menu it was an on/off switch for "next style"
+            ?: if (prefs.getBoolean("mascot_long_press", true)) MascotHold.MENU else MascotHold.OFF,
+        mascotDanceButton = prefs.getBoolean("mascot_dance_button", true),
         mascotTemper = prefs.getString("mascot_temper", null)
             ?.let { runCatching { Temper.valueOf(it) }.getOrNull() }
             ?: Temper.NORMAL,
@@ -417,6 +432,7 @@ class SettingsStore(context: Context) {
             .putString("theme", next.theme.name)
             .putString("motion", next.motion.name)
             .putBoolean("haptics", next.haptics)
+            .putString("settings_width", next.settingsWidth.name)
             .putInt("stage", next.stage)
             .putString("player_layout", next.playerLayout.name)
             .putBoolean("layout_everywhere", next.layoutEverywhere)
@@ -429,7 +445,8 @@ class SettingsStore(context: Context) {
             .putString("mascot_specials", next.mascotSpecials.name)
             .putString("mascot_limbs", next.mascotLimbs.name)
             .putString("mascot_turns", next.mascotTurns.name)
-            .putBoolean("mascot_long_press", next.mascotLongPress)
+            .putString("mascot_hold", next.mascotHold.name)
+            .putBoolean("mascot_dance_button", next.mascotDanceButton)
             .putString("mascot_temper", next.mascotTemper.name)
             .putFloat("mascot_x", next.mascotX)
             .putFloat("mascot_y", next.mascotY)

@@ -42,8 +42,11 @@ pub struct RoomSettings {
     pub mascot_y: f32,
     /// While floating, keep it on every screen, not only the room.
     pub mascot_everywhere: bool,
-    /// Right-click on the mascot switches to the next style.
-    pub mascot_right_click: bool,
+    /// Right-click on the mascot: `menu` (its dances, wave, next style),
+    /// `style` (the next style) or `off`.
+    pub mascot_hold: String,
+    /// A dances button next to the mascot.
+    pub mascot_dance_button: bool,
     /// Clicking it a lot makes it angry: `off`, `patient` (10 quick clicks),
     /// `normal` (6) or `short` (4).
     pub mascot_temper: String,
@@ -73,6 +76,9 @@ pub struct RoomSettings {
     /// How much the app moves: `auto` (full, or subtle when the system asks
     /// for reduced motion), `full`, `subtle` (short fades only) or `off`.
     pub motion: String,
+    /// How wide the Settings screen reads: `comfortable` (a centred column,
+    /// two columns of groups on very wide windows) or `wide` (one broader column).
+    pub settings_width: String,
 }
 
 impl Default for RoomSettings {
@@ -95,7 +101,8 @@ impl Default for RoomSettings {
             mascot_x: 0.85,
             mascot_y: 0.75,
             mascot_everywhere: false,
-            mascot_right_click: true,
+            mascot_hold: "menu".into(),
+            mascot_dance_button: true,
             mascot_temper: "normal".into(),
             album_colors: true,
             layout: "classic".into(),
@@ -107,6 +114,7 @@ impl Default for RoomSettings {
             lyrics_mascot: true,
             lyrics_offset_ms: 0,
             motion: "auto".into(),
+            settings_width: "comfortable".into(),
         }
     }
 }
@@ -481,6 +489,7 @@ mod tests {
         assert!(old.room.lyrics_mascot);
         assert_eq!(old.room.lyrics_offset_ms, 0);
         assert_eq!(old.room.motion, "auto");
+        assert_eq!(old.room.settings_width, "comfortable");
     }
 
     #[test]

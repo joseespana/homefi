@@ -163,7 +163,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     fun keepTalking() = _ui.update { it.copy(proposalAside = true, tasteProposal = null) }
 
-    /** The taste proposal's Apply: the assistant is told yes and saves it (it comes back in `taste`). */
+    /** The taste proposal's Apply: the assistant is told yes and saves it (it comes back in `tasteChange`). */
     fun applyTaste() {
         if (_ui.value.tasteProposal == null) return
         send(getApplication<Application>().getString(R.string.assistant_apply_reply))
@@ -175,6 +175,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         job = viewModelScope.launch {
             _ui.update { it.copy(typing = true, error = null, replies = emptyList()) }
             try {
+                home.sound.syncSession(s)
                 handle(call(s))
                 save(s)
             } catch (e: CancellationException) {
@@ -194,7 +195,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
             applied = proposal.outputId
         }
         // taste rules or loudness the user agreed to: saved and heard at once
-        if (turn.taste != null || turn.loudness != null) home.sound.applyAssistant(turn.taste, turn.loudness)
+        if (turn.tasteChange != null || turn.loudness != null) home.sound.applyAssistant(turn.tasteChange, turn.loudness)
         _ui.update {
             it.copy(
                 lines = if (turn.text.isBlank()) it.lines else it.lines + ChatLine(nextId++, false, turn.text),

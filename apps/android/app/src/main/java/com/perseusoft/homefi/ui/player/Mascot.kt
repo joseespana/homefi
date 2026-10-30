@@ -4,6 +4,7 @@ import com.perseusoft.homefi.ui.haptics
 import androidx.annotation.OptIn
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
@@ -13,6 +14,19 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CenterFocusStrong
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Nightlife
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.WavingHand
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -57,6 +71,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
 import com.perseusoft.homefi.R
+import com.perseusoft.homefi.data.MascotHold
 import com.perseusoft.homefi.data.MascotLimbs
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.player.AudioTap
@@ -333,12 +348,13 @@ private class Tantrum {
  * The HomeFi mascot dancing to the music: its groove and costume follow the
  * genre (or the user's pick), famous dances come up now and then. Tap it to
  * make it dance (or wave while paused; too many taps and it gets angry),
- * long-press for the next style, drag to move it, pinch to resize, double-tap
- * to put it back.
+ * long-press or the [danceButton] in the corner for its dances and actions
+ * (a long-press may switch style instead, see [MascotHold]), drag to move it,
+ * pinch to resize, double-tap to put it back.
  */
 @OptIn(UnstableApi::class)
 @Composable
-fun MascotView(modifier: Modifier = Modifier, singing: Boolean = false) {
+fun MascotView(modifier: Modifier = Modifier, singing: Boolean = false, danceButton: Boolean = true) {
     val app = LocalContext.current.homefi
     val settings by app.settings.settings.collectAsStateWithLifecycle()
     // the player around it: this phone's, or the hub's song on a guest
@@ -366,7 +382,7 @@ fun MascotView(modifier: Modifier = Modifier, singing: Boolean = false) {
     val pinned by rememberUpdatedState(settings.mascotDance)
     val turns by rememberUpdatedState(settings.mascotTurns)
     val temper by rememberUpdatedState(settings.mascotTemper)
-    val longPress by rememberUpdatedState(settings.mascotLongPress)
+    val hold by rememberUpdatedState(settings.mascotHold)
     val sing by rememberUpdatedState(singing)
     val choreo = remember { Choreographer() }
     val frame = remember { Frame() }
@@ -378,6 +394,22 @@ fun MascotView(modifier: Modifier = Modifier, singing: Boolean = false) {
     LaunchedEffect(styleTagCount) {
         delay(1400)
         styleTag = null
+    }
+    var menuOpen by remember { mutableStateOf(false) }
+
+    /** A tap: a famous dance (a wave while paused), or one tap too many and a tantrum. */
+    fun poke() {
+        if (tantrum.tap(frame.seconds, temper)) haptics.longPress()
+        else if (playing) choreo.trigger(moodNow) else choreo.greet()
+    }
+
+    /** Auto, then each style in turn, then Auto again; the new one shows for a moment. */
+    fun nextStyle() {
+        val order = listOf(null) + Mood.entries
+        val next = order[(order.indexOf(app.settings.current.mascotMood) + 1) % order.size]
+        app.settings.update { it.copy(mascotMood = next) }
+        styleTag = next?.label ?: R.string.mascot_auto
+        styleTagCount++
     }
     val tick = remember { mutableLongStateOf(0L) }
     LaunchedEffect(choreo) {
@@ -431,28 +463,35 @@ fun MascotView(modifier: Modifier = Modifier, singing: Boolean = false) {
                 .offset { IntOffset((dx * stageW).roundToInt(), (dy * stageH).roundToInt()) }
                 .requiredSize(width.dp, (width * VIEW_H / VIEW_W).dp)
                 .semantics { contentDescription = description }
+                // a touch on the mascot is for the mascot, never the stage's "next view"
                 .pointerInput(Unit) {
+                    awaitEachGesture {
+                        do {
+                            val event = awaitPointerEvent()
+                            event.changes.forEach { it.consume() }
+                        } while (event.changes.any { it.pressed })
+                    }
+                }
+                .pointerInput(Unit) {
+                    // no onDoubleTap: it would hold every tap back and swallow quick ones, and
+                    // each quick tap has to count towards a tantrum
+                    var lastTap = 0L
                     detectTapGestures(
                         onTap = {
-                            if (!tantrum.tap(frame.seconds, temper)) {
-                                if (playing) choreo.trigger(moodNow) else choreo.greet()
+                            val now = System.currentTimeMillis()
+                            if (now - lastTap < viewConfiguration.doubleTapTimeoutMillis) {
+                                dx = 0f
+                                dy = 0f
+                                zoom = 1f
                             }
+                            lastTap = now
+                            poke()
                         },
                         onLongPress = {
-                            if (longPress) {
-                                // Auto, then each style in turn, then Auto again
-                                val order = listOf(null) + Mood.entries
-                                val next = order[(order.indexOf(app.settings.current.mascotMood) + 1) % order.size]
-                                app.settings.update { it.copy(mascotMood = next) }
+                            if (hold != MascotHold.OFF) {
                                 haptics.longPress()
-                                styleTag = next?.label ?: R.string.mascot_auto
-                                styleTagCount++
+                                if (hold == MascotHold.MENU) menuOpen = true else nextStyle()
                             }
-                        },
-                        onDoubleTap = {
-                            dx = 0f
-                            dy = 0f
-                            zoom = 1f
                         },
                     )
                 }
@@ -487,6 +526,101 @@ fun MascotView(modifier: Modifier = Modifier, singing: Boolean = false) {
                     fontWeight = FontWeight.Bold,
                 )
             }
+        }
+        // the dances button in the stage's corner; the menu (also opened by a long-press) hangs from it
+        Box(Modifier.align(Alignment.BottomEnd).padding(8.dp)) {
+            if (danceButton && settings.mascotDanceButton) {
+                FilledTonalIconButton(onClick = {
+                    haptics.confirm()
+                    menuOpen = true
+                }) {
+                    Icon(Icons.Rounded.Nightlife, stringResource(R.string.mascot_dances))
+                }
+            }
+            MascotMenu(
+                expanded = menuOpen,
+                onDismiss = { menuOpen = false },
+                playing = player.isPlaying,
+                dancing = choreo.dance,
+                moved = dx != 0f || dy != 0f || zoom != 1f,
+                onDance = { id -> choreo.trigger(moodNow, id) },
+                onWave = { choreo.greet() },
+                onNextStyle = { nextStyle() },
+                onPutBack = {
+                    dx = 0f
+                    dy = 0f
+                    zoom = 1f
+                },
+            )
+        }
+    }
+}
+
+/**
+ * What a long-press on the mascot offers: a wave, the next style, putting it
+ * back where it started, then a famous dance (or a surprise one for the mood)
+ * while the music plays; the quick actions come first so small screens show them. [dancing] is the famous dance going on, if any.
+ */
+@Composable
+private fun MascotMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    playing: Boolean,
+    dancing: DanceId?,
+    moved: Boolean,
+    onDance: (DanceId?) -> Unit,
+    onWave: () -> Unit,
+    onNextStyle: () -> Unit,
+    onPutBack: () -> Unit,
+) {
+    val haptics = haptics()
+    val pick = { action: () -> Unit ->
+        onDismiss()
+        haptics.confirm()
+        action()
+    }
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.mascot_wave)) },
+            leadingIcon = { Icon(Icons.Rounded.WavingHand, null) },
+            onClick = { pick(onWave) },
+        )
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.mascot_next_style)) },
+            leadingIcon = { Icon(Icons.Rounded.Palette, null) },
+            onClick = { pick(onNextStyle) },
+        )
+        if (moved) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.mascot_put_back)) },
+                leadingIcon = { Icon(Icons.Rounded.CenterFocusStrong, null) },
+                onClick = { pick(onPutBack) },
+            )
+        }
+        HorizontalDivider()
+        if (playing) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.mascot_surprise), fontWeight = FontWeight.SemiBold) },
+                leadingIcon = { Icon(Icons.Rounded.Shuffle, null) },
+                onClick = { pick { onDance(null) } },
+            )
+            DanceId.entries.forEach { id ->
+                val on = id == dancing
+                DropdownMenuItem(
+                    text = { Text(stringResource(id.label), fontWeight = if (on) FontWeight.Bold else null) },
+                    leadingIcon = {
+                        Icon(Icons.Rounded.MusicNote, null, tint = if (on) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+                    },
+                    onClick = { pick { onDance(id) } },
+                )
+            }
+        } else {
+            Text(
+                stringResource(R.string.mascot_dances_need_music),
+                Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

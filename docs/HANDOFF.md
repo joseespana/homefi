@@ -100,7 +100,7 @@ homefi/
 ├── tools/sr35/                # utilidades MTP en C para subir el APK al SR35
 ├── docs/                      # config, plantillas, releasing, shared-control, este archivo
 ├── .claude/agents, skills     # agentes: rust-pro, kotlin-specialist, mobile-developer,
-│                              # fullstack-developer; skills: rust-pro, mobile-design, ui-ux-pro-max
+│                              # fullstack-developer; skills: rust-pro, mobile-design, homefi-design
 └── .github/workflows/         # ci.yml + release.yml
 ```
 

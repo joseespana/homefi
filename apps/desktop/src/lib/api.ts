@@ -251,7 +251,10 @@ export interface RoomSettings {
   mascot_x: number;
   mascot_y: number;
   mascot_everywhere: boolean;
-  mascot_right_click: boolean;
+  /** Right-click on the mascot: its actions menu, the next style, or nothing. */
+  mascot_hold: "menu" | "style" | "off";
+  /** A dances button next to the mascot. */
+  mascot_dance_button: boolean;
   mascot_temper: "off" | "patient" | "normal" | "short";
   album_colors: boolean;
   /** Look of the now-playing room (the same layouts as Android). */
@@ -270,9 +273,13 @@ export interface RoomSettings {
   lyrics_offset_ms: number;
   /** How much the app moves (transitions, lists cascading in); `auto` is full, or subtle when the system asks for less motion. */
   motion: Motion;
+  /** How wide Settings reads: a centred column (two columns of groups on very wide windows) or one broader column. */
+  settings_width: SettingsWidth;
 }
 
 export type Motion = "auto" | "full" | "subtle" | "off";
+
+export type SettingsWidth = "comfortable" | "wide";
 
 export type LyricsMode = "normal" | "karaoke";
 
@@ -547,9 +554,21 @@ export interface TastePreview {
   small_speaker: boolean;
 }
 
+/** How big a step the assistant and reactions take: subtle 1.5–3 dB, balanced 3–5 dB, bold 5–8 dB. */
+export type TasteIntensity = "subtle" | "balanced" | "bold";
+
 export interface TasteSettings {
   enabled: boolean;
   rules: TasteRule[];
+  intensity: TasteIntensity;
+}
+
+/** What a turn or a reaction changed in the taste rules: merge it into the current ones (upsert by id or scope, remove by id). */
+export interface TasteChange {
+  upsert: TasteRule[];
+  remove: string[];
+  /** Taste layers switched on / off, or null when untouched. */
+  enabled: boolean | null;
 }
 
 export type LoudnessMode = "off" | "track" | "album" | "auto";
@@ -599,6 +618,7 @@ export type SoundReaction = "needsBass" | "tooBoomy" | "tooBright" | "dull" | "v
 export interface ReactionResult {
   rule: TasteRule | null;
   taste: TasteSettings;
+  tasteChange: TasteChange;
   loudness: LoudnessSettings;
   /** One line for the toast. */
   message: string;
@@ -971,7 +991,7 @@ export interface AssistantTurn {
   /** The conversation is over. */
   done: boolean;
   /** Taste rules changed this turn (already saved and applied). */
-  taste?: TasteSettings | null;
+  taste_change?: TasteChange | null;
   /** Loudness changed this turn (already saved and applied). */
   loudness?: LoudnessSettings | null;
   /** A taste layer proposed this turn (not saved yet): draw its curve and band notes. */

@@ -15,7 +15,8 @@ use futures::FutureExt;
 use homefi_core::ai::{self, EqSession, SavedSession};
 
 use crate::eq::{
-    EqProfile, EqSettings, ItemRef, LoudnessSettings, NowPlayingContext, TasteRule, TasteScope, TasteSettings,
+    EqProfile, EqSettings, ItemRef, LoudnessSettings, NowPlayingContext, TasteChange, TasteRule, TasteScope,
+    TasteSettings,
 };
 use crate::{HomefiError, Result};
 
@@ -369,9 +370,15 @@ pub struct AssistantTurn {
     /// The user said yes: save `proposal` for its output and turn the EQ on.
     pub confirmed: bool,
     pub done: bool,
-    /// Taste rules changed this turn (the user agreed): save and apply them.
+    /// Deprecated and always `None`: it was a copy of every rule taken when
+    /// the conversation began, and saving it brought back deleted rules. Use
+    /// `taste_change`.
     #[uniffi(default = None)]
     pub taste: Option<TasteSettings>,
+    /// What changed in the taste rules this turn (the user agreed): merge it
+    /// into the saved settings with `taste_apply_change`, save and apply.
+    #[uniffi(default = None)]
+    pub taste_change: Option<TasteChange>,
     /// Loudness changed this turn: save and apply it.
     #[uniffi(default = None)]
     pub loudness: Option<LoudnessSettings>,
@@ -393,7 +400,8 @@ impl From<ai::AssistantTurn> for AssistantTurn {
             }),
             confirmed: t.confirmed,
             done: t.done,
-            taste: t.taste.map(Into::into),
+            taste: None,
+            taste_change: t.taste_change.map(Into::into),
             loudness: t.loudness.map(Into::into),
             taste_proposal: t.taste_proposal.map(Into::into),
         }
@@ -509,6 +517,22 @@ impl EqAssistantSession {
         self.turn(|s| s.suggest().boxed()).await
     }
 
+    /// Gives the conversation the rules, loudness and equalizer as they are
+    /// NOW. Call it before every [`reply`](Self::reply): a conversation (a
+    /// suggestion card especially) may be older than the user's last edits,
+    /// and would otherwise work from, and write back, rules deleted since.
+    /// Waits for a turn in progress.
+    pub async fn sync(&self, taste: TasteSettings, loudness: LoudnessSettings, current: Option<EqSettings>) {
+        let (inner, saved) = (self.inner.clone(), self.saved.clone());
+        let (taste, loudness, eq) = (taste.into(), loudness.into(), current.map(Into::into).unwrap_or_default());
+        let _ = crate::runtime::run(async move {
+            let mut session = inner.lock().await;
+            session.sync(taste, loudness, eq);
+            *saved.lock().unwrap_or_else(|e| e.into_inner()) = Snapshot::of(&session);
+        })
+        .await;
+    }
+
     pub async fn reply(&self, text: String) -> Result<AssistantTurn> {
         self.turn(move |s| async move { s.reply(&text).await }.boxed()).await
     }
@@ -570,11 +594,18 @@ pub struct ReactionContext {
     pub scope_hint: Option<TasteScope>,
 }
 
-/// What a reaction changed: save `taste` and `loudness` and apply them.
+/// What a reaction changed: merge `taste_change` into the saved rules
+/// (`taste_apply_change`), save `loudness`, and apply them.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct ReactionResult {
     pub rule: Option<TasteRule>,
+    /// Every rule as they were when the reaction began, with the change in
+    /// (kept for old callers: prefer `taste_change`, which cannot bring back
+    /// a rule deleted meanwhile).
     pub taste: TasteSettings,
+    /// The rule it made or edited, with the layers switched on.
+    #[uniffi(default = None)]
+    pub taste_change: Option<TasteChange>,
     pub loudness: LoudnessSettings,
     /// One line for a toast, in the user's language.
     pub message: String,
@@ -583,11 +614,17 @@ pub struct ReactionResult {
     pub by_ai: bool,
 }
 
-/// What a reaction replaced.
+/// What a reaction replaced, as an undo.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct SoundSnapshot {
+    /// Deprecated and always empty (it was a copy of every rule, and writing
+    /// it back dropped what the listener did since): use `taste_change`.
     pub taste: TasteSettings,
     pub loudness: LoudnessSettings,
+    /// The inverse of the reaction on the rules as they are now: merge it
+    /// with `taste_apply_change`.
+    #[uniffi(default = None)]
+    pub taste_change: Option<TasteChange>,
 }
 
 /// The "before" of the last reactions, for [`sound_undo`].
@@ -614,8 +651,9 @@ pub async fn sound_react(
         };
         let config = config.map(|c| core_config(c, api_key));
         let r = ai::react(reaction.into(), &ctx, config.as_ref()).await;
-        UNDO.push(&r.undo_token, ai::SoundSnapshot { taste: ctx.taste.clone(), loudness: ctx.loudness });
+        UNDO.push(&r.undo_token, ai::SoundSnapshot::before(&ctx, &r));
         ReactionResult {
+            taste_change: Some(r.taste_change().into()),
             rule: r.rule.map(Into::into),
             taste: r.taste.into(),
             loudness: r.loudness.into(),
@@ -627,11 +665,30 @@ pub async fn sound_react(
     .await
 }
 
-/// The taste rules and loudness from before the reaction `token` (once);
-/// `None` when unknown or already undone.
+/// How to put back what the reaction `token` changed (once); `None` when
+/// unknown or already undone. `taste_change` of the answer is the inverse
+/// of the reaction: merge it into the saved rules with `taste_apply_change`
+/// (`taste` is deprecated and empty). Prefer [`sound_undo_on`], which knows
+/// the current rules.
 #[uniffi::export]
 pub fn sound_undo(token: String) -> Option<SoundSnapshot> {
-    UNDO.undo(&token).map(|s| SoundSnapshot { taste: s.taste.into(), loudness: s.loudness.into() })
+    UNDO.undo(&token).map(|s| undo_of(&s, s.restore_change()))
+}
+
+/// [`sound_undo`] for the rules as they are now (`current`): a rule the
+/// listener deleted since the reaction does not come back.
+#[uniffi::export]
+pub fn sound_undo_on(token: String, current: TasteSettings) -> Option<SoundSnapshot> {
+    let current = homefi_core::dsp::TasteSettings::from(current);
+    UNDO.undo(&token).map(|s| undo_of(&s, s.undo_change(&current)))
+}
+
+fn undo_of(s: &ai::SoundSnapshot, change: homefi_core::dsp::TasteChange) -> SoundSnapshot {
+    SoundSnapshot {
+        taste: crate::eq::taste_default_settings(),
+        loudness: s.loudness.into(),
+        taste_change: Some(change.into()),
+    }
 }
 
 /// Chip label of a reaction (`es` or `en`).
@@ -643,6 +700,7 @@ pub fn sound_reaction_label(reaction: SoundReaction, language: String) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::eq::{TasteCreator, Tilt};
 
     #[test]
     fn providers_come_with_their_info() {
@@ -702,6 +760,25 @@ mod tests {
         assert!(tokio::time::timeout(std::time::Duration::from_millis(200), again.transcript()).await.is_ok());
     }
 
+    #[test]
+    fn intensity_and_changes_cross_the_bridge() {
+        let balanced = crate::eq::taste_intensity_limits(crate::eq::TasteIntensity::Balanced);
+        assert_eq!((balanced.main_move_min_db, balanced.main_move_max_db, balanced.bands_per_tap), (3.0, 5.0, 2));
+        let bold = crate::eq::taste_intensity_limits(crate::eq::TasteIntensity::Bold);
+        assert!(bold.main_move_min_db > balanced.main_move_max_db - 0.1 && bold.boost_db == 12.0);
+        let rule = crate::eq::taste_new_rule(
+            TasteScope::Genre { name: "Rock".into() },
+            Tilt { bass_db: 2.0, treble_db: 0.0, clarity_db: None },
+            "Rock".into(),
+            TasteCreator::Ai,
+        );
+        let change = TasteChange { upsert: vec![rule.clone()], remove: vec![], enabled: None };
+        let taste = crate::eq::taste_apply_change(crate::eq::taste_default_settings(), change);
+        assert!(taste.enabled && taste.rules.len() == 1 && taste.intensity == crate::eq::TasteIntensity::Balanced);
+        let gone = TasteChange { upsert: vec![], remove: vec![rule.id], enabled: None };
+        assert!(crate::eq::taste_apply_change(taste, gone).rules.is_empty());
+    }
+
     #[tokio::test]
     async fn reactions_without_ai_and_undo() {
         let ctx = ReactionContext {
@@ -723,8 +800,20 @@ mod tests {
         let r = sound_react(SoundReaction::NeedsBass, ctx, None, None).await;
         assert!(!r.by_ai && r.taste.enabled);
         assert_eq!(r.rule.unwrap().scope, TasteScope::Genre { name: "Rock".into() });
-        let before = sound_undo(r.undo_token.clone()).unwrap();
-        assert!(before.taste.rules.is_empty());
+        let change = r.taste_change.clone().unwrap();
+        assert_eq!((change.upsert.len(), change.enabled), (1, Some(true)));
+        // the listener makes another rule, then undoes the reaction: only the reaction goes
+        let other = crate::eq::taste_new_rule(
+            TasteScope::Genre { name: "Jazz".into() },
+            Tilt { bass_db: 1.0, treble_db: 0.0, clarity_db: None },
+            "Jazz".into(),
+            TasteCreator::Manual,
+        );
+        let now = crate::eq::taste_upsert(crate::eq::taste_apply_change(r.taste.clone(), change.clone()), other);
+        let undo = sound_undo_on(r.undo_token.clone(), now.clone()).unwrap();
+        let back = crate::eq::taste_apply_change(now, undo.taste_change.unwrap());
+        assert_eq!(back.rules.len(), 1);
+        assert_eq!(back.rules[0].scope, TasteScope::Genre { name: "Jazz".into() });
         assert!(sound_undo(r.undo_token).is_none());
         assert_eq!(sound_reaction_label(SoundReaction::Dull, "es-MX".into()), "Apagado");
     }

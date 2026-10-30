@@ -25,9 +25,9 @@ pub use crossfade::{lenient_crossfade, CrossfadeMode, CrossfadeSettings, FadeCur
 pub use equalizer::{glide_frames, EqDesign, Equalizer};
 pub use loudness::{lenient_loudness, read_replay_gain, LoudnessMode, LoudnessSettings, ReplayGain};
 pub use taste::{
-    clamp_taste_curve, curve_summary, lenient_taste, resolve_taste, split_genres, ItemRef, NowPlayingContext,
-    SourceContext, TasteBand, TasteCreator, TasteRule, TasteScope, TasteSettings, MAX_TASTE_BANDS, MAX_TASTE_BAND_DB,
-    MAX_TASTE_BOOST_DB, MAX_TILT_DB,
+    clamp_taste_curve, clamp_taste_to, curve_summary, lenient_taste, resolve_taste, split_genres, ItemRef,
+    NowPlayingContext, SourceContext, TasteBand, TasteChange, TasteCreator, TasteIntensity, TasteLimits, TasteRule,
+    TasteScope, TasteSettings, MAX_TASTE_BANDS, MAX_TASTE_BAND_DB, MAX_TASTE_BOOST_DB, MAX_TILT_DB,
 };
 
 /// Bands a profile can hold (AutoEq profiles use exactly 10).
@@ -267,6 +267,11 @@ impl Tilt {
     /// `true` when it changes nothing.
     pub fn is_neutral(&self) -> bool {
         !audible(self.bass_db) && !audible(self.treble_db) && !self.clarity_db.is_some_and(audible)
+    }
+
+    /// Every value times `k` (a fixed step made stronger or lighter).
+    pub fn scaled(self, k: f32) -> Self {
+        Self { bass_db: self.bass_db * k, treble_db: self.treble_db * k, clarity_db: self.clarity_db.map(|c| c * k) }
     }
 
     /// Both tilts added up.

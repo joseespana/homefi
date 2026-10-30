@@ -97,6 +97,21 @@
     else moves.greet();
   }
 
+  /** Starts a famous dance now: `id`, or a surprise one for the mood. */
+  export function danceNow(id?: DanceId) {
+    moves.trigger(mood, id);
+  }
+
+  /** Waves hello for a couple of seconds. */
+  export function wave() {
+    moves.greet();
+  }
+
+  /** The famous dance going on, if any. */
+  export function dancing(): DanceId | null {
+    return current;
+  }
+
   // where the limbs join the body (see dance.ts for the angles)
   const SHOULDER = { l: [268, 730], r: [756, 730] } as const;
   const HIP = { l: [420, 800], r: [604, 780] } as const;

@@ -9,7 +9,10 @@ use serde::{Deserialize, Serialize};
 
 use super::eq_assistant::{finish_profile_for, AssistantContext, AssistantTurn, AudioOutput, EqProposal, OutputKind};
 use crate::dsp::autoeq::{AutoEq, HeadphoneEntry};
-use crate::dsp::{safe_tilt, EqProfile, EqSource, TasteCreator, TasteRule, TasteScope, Tilt};
+use crate::dsp::{
+    safe_tilt, EqProfile, EqSettings, EqSource, LoudnessSettings, TasteChange, TasteCreator, TasteRule, TasteScope,
+    TasteSettings, Tilt,
+};
 use crate::error::Result;
 
 /// Headphones offered after a search.
@@ -135,6 +138,18 @@ impl GuidedEq {
         &self.state
     }
 
+    /// See [`AssistantContext::sync`].
+    pub fn sync(&mut self, taste: TasteSettings, loudness: LoudnessSettings, eq: EqSettings) {
+        self.state.context.sync(taste, loudness, eq);
+    }
+
+    /// A fixed step of the wizard at the listener's intensity (Subtle ×0.6,
+    /// Balanced ×1, Bold ×1.5), within what that intensity allows.
+    fn at_intensity(&self, step: Tilt) -> Tilt {
+        let intensity = self.state.context.taste.intensity;
+        step.scaled(intensity.scale()).clamped(intensity.limits().tilt_db)
+    }
+
     fn es(&self) -> bool {
         self.state.context.spanish()
     }
@@ -210,22 +225,14 @@ impl GuidedEq {
             }
             GuidedStep::Taste => match pick_choice(&TASTES, text) {
                 Some(c) => {
-                    self.state.tilt = c.tilt;
+                    self.state.tilt = self.at_intensity(c.tilt);
                     self.ask_place()
                 }
                 None => self.ask_taste(Some(self.say("Pick one of these:", "Elige una de estas:"))),
             },
             GuidedStep::Place => match pick_choice(&PLACES, text) {
                 Some(c) => {
-                    let t = self.state.tilt;
-                    self.state.tilt = Tilt {
-                        bass_db: t.bass_db + c.tilt.bass_db,
-                        treble_db: t.treble_db + c.tilt.treble_db,
-                        clarity_db: match (t.clarity_db, c.tilt.clarity_db) {
-                            (None, None) => None,
-                            (a, b) => Some(a.unwrap_or(0.0) + b.unwrap_or(0.0)),
-                        },
-                    };
+                    self.state.tilt = self.state.tilt.plus(self.at_intensity(c.tilt));
                     self.propose()
                 }
                 None => self.ask_place(),
@@ -256,15 +263,13 @@ impl GuidedEq {
                 match self.state.offer.take().filter(|_| is_yes(text)) {
                     Some(rule) => {
                         let label = rule.label.clone();
-                        let mut taste = self.state.context.taste.clone();
-                        taste.upsert(rule);
-                        self.state.context.taste = taste.clone();
+                        let stored = self.state.context.taste.upsert(rule);
                         AssistantTurn {
                             text: self.say(
                                 &format!("Done: “{label}”. You'll find it in Taste rules, to change or remove it."),
                                 &format!("Listo: «{label}». Está en Reglas de gusto, para cambiarla o quitarla."),
                             ),
-                            taste: Some(taste),
+                            taste_change: Some(TasteChange::upserting(stored)),
                             done: true,
                             ..Default::default()
                         }
@@ -307,7 +312,7 @@ impl GuidedEq {
         }
         let es = self.es();
         let (tilt, en_what, es_what) = genre_tilt(&genre);
-        let tilt = safe_tilt(tilt, self.state.context.on_small_speaker());
+        let tilt = safe_tilt(self.at_intensity(tilt), self.state.context.on_small_speaker());
         let label = super::reactions::describe(&scope, tilt, es);
         let what = if es { es_what } else { en_what };
         self.state.offer = Some(TasteRule::new(scope, tilt, label, TasteCreator::Guided));
@@ -643,8 +648,10 @@ mod tests {
         assert!(t.confirmed && !t.done && t.text.contains("Reggaeton"), "{}", t.text);
         assert_eq!(t.quick_replies, ["Yes, try it", "No, thanks"]);
         let t = g.reply("Yes, try it").await.unwrap();
-        let taste = t.taste.unwrap();
+        let change = t.taste_change.unwrap();
+        let mut taste = g.state().context.taste.clone();
         assert!(taste.enabled && t.done && !t.confirmed);
+        taste.apply(&change);
         let r = &taste.rules[0];
         assert_eq!(r.created_by, TasteCreator::Guided);
         assert!(r.tilt.bass_db > 0.0 && r.tilt.bass_db <= crate::dsp::SMALL_SPEAKER_MAX_BASS_DB);

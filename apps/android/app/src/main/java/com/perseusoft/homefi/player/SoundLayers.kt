@@ -19,6 +19,7 @@ import com.perseusoft.homefi.core.SoundReaction
 import com.perseusoft.homefi.core.SourceContext
 import com.perseusoft.homefi.core.TasteBand
 import com.perseusoft.homefi.core.TasteCreator
+import com.perseusoft.homefi.core.TasteIntensity
 import com.perseusoft.homefi.core.TasteRule
 import com.perseusoft.homefi.core.TasteScope
 import com.perseusoft.homefi.core.TasteSettings
@@ -29,7 +30,9 @@ import com.perseusoft.homefi.core.readReplayGain
 import com.perseusoft.homefi.core.readTrackInfo
 import com.perseusoft.homefi.core.resolveTaste
 import com.perseusoft.homefi.core.soundReact
-import com.perseusoft.homefi.core.soundUndo
+import com.perseusoft.homefi.core.soundUndoOn
+import com.perseusoft.homefi.core.TasteChange
+import com.perseusoft.homefi.core.tasteApplyChange
 import com.perseusoft.homefi.core.tasteCurveSummary
 import com.perseusoft.homefi.core.tasteNewRule
 import com.perseusoft.homefi.core.tasteRemove
@@ -361,7 +364,7 @@ class SoundLayers(
                     ready?.key,
                 )
                 if (r.undoToken.isNotEmpty()) {
-                    store.setTaste(r.taste)
+                    r.tasteChange?.let(::applyTasteChange)
                     store.setLoudness(r.loudness)
                 }
                 _howOpen.value = false
@@ -377,9 +380,9 @@ class SoundLayers(
     }
 
     fun undo(token: String) {
-        val before = runCatching { soundUndo(token) }.getOrNull()
+        val before = runCatching { soundUndoOn(token, taste.value) }.getOrNull()
         if (before != null) {
-            store.setTaste(before.taste)
+            before.tasteChange?.let(::applyTasteChange)
             store.setLoudness(before.loudness)
         }
         _notices.tryEmit(SoundNotice(app.getString(if (before != null) R.string.sound_undone else R.string.sound_already_undone)))
@@ -390,6 +393,8 @@ class SoundLayers(
         (outputs.current.value?.kind ?: eqIdKind(equalizer.outputId.value)).forAssistant()
 
     // ---------------------------------------------------------------- rules
+
+    fun setIntensity(intensity: TasteIntensity) = store.setTaste(taste.value.copy(intensity = intensity))
 
     fun setEnabled(on: Boolean) = store.setTaste(taste.value.copy(enabled = on))
 
@@ -470,9 +475,25 @@ class SoundLayers(
     fun takeHandoff(): AssistantHandoff? = handoff.also { handoff = null }
 
     /** A taste change the assistant agreed with the user: saved and heard at once. */
-    fun applyAssistant(taste: TasteSettings?, loudness: LoudnessSettings?) {
-        taste?.let(store::setTaste)
+    fun applyAssistant(change: TasteChange?, loudness: LoudnessSettings?) {
+        change?.let(::applyTasteChange)
         loudness?.let(store::setLoudness)
+    }
+
+    /**
+     * Merges a change from the core (assistant, reaction, undo) into the rules as they are
+     * NOW, so a rule deleted meanwhile never comes back.
+     */
+    private fun applyTasteChange(change: TasteChange) {
+        store.setTaste(tasteApplyChange(taste.value, change))
+    }
+
+    /**
+     * Tells a conversation (a suggestion card's lives all app run) the rules, loudness and
+     * equalizer as they are now; call before every reply.
+     */
+    suspend fun syncSession(session: EqAssistantSession) {
+        session.sync(taste.value, loudness.value, store.eq.value)
     }
 
     /** Loads the suggestion card once per app run (one AI call at most). */

@@ -376,15 +376,23 @@ pub fn clamp_taste_curve(bands: &[TasteBand], tilt: Tilt, small_speaker: bool) -
     {
         out.push(TasteBand::new(EqBandKind::HighPass, SMALL_SPEAKER_HIGHPASS_HZ, 0.0, 0.707));
     }
-    // the summed boost: scale every boost down until the peak fits
+    if scale_boosts_down(&mut out, &mut tilt, MAX_TASTE_BOOST_DB) {
+        notes.push(format!("boosts scaled down: the whole taste curve stays within +{MAX_TASTE_BOOST_DB:.0} dB"));
+    }
+    (out, tilt, notes)
+}
+
+/// Scales every boost of `bands` and `tilt` down until the curve boosts at
+/// most `max_boost_db` anywhere; `true` when it had to.
+fn scale_boosts_down(bands: &mut [TasteBand], tilt: &mut Tilt, max_boost_db: f32) -> bool {
     let mut scaled = false;
     for _ in 0..6 {
-        let peak = taste_peak_db(&out, tilt);
-        if peak <= MAX_TASTE_BOOST_DB + 0.05 {
+        let peak = taste_peak_db(bands, *tilt, max_boost_db);
+        if peak <= max_boost_db + 0.05 {
             break;
         }
-        let k = (MAX_TASTE_BOOST_DB - 0.05) / peak;
-        for b in out.iter_mut().filter(|b| b.band.kind.has_gain() && b.band.gain_db > 0.0) {
+        let k = (max_boost_db - 0.05) / peak;
+        for b in bands.iter_mut().filter(|b| b.band.kind.has_gain() && b.band.gain_db > 0.0) {
             b.band.gain_db = (b.band.gain_db * k * 10.0).floor() / 10.0;
         }
         for v in [&mut tilt.bass_db, &mut tilt.treble_db] {
@@ -397,20 +405,17 @@ pub fn clamp_taste_curve(bands: &[TasteBand], tilt: Tilt, small_speaker: bool) -
         }
         scaled = true;
     }
-    if scaled {
-        notes.push(format!("boosts scaled down: the whole taste curve stays within +{MAX_TASTE_BOOST_DB:.0} dB"));
-    }
-    (out, tilt, notes)
+    scaled
 }
 
 /// Largest boost (dB) of a taste curve: its bands and tilt shelves summed.
-fn taste_peak_db(bands: &[TasteBand], tilt: Tilt) -> f32 {
+fn taste_peak_db(bands: &[TasteBand], tilt: Tilt, max_boost_db: f32) -> f32 {
     // cheap bound first (a band never lifts much past its gain): most rules stop here
     let boosts = |v: f32| v.max(0.0);
     let gains = bands.iter().filter(|b| b.band.enabled && b.band.kind.has_gain()).map(|b| boosts(b.band.gain_db));
     let bound =
         gains.sum::<f32>() + boosts(tilt.bass_db) + boosts(tilt.treble_db) + boosts(tilt.clarity_db.unwrap_or(0.0));
-    if bound * 1.25 <= MAX_TASTE_BOOST_DB {
+    if bound * 1.25 <= max_boost_db {
         return bound;
     }
     let p = super::taste_profile(bands, tilt);
@@ -509,6 +514,186 @@ pub fn new_id() -> String {
     format!("t{:x}{:x}", now.as_millis(), COUNTER.fetch_add(1, Ordering::Relaxed) & 0xfff)
 }
 
+/// How strong the sounds the assistant, the reactions and the guided wizard
+/// PROPOSE are. It only narrows what they suggest (see [`TasteIntensity::limits`]);
+/// rules the listener saves or edits keep the hard caps above.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum TasteIntensity {
+    /// Light touch: changes you notice only side by side.
+    Subtle,
+    /// A clearly audible change that is still musical.
+    #[default]
+    Balanced,
+    /// Big, unmistakable changes (up to the hard caps).
+    Bold,
+}
+
+/// Factor applied to the fixed steps of the guided wizard for [`TasteIntensity::Subtle`].
+const SUBTLE_SCALE: f32 = 0.6;
+/// ...and for [`TasteIntensity::Bold`] (the prompts say "Subtle ×0.6, Bold ×1.5").
+const BOLD_SCALE: f32 = 1.5;
+
+/// What a [`TasteIntensity`] lets a proposal do. Never beyond the hard caps
+/// ([`MAX_TASTE_BAND_DB`], [`MAX_TILT_DB`], [`MAX_TASTE_BOOST_DB`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TasteLimits {
+    /// The main move of a proposal (its biggest band), as `(smallest, largest)` dB:
+    /// what "clearly audible" means at this intensity.
+    pub main_move_db: (f32, f32),
+    /// Each proposed band stays within ± this (dB).
+    pub band_db: f32,
+    /// Each proposed tilt knob stays within ± this (dB).
+    pub tilt_db: f32,
+    /// A proposed curve never boosts more than this anywhere (dB).
+    pub boost_db: f32,
+    /// A reaction moves each value at most this much per tap (dB).
+    pub step_db: f32,
+    /// A reaction changes at most this many curve bands per tap.
+    pub bands_per_tap: usize,
+}
+
+impl TasteIntensity {
+    pub const ALL: [TasteIntensity; 3] = [Self::Subtle, Self::Balanced, Self::Bold];
+
+    pub const fn limits(self) -> TasteLimits {
+        match self {
+            Self::Subtle => TasteLimits {
+                main_move_db: (1.5, 3.0),
+                band_db: 5.0,
+                tilt_db: 4.0,
+                boost_db: 6.0,
+                step_db: 2.0,
+                bands_per_tap: 2,
+            },
+            Self::Balanced => TasteLimits {
+                main_move_db: (3.0, 5.0),
+                band_db: 7.0,
+                tilt_db: 6.0,
+                boost_db: 9.0,
+                step_db: 3.0,
+                bands_per_tap: 2,
+            },
+            Self::Bold => TasteLimits {
+                main_move_db: (5.0, 8.0),
+                band_db: MAX_TASTE_BAND_DB,
+                tilt_db: MAX_TILT_DB,
+                boost_db: MAX_TASTE_BOOST_DB,
+                step_db: 4.0,
+                bands_per_tap: 3,
+            },
+        }
+    }
+
+    /// Multiplier of a Balanced step (Subtle 0.6, Balanced 1, Bold 1.5).
+    pub const fn scale(self) -> f32 {
+        match self {
+            Self::Subtle => SUBTLE_SCALE,
+            Self::Balanced => 1.0,
+            Self::Bold => BOLD_SCALE,
+        }
+    }
+
+    /// `subtle`, `balanced` or `bold` (what the prompts and the settings call it).
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Subtle => "subtle",
+            Self::Balanced => "balanced",
+            Self::Bold => "bold",
+        }
+    }
+}
+
+/// `bands` and `tilt` narrowed to what `limits` allows a proposal, plus what
+/// had to change (plain English, for the assistant to explain). Run it after
+/// [`clamp_taste_curve`]: it only ever narrows.
+pub fn clamp_taste_to(bands: &[TasteBand], tilt: Tilt, limits: &TasteLimits) -> (Vec<TasteBand>, Tilt, Vec<String>) {
+    let mut notes = Vec::new();
+    let mut out = bands.to_vec();
+    for tb in out.iter_mut().filter(|b| b.band.kind.has_gain() && b.band.gain_db.abs() > limits.band_db) {
+        let to = limits.band_db.copysign(tb.band.gain_db);
+        notes.push(format!(
+            "{}: {:+.1} dB lowered to {to:+.0} dB (each band ±{:.0} at this intensity)",
+            hz(tb.band.freq_hz),
+            tb.band.gain_db,
+            limits.band_db
+        ));
+        tb.band.gain_db = to;
+    }
+    let mut tilt_out = tilt.clamped(limits.tilt_db);
+    if tilt_out != tilt {
+        notes.push(format!("tilt knobs limited to ±{:.0} dB at this intensity", limits.tilt_db));
+    }
+    if scale_boosts_down(&mut out, &mut tilt_out, limits.boost_db) {
+        notes.push(format!("boosts scaled down: the curve stays within +{:.0} dB at this intensity", limits.boost_db));
+    }
+    (out, tilt_out, notes)
+}
+
+impl TasteRule {
+    /// Narrows the rule to `limits` (see [`clamp_taste_to`]); returns what changed.
+    pub fn clamp_to(&mut self, limits: &TasteLimits) -> Vec<String> {
+        let (bands, tilt, notes) = clamp_taste_to(&self.bands, self.tilt, limits);
+        self.bands = bands;
+        self.tilt = tilt;
+        notes
+    }
+}
+
+/// What changed in the taste rules, not what they are now: an assistant turn
+/// or a reaction reports this, and the app merges it into the settings as
+/// they are at that moment ([`TasteSettings::apply`]). A copy of the whole
+/// settings taken earlier would bring back rules the user deleted since.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TasteChange {
+    /// Rules to add, or to replace by id (else by scope).
+    pub upsert: Vec<TasteRule>,
+    /// Ids of the rules to remove.
+    pub remove: Vec<String>,
+    /// Switch every layer on or off; `None` keeps it.
+    pub enabled: Option<bool>,
+}
+
+impl TasteChange {
+    /// Adds or replaces `rule`.
+    pub fn upserting(rule: TasteRule) -> Self {
+        let mut c = Self::default();
+        c.push_upsert(rule);
+        c
+    }
+
+    /// Removes the rule `id`.
+    pub fn removing(id: impl Into<String>) -> Self {
+        let mut c = Self::default();
+        c.push_remove(id);
+        c
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.upsert.is_empty() && self.remove.is_empty() && self.enabled.is_none()
+    }
+
+    /// Records an upsert after the changes already here (a later one for the
+    /// same rule replaces the earlier; a removal of it is forgotten).
+    pub fn push_upsert(&mut self, rule: TasteRule) {
+        self.remove.retain(|id| *id != rule.id);
+        match self.upsert.iter().position(|r| r.id == rule.id || r.scope.same_as(&rule.scope)) {
+            Some(i) => self.upsert[i] = rule,
+            None => self.upsert.push(rule),
+        }
+    }
+
+    /// Records a removal after the changes already here.
+    pub fn push_remove(&mut self, id: impl Into<String>) {
+        let id = id.into();
+        self.upsert.retain(|r| r.id != id);
+        if !self.remove.contains(&id) {
+            self.remove.push(id);
+        }
+    }
+}
+
 /// Every taste rule of an app, and the switch for all of them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -517,6 +702,9 @@ pub struct TasteSettings {
     pub enabled: bool,
     #[serde(deserialize_with = "lenient_rules")]
     pub rules: Vec<TasteRule>,
+    /// How strong what the assistant, the reactions and the wizard propose is.
+    #[serde(deserialize_with = "lenient_intensity")]
+    pub intensity: TasteIntensity,
 }
 
 impl TasteSettings {
@@ -550,6 +738,20 @@ impl TasteSettings {
             }
         }
         rule
+    }
+
+    /// Merges `change` into these settings as they are now: removals, then
+    /// upserts (by id, else by scope, keeping the stored rule's id), then the switch.
+    pub fn apply(&mut self, change: &TasteChange) {
+        for id in &change.remove {
+            self.remove(id);
+        }
+        for rule in &change.upsert {
+            self.upsert(rule.clone());
+        }
+        if let Some(on) = change.enabled {
+            self.enabled = on;
+        }
     }
 
     /// Removes the rule `id`; `true` when there was one.
@@ -691,6 +893,20 @@ pub fn genre_matches(a: &str, b: &str) -> bool {
     pa.contains(&b) || pb.contains(&a)
 }
 
+/// An unknown intensity (from a newer version) reads as the default.
+fn lenient_intensity<'de, D: Deserializer<'de>>(d: D) -> Result<TasteIntensity, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Any {
+        Known(TasteIntensity),
+        Other(serde::de::IgnoredAny),
+    }
+    Ok(match Any::deserialize(d)? {
+        Any::Known(i) => i,
+        Any::Other(_) => TasteIntensity::default(),
+    })
+}
+
 fn lenient_creator<'de, D: Deserializer<'de>>(d: D) -> Result<TasteCreator, D::Error> {
     #[derive(Deserialize)]
     #[serde(untagged)]
@@ -817,6 +1033,7 @@ mod tests {
             json,
             serde_json::json!({
                 "enabled": true,
+                "intensity": "balanced",
                 "rules": [{
                     "id": "r1",
                     "scope": {"kind": "artist", "id": "7", "name": "Bach"},
@@ -843,6 +1060,89 @@ mod tests {
         }
         let w: W = serde_json::from_str(r#"{"taste":{"enabled":"yes"}}"#).unwrap();
         assert_eq!(w.taste, TasteSettings::default());
+        // an intensity from a newer version reads as the default; a known one survives
+        let s: TasteSettings = serde_json::from_str(r#"{"intensity":"extreme"}"#).unwrap();
+        assert_eq!(s.intensity, TasteIntensity::Balanced);
+        let s: TasteSettings = serde_json::from_str(r#"{"enabled":true,"intensity":"bold"}"#).unwrap();
+        assert_eq!(s.intensity, TasteIntensity::Bold);
+        // old files have none
+        let s: TasteSettings = serde_json::from_str(r#"{"enabled":true,"rules":[]}"#).unwrap();
+        assert_eq!(s.intensity, TasteIntensity::Balanced);
+    }
+
+    #[test]
+    fn apply_merges_by_scope_and_keeps_the_id() {
+        let mut s = TasteSettings::default();
+        let jazz = s.upsert(rule(TasteScope::Genre { name: "Jazz".into() }, 1.0));
+        let rock = s.upsert(rule(TasteScope::Genre { name: "Rock".into() }, 2.0));
+        // another copy of the Rock rule (new id, same scope) replaces it and keeps the stored id
+        let again = rule(TasteScope::Genre { name: "rock".into() }, 4.0);
+        assert_ne!(again.id, rock.id);
+        let mut change = TasteChange::upserting(again);
+        change.push_upsert(rule(TasteScope::Genre { name: "Pop".into() }, 3.0));
+        change.push_remove(jazz.id.clone());
+        s.apply(&change);
+        assert_eq!(s.rules.len(), 2);
+        let stored = s.rule_for(&TasteScope::Genre { name: "Rock".into() }).unwrap();
+        assert_eq!((stored.id.as_str(), stored.tilt.bass_db), (rock.id.as_str(), 4.0));
+        assert!(s.rule_for(&TasteScope::Genre { name: "Jazz".into() }).is_none());
+        // an empty change changes nothing; the first rule turns the layers on; the switch is explicit
+        let before = s.clone();
+        s.apply(&TasteChange::default());
+        assert_eq!(s, before);
+        assert!(TasteChange::default().is_empty() && !change.is_empty());
+        let mut fresh = TasteSettings::default();
+        fresh.apply(&TasteChange::upserting(rule(TasteScope::Genre { name: "Rock".into() }, 1.0)));
+        assert!(fresh.enabled);
+        fresh.apply(&TasteChange { enabled: Some(false), ..Default::default() });
+        assert!(!fresh.enabled && fresh.rules.len() == 1);
+        // recording keeps a change coherent: a later removal cancels an upsert, a later upsert cancels a removal
+        let mut c = TasteChange::upserting(rule(TasteScope::Genre { name: "Rock".into() }, 1.0));
+        let id = c.upsert[0].id.clone();
+        c.push_remove(id.clone());
+        assert!(c.upsert.is_empty() && c.remove == [id.clone()]);
+        let mut back = rule(TasteScope::Genre { name: "Rock".into() }, 2.0);
+        back.id = id;
+        c.push_upsert(back);
+        assert!(c.remove.is_empty() && c.upsert.len() == 1);
+        // JSON is camelCase and every field optional
+        let json = serde_json::to_value(TasteChange::removing("x")).unwrap();
+        assert_eq!(json, serde_json::json!({"upsert": [], "remove": ["x"], "enabled": null}));
+        assert!(serde_json::from_str::<TasteChange>("{}").unwrap().is_empty());
+    }
+
+    #[test]
+    fn intensity_limits_stay_inside_the_hard_caps_and_narrow_proposals() {
+        for i in TasteIntensity::ALL {
+            let l = i.limits();
+            assert!(l.band_db <= MAX_TASTE_BAND_DB && l.tilt_db <= MAX_TILT_DB && l.boost_db <= MAX_TASTE_BOOST_DB);
+            assert!(l.main_move_db.0 < l.main_move_db.1 && l.main_move_db.1 <= l.band_db + 1.0);
+        }
+        let ladder = TasteIntensity::ALL.map(|i| i.limits().main_move_db.0);
+        assert!(ladder.windows(2).all(|w| w[0] < w[1]), "each step is bigger: {ladder:?}");
+        assert_eq!(TasteIntensity::default(), TasteIntensity::Balanced);
+        assert_eq!(TasteIntensity::Balanced.scale(), 1.0);
+        // a wild proposal is narrowed, and says so; Bold leaves it at the hard caps
+        let wild = vec![
+            TasteBand::new(EqBandKind::LowShelf, 90.0, 9.0, 0.7),
+            TasteBand::new(EqBandKind::Peak, 3000.0, -9.0, 1.0),
+        ];
+        let tilt = Tilt { bass_db: 6.0, ..Default::default() };
+        let subtle = TasteIntensity::Subtle.limits();
+        let (bands, tilt_out, notes) = clamp_taste_to(&wild, tilt, &subtle);
+        assert_eq!(bands[1].band.gain_db, -subtle.band_db);
+        assert!(tilt_out.bass_db > 0.0 && tilt_out.bass_db <= subtle.tilt_db, "{tilt_out:?}");
+        assert!(taste_peak_db(&bands, tilt_out, subtle.boost_db) <= subtle.boost_db + 0.1, "{bands:?}");
+        assert!(notes.len() >= 2, "{notes:?}");
+        let bold = TasteIntensity::Bold.limits();
+        let (hard, hard_tilt, _) = clamp_taste_curve(&wild, tilt, false);
+        let (same, same_tilt, notes) = clamp_taste_to(&hard, hard_tilt, &bold);
+        assert_eq!((same, same_tilt), (hard, hard_tilt));
+        assert!(notes.is_empty(), "{notes:?}");
+        // a rule narrows in place
+        let mut r = rule(TasteScope::Genre { name: "Rock".into() }, 6.0).with_bands(wild);
+        assert!(!r.clamp_to(&subtle).is_empty());
+        assert!(r.tilt.bass_db <= subtle.tilt_db && r.bands[0].band.gain_db <= subtle.band_db);
     }
 
     #[test]

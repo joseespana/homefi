@@ -6,6 +6,34 @@ import androidx.compose.material.icons.rounded.GraphicEq
 import com.perseusoft.homefi.ui.theme.SkinHeading
 import com.perseusoft.homefi.ui.theme.fixedDark
 import com.perseusoft.homefi.ui.ConfirmDialog
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import com.perseusoft.homefi.data.SettingsWidth
+import com.perseusoft.homefi.ui.theme.skinOf
+import kotlinx.coroutines.delay
 import android.Manifest
 import android.content.res.Resources
 import android.os.Build
@@ -33,6 +61,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -102,6 +132,7 @@ import com.perseusoft.homefi.data.LYRICS_OFFSET_RANGE
 import com.perseusoft.homefi.data.LYRICS_OFFSET_STEP
 import com.perseusoft.homefi.data.LyricsMode
 import com.perseusoft.homefi.data.LyricsSize
+import com.perseusoft.homefi.data.MascotHold
 import com.perseusoft.homefi.data.MascotLimbs
 import com.perseusoft.homefi.ui.player.label
 import com.perseusoft.homefi.ui.player.lyricsOffsetText
@@ -142,47 +173,40 @@ private fun AudioQuality.label(): Int = when (this) {
     AudioQuality.MAX -> R.string.quality_max
 }
 
+/** The captions that group the page list, as on the desktop. */
+private enum class SettingsSection(val title: Int) {
+    APPEARANCE(R.string.settings_group_appearance),
+    SOUND(R.string.settings_group_sound),
+    CONNECTIONS(R.string.settings_group_connections),
+    APP(R.string.settings_group_app),
+}
+
 /**
  * A row on the settings home and the sub-page it opens. [keywords] are the labels inside the
- * page, so the search finds "Port" under shared control.
+ * page, so the search finds "Port" under shared control. Declaration order is the list order.
  */
-private enum class SettingsPage(val title: Int, val icon: ImageVector, val keywords: List<Int>) {
-    ACCOUNT(R.string.settings_account, Icons.Rounded.AccountCircle, listOf(
-        R.string.settings_logout, R.string.login_connect, R.string.settings_lazy_lists, R.string.settings_album_versions,
-        R.string.settings_album_group, R.string.settings_album_explicit, R.string.settings_album_spatial, R.string.settings_album_edition,
-        R.string.settings_album_keywords,
-    )),
-    DOWNLOADS(
-        R.string.settings_downloads,
-        Icons.Rounded.Download,
-        listOf(
-            R.string.settings_quality, R.string.settings_embed_cover, R.string.settings_embed_lyrics,
-            R.string.settings_videos, R.string.settings_skip_existing, R.string.settings_threads, R.string.settings_template,
-        ),
-    ),
-    STORAGE(
-        R.string.settings_storage,
-        Icons.Rounded.Folder,
-        listOf(R.string.settings_folder_change, R.string.settings_folder_default, R.string.settings_storage_grant),
-    ),
+private enum class SettingsPage(val title: Int, val icon: ImageVector, val section: SettingsSection, val keywords: List<Int>) {
     LOOK(
         R.string.settings_look,
         Icons.Rounded.Palette,
+        SettingsSection.APPEARANCE,
         listOf(
             R.string.settings_appearance, R.string.theme_light, R.string.theme_dark, R.string.settings_player,
             R.string.layout_title, R.string.layout_everywhere, R.string.immersive_shade, R.string.progress_title, R.string.progress_animated,
-            R.string.settings_motion, R.string.motion_subtle, R.string.settings_haptics,
+            R.string.settings_motion, R.string.motion_subtle, R.string.settings_haptics, R.string.settings_width,
             R.string.signal_chain, R.string.signal_style_detailed, R.string.signal_animate, R.string.signal_bitperfect, R.string.signal_resampled,
         ),
     ),
     MASCOT(
         R.string.mascot_title,
         Icons.Rounded.Face,
+        SettingsSection.APPEARANCE,
         listOf(R.string.mascot_style, R.string.mascot_dance, R.string.mascot_specials, R.string.mascot_turns, R.string.mascot_limbs),
     ),
     LYRICS(
         R.string.lyrics_title,
         Icons.Rounded.Lyrics,
+        SettingsSection.APPEARANCE,
         listOf(
             R.string.lyrics_mode, R.string.lyrics_mode_karaoke, R.string.lyrics_size, R.string.lyrics_timing,
             R.string.lyrics_auto_open, R.string.lyrics_mascot,
@@ -191,6 +215,7 @@ private enum class SettingsPage(val title: Int, val icon: ImageVector, val keywo
     SOUND(
         R.string.settings_sound,
         Icons.Rounded.GraphicEq,
+        SettingsSection.SOUND,
         listOf(
             R.string.eq_title, R.string.eq_on, R.string.eq_open, R.string.eq_assistant, R.string.eq_preamp_auto,
             R.string.eq_autoeq, R.string.eq_presets, R.string.eq_taste, R.string.eq_bass, R.string.eq_treble,
@@ -201,6 +226,7 @@ private enum class SettingsPage(val title: Int, val icon: ImageVector, val keywo
     PLAYBACK(
         R.string.settings_playback,
         Icons.Rounded.SwapHoriz,
+        SettingsSection.SOUND,
         listOf(
             R.string.crossfade_on, R.string.crossfade_keywords, R.string.crossfade_curve, R.string.crossfade_smart,
             R.string.crossfade_album_runs, R.string.crossfade_manual, R.string.crossfade_low_power,
@@ -209,6 +235,7 @@ private enum class SettingsPage(val title: Int, val icon: ImageVector, val keywo
     AI(
         R.string.settings_ai,
         AiIcon,
+        SettingsSection.SOUND,
         listOf(
             R.string.ai_provider, R.string.ai_key, R.string.ai_get_key, R.string.ai_test, R.string.ai_model,
             R.string.ai_base_url, R.string.ai_remove, R.string.eq_assistant,
@@ -217,6 +244,7 @@ private enum class SettingsPage(val title: Int, val icon: ImageVector, val keywo
     SHARING(
         R.string.sharing_settings,
         Icons.Rounded.Groups,
+        SettingsSection.CONNECTIONS,
         listOf(
             R.string.sharing_your_name, R.string.sharing_your_color, R.string.sharing_speaker_delay,
             R.string.sharing_session_name, R.string.sharing_network, R.string.sharing_group_name, R.string.sharing_group_pass, R.string.sharing_announce_lan,
@@ -227,10 +255,40 @@ private enum class SettingsPage(val title: Int, val icon: ImageVector, val keywo
             R.string.sharing_bluetooth, R.string.sharing_play_along_default, R.string.sharing_guest_opens_player,
         ),
     ),
-    ABOUT(R.string.settings_about, Icons.Rounded.Info, listOf(
-        R.string.update_title, R.string.update_check_now, R.string.update_auto, R.string.update_prereleases,
-        R.string.update_keywords, R.string.tidal_terms_title, R.string.tidal_terms,
-    )),
+    DOWNLOADS(
+        R.string.settings_downloads,
+        Icons.Rounded.Download,
+        SettingsSection.CONNECTIONS,
+        listOf(
+            R.string.settings_quality, R.string.settings_embed_cover, R.string.settings_embed_lyrics,
+            R.string.settings_videos, R.string.settings_skip_existing, R.string.settings_threads, R.string.settings_template,
+        ),
+    ),
+    STORAGE(
+        R.string.settings_storage,
+        Icons.Rounded.Folder,
+        SettingsSection.CONNECTIONS,
+        listOf(R.string.settings_folder_change, R.string.settings_folder_default, R.string.settings_storage_grant),
+    ),
+    ACCOUNT(
+        R.string.settings_account,
+        Icons.Rounded.AccountCircle,
+        SettingsSection.CONNECTIONS,
+        listOf(
+            R.string.settings_logout, R.string.login_connect, R.string.settings_lazy_lists, R.string.settings_album_versions,
+            R.string.settings_album_group, R.string.settings_album_explicit, R.string.settings_album_spatial, R.string.settings_album_edition,
+            R.string.settings_album_keywords,
+        ),
+    ),
+    ABOUT(
+        R.string.settings_about,
+        Icons.Rounded.Info,
+        SettingsSection.APP,
+        listOf(
+            R.string.update_title, R.string.update_check_now, R.string.update_auto, R.string.update_prereleases,
+            R.string.update_keywords, R.string.tidal_terms_title, R.string.tidal_terms,
+        ),
+    ),
 }
 
 /** Lower case without accents or format placeholders, so "musica" finds "música". */
@@ -248,9 +306,14 @@ private fun SettingsPage.match(res: Resources, query: String): String? {
         ?.replace(Regex("[:：]?\\s*%\\d\\$[sd].*"), "")
 }
 
+/** How long "Saved" stays next to the page title after a change. */
+private const val SAVED_VISIBLE_MS = 1200L
+
 /**
- * Settings home: one row per category with a summary of its current values; a row opens its
- * page. System back returns to the list.
+ * Settings, laid out by the width it is given. Compact (under 600 dp): the page list, then a
+ * page (system back returns). Medium and landscape: the same, with the content centred in a
+ * 640 dp column (840 dp with "Settings width: Wide"). Expanded (840 dp and up): the page list
+ * as a 280 dp pane next to the selected page.
  */
 @Composable
 fun SettingsScreen(loggedIn: Boolean, onLogin: () -> Unit, onLoggedOut: () -> Unit) {
@@ -267,76 +330,218 @@ fun SettingsScreen(loggedIn: Boolean, onLogin: () -> Unit, onLoggedOut: () -> Un
     val account = app.account.account.collectAsStateWithLifecycle().value
 
     var page by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
-    BackHandler(enabled = page != null) { page = null }
     val motion = LocalMotion.current
+    val contentWidth = if (settings.settingsWidth == SettingsWidth.WIDE) WIDE_CONTENT_WIDTH else COMFORTABLE_CONTENT_WIDTH
 
-    AnimatedContent(
-        targetState = page,
-        // a page comes in from the end, back returns from the start
-        transitionSpec = { motion.screens(forward = targetState != null) },
-        label = "settings",
-    ) { open ->
-        if (open == null) {
-            SettingsHome(
-                summary = { p ->
-                    when (p) {
-                        SettingsPage.ACCOUNT -> account
-                            ?.let { stringResource(R.string.settings_account_info, it.userId, it.countryCode) }
-                            ?: stringResource(R.string.settings_account_none_short)
-                        SettingsPage.DOWNLOADS ->
-                            stringResource(R.string.settings_downloads_summary, stringResource(settings.quality.label()), settings.threads)
-                        SettingsPage.STORAGE -> dir
-                        SettingsPage.LOOK ->
-                            "${stringResource(settings.theme.label())} · ${stringResource(settings.playerLayout.labelRes())}"
-                        SettingsPage.MASCOT ->
-                            "${stringResource(settings.mascotMood?.label ?: R.string.mascot_auto)} · " +
-                                stringResource(settings.mascotDance?.label ?: R.string.mascot_dance_auto)
-                        SettingsPage.LYRICS ->
-                            stringResource(R.string.lyrics_summary, stringResource(settings.lyricsMode.label()), stringResource(settings.lyricsSize.label()))
-                        SettingsPage.SOUND -> soundSummary()
-                        SettingsPage.PLAYBACK -> playbackSummary()
-                        SettingsPage.AI -> aiSummary(settings.ai)
-                        SettingsPage.SHARING ->
-                            "${stringResource(settings.share.network.label())} · ${app.share.sessionName(settings.share)}"
-                        SettingsPage.ABOUT -> {
-                            val update by app.updates.state.collectAsStateWithLifecycle()
-                            val newer = update.release?.version?.takeIf {
-                                update.status in setOf(UpdateStatus.AVAILABLE, UpdateStatus.DOWNLOADING, UpdateStatus.READY)
-                            }
-                            if (newer != null) stringResource(R.string.update_summary, BuildConfig.VERSION_NAME, newer)
-                            else "HomeFi ${BuildConfig.VERSION_NAME}"
+    val summary: @Composable (SettingsPage) -> String = { p ->
+        when (p) {
+            SettingsPage.ACCOUNT -> account
+                ?.let { stringResource(R.string.settings_account_info, it.userId, it.countryCode) }
+                ?: stringResource(R.string.settings_account_none_short)
+            SettingsPage.DOWNLOADS ->
+                stringResource(R.string.settings_downloads_summary, stringResource(settings.quality.label()), settings.threads)
+            SettingsPage.STORAGE -> dir
+            SettingsPage.LOOK ->
+                "${stringResource(settings.theme.label())} · ${stringResource(settings.playerLayout.labelRes())}"
+            SettingsPage.MASCOT ->
+                "${stringResource(settings.mascotMood?.label ?: R.string.mascot_auto)} · " +
+                    stringResource(settings.mascotDance?.label ?: R.string.mascot_dance_auto)
+            SettingsPage.LYRICS ->
+                stringResource(R.string.lyrics_summary, stringResource(settings.lyricsMode.label()), stringResource(settings.lyricsSize.label()))
+            SettingsPage.SOUND -> soundSummary()
+            SettingsPage.PLAYBACK -> playbackSummary()
+            SettingsPage.AI -> aiSummary(settings.ai)
+            SettingsPage.SHARING ->
+                "${stringResource(settings.share.network.label())} · ${app.share.sessionName(settings.share)}"
+            SettingsPage.ABOUT -> {
+                val update by app.updates.state.collectAsStateWithLifecycle()
+                val newer = update.release?.version?.takeIf {
+                    update.status in setOf(UpdateStatus.AVAILABLE, UpdateStatus.DOWNLOADING, UpdateStatus.READY)
+                }
+                if (newer != null) stringResource(R.string.update_summary, BuildConfig.VERSION_NAME, newer)
+                else "HomeFi ${BuildConfig.VERSION_NAME}"
+            }
+        }
+    }
+    val body: @Composable (SettingsPage) -> Unit = { p ->
+        PageBody(p, loggedIn, onLogin, onLoggedOut, shared, dir) {
+            legacyPermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        if (maxWidth >= EXPANDED_MIN_WIDTH) {
+            val open = page ?: SettingsPage.entries.first()
+            Row(Modifier.fillMaxSize()) {
+                SettingsHome(
+                    summary = summary,
+                    selected = open,
+                    onOpen = { page = it },
+                    contentWidth = NAV_PANE_WIDTH,
+                    modifier = Modifier.width(NAV_PANE_WIDTH),
+                )
+                VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                AnimatedContent(
+                    targetState = open,
+                    transitionSpec = { motion.swap() },
+                    label = "settings-pane",
+                    modifier = Modifier.weight(1f),
+                ) { p ->
+                    SettingsPageScaffold(p.title, onBack = null, contentWidth = contentWidth) { body(p) }
+                }
+            }
+        } else {
+            BackHandler(enabled = page != null) { page = null }
+            AnimatedContent(
+                targetState = page,
+                // a page comes in from the end, back returns from the start
+                transitionSpec = { motion.screens(forward = targetState != null) },
+                label = "settings",
+            ) { open ->
+                if (open == null) {
+                    SettingsHome(summary = summary, selected = null, onOpen = { page = it }, contentWidth = contentWidth)
+                } else {
+                    SettingsPageScaffold(open.title, onBack = { page = null }, contentWidth = contentWidth) { body(open) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PageBody(
+    page: SettingsPage,
+    loggedIn: Boolean,
+    onLogin: () -> Unit,
+    onLoggedOut: () -> Unit,
+    shared: Boolean,
+    dir: String,
+    onLegacyPermission: () -> Unit,
+) {
+    when (page) {
+        SettingsPage.ACCOUNT -> AccountSettings(loggedIn, onLogin, onLoggedOut)
+        SettingsPage.DOWNLOADS -> DownloadSettings()
+        SettingsPage.STORAGE -> StorageSettings(shared, dir, onLegacyPermission)
+        SettingsPage.LOOK -> {
+            AppearanceSettings()
+            PlayerSettings()
+        }
+        SettingsPage.MASCOT -> MascotSettings()
+        SettingsPage.LYRICS -> LyricsSettings()
+        SettingsPage.SOUND -> SoundSettings()
+        SettingsPage.PLAYBACK -> PlaybackSettings()
+        SettingsPage.AI -> AiSettingsSection()
+        SettingsPage.SHARING -> ShareSettingsSection()
+        SettingsPage.ABOUT -> AboutSettings()
+    }
+}
+
+/**
+ * The page list grouped under captions, with the search in a sticky header above it. While
+ * searching the list is flat and says which setting matched. [selected] marks the open page
+ * in the two-pane layout.
+ */
+@Composable
+private fun SettingsHome(
+    summary: @Composable (SettingsPage) -> String,
+    selected: SettingsPage?,
+    onOpen: (SettingsPage) -> Unit,
+    contentWidth: Dp,
+    modifier: Modifier = Modifier,
+) {
+    val res = LocalContext.current.resources
+    var query by rememberSaveable { mutableStateOf("") }
+    val searching = query.isNotBlank()
+    val matches = remember(query) {
+        SettingsPage.entries.mapNotNull { p ->
+            if (!searching) p to null else p.match(res, query)?.let { p to it }
+        }
+    }
+    val listState = rememberLazyListState()
+    val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 } }
+
+    Box(modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        ListEntrance {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.widthIn(max = contentWidth).fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 16.dp),
+            ) {
+                stickyHeader(key = "search") {
+                    Column(Modifier.background(MaterialTheme.colorScheme.surface)) {
+                        OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            placeholder = { Text(stringResource(R.string.settings_search)) },
+                            leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                            trailingIcon = {
+                                if (query.isNotEmpty()) {
+                                    IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Clear, stringResource(R.string.settings_search_clear)) }
+                                }
+                            },
+                            singleLine = true,
+                            shape = MaterialTheme.shapes.extraLarge,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                        if (scrolled) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+                if (matches.isEmpty()) {
+                    item(key = "none") {
+                        Column(
+                            Modifier.fillMaxWidth().padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(Icons.Rounded.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                stringResource(R.string.settings_search_none),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            TextButton(onClick = { query = "" }) { Text(stringResource(R.string.settings_search_clear)) }
                         }
                     }
-                },
-                onOpen = { page = it },
-            )
-        } else {
-            Column(Modifier.fillMaxSize()) {
-                PageHeader(open.title, onBack = { page = null })
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .padding(bottom = 16.dp),
-                ) {
-                    when (open) {
-                        SettingsPage.ACCOUNT -> AccountSettings(loggedIn, onLogin, onLoggedOut)
-                        SettingsPage.DOWNLOADS -> DownloadSettings()
-                        SettingsPage.STORAGE -> StorageSettings(shared, dir, onLegacyPermission = {
-                            legacyPermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                        })
-                        SettingsPage.LOOK -> {
-                            AppearanceSettings()
-                            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                            PlayerSettings()
+                }
+                var rowIndex = 0
+                SettingsSection.entries.forEach { section ->
+                    val inSection = matches.filter { it.first.section == section }
+                    if (inSection.isEmpty()) return@forEach
+                    if (!searching) {
+                        item(key = "section-${section.name}") {
+                            SkinHeading(
+                                stringResource(section.title),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)
+                                    .semantics { heading() },
+                            )
                         }
-                        SettingsPage.MASCOT -> MascotSettings()
-                        SettingsPage.LYRICS -> LyricsSettings()
-                        SettingsPage.SOUND -> SoundSettings()
-                        SettingsPage.PLAYBACK -> PlaybackSettings()
-                        SettingsPage.AI -> AiSettingsSection()
-                        SettingsPage.SHARING -> ShareSettingsSection()
-                        SettingsPage.ABOUT -> AboutSettings()
+                    }
+                    // rows cascade in, and slide together as the search filters them
+                    inSection.forEach { (p, hit) ->
+                        val i = rowIndex++
+                        item(key = p.name) {
+                            val on = p == selected
+                            ListItem(
+                                colors = ListItemDefaults.colors(
+                                    containerColor = if (on) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+                                ),
+                                leadingContent = { Icon(p.icon, null, tint = MaterialTheme.colorScheme.primary) },
+                                headlineContent = { Text(stringResource(p.title)) },
+                                // while searching, say which setting matched instead of the current values
+                                supportingContent = { Text(hit ?: summary(p), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                trailingContent = {
+                                    if (selected == null) Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null)
+                                },
+                                modifier = itemMotion(i)
+                                    .heightIn(min = 56.dp)
+                                    .selectable(selected = on, role = Role.Button) { onOpen(p) },
+                            )
+                        }
                     }
                 }
             }
@@ -344,68 +549,92 @@ fun SettingsScreen(loggedIn: Boolean, onLogin: () -> Unit, onLoggedOut: () -> Un
     }
 }
 
-/** The category list, with a search over the labels inside each page. */
+/**
+ * A page: sticky header (back button in the single-pane layouts, title, a short "Saved" after
+ * a change) over the scrolling content, centred in a column of at most [contentWidth].
+ */
 @Composable
-private fun SettingsHome(summary: @Composable (SettingsPage) -> String, onOpen: (SettingsPage) -> Unit) {
-    val res = LocalContext.current.resources
-    var query by rememberSaveable { mutableStateOf("") }
-    val matches = remember(query) {
-        SettingsPage.entries.mapNotNull { p ->
-            if (query.isBlank()) p to null else p.match(res, query)?.let { p to it }
+private fun SettingsPageScaffold(
+    title: Int,
+    onBack: (() -> Unit)?,
+    contentWidth: Dp,
+    content: @Composable () -> Unit,
+) {
+    val scroll = rememberScrollState()
+    Column(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.TopCenter) {
+            PageHeader(title, onBack, Modifier.widthIn(max = contentWidth))
         }
-    }
-
-    ListEntrance {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
-        item(key = "search") {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                placeholder = { Text(stringResource(R.string.settings_search)) },
-                leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                trailingIcon = {
-                    if (query.isNotEmpty()) {
-                        IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Clear, null) }
-                    }
-                },
-                singleLine = true,
-                shape = MaterialTheme.shapes.extraLarge,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-            )
+        if (scroll.value > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Box(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(scroll),
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            Column(Modifier.widthIn(max = contentWidth).fillMaxWidth().padding(bottom = 24.dp)) { content() }
         }
-        if (matches.isEmpty()) {
-            item(key = "none") { Box(itemMotion()) { Hint(R.string.settings_search_none) } }
-        }
-        // rows cascade in, and slide together as the search filters them
-        itemsIndexed(matches, key = { _, it -> it.first.name }) { i, (p, hit) ->
-            ListItem(
-                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
-                leadingContent = { Icon(p.icon, null, tint = MaterialTheme.colorScheme.primary) },
-                headlineContent = { Text(stringResource(p.title)) },
-                // while searching, say which setting matched instead of the current values
-                supportingContent = { Text(hit ?: summary(p), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                trailingContent = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
-                modifier = itemMotion(i).clickable { onOpen(p) },
-            )
-        }
-    }
     }
 }
 
-/** Top of a sub-page; the app bar above stays the app's own. */
+/** Top of a page; the app bar above stays the app's own. */
 @Composable
-private fun PageHeader(title: Int, onBack: () -> Unit) {
-    Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.back)) }
+private fun PageHeader(title: Int, onBack: (() -> Unit)?, modifier: Modifier = Modifier) {
+    Row(
+        modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp).heightIn(min = 48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (onBack != null) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.back)) }
+        } else {
+            Spacer(Modifier.width(16.dp))
+        }
         Text(
             stringResource(title),
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.semantics { heading() },
         )
+        Spacer(Modifier.weight(1f))
+        SavedIndicator()
+        Spacer(Modifier.width(12.dp))
+    }
+}
+
+/** "Saved" for a moment after any setting changes; read out politely, instant with motion off. */
+@Composable
+private fun SavedIndicator() {
+    val settings by LocalContext.current.homefi.settings.settings.collectAsStateWithLifecycle()
+    val motion = LocalMotion.current
+    var visible by remember { mutableStateOf(false) }
+    var first by remember { mutableStateOf(true) }
+    LaunchedEffect(settings) {
+        // the value the page opened with is not a change
+        if (first) { first = false; return@LaunchedEffect }
+        visible = true
+        delay(SAVED_VISIBLE_MS)
+        visible = false
+    }
+    AnimatedVisibility(
+        visible,
+        enter = if (motion.enabled) fadeIn() else EnterTransition.None,
+        exit = if (motion.enabled) fadeOut() else ExitTransition.None,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        ) {
+            Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(
+                stringResource(R.string.settings_saved),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -414,68 +643,81 @@ private fun AccountSettings(loggedIn: Boolean, onLogin: () -> Unit, onLoggedOut:
     val app = LocalContext.current.homefi
     val scope = rememberCoroutineScope()
     val account = app.account.account.collectAsStateWithLifecycle().value
-    Header(R.string.settings_account)
-    if (account == null) {
-        Text(stringResource(R.string.settings_account_none), modifier = Modifier.padding(horizontal = 16.dp))
-        TextButton(onClick = onLogin, modifier = Modifier.padding(horizontal = 8.dp)) {
-            Text(stringResource(R.string.login_connect))
-        }
-    } else {
-        Text(
-            stringResource(R.string.settings_account_info, account.userId, account.countryCode),
-            modifier = Modifier.padding(horizontal = 16.dp),
-        )
-        var confirming by remember { mutableStateOf(false) }
-        if (confirming) {
-            ConfirmDialog(
-                title = stringResource(R.string.settings_logout_title),
-                text = stringResource(R.string.settings_logout_text),
-                confirm = stringResource(R.string.settings_logout),
-                onConfirm = {
-                    scope.launch {
-                        app.downloads.cancelAll()
-                        app.engine.logout()
-                        app.account.signedOut()
-                        onLoggedOut()
+    SettingsGroup(title = stringResource(R.string.settings_account)) {
+        if (account == null) {
+            SettingRow(
+                label = stringResource(R.string.settings_account_none),
+                trailing = { TextButton(onClick = onLogin) { Text(stringResource(R.string.login_connect)) } },
+            )
+        } else {
+            var confirming by remember { mutableStateOf(false) }
+            if (confirming) {
+                ConfirmDialog(
+                    title = stringResource(R.string.settings_logout_title),
+                    text = stringResource(R.string.settings_logout_text),
+                    confirm = stringResource(R.string.settings_logout),
+                    onConfirm = {
+                        scope.launch {
+                            app.downloads.cancelAll()
+                            app.engine.logout()
+                            app.account.signedOut()
+                            onLoggedOut()
+                        }
+                    },
+                    onDismiss = { confirming = false },
+                )
+            }
+            SettingRow(
+                label = stringResource(R.string.settings_account_info, account.userId, account.countryCode),
+                trailing = {
+                    TextButton(onClick = { confirming = true }) {
+                        Text(stringResource(R.string.settings_logout), color = MaterialTheme.colorScheme.error)
                     }
                 },
-                onDismiss = { confirming = false },
             )
         }
-        TextButton(
-            onClick = { confirming = true },
-            modifier = Modifier.padding(horizontal = 8.dp),
-        ) { Text(stringResource(R.string.settings_logout), color = MaterialTheme.colorScheme.error) }
     }
 
     val settings by app.settings.settings.collectAsStateWithLifecycle()
-    Header(R.string.settings_tidal_lists)
-    Toggle(R.string.settings_lazy_lists, settings.lazyLists) { v -> app.settings.update { it.copy(lazyLists = v) } }
-    Hint(R.string.settings_lazy_lists_hint)
+    SettingsGroup(title = stringResource(R.string.settings_tidal_lists)) {
+        SwitchRow(
+            stringResource(R.string.settings_lazy_lists), settings.lazyLists,
+            hint = stringResource(R.string.settings_lazy_lists_hint),
+        ) { v -> app.settings.update { it.copy(lazyLists = v) } }
+    }
 
     // the same four options as the desktop's Settings → Tidal → Album versions
-    Header(R.string.settings_album_versions)
-    Toggle(R.string.settings_album_group, settings.albumVersionsGroup) { v -> app.settings.update { it.copy(albumVersionsGroup = v) } }
-    Hint(R.string.settings_album_group_hint)
-    Reveal(settings.albumVersionsGroup) {
-        Label(R.string.settings_album_explicit)
-        Row(Modifier.padding(horizontal = 16.dp)) {
-            Chip(settings.albumExplicit == AlbumExplicitPref.EXPLICIT, R.string.album_pref_explicit) { app.settings.update { it.copy(albumExplicit = AlbumExplicitPref.EXPLICIT) } }
-            Chip(settings.albumExplicit == AlbumExplicitPref.CLEAN, R.string.album_pref_clean) { app.settings.update { it.copy(albumExplicit = AlbumExplicitPref.CLEAN) } }
+    SettingsGroup(title = stringResource(R.string.settings_album_versions)) {
+        SwitchRow(
+            stringResource(R.string.settings_album_group), settings.albumVersionsGroup,
+            hint = stringResource(R.string.settings_album_group_hint),
+        ) { v -> app.settings.update { it.copy(albumVersionsGroup = v) } }
+        Reveal(settings.albumVersionsGroup) {
+            RowDivider()
+            SegmentedRow(
+                stringResource(R.string.settings_album_explicit),
+                listOf(AlbumExplicitPref.EXPLICIT, AlbumExplicitPref.CLEAN), settings.albumExplicit,
+                label = { stringResource(if (it == AlbumExplicitPref.EXPLICIT) R.string.album_pref_explicit else R.string.album_pref_clean) },
+                onSelect = { v -> app.settings.update { it.copy(albumExplicit = v) } },
+                hint = stringResource(R.string.settings_album_explicit_hint),
+            )
+            RowDivider()
+            SegmentedRow(
+                stringResource(R.string.settings_album_spatial),
+                listOf(AlbumSpatialPref.STEREO, AlbumSpatialPref.DOLBY_ATMOS), settings.albumSpatial,
+                label = { stringResource(if (it == AlbumSpatialPref.STEREO) R.string.album_pref_stereo else R.string.album_pref_atmos) },
+                onSelect = { v -> app.settings.update { it.copy(albumSpatial = v) } },
+                hint = stringResource(R.string.settings_album_spatial_hint),
+            )
+            RowDivider()
+            SegmentedRow(
+                stringResource(R.string.settings_album_edition),
+                listOf(AlbumEditionPref.ORIGINAL, AlbumEditionPref.REMASTER), settings.albumEdition,
+                label = { stringResource(if (it == AlbumEditionPref.ORIGINAL) R.string.album_pref_original else R.string.album_pref_remaster) },
+                onSelect = { v -> app.settings.update { it.copy(albumEdition = v) } },
+                hint = stringResource(R.string.settings_album_edition_hint),
+            )
         }
-        Hint(R.string.settings_album_explicit_hint)
-        Label(R.string.settings_album_spatial)
-        Row(Modifier.padding(horizontal = 16.dp)) {
-            Chip(settings.albumSpatial == AlbumSpatialPref.STEREO, R.string.album_pref_stereo) { app.settings.update { it.copy(albumSpatial = AlbumSpatialPref.STEREO) } }
-            Chip(settings.albumSpatial == AlbumSpatialPref.DOLBY_ATMOS, R.string.album_pref_atmos) { app.settings.update { it.copy(albumSpatial = AlbumSpatialPref.DOLBY_ATMOS) } }
-        }
-        Hint(R.string.settings_album_spatial_hint)
-        Label(R.string.settings_album_edition)
-        Row(Modifier.padding(horizontal = 16.dp)) {
-            Chip(settings.albumEdition == AlbumEditionPref.ORIGINAL, R.string.album_pref_original) { app.settings.update { it.copy(albumEdition = AlbumEditionPref.ORIGINAL) } }
-            Chip(settings.albumEdition == AlbumEditionPref.REMASTER, R.string.album_pref_remaster) { app.settings.update { it.copy(albumEdition = AlbumEditionPref.REMASTER) } }
-        }
-        Hint(R.string.settings_album_edition_hint)
     }
 }
 
@@ -484,52 +726,42 @@ private fun AccountSettings(loggedIn: Boolean, onLogin: () -> Unit, onLoggedOut:
 private fun DownloadSettings() {
     val app = LocalContext.current.homefi
     val settings by app.settings.settings.collectAsStateWithLifecycle()
-    Header(R.string.settings_quality)
-    Row(Modifier.padding(horizontal = 16.dp)) {
-        AudioQuality.entries.forEach { q ->
-            SelectChip(
-                selected = settings.quality == q,
-                onClick = { app.settings.update { it.copy(quality = q) } },
-                label = { Text(stringResource(q.label())) },
-                modifier = Modifier.padding(end = 8.dp),
-            )
-        }
+    SettingsGroup(title = stringResource(R.string.settings_quality)) {
+        SegmentedRow(
+            stringResource(R.string.settings_quality), AudioQuality.entries, settings.quality,
+            label = { stringResource(it.label()) },
+            onSelect = { q -> app.settings.update { it.copy(quality = q) } },
+            hint = stringResource(R.string.settings_quality_hint),
+        )
     }
-    Text(
-        stringResource(R.string.settings_quality_hint),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-    )
-
-    Toggle(R.string.settings_embed_cover, settings.embedCover) { v -> app.settings.update { it.copy(embedCover = v) } }
-    Toggle(R.string.settings_embed_lyrics, settings.embedLyrics) { v -> app.settings.update { it.copy(embedLyrics = v) } }
-    Toggle(R.string.settings_videos, settings.includeVideos) { v -> app.settings.update { it.copy(includeVideos = v) } }
-    Toggle(R.string.settings_skip_existing, settings.skipExisting) { v -> app.settings.update { it.copy(skipExisting = v) } }
-
-    ListItem(
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
-        headlineContent = { Text(stringResource(R.string.settings_threads, settings.threads)) },
-        supportingContent = {
+    SettingsGroup(title = stringResource(R.string.settings_downloads)) {
+        SwitchRow(stringResource(R.string.settings_embed_cover), settings.embedCover) { v -> app.settings.update { it.copy(embedCover = v) } }
+        RowDivider()
+        SwitchRow(stringResource(R.string.settings_embed_lyrics), settings.embedLyrics) { v -> app.settings.update { it.copy(embedLyrics = v) } }
+        RowDivider()
+        SwitchRow(stringResource(R.string.settings_videos), settings.includeVideos) { v -> app.settings.update { it.copy(includeVideos = v) } }
+        RowDivider()
+        SwitchRow(stringResource(R.string.settings_skip_existing), settings.skipExisting) { v -> app.settings.update { it.copy(skipExisting = v) } }
+        RowDivider()
+        StackedSetting(stringResource(R.string.settings_threads, settings.threads)) {
             Slider(
                 value = settings.threads.toFloat(),
                 onValueChange = { v -> app.settings.update { it.copy(threads = v.toInt()) } },
                 valueRange = 1f..6f,
                 steps = 4,
             )
-        },
-    )
-
-    OutlinedTextField(
-        value = settings.template,
-        onValueChange = { v -> app.settings.update { it.copy(template = v) } },
-        label = { Text(stringResource(R.string.settings_template)) },
-        placeholder = { Text("{album.artist}/{album.title}/{item.number:02d}. {item.title}") },
-        singleLine = true,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-    )
+        }
+        RowDivider()
+        StackedSetting(stringResource(R.string.settings_template)) {
+            OutlinedTextField(
+                value = settings.template,
+                onValueChange = { v -> app.settings.update { it.copy(template = v) } },
+                placeholder = { Text("{album.artist}/{album.title}/{item.number:02d}. {item.title}") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
 }
 
 /** Where downloads go (and the library is read from), and the "All files access" grant. */
@@ -552,43 +784,42 @@ private fun StorageSettings(shared: Boolean, dir: String, onLegacyPermission: ()
         )
     }
 
-    Header(R.string.settings_storage)
-    Text(dir, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp))
-    if (settings.downloadDir.isNotBlank() && settings.downloadDir != dir) {
-        Text(
-            stringResource(R.string.settings_folder_fallback, settings.downloadDir),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.error,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-        )
-    }
-    Row(Modifier.padding(horizontal = 8.dp)) {
-        TextButton(onClick = { picking = true }) { Text(stringResource(R.string.settings_folder_change)) }
-        if (settings.downloadDir.isNotBlank()) {
-            TextButton(onClick = {
-                app.settings.update { it.copy(downloadDir = "") }
-                app.library.refresh()
-            }) { Text(stringResource(R.string.settings_folder_default)) }
+    SettingsGroup(title = stringResource(R.string.settings_storage)) {
+        if (settings.downloadDir.isNotBlank() && settings.downloadDir != dir) {
+            SettingsNote(stringResource(R.string.settings_folder_fallback, settings.downloadDir), error = true)
+            RowDivider()
         }
-    }
-    if (!shared) {
-        Text(
-            stringResource(R.string.settings_storage_hint),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        )
-        OutlinedButton(
-            onClick = {
-                val intent = Storage.accessSettingsIntent(context)
-                if (intent != null) {
-                    context.startActivity(intent)
-                } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-                    onLegacyPermission()
+        ActionRow(
+            label = dir,
+            onClick = { picking = true },
+            trailing = {
+                Row {
+                    TextButton(onClick = { picking = true }) { Text(stringResource(R.string.settings_folder_change)) }
+                    if (settings.downloadDir.isNotBlank()) {
+                        TextButton(onClick = {
+                            app.settings.update { it.copy(downloadDir = "") }
+                            app.library.refresh()
+                        }) { Text(stringResource(R.string.settings_folder_default)) }
+                    }
                 }
             },
-            modifier = Modifier.padding(horizontal = 16.dp),
-        ) { Text(stringResource(R.string.settings_storage_grant)) }
+        )
+    }
+    if (!shared) {
+        SettingsGroup {
+            SettingsNote(stringResource(R.string.settings_storage_hint))
+            OutlinedButton(
+                onClick = {
+                    val intent = Storage.accessSettingsIntent(context)
+                    if (intent != null) {
+                        context.startActivity(intent)
+                    } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                        onLegacyPermission()
+                    }
+                },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            ) { Text(stringResource(R.string.settings_storage_grant)) }
+        }
     }
 }
 
@@ -596,43 +827,73 @@ private fun StorageSettings(shared: Boolean, dir: String, onLegacyPermission: ()
 private fun AppearanceSettings() {
     val app = LocalContext.current.homefi
     val settings by app.settings.settings.collectAsStateWithLifecycle()
-    Header(R.string.settings_appearance)
-    Row(Modifier.padding(horizontal = 16.dp)) {
-        ThemeMode.entries.forEach { mode ->
-            SelectChip(
-                selected = settings.theme == mode,
-                onClick = { app.settings.update { it.copy(theme = mode) } },
-                label = { Text(stringResource(mode.label())) },
-                modifier = Modifier.padding(end = 8.dp),
+    SettingsGroup(title = stringResource(R.string.settings_appearance)) {
+        OptionGallery(
+            options = ThemeMode.entries,
+            selected = settings.theme,
+            label = { stringResource(it.label()) },
+            onSelect = { mode -> app.settings.update { it.copy(theme = mode) } },
+        ) { mode -> ThemePreview(mode, settings.playerLayout) }
+        // a skin that is always dark (or light) wins over this choice
+        val fixed = if (settings.layoutEverywhere) settings.playerLayout.fixedDark() else null
+        if (fixed != null) {
+            SettingsNote(
+                stringResource(
+                    if (fixed) R.string.theme_fixed_dark else R.string.theme_fixed_light,
+                    stringResource(settings.playerLayout.labelRes()),
+                ),
             )
         }
-    }
-    // a skin that is always dark (or light) wins over this choice
-    val fixed = if (settings.layoutEverywhere) settings.playerLayout.fixedDark() else null
-    if (fixed != null) {
-        Text(
-            stringResource(
-                if (fixed) R.string.theme_fixed_dark else R.string.theme_fixed_light,
-                stringResource(settings.playerLayout.labelRes()),
-            ),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        RowDivider()
+        SegmentedRow(
+            stringResource(R.string.settings_motion), Motion.entries, settings.motion,
+            label = { stringResource(it.labelRes()) },
+            onSelect = { m -> app.settings.update { it.copy(motion = m) } },
+            hint = stringResource(R.string.settings_motion_hint),
+        )
+        RowDivider()
+        SwitchRow(
+            stringResource(R.string.settings_haptics), settings.haptics,
+            hint = stringResource(R.string.settings_haptics_hint),
+        ) { v -> app.settings.update { it.copy(haptics = v) } }
+        RowDivider()
+        SegmentedRow(
+            stringResource(R.string.settings_width), SettingsWidth.entries, settings.settingsWidth,
+            label = { stringResource(if (it == SettingsWidth.WIDE) R.string.settings_width_wide else R.string.settings_width_comfortable) },
+            onSelect = { w -> app.settings.update { it.copy(settingsWidth = w) } },
+            hint = stringResource(R.string.settings_width_hint),
         )
     }
-    MotionChoice(settings.motion) { m -> app.settings.update { it.copy(motion = m) } }
-    Toggle(R.string.settings_haptics, settings.haptics) { v -> app.settings.update { it.copy(haptics = v) } }
-    Hint(R.string.settings_haptics_hint)
 }
 
-/** Transitions everywhere: automatic, full, subtle or none (the desktop has the same four). */
+/** A miniature of the app in a theme, drawn with the real colours of the current skin. */
 @Composable
-private fun MotionChoice(motion: Motion, onPick: (Motion) -> Unit) {
-    Label(R.string.settings_motion)
-    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-        Motion.entries.forEach { m -> Chip(motion == m, m.labelRes()) { onPick(m) } }
+private fun ThemePreview(mode: ThemeMode, layout: PlayerLayout) {
+    val light = remember(layout) { skinOf(layout, dark = false).colors }
+    val dark = remember(layout) { skinOf(layout, dark = true).colors }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(PREVIEW_HEIGHT)
+            .clip(MaterialTheme.shapes.small),
+    ) {
+        if (mode != ThemeMode.DARK) ThemeSwatch(light, Modifier.weight(1f))
+        if (mode != ThemeMode.LIGHT) ThemeSwatch(dark, Modifier.weight(1f))
     }
-    Hint(R.string.settings_motion_hint)
+}
+
+private val PREVIEW_HEIGHT = 56.dp
+
+@Composable
+private fun ThemeSwatch(colors: ColorScheme, modifier: Modifier) {
+    Column(
+        modifier.fillMaxHeight().background(colors.background).padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(Modifier.fillMaxWidth(0.6f).height(8.dp).clip(CircleShape).background(colors.onBackground))
+        Box(Modifier.fillMaxWidth(0.9f).height(6.dp).clip(CircleShape).background(colors.primary))
+        Box(Modifier.fillMaxWidth(0.4f).height(6.dp).clip(CircleShape).background(colors.surfaceVariant))
+    }
 }
 
 private fun Motion.labelRes(): Int = when (this) {
@@ -644,32 +905,28 @@ private fun Motion.labelRes(): Int = when (this) {
 
 @Composable
 private fun AboutSettings() {
-    Text(
-        "HomeFi ${BuildConfig.VERSION_NAME} · core ${coreVersion()}",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(16.dp),
-    )
     val settings by LocalContext.current.homefi.settings.settings.collectAsStateWithLifecycle()
+    SettingsGroup {
+        SettingRow(label = "HomeFi ${BuildConfig.VERSION_NAME} · core ${coreVersion()}")
+    }
     UpdateSettingsSection()
-    Header(R.string.tidal_terms_title)
-    Text(
-        stringResource(R.string.tidal_terms),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 16.dp),
-    )
-    Text(
-        if (settings.termsAccepted && settings.tidalTermsAcceptedAt > 0) {
-            val date = java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(settings.tidalTermsAcceptedAt))
-            stringResource(R.string.tidal_terms_accepted_on, date)
-        } else {
-            stringResource(R.string.tidal_terms_not_accepted)
-        },
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-    )
+    SettingsGroup(title = stringResource(R.string.tidal_terms_title)) {
+        Text(
+            stringResource(R.string.tidal_terms),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        )
+        RowDivider()
+        SettingsNote(
+            if (settings.termsAccepted && settings.tidalTermsAcceptedAt > 0) {
+                val date = java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(settings.tidalTermsAcceptedAt))
+                stringResource(R.string.tidal_terms_accepted_on, date)
+            } else {
+                stringResource(R.string.tidal_terms_not_accepted)
+            },
+        )
+    }
 }
 
 /** Settings → About → Updates: the same options as the desktop's (installing is Android's to ask). */
@@ -678,10 +935,9 @@ private fun UpdateSettingsSection() {
     val app = LocalContext.current.homefi
     val updates = app.updates
     val settings by app.settings.settings.collectAsStateWithLifecycle()
-    Header(R.string.update_title)
     if (!updates.enabled) {
         // the SR35 build (another app's id) and debug builds
-        Hint(R.string.update_usb)
+        SettingsGroup(title = stringResource(R.string.update_title)) { SettingsNote(stringResource(R.string.update_usb)) }
         return
     }
     val ui by updates.state.collectAsStateWithLifecycle()
@@ -697,39 +953,43 @@ private fun UpdateSettingsSection() {
         UpdateStatus.ERROR -> ui.error ?: stringResource(R.string.update_failed, release?.version.orEmpty())
         UpdateStatus.IDLE -> "HomeFi ${BuildConfig.VERSION_NAME}"
     }
-    Text(line, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-    Text(
-        if (ui.lastChecked > 0) {
-            val at = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(ui.lastChecked))
-            stringResource(R.string.update_last_checked, at)
-        } else {
-            stringResource(R.string.update_never_checked)
-        },
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 16.dp),
-    )
-    Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        OutlinedButton(
-            onClick = { updates.check(manual = true) },
-            enabled = ui.status != UpdateStatus.CHECKING && ui.status != UpdateStatus.DOWNLOADING,
-        ) { Text(stringResource(R.string.update_check_now)) }
-        Spacer(Modifier.width(8.dp))
-        when (ui.status) {
-            UpdateStatus.AVAILABLE -> TextButton(onClick = updates::download) { Text(stringResource(R.string.update_update)) }
-            UpdateStatus.READY -> TextButton(onClick = updates::install) { Text(stringResource(R.string.update_install)) }
-            else -> Unit
-        }
-        if (release != null && ui.status != UpdateStatus.UP_TO_DATE) {
-            TextButton(onClick = { notes = true }) { Text(stringResource(R.string.update_whats_new)) }
-        }
+    val checked = if (ui.lastChecked > 0) {
+        val at = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(ui.lastChecked))
+        stringResource(R.string.update_last_checked, at)
+    } else {
+        stringResource(R.string.update_never_checked)
     }
-    Toggle(R.string.update_auto, settings.updateAutoCheck) { v -> app.settings.update { it.copy(updateAutoCheck = v) } }
-    Hint(R.string.update_auto_hint)
-    Toggle(R.string.update_prereleases, settings.updatePrereleases) { v -> app.settings.update { it.copy(updatePrereleases = v) } }
-    Hint(R.string.update_prereleases_hint)
-    Hint(R.string.update_install_note)
-    Hint(R.string.update_privacy)
+    SettingsGroup(title = stringResource(R.string.update_title)) {
+        SettingRow(label = line, hint = checked)
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(
+                onClick = { updates.check(manual = true) },
+                enabled = ui.status != UpdateStatus.CHECKING && ui.status != UpdateStatus.DOWNLOADING,
+            ) { Text(stringResource(R.string.update_check_now)) }
+            Spacer(Modifier.width(8.dp))
+            when (ui.status) {
+                UpdateStatus.AVAILABLE -> TextButton(onClick = updates::download) { Text(stringResource(R.string.update_update)) }
+                UpdateStatus.READY -> TextButton(onClick = updates::install) { Text(stringResource(R.string.update_install)) }
+                else -> Unit
+            }
+            if (release != null && ui.status != UpdateStatus.UP_TO_DATE) {
+                TextButton(onClick = { notes = true }) { Text(stringResource(R.string.update_whats_new)) }
+            }
+        }
+        RowDivider()
+        SwitchRow(
+            stringResource(R.string.update_auto), settings.updateAutoCheck,
+            hint = stringResource(R.string.update_auto_hint),
+        ) { v -> app.settings.update { it.copy(updateAutoCheck = v) } }
+        RowDivider()
+        SwitchRow(
+            stringResource(R.string.update_prereleases), settings.updatePrereleases,
+            hint = stringResource(R.string.update_prereleases_hint),
+        ) { v -> app.settings.update { it.copy(updatePrereleases = v) } }
+        RowDivider()
+        SettingsNote(stringResource(R.string.update_install_note))
+        SettingsNote(stringResource(R.string.update_privacy))
+    }
 }
 
 /** Layout and seek bar of the full-screen player, with live previews. */
@@ -737,79 +997,54 @@ private fun UpdateSettingsSection() {
 private fun PlayerSettings() {
     val app = LocalContext.current.homefi
     val settings by app.settings.settings.collectAsStateWithLifecycle()
-    Header(R.string.settings_player)
-    Text(
-        stringResource(R.string.layout_title),
-        style = MaterialTheme.typography.labelLarge,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-    )
-    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-        PlayerLayout.entries.forEach { l ->
-            SelectChip(
-                selected = settings.playerLayout == l,
-                onClick = { app.settings.update { it.copy(playerLayout = l) } },
-                label = { Text(stringResource(l.labelRes())) },
-                modifier = Modifier.padding(end = 8.dp),
+    SettingsGroup(title = stringResource(R.string.settings_player)) {
+        SegmentedRow(
+            stringResource(R.string.layout_title), PlayerLayout.entries, settings.playerLayout,
+            label = { stringResource(it.labelRes()) },
+            onSelect = { l -> app.settings.update { it.copy(playerLayout = l) } },
+        )
+        RowDivider()
+        SwitchRow(
+            stringResource(R.string.layout_everywhere), settings.layoutEverywhere,
+            hint = stringResource(if (settings.layoutEverywhere) R.string.layout_everywhere_hint else R.string.layout_everywhere_off_hint),
+        ) { v -> app.settings.update { it.copy(layoutEverywhere = v) } }
+        Reveal(settings.playerLayout == PlayerLayout.IMMERSIVE) {
+            RowDivider()
+            SegmentedRow(
+                stringResource(R.string.immersive_shade), ImmersiveShade.entries, settings.immersiveShade,
+                label = { stringResource(it.labelRes()) },
+                onSelect = { shade -> app.settings.update { it.copy(immersiveShade = shade) } },
+                hint = stringResource(R.string.immersive_shade_hint),
             )
         }
     }
-    Toggle(R.string.layout_everywhere, settings.layoutEverywhere) { v -> app.settings.update { it.copy(layoutEverywhere = v) } }
-    Hint(if (settings.layoutEverywhere) R.string.layout_everywhere_hint else R.string.layout_everywhere_off_hint)
-    Reveal(settings.playerLayout == PlayerLayout.IMMERSIVE) {
-        Text(
-            stringResource(R.string.immersive_shade),
-            style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
-        )
-        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-            ImmersiveShade.entries.forEach { shade ->
-                SelectChip(
-                    selected = settings.immersiveShade == shade,
-                    onClick = { app.settings.update { it.copy(immersiveShade = shade) } },
-                    label = { Text(stringResource(shade.labelRes())) },
-                    modifier = Modifier.padding(end = 8.dp),
-                )
-            }
-        }
-        Hint(R.string.immersive_shade_hint)
-    }
-    Text(
-        stringResource(R.string.progress_title),
-        style = MaterialTheme.typography.labelLarge,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
-    )
-    ProgressStyle.entries.forEach { style ->
-        val selected = settings.progressStyle == style
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable { app.settings.update { it.copy(progressStyle = style) } }
-                .padding(horizontal = 16.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            RadioButton(selected = selected, onClick = null)
-            Text(stringResource(style.labelRes()), Modifier.width(96.dp).padding(start = 8.dp))
+    SettingsGroup(title = stringResource(R.string.progress_title)) {
+        OptionGallery(
+            options = ProgressStyle.entries,
+            selected = settings.progressStyle,
+            label = { stringResource(it.labelRes()) },
+            onSelect = { style -> app.settings.update { it.copy(progressStyle = style) } },
+        ) { style ->
             ProgressTrack(
                 fraction = 0.62f,
                 style = style,
                 thickness = settings.progressThickness,
                 animate = settings.progressAnimated,
                 seed = 7,
-                modifier = Modifier.weight(1f).height(28.dp),
+                modifier = Modifier.fillMaxWidth().height(28.dp),
             )
         }
-    }
-    Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-        ProgressThickness.entries.forEach { t ->
-            SelectChip(
-                selected = settings.progressThickness == t,
-                onClick = { app.settings.update { it.copy(progressThickness = t) } },
-                label = { Text(stringResource(t.labelRes())) },
-                modifier = Modifier.padding(end = 8.dp),
-            )
+        RowDivider()
+        SegmentedRow(
+            stringResource(R.string.progress_thickness), ProgressThickness.entries, settings.progressThickness,
+            label = { stringResource(it.labelRes()) },
+            onSelect = { t -> app.settings.update { it.copy(progressThickness = t) } },
+        )
+        RowDivider()
+        SwitchRow(stringResource(R.string.progress_animated), settings.progressAnimated) { v ->
+            app.settings.update { it.copy(progressAnimated = v) }
         }
     }
-    Toggle(R.string.progress_animated, settings.progressAnimated) { v -> app.settings.update { it.copy(progressAnimated = v) } }
     SignalChainSettings()
 }
 
@@ -818,19 +1053,25 @@ private fun PlayerSettings() {
 private fun SignalChainSettings() {
     val app = LocalContext.current.homefi
     val settings by app.settings.settings.collectAsStateWithLifecycle()
-    Label(R.string.signal_chain)
-    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-        Chip(settings.signalChain && settings.signalStyle == SignalStyle.COMPACT, R.string.signal_style_compact) {
-            app.settings.update { it.copy(signalChain = true, signalStyle = SignalStyle.COMPACT) }
-        }
-        Chip(settings.signalChain && settings.signalStyle == SignalStyle.DETAILED, R.string.signal_style_detailed) {
-            app.settings.update { it.copy(signalChain = true, signalStyle = SignalStyle.DETAILED) }
-        }
-        Chip(!settings.signalChain, R.string.signal_style_off) { app.settings.update { it.copy(signalChain = false) } }
+    // three states over two settings: off, or on with a style
+    val current = when {
+        !settings.signalChain -> null
+        else -> settings.signalStyle
     }
-    Hint(if (settings.signalChain) R.string.signal_chain_hint else R.string.signal_chain_off_hint)
-    Toggle(R.string.signal_animate, settings.signalAnimate, enabled = settings.signalChain) { v ->
-        app.settings.update { it.copy(signalAnimate = v) }
+    val options = listOf(SignalStyle.COMPACT, SignalStyle.DETAILED, null)
+    SettingsGroup(title = stringResource(R.string.signal_chain)) {
+        SegmentedRow(
+            stringResource(R.string.signal_chain), options, current,
+            label = { stringResource(when (it) { SignalStyle.COMPACT -> R.string.signal_style_compact; SignalStyle.DETAILED -> R.string.signal_style_detailed; else -> R.string.signal_style_off }) },
+            onSelect = { style ->
+                app.settings.update { if (style == null) it.copy(signalChain = false) else it.copy(signalChain = true, signalStyle = style) }
+            },
+            hint = stringResource(if (settings.signalChain) R.string.signal_chain_hint else R.string.signal_chain_off_hint),
+        )
+        RowDivider()
+        SwitchRow(stringResource(R.string.signal_animate), settings.signalAnimate, enabled = settings.signalChain) { v ->
+            app.settings.update { it.copy(signalAnimate = v) }
+        }
     }
 }
 
@@ -839,63 +1080,72 @@ private fun SignalChainSettings() {
 private fun MascotSettings() {
     val app = LocalContext.current.homefi
     val settings by app.settings.settings.collectAsStateWithLifecycle()
-    Hint(R.string.mascot_hint)
-
-    Label(R.string.mascot_style)
-    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-        Chip(settings.mascotMood == null, R.string.mascot_auto) { app.settings.update { it.copy(mascotMood = null) } }
-        Mood.entries.forEach { m ->
-            Chip(settings.mascotMood == m, m.label) { app.settings.update { it.copy(mascotMood = m) } }
-        }
+    SettingsGroup(title = stringResource(R.string.settings_mascot_look), description = stringResource(R.string.mascot_hint)) {
+        SegmentedRow(
+            stringResource(R.string.mascot_style), listOf<Mood?>(null) + Mood.entries, settings.mascotMood,
+            label = { stringResource(it?.label ?: R.string.mascot_auto) },
+            onSelect = { m -> app.settings.update { it.copy(mascotMood = m) } },
+            hint = stringResource(settings.mascotMood?.genres ?: R.string.mascot_auto_hint),
+        )
+        RowDivider()
+        SegmentedRow(
+            stringResource(R.string.mascot_limbs), MascotLimbs.entries, settings.mascotLimbs,
+            label = { stringResource(it.labelRes()) },
+            onSelect = { l -> app.settings.update { it.copy(mascotLimbs = l) } },
+        )
     }
-    Hint(settings.mascotMood?.genres ?: R.string.mascot_auto_hint)
-
-    Label(R.string.mascot_dance)
-    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-        Chip(settings.mascotDance == null, R.string.mascot_dance_auto) { app.settings.update { it.copy(mascotDance = null) } }
-        DanceId.entries.forEach { d ->
-            Chip(settings.mascotDance == d, d.label) { app.settings.update { it.copy(mascotDance = d) } }
+    SettingsGroup(title = stringResource(R.string.settings_mascot_moves)) {
+        SegmentedRow(
+            stringResource(R.string.mascot_dance), listOf<DanceId?>(null) + DanceId.entries, settings.mascotDance,
+            label = { stringResource(it?.label ?: R.string.mascot_dance_auto) },
+            onSelect = { d -> app.settings.update { it.copy(mascotDance = d) } },
+            hint = stringResource(settings.mascotDance?.hint ?: R.string.mascot_dance_auto_hint),
+        )
+        // only matters while no dance is pinned
+        Reveal(settings.mascotDance == null) {
+            RowDivider()
+            SegmentedRow(
+                stringResource(R.string.mascot_specials), Specials.entries, settings.mascotSpecials,
+                label = { stringResource(it.labelRes()) },
+                onSelect = { sp -> app.settings.update { it.copy(mascotSpecials = sp) } },
+            )
         }
+        RowDivider()
+        SegmentedRow(
+            stringResource(R.string.mascot_turns), Turns.entries, settings.mascotTurns,
+            label = { stringResource(it.labelRes()) },
+            onSelect = { t -> app.settings.update { it.copy(mascotTurns = t) } },
+        )
     }
-    Hint(settings.mascotDance?.hint ?: R.string.mascot_dance_auto_hint)
-
-    // only matters while no dance is pinned
-    Reveal(settings.mascotDance == null) {
-        Label(R.string.mascot_specials)
-        Row(Modifier.padding(horizontal = 16.dp)) {
-            Specials.entries.forEach { sp ->
-                Chip(settings.mascotSpecials == sp, sp.labelRes()) { app.settings.update { it.copy(mascotSpecials = sp) } }
-            }
+    SettingsGroup(title = stringResource(R.string.mascot_temper)) {
+        ChoiceList(
+            title = stringResource(R.string.mascot_temper),
+            options = Temper.entries,
+            selected = settings.mascotTemper,
+            label = { stringResource(it.labelRes()) },
+            hint = { stringResource(it.hintRes()) },
+            onSelect = { t -> app.settings.update { it.copy(mascotTemper = t) } },
+        )
+        RowDivider()
+        ChoiceList(
+            title = stringResource(R.string.mascot_hold),
+            options = MascotHold.entries,
+            selected = settings.mascotHold,
+            label = { stringResource(it.labelRes()) },
+            hint = { stringResource(it.hintRes()) },
+            onSelect = { h -> app.settings.update { it.copy(mascotHold = h) } },
+        )
+        RowDivider()
+        SwitchRow(stringResource(R.string.mascot_dance_button), settings.mascotDanceButton) { v ->
+            app.settings.update { it.copy(mascotDanceButton = v) }
         }
-    }
-
-    Label(R.string.mascot_turns)
-    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-        Turns.entries.forEach { t ->
-            Chip(settings.mascotTurns == t, t.labelRes()) { app.settings.update { it.copy(mascotTurns = t) } }
+        Reveal(settings.mascotX != 0f || settings.mascotY != 0f || settings.mascotScale != 1f) {
+            RowDivider()
+            ActionRow(
+                stringResource(R.string.mascot_reset),
+                onClick = { app.settings.update { it.copy(mascotX = 0f, mascotY = 0f, mascotScale = 1f) } },
+            )
         }
-    }
-
-    Label(R.string.mascot_limbs)
-    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-        MascotLimbs.entries.forEach { l ->
-            Chip(settings.mascotLimbs == l, l.labelRes()) { app.settings.update { it.copy(mascotLimbs = l) } }
-        }
-    }
-
-    Label(R.string.mascot_temper)
-    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-        Temper.entries.forEach { t ->
-            Chip(settings.mascotTemper == t, t.labelRes()) { app.settings.update { it.copy(mascotTemper = t) } }
-        }
-    }
-    Hint(settings.mascotTemper.hintRes())
-    Toggle(R.string.mascot_long_press, settings.mascotLongPress) { v -> app.settings.update { it.copy(mascotLongPress = v) } }
-    Reveal(settings.mascotX != 0f || settings.mascotY != 0f || settings.mascotScale != 1f) {
-        TextButton(
-            onClick = { app.settings.update { it.copy(mascotX = 0f, mascotY = 0f, mascotScale = 1f) } },
-            modifier = Modifier.padding(horizontal = 8.dp),
-        ) { Text(stringResource(R.string.mascot_reset)) }
     }
 }
 
@@ -904,50 +1154,52 @@ private fun MascotSettings() {
 private fun LyricsSettings() {
     val app = LocalContext.current.homefi
     val settings by app.settings.settings.collectAsStateWithLifecycle()
-    Label(R.string.lyrics_mode)
-    Row(Modifier.padding(horizontal = 16.dp)) {
-        LyricsMode.entries.forEach { m ->
-            Chip(settings.lyricsMode == m, m.label()) { app.settings.update { it.copy(lyricsMode = m) } }
+    SettingsGroup(title = stringResource(R.string.lyrics_title)) {
+        SegmentedRow(
+            stringResource(R.string.lyrics_mode), LyricsMode.entries, settings.lyricsMode,
+            label = { stringResource(it.label()) },
+            onSelect = { m -> app.settings.update { it.copy(lyricsMode = m) } },
+            hint = stringResource(R.string.lyrics_mode_hint),
+        )
+        RowDivider()
+        SegmentedRow(
+            stringResource(R.string.lyrics_size), LyricsSize.entries, settings.lyricsSize,
+            label = { stringResource(it.label()) },
+            onSelect = { sz -> app.settings.update { it.copy(lyricsSize = sz) } },
+        )
+        RowDivider()
+        StackedSetting(
+            stringResource(R.string.lyrics_timing, lyricsOffsetText(settings.lyricsOffsetMs)),
+            hint = stringResource(R.string.lyrics_timing_hint),
+        ) {
+            Slider(
+                value = settings.lyricsOffsetMs.toFloat(),
+                onValueChange = { v ->
+                    val ms = ((v / LYRICS_OFFSET_STEP).roundToInt() * LYRICS_OFFSET_STEP).coerceIn(LYRICS_OFFSET_RANGE)
+                    if (ms != settings.lyricsOffsetMs) app.settings.update { it.copy(lyricsOffsetMs = ms) }
+                },
+                // snaps to LYRICS_OFFSET_STEP in onValueChange (40 tick marks would only clutter it)
+                valueRange = LYRICS_OFFSET_RANGE.first.toFloat()..LYRICS_OFFSET_RANGE.last.toFloat(),
+            )
+        }
+        Reveal(settings.lyricsOffsetMs != 0) {
+            TextButton(
+                onClick = { app.settings.update { it.copy(lyricsOffsetMs = 0) } },
+                modifier = Modifier.padding(horizontal = 8.dp),
+            ) { Text(stringResource(R.string.lyrics_timing_reset)) }
         }
     }
-    Hint(R.string.lyrics_mode_hint)
-
-    Label(R.string.lyrics_size)
-    Row(Modifier.padding(horizontal = 16.dp)) {
-        LyricsSize.entries.forEach { sz ->
-            Chip(settings.lyricsSize == sz, sz.label()) { app.settings.update { it.copy(lyricsSize = sz) } }
-        }
+    SettingsGroup {
+        SwitchRow(
+            stringResource(R.string.lyrics_auto_open), settings.lyricsAutoOpen,
+            hint = stringResource(R.string.lyrics_auto_open_hint),
+        ) { v -> app.settings.update { it.copy(lyricsAutoOpen = v) } }
+        RowDivider()
+        SwitchRow(
+            stringResource(R.string.lyrics_mascot), settings.lyricsMascot,
+            hint = stringResource(R.string.lyrics_mascot_hint),
+        ) { v -> app.settings.update { it.copy(lyricsMascot = v) } }
     }
-
-    ListItem(
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
-        headlineContent = { Text(stringResource(R.string.lyrics_timing, lyricsOffsetText(settings.lyricsOffsetMs))) },
-        supportingContent = {
-            Column {
-                Slider(
-                    value = settings.lyricsOffsetMs.toFloat(),
-                    onValueChange = { v ->
-                        val ms = ((v / LYRICS_OFFSET_STEP).roundToInt() * LYRICS_OFFSET_STEP).coerceIn(LYRICS_OFFSET_RANGE)
-                        if (ms != settings.lyricsOffsetMs) app.settings.update { it.copy(lyricsOffsetMs = ms) }
-                    },
-                    // snaps to LYRICS_OFFSET_STEP in onValueChange (40 tick marks would only clutter it)
-                    valueRange = LYRICS_OFFSET_RANGE.first.toFloat()..LYRICS_OFFSET_RANGE.last.toFloat(),
-                )
-                Text(stringResource(R.string.lyrics_timing_hint), style = MaterialTheme.typography.bodySmall)
-            }
-        },
-    )
-    Reveal(settings.lyricsOffsetMs != 0) {
-        TextButton(
-            onClick = { app.settings.update { it.copy(lyricsOffsetMs = 0) } },
-            modifier = Modifier.padding(horizontal = 8.dp),
-        ) { Text(stringResource(R.string.lyrics_timing_reset)) }
-    }
-
-    Toggle(R.string.lyrics_auto_open, settings.lyricsAutoOpen) { v -> app.settings.update { it.copy(lyricsAutoOpen = v) } }
-    Hint(R.string.lyrics_auto_open_hint)
-    Toggle(R.string.lyrics_mascot, settings.lyricsMascot) { v -> app.settings.update { it.copy(lyricsMascot = v) } }
-    Hint(R.string.lyrics_mascot_hint)
 }
 
 /**
@@ -961,181 +1213,193 @@ private fun ShareSettingsSection() {
     val s = settings.share
     fun set(transform: (ShareSettings) -> ShareSettings) = app.settings.updateShare(transform)
 
-    Hint(R.string.sharing_settings_hint)
-
     // both roles: how others see you and this phone's speaker
-    Header(R.string.sharing_you)
-    OutlinedTextField(
-        value = s.name,
-        onValueChange = { v -> set { it.copy(name = v.take(32)) } },
-        label = { Text(stringResource(R.string.sharing_your_name)) },
-        placeholder = { Text(Build.MODEL) },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-    )
-    Label(R.string.sharing_your_color)
-    ColorPicker(s.color, { c -> set { it.copy(color = c) } }, Modifier.padding(horizontal = 16.dp))
-    ListItem(
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
-        headlineContent = { Text(stringResource(R.string.sharing_speaker_delay, s.speakerDelayMs)) },
-        supportingContent = {
-            Column {
-                Slider(
-                    value = s.speakerDelayMs.toFloat(),
-                    onValueChange = { v -> set { it.copy(speakerDelayMs = (v / 10).toInt() * 10) } },
-                    valueRange = -500f..500f,
+    SettingsGroup(title = stringResource(R.string.sharing_you), description = stringResource(R.string.sharing_settings_hint)) {
+        FieldRow { m ->
+            OutlinedTextField(
+                value = s.name,
+                onValueChange = { v -> set { it.copy(name = v.take(32)) } },
+                label = { Text(stringResource(R.string.sharing_your_name)) },
+                placeholder = { Text(Build.MODEL) },
+                singleLine = true,
+                modifier = m,
+            )
+        }
+        RowDivider()
+        StackedSetting(stringResource(R.string.sharing_your_color)) {
+            ColorPicker(s.color, { c -> set { it.copy(color = c) } }, Modifier)
+        }
+        RowDivider()
+        SliderRow(
+            stringResource(R.string.sharing_speaker_delay, s.speakerDelayMs), s.speakerDelayMs.toFloat(), -500f..500f,
+            onChange = { v -> set { it.copy(speakerDelayMs = (v / 10).toInt() * 10) } },
+            hint = stringResource(R.string.sharing_speaker_delay_setting_hint),
+        )
+    }
+
+    SettingsGroup(title = stringResource(R.string.sharing_as_host)) {
+        FieldRow { m ->
+            OutlinedTextField(
+                value = s.sessionName,
+                onValueChange = { v -> set { it.copy(sessionName = v.take(40)) } },
+                label = { Text(stringResource(R.string.sharing_session_name)) },
+                placeholder = { Text(app.share.sessionName(s.copy(sessionName = ""))) },
+                singleLine = true,
+                modifier = m,
+            )
+        }
+        RowDivider()
+        SegmentedRow(
+            stringResource(R.string.sharing_network), ShareNetworkMode.entries, s.network,
+            label = { stringResource(it.label()) },
+            onSelect = { m -> set { it.copy(network = m) } },
+        )
+        WifiDirectGroup(s, ::set)
+        RowDivider()
+        SwitchRow(stringResource(R.string.sharing_party_default), s.partyDefault) { v -> set { it.copy(partyDefault = v) } }
+        RowDivider()
+        SegmentedRow(
+            stringResource(R.string.sharing_code_setting), listOf(false, true), s.fixedCode,
+            label = { stringResource(if (it) R.string.sharing_code_fixed else R.string.sharing_code_random) },
+            onSelect = { fixed -> set { it.copy(fixedCode = fixed) } },
+        )
+        Reveal(s.fixedCode) {
+            FieldRow { m ->
+                OutlinedTextField(
+                    value = s.code,
+                    onValueChange = { v -> set { it.copy(code = v.filter(Char::isDigit).take(8)) } },
+                    label = { Text(stringResource(R.string.sharing_code)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = m,
                 )
-                Text(stringResource(R.string.sharing_speaker_delay_setting_hint), style = MaterialTheme.typography.bodySmall)
             }
-        },
-    )
-
-    HorizontalDivider(Modifier.padding(vertical = 8.dp))
-    Header(R.string.sharing_as_host)
-    OutlinedTextField(
-        value = s.sessionName,
-        onValueChange = { v -> set { it.copy(sessionName = v.take(40)) } },
-        label = { Text(stringResource(R.string.sharing_session_name)) },
-        placeholder = { Text(app.share.sessionName(s.copy(sessionName = ""))) },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-    )
-
-    Label(R.string.sharing_network)
-    Row(Modifier.padding(horizontal = 16.dp)) {
-        ShareNetworkMode.entries.forEach { m -> Chip(s.network == m, m.label()) { set { it.copy(network = m) } } }
+        }
+        FieldRow { m ->
+            OutlinedTextField(
+                value = s.port.toString(),
+                onValueChange = { v -> v.filter(Char::isDigit).take(5).toIntOrNull()?.let { p -> set { it.copy(port = p.coerceIn(0, 65535)) } } },
+                label = { Text(stringResource(R.string.sharing_port)) },
+                supportingText = { Text(stringResource(R.string.sharing_port_hint)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = m,
+            )
+        }
     }
-    WifiDirectGroup(s, ::set)
-    Toggle(R.string.sharing_party_default, s.partyDefault) { v -> set { it.copy(partyDefault = v) } }
 
-    Label(R.string.sharing_code_setting)
-    Row(Modifier.padding(horizontal = 16.dp)) {
-        Chip(!s.fixedCode, R.string.sharing_code_random) { set { it.copy(fixedCode = false) } }
-        Chip(s.fixedCode, R.string.sharing_code_fixed) { set { it.copy(fixedCode = true) } }
+    SettingsGroup(title = stringResource(R.string.settings_sharing_permissions)) {
+        SegmentedRow(
+            stringResource(R.string.sharing_perm_add), ShareAddMode.entries, s.add,
+            label = { stringResource(it.labelRes()) },
+            onSelect = { m -> set { it.copy(add = m) } },
+        )
+        Reveal(s.add == ShareAddMode.LIMIT) {
+            RowDivider()
+            SliderRow(
+                stringResource(R.string.sharing_perm_max, s.maxPerGuest), s.maxPerGuest.toFloat(), 1f..10f,
+                onChange = { v -> set { it.copy(maxPerGuest = v.toInt()) } }, steps = 8,
+            )
+        }
+        RowDivider()
+        ChoiceList(
+            title = stringResource(R.string.sharing_perm_order),
+            options = ShareQueueOrder.entries,
+            selected = s.order,
+            label = { stringResource(it.labelRes()) },
+            hint = { stringResource(if (it == ShareQueueOrder.TURNS) R.string.sharing_order_turns_hint else R.string.sharing_order_first_hint) },
+            onSelect = { o -> set { it.copy(order = o) } },
+        )
+        RowDivider()
+        SegmentedRow(
+            stringResource(R.string.sharing_perm_skip), ShareSkipMode.entries, s.skip,
+            label = { stringResource(it.labelRes()) },
+            onSelect = { m -> set { it.copy(skip = m) } },
+        )
+        RowDivider()
+        SegmentedRow(
+            stringResource(R.string.sharing_perm_edit), ShareEditMode.entries, s.edit,
+            label = { stringResource(it.labelRes()) },
+            onSelect = { m -> set { it.copy(edit = m) } },
+        )
+        RowDivider()
+        SwitchRow(stringResource(R.string.sharing_perm_playback), s.playback) { v -> set { it.copy(playback = v) } }
+        RowDivider()
+        SwitchRow(stringResource(R.string.sharing_perm_explicit), s.allowExplicit) { v -> set { it.copy(allowExplicit = v) } }
+        RowDivider()
+        SwitchRow(stringResource(R.string.sharing_perm_drop), s.dropSongsOnLeave) { v -> set { it.copy(dropSongsOnLeave = v) } }
+        RowDivider()
+        SliderRow(
+            if (s.partyStartWaitSec == 0) stringResource(R.string.sharing_start_wait_off)
+            else stringResource(R.string.sharing_start_wait, s.partyStartWaitSec),
+            s.partyStartWaitSec.toFloat(), 0f..10f,
+            onChange = { v -> set { it.copy(partyStartWaitSec = v.roundToInt()) } }, steps = 9,
+            hint = stringResource(R.string.sharing_start_wait_hint),
+        )
+        RowDivider()
+        SwitchRow(
+            stringResource(R.string.sharing_send_levels), s.sendLevels,
+            hint = stringResource(R.string.sharing_send_levels_hint),
+        ) { v -> set { it.copy(sendLevels = v) } }
     }
-    Reveal(s.fixedCode) {
-        OutlinedTextField(
-            value = s.code,
-            onValueChange = { v -> set { it.copy(code = v.filter(Char::isDigit).take(8)) } },
-            label = { Text(stringResource(R.string.sharing_code)) },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+
+    SettingsGroup(title = stringResource(R.string.sharing_notices), description = stringResource(R.string.sharing_notices_hint)) {
+        SwitchRow(stringResource(R.string.sharing_notice_joined_setting), s.noticeJoined) { v -> set { it.copy(noticeJoined = v) } }
+        RowDivider()
+        SwitchRow(stringResource(R.string.sharing_notice_left_setting), s.noticeLeft) { v -> set { it.copy(noticeLeft = v) } }
+        RowDivider()
+        SwitchRow(stringResource(R.string.sharing_notice_added_setting), s.noticeAdded) { v -> set { it.copy(noticeAdded = v) } }
+        RowDivider()
+        SwitchRow(stringResource(R.string.sharing_notice_approval_setting), s.noticeApproval) { v -> set { it.copy(noticeApproval = v) } }
+        RowDivider()
+        SliderRow(
+            stringResource(R.string.sharing_notice_seconds, s.noticeSeconds), s.noticeSeconds.toFloat(), 2f..10f,
+            onChange = { v -> set { it.copy(noticeSeconds = v.toInt()) } }, steps = 7,
         )
     }
-    OutlinedTextField(
-        value = s.port.toString(),
-        onValueChange = { v -> v.filter(Char::isDigit).take(5).toIntOrNull()?.let { p -> set { it.copy(port = p.coerceIn(0, 65535)) } } },
-        label = { Text(stringResource(R.string.sharing_port)) },
-        supportingText = { Text(stringResource(R.string.sharing_port_hint)) },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-    )
 
-    Label(R.string.sharing_perm_add, top = 16.dp)
-    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-        ShareAddMode.entries.forEach { m -> Chip(s.add == m, m.labelRes()) { set { it.copy(add = m) } } }
+    SettingsGroup(title = stringResource(R.string.sharing_as_guest)) {
+        SwitchRow(stringResource(R.string.sharing_play_along_default), s.playAlong) { v -> set { it.copy(playAlong = v) } }
+        RowDivider()
+        SwitchRow(
+            stringResource(R.string.sharing_guest_opens_player), s.guestOpensPlayer,
+            hint = stringResource(R.string.sharing_guest_opens_player_hint),
+        ) { v -> set { it.copy(guestOpensPlayer = v) } }
+        RowDivider()
+        SwitchRow(
+            stringResource(R.string.sharing_sync_by_speed), s.syncBySpeed,
+            hint = stringResource(R.string.sharing_sync_by_speed_hint),
+        ) { v -> set { it.copy(syncBySpeed = v) } }
+        RowDivider()
+        SwitchRow(
+            stringResource(R.string.sharing_preload_songs), s.preloadSongs,
+            hint = stringResource(R.string.sharing_preload_songs_hint),
+        ) { v -> set { it.copy(preloadSongs = v) } }
     }
-    Reveal(s.add == ShareAddMode.LIMIT) {
-        ListItem(
-            colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
-            headlineContent = { Text(stringResource(R.string.sharing_perm_max, s.maxPerGuest)) },
-            supportingContent = {
-                Slider(
-                    value = s.maxPerGuest.toFloat(),
-                    onValueChange = { v -> set { it.copy(maxPerGuest = v.toInt()) } },
-                    valueRange = 1f..10f,
-                    steps = 8,
-                )
-            },
-        )
-    }
-    Label(R.string.sharing_perm_order)
-    Row(Modifier.padding(horizontal = 16.dp)) {
-        ShareQueueOrder.entries.forEach { o -> Chip(s.order == o, o.labelRes()) { set { it.copy(order = o) } } }
-    }
-    Hint(if (s.order == ShareQueueOrder.TURNS) R.string.sharing_order_turns_hint else R.string.sharing_order_first_hint)
-    Label(R.string.sharing_perm_skip)
-    Row(Modifier.padding(horizontal = 16.dp)) {
-        ShareSkipMode.entries.forEach { m -> Chip(s.skip == m, m.labelRes()) { set { it.copy(skip = m) } } }
-    }
-    Label(R.string.sharing_perm_edit)
-    Row(Modifier.padding(horizontal = 16.dp)) {
-        ShareEditMode.entries.forEach { m -> Chip(s.edit == m, m.labelRes()) { set { it.copy(edit = m) } } }
-    }
-    Toggle(R.string.sharing_perm_playback, s.playback) { v -> set { it.copy(playback = v) } }
-    Toggle(R.string.sharing_perm_explicit, s.allowExplicit) { v -> set { it.copy(allowExplicit = v) } }
-    Toggle(R.string.sharing_perm_drop, s.dropSongsOnLeave) { v -> set { it.copy(dropSongsOnLeave = v) } }
-
-    ListItem(
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
-        headlineContent = {
-            Text(
-                if (s.partyStartWaitSec == 0) stringResource(R.string.sharing_start_wait_off)
-                else stringResource(R.string.sharing_start_wait, s.partyStartWaitSec),
-            )
-        },
-        supportingContent = {
-            Slider(
-                value = s.partyStartWaitSec.toFloat(),
-                onValueChange = { v -> set { it.copy(partyStartWaitSec = v.roundToInt()) } },
-                valueRange = 0f..10f,
-                steps = 9,
-            )
-        },
-    )
-    Hint(R.string.sharing_start_wait_hint)
-    Toggle(R.string.sharing_send_levels, s.sendLevels) { v -> set { it.copy(sendLevels = v) } }
-    Hint(R.string.sharing_send_levels_hint)
-
-    Label(R.string.sharing_notices, top = 16.dp)
-    Hint(R.string.sharing_notices_hint)
-    Toggle(R.string.sharing_notice_joined_setting, s.noticeJoined) { v -> set { it.copy(noticeJoined = v) } }
-    Toggle(R.string.sharing_notice_left_setting, s.noticeLeft) { v -> set { it.copy(noticeLeft = v) } }
-    Toggle(R.string.sharing_notice_added_setting, s.noticeAdded) { v -> set { it.copy(noticeAdded = v) } }
-    Toggle(R.string.sharing_notice_approval_setting, s.noticeApproval) { v -> set { it.copy(noticeApproval = v) } }
-    ListItem(
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
-        headlineContent = { Text(stringResource(R.string.sharing_notice_seconds, s.noticeSeconds)) },
-        supportingContent = {
-            Slider(
-                value = s.noticeSeconds.toFloat(),
-                onValueChange = { v -> set { it.copy(noticeSeconds = v.toInt()) } },
-                valueRange = 2f..10f,
-                steps = 7,
-            )
-        },
-    )
-
-    HorizontalDivider(Modifier.padding(vertical = 8.dp))
-    Header(R.string.sharing_as_guest)
-    Toggle(R.string.sharing_play_along_default, s.playAlong) { v -> set { it.copy(playAlong = v) } }
-    Toggle(R.string.sharing_guest_opens_player, s.guestOpensPlayer) { v -> set { it.copy(guestOpensPlayer = v) } }
-    Hint(R.string.sharing_guest_opens_player_hint)
-    Toggle(R.string.sharing_sync_by_speed, s.syncBySpeed) { v -> set { it.copy(syncBySpeed = v) } }
-    Hint(R.string.sharing_sync_by_speed_hint)
-    Toggle(R.string.sharing_preload_songs, s.preloadSongs) { v -> set { it.copy(preloadSongs = v) } }
-    Hint(R.string.sharing_preload_songs_hint)
 
     // both roles: how hubs and guests find each other
-    HorizontalDivider(Modifier.padding(vertical = 8.dp))
-    Header(R.string.sharing_finding)
-    Toggle(R.string.sharing_discover, s.discover) { v -> set { it.copy(discover = v) } }
-    // only matters while looking nearby
-    Toggle(R.string.sharing_discover_everywhere, s.discoverEverywhere, enabled = s.discover) { v ->
-        set { it.copy(discoverEverywhere = v) }
+    SettingsGroup(title = stringResource(R.string.sharing_finding)) {
+        SwitchRow(stringResource(R.string.sharing_discover), s.discover) { v -> set { it.copy(discover = v) } }
+        RowDivider()
+        // only matters while looking nearby
+        SwitchRow(stringResource(R.string.sharing_discover_everywhere), s.discoverEverywhere, enabled = s.discover) { v ->
+            set { it.copy(discoverEverywhere = v) }
+        }
+        RowDivider()
+        // a hub on its own Wi-Fi Direct group; a LAN hub is already on the home Wi-Fi
+        SwitchRow(stringResource(R.string.sharing_announce_lan), s.announceLan, enabled = s.network == ShareNetworkMode.WIFI_DIRECT) { v ->
+            set { it.copy(announceLan = v) }
+        }
+        RowDivider()
+        SwitchRow(stringResource(R.string.sharing_bluetooth), s.bluetooth) { v -> set { it.copy(bluetooth = v) } }
+        RowDivider()
+        // once guests are in, a Wi-Fi Direct hub stops scanning unless asked
+        SwitchRow(
+            stringResource(R.string.sharing_visible_with_guests), s.visibleWithGuests,
+            enabled = s.network == ShareNetworkMode.WIFI_DIRECT,
+            hint = stringResource(R.string.sharing_visible_with_guests_hint),
+        ) { v -> set { it.copy(visibleWithGuests = v) } }
     }
-    // a hub on its own Wi-Fi Direct group; a LAN hub is already on the home Wi-Fi
-    Toggle(R.string.sharing_announce_lan, s.announceLan, enabled = s.network == ShareNetworkMode.WIFI_DIRECT) { v ->
-        set { it.copy(announceLan = v) }
-    }
-    Toggle(R.string.sharing_bluetooth, s.bluetooth) { v -> set { it.copy(bluetooth = v) } }
-    // once guests are in, a Wi-Fi Direct hub stops scanning unless asked
-    Toggle(R.string.sharing_visible_with_guests, s.visibleWithGuests, enabled = s.network == ShareNetworkMode.WIFI_DIRECT) { v ->
-        set { it.copy(visibleWithGuests = v) }
-    }
-    Hint(R.string.sharing_visible_with_guests_hint)
 }
 
 /** "DIRECT-" plus at least two characters, as Wi-Fi Direct wants; null while it can't be saved. */
@@ -1158,7 +1422,8 @@ private fun WifiDirectGroup(s: ShareSettings, set: ((ShareSettings) -> ShareSett
     var name by rememberSaveable { mutableStateOf(s.groupName) }
     var pass by rememberSaveable { mutableStateOf(s.groupPass) }
     val saved = groupNameToSave(name)
-    OutlinedTextField(
+    RowDivider()
+    FieldRow { m -> OutlinedTextField(
         value = name,
         onValueChange = { v ->
             name = v.take(32)
@@ -1173,10 +1438,10 @@ private fun WifiDirectGroup(s: ShareSettings, set: ((ShareSettings) -> ShareSett
             else -> null
         },
         singleLine = true,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-    )
+        modifier = m,
+    ) }
     val shortPass = pass.isNotEmpty() && pass.length < 8
-    OutlinedTextField(
+    FieldRow { m -> OutlinedTextField(
         value = pass,
         onValueChange = { v ->
             pass = v.take(63)
@@ -1187,9 +1452,9 @@ private fun WifiDirectGroup(s: ShareSettings, set: ((ShareSettings) -> ShareSett
         supportingText = if (shortPass) { { Text(stringResource(R.string.sharing_group_pass_short)) } } else null,
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-    )
-    Hint(R.string.sharing_group_hint)
+        modifier = m,
+    ) }
+    SettingsNote(stringResource(R.string.sharing_group_hint))
 }
 
 private fun ShareAddMode.labelRes(): Int = when (this) {
@@ -1283,6 +1548,18 @@ private fun Temper.hintRes(): Int = when (this) {
     Temper.SHORT -> R.string.temper_short_hint
 }
 
+private fun MascotHold.labelRes(): Int = when (this) {
+    MascotHold.MENU -> R.string.hold_menu
+    MascotHold.STYLE -> R.string.hold_style
+    MascotHold.OFF -> R.string.hold_off
+}
+
+private fun MascotHold.hintRes(): Int = when (this) {
+    MascotHold.MENU -> R.string.hold_menu_hint
+    MascotHold.STYLE -> R.string.hold_style_hint
+    MascotHold.OFF -> R.string.hold_off_hint
+}
+
 private fun MascotLimbs.labelRes(): Int = when (this) {
     MascotLimbs.WHITE -> R.string.limbs_white
     MascotLimbs.NAVY -> R.string.limbs_navy
@@ -1328,22 +1605,7 @@ internal fun Header(text: Int) {
 
 @Composable
 internal fun Toggle(text: Int, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
-    ListItem(
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
-        headlineContent = {
-            // greys out (and back) along with its switch
-            val ink by animateColorAsState(
-                if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-                LocalMotion.current.color(),
-                label = "toggle",
-            )
-            Text(stringResource(text), color = ink)
-        },
-        trailingContent = {
-            val haptics = haptics()
-            Switch(checked = checked, onCheckedChange = { v -> haptics.toggle(v); onChange(v) }, enabled = enabled)
-        },
-    )
+    SwitchRow(stringResource(text), checked, enabled = enabled, onChange = onChange)
 }
 
 private fun ImmersiveShade.labelRes() = when (this) {

@@ -7,6 +7,36 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+A bolder, more reliable AI sound assistant, Settings redesigned to fit any window or phone, and
+HomeFito takes requests: pick its dance while the music plays. Desktop and Android installs from
+1.2.0 on offer this update by themselves.
+
+### Added
+- Mascot: a dances button next to it (and a long-press on Android, a right-click on desktop) opens
+  its actions: Wave, Next style, Put it back, Surprise me and each famous dance, with the one going
+  on highlighted. Settings → Mascot: what a long-press / right-click does (its actions, the next
+  style or nothing) and the dances button on or off.
+- Sound: "Change size" for the AI assistant and the guided taste flow: Subtle, Balanced or Bold
+  moves (still within the safe limits: ±9 dB a band, +12 dB in total, gentle on small speakers).
+- Settings width (comfortable or wide), on desktop and Android.
+
+### Changed
+- The AI sound assistant thinks like a sound engineer: a frequency vocabulary, genre starting
+  points and an intensity ladder, so "more bass" is a move you can hear, and one calibration
+  question (more / less / perfect) instead of timid half-steps.
+- Settings, redesigned on both platforms: a list and its page on phones and narrow windows, an
+  icon rail, then a full side navigation, and two columns of groups on very wide screens. Every
+  skin restyles it through its own tokens. The page title turns to frosted glass only while the
+  page scrolls under it.
+- Album cards: on hover the record slides out over the next card, with grooves, a sheen and a
+  turning label (still with reduced motion).
+
+### Fixed
+- AI sound: a rule you deleted came back after the next suggestion; changes now apply one by one
+  and never rewrite the whole list.
+- Android: the mascot never got angry, because quick taps were taken in pairs as a double tap;
+  every tap counts now, and a tap on the mascot never flips the player to the next view.
+
 ## [1.3.0] - 2026-10-29
 
 Clean sound on surround and virtual 7.1 outputs like THX Spatial Audio, and a mute button in the

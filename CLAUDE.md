@@ -19,6 +19,14 @@ Rules from the owner (José):
 - Deleting moves files to the Trash, and only library files.
 - The Android APK is built and signed in CI with the `ANDROID_*` secrets; the
   release key lives outside the repo in `~/.homefi-release/`.
+- Every change follows `.claude/skills/homefi-engineering` ("siempre usar SOLID, DRY, YAGNI,
+  capas, herencias, manejo de memoria, creación de variables y lo mejor para estabilidad, diseño").
+- Agents and models: `architect` (Fable 5.1) does the analysis; `fullstack-developer`
+  (Opus 5.5) orchestrates the frontend, backend and UI agents (it writes their briefs and
+  integrates their work; the main session launches them, since subagents can't); those agents
+  (`frontend-developer`, `backend-developer`, `rust-pro`, `kotlin-specialist`, `mobile-developer`,
+  `ui-designer`) run on Sonnet 5.5.
+  HomeFi's own guides are the `homefi-*` skills; the installed generic skills are references.
 - Before saying something is done: `make check`, `pnpm check` in
   `apps/desktop`, and `./gradlew -q compileDebugKotlin -Phomefi.skipRust=true`
   in `apps/android`.

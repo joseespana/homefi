@@ -2,15 +2,17 @@
 //! into a taste rule for the music playing, with one line saying what changed
 //! and an undo.
 //!
-//! Without AI the steps are fixed and safe ([`STEP_DB`] per tap, capped at
+//! Without AI the steps are fixed and safe ([`STEP_DB`] per tap at the
+//! Balanced intensity, scaled by [`crate::dsp::TasteIntensity::scale`], capped at
 //! [`MAX_TILT_DB`]) and the rule goes to the rule shaping the music right now
 //! (else the track's main genre, artist, album or the track). A step is a
 //! tilt knob, or one well-placed band where a knob is too blunt ("too boomy"
 //! cuts 120 Hz, "too bright" softens 8 kHz and the harsh 3.5 kHz edge). With
 //! AI one short call picks the scope, the change (tilt and / or curve bands)
 //! and words the line; it is validated the same way (at most
-//! [`MAX_AI_STEP_DB`] per knob or band and [`MAX_AI_BANDS_PER_TAP`] bands per
-//! tap), and any failure falls back to the fixed steps.
+//! [`TasteLimits::step_db`] per knob or band and [`TasteLimits::bands_per_tap`]
+//! bands per tap, from the listener's intensity), and any failure falls back
+//! to the fixed steps.
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -24,18 +26,15 @@ use super::{resolve_model, AiConfig};
 use crate::dsp::taste::hz;
 use crate::dsp::{
     clamp_taste_curve, resolve_taste, safe_tilt, EqBand, EqBandKind, LoudnessMode, LoudnessSettings, NowPlayingContext,
-    TasteBand, TasteCreator, TasteRule, TasteScope, TasteSettings, Tilt, MAX_TASTE_BANDS, MAX_TILT_DB,
+    TasteBand, TasteChange, TasteCreator, TasteLimits, TasteRule, TasteScope, TasteSettings, Tilt, MAX_TASTE_BANDS,
+    MAX_TILT_DB,
 };
 use crate::error::Result;
 
 pub use crate::dsp::taste::tilt_words;
 
-/// dB changed per tap.
+/// dB changed per fixed tap at the Balanced intensity.
 pub const STEP_DB: f32 = 2.0;
-/// The AI may move each value (tilt knob or band) at most this much per reaction.
-pub const MAX_AI_STEP_DB: f32 = 3.0;
-/// Curve bands the AI may change (add, move, remove) per reaction.
-pub const MAX_AI_BANDS_PER_TAP: usize = 2;
 /// Target change (LUFS) per "too quiet" / "too loud".
 const LOUDNESS_STEP: f32 = 2.0;
 /// Undo entries kept.
@@ -171,6 +170,18 @@ pub struct ReactionResult {
     pub by_ai: bool,
 }
 
+impl ReactionResult {
+    /// What this reaction changed in the rules, to merge into the settings as
+    /// they are when it is saved (see [`TasteSettings::apply`]): the rule it
+    /// made or edited, with the layers switched on. Empty when nothing changed.
+    pub fn taste_change(&self) -> TasteChange {
+        match &self.rule {
+            Some(rule) => TasteChange { enabled: Some(true), ..TasteChange::upserting(rule.clone()) },
+            None => TasteChange::default(),
+        }
+    }
+}
+
 /// The fixed, safe reaction (no AI).
 pub fn react_guided(reaction: SoundReaction, ctx: &ReactionContext) -> ReactionResult {
     let es = ctx.es();
@@ -197,10 +208,12 @@ pub fn react_guided(reaction: SoundReaction, ctx: &ReactionContext) -> ReactionR
         return out;
     };
     let (base, base_bands) = base_curve(ctx, &scope);
-    let tilt_step = |step: Tilt| (safe_tilt(base.plus(step), ctx.small_speaker()), base_bands.clone());
+    // the listener's intensity makes every fixed step lighter or stronger
+    let k = ctx.taste.intensity.scale();
+    let tilt_step = |step: Tilt| (safe_tilt(base.plus(step.scaled(k)), ctx.small_speaker()), base_bands.clone());
     let (tilt, bands) = match guided_move(reaction, base, &base_bands) {
         Move::Tilt(step) => tilt_step(step),
-        Move::Band(spot, delta) => match band_step(&base_bands, spot, delta, es) {
+        Move::Band(spot, delta) => match band_step(&base_bands, spot, delta * k, es) {
             Some(bands) => (base, bands),
             // a full curve with nothing at that place: the knob instead
             None => tilt_step(reaction.step()),
@@ -326,10 +339,12 @@ async fn react_ai(reaction: SoundReaction, ctx: &ReactionContext, config: &AiCon
         config.model = resolve_model(&config).await?;
     }
     let es = ctx.es();
+    let limits = ctx.taste.intensity.limits();
     let guided = react_guided(reaction, ctx);
     let playing = resolve_taste(&ctx.taste, &ctx.now_playing).map(|(r, _)| r.id.clone());
     let facts = json!({
         "reaction": reaction,
+        "intensity": ctx.taste.intensity.id(),
         "nowPlaying": ctx.now_playing,
         "scopeHint": ctx.scope_hint,
         "builtInSpeaker": ctx.small_speaker(),
@@ -337,7 +352,7 @@ async fn react_ai(reaction: SoundReaction, ctx: &ReactionContext, config: &AiCon
         "playingRuleId": playing,
         "suggestedByFixedSteps": guided.rule.as_ref().map(|r| json!({ "scope": r.scope, "tilt": r.tilt, "bands": r.bands })),
     });
-    let system = reaction_system(es, &facts);
+    let system = reaction_system(es, &facts, &limits);
     let tool = Tool {
         name: "set_taste_rule".into(),
         description: "Create or update the taste rule for one scope.".into(),
@@ -362,8 +377,9 @@ async fn react_ai(reaction: SoundReaction, ctx: &ReactionContext, config: &AiCon
                 "bands": {
                     "type": "array",
                     "maxItems": MAX_TASTE_BANDS,
-                    "description": "The scope's whole curve after this tap: its current bands with at most 2 changed (added, \
-                                    moved or removed) by at most 3 dB each. Omit to keep the curve as it is.",
+                    "description": format!("The scope's whole curve after this tap: its current bands with at most {} changed \
+                                    (added, moved or removed) by at most {} dB each. Omit to keep the curve as it is.",
+                                    limits.bands_per_tap, limits.step_db),
                     "items": {
                         "type": "object",
                         "properties": {
@@ -390,7 +406,7 @@ async fn react_ai(reaction: SoundReaction, ctx: &ReactionContext, config: &AiCon
     let (base, base_bands) = base_curve(ctx, &scope);
     let wanted = args.get("tilt").map(tilt_arg).unwrap_or(base);
     // at most a few dB per tap, in range, safe for the speaker
-    let step = |from: f32, to: f32| from + (to - from).clamp(-MAX_AI_STEP_DB, MAX_AI_STEP_DB);
+    let step = |from: f32, to: f32| from + (to - from).clamp(-limits.step_db, limits.step_db);
     let tilt = Tilt {
         bass_db: step(base.bass_db, wanted.bass_db),
         treble_db: step(base.treble_db, wanted.treble_db),
@@ -401,7 +417,7 @@ async fn react_ai(reaction: SoundReaction, ctx: &ReactionContext, config: &AiCon
     };
     let tilt = safe_tilt(tilt, ctx.small_speaker());
     let bands = match args.get("bands") {
-        Some(v) => limit_band_step(&base_bands, &super::eq_assistant::bands_arg(v).0),
+        Some(v) => limit_band_step(&base_bands, &super::eq_assistant::bands_arg(v).0, &limits),
         None => base_bands.clone(),
     };
     let (bands, tilt, _) = clamp_taste_curve(&bands, tilt, ctx.small_speaker());
@@ -420,9 +436,9 @@ async fn react_ai(reaction: SoundReaction, ctx: &ReactionContext, config: &AiCon
 }
 
 /// The model's new curve, applied to `base` one tap's worth: at most
-/// [`MAX_AI_BANDS_PER_TAP`] bands change (the biggest changes), each by at
-/// most [`MAX_AI_STEP_DB`]; the rest stays as it was.
-fn limit_band_step(base: &[TasteBand], wanted: &[TasteBand]) -> Vec<TasteBand> {
+/// [`TasteLimits::bands_per_tap`] bands change (the biggest changes), each by
+/// at most [`TasteLimits::step_db`]; the rest stays as it was.
+fn limit_band_step(base: &[TasteBand], wanted: &[TasteBand], limits: &TasteLimits) -> Vec<TasteBand> {
     let gain = |b: &TasteBand| if b.band.kind.has_gain() { b.band.gain_db } else { 0.0 };
     // (base index, wanted index, size of the change)
     let mut used = vec![false; base.len()];
@@ -446,8 +462,8 @@ fn limit_band_step(base: &[TasteBand], wanted: &[TasteBand]) -> Vec<TasteBand> {
     }
     changes.retain(|c| c.2 >= 0.05);
     changes.sort_by(|a, b| b.2.total_cmp(&a.2));
-    changes.truncate(MAX_AI_BANDS_PER_TAP);
-    let step = |d: f32| d.clamp(-MAX_AI_STEP_DB, MAX_AI_STEP_DB);
+    changes.truncate(limits.bands_per_tap);
+    let step = |d: f32| d.clamp(-limits.step_db, limits.step_db);
     let mut out: Vec<Option<TasteBand>> = base.iter().cloned().map(Some).collect();
     let mut added = Vec::new();
     for (bi, wi, _) in changes {
@@ -482,22 +498,23 @@ fn limit_band_step(base: &[TasteBand], wanted: &[TasteBand]) -> Vec<TasteBand> {
 }
 
 /// Each reaction with its label in the user's language and the usual change
-/// (in-context examples align text with EQ better: arXiv 2601.09448).
+/// at the Balanced intensity (in-context examples align text with EQ better:
+/// arXiv 2601.09448).
 fn reaction_examples(es: bool) -> String {
     let rows = [
         (
             SoundReaction::NeedsBass,
-            "bassDb +2..3 (built-in speaker: the app lifts 200 Hz instead, at most +3 in total); first undo a cut band \
-             around 100-150 Hz if the curve has one",
+            "bassDb +3, or lowShelf 90 Hz +3 dB Q 0.7 (built-in speaker: the app lifts 200 Hz instead, at most +3 in \
+             total); first undo a cut band around 100-150 Hz if the curve has one",
         ),
-        (SoundReaction::TooBoomy, "bassDb -2..3 if the tilt boosts bass, else a band: peak 120-150 Hz -2 dB, Q 1"),
+        (SoundReaction::TooBoomy, "bassDb -3 if the tilt boosts bass, else a band: peak 120-150 Hz -3 dB, Q 1"),
         (
             SoundReaction::TooBright,
-            "trebleDb -2 (and clarityDb -1 if the voices are the harsh part), or bands: highShelf 8 kHz -2 dB Q 0.7 for \
-             brightness, peak 3-4 kHz -2 dB Q 2 for a harsh edge, peak 6-8 kHz -2 dB Q 4 for sibilance",
+            "trebleDb -3 (and clarityDb -1.5 if the voices are the harsh part), or bands: highShelf 8 kHz -3 dB Q 0.7 for \
+             brightness, peak 3-4 kHz -3 dB Q 2 for a harsh edge, peak 6-8 kHz -3 dB Q 4 for sibilance",
         ),
-        (SoundReaction::Dull, "trebleDb +2, or raise a treble cut band of the curve first, or highShelf 9 kHz +1.5 dB"),
-        (SoundReaction::VocalsBuried, "clarityDb +1.5..2, or peak 2 kHz +1.5 dB Q 1 (raise a 3-4 kHz cut first)"),
+        (SoundReaction::Dull, "trebleDb +3, or raise a treble cut band of the curve first, or highShelf 9 kHz +3 dB"),
+        (SoundReaction::VocalsBuried, "clarityDb +3, or peak 2 kHz +3 dB Q 1 (raise a 3-4 kHz cut first)"),
     ];
     rows.iter()
         .map(|(r, change)| {
@@ -508,21 +525,24 @@ fn reaction_examples(es: bool) -> String {
         .join("\n")
 }
 
-fn reaction_system(es: bool, facts: &Value) -> String {
+fn reaction_system(es: bool, facts: &Value, limits: &TasteLimits) -> String {
     let language = if es { "Spanish (neutral Latin American)" } else { "English" };
     let examples = reaction_examples(es);
+    let (step_db, bands_per_tap) = (limits.step_db, limits.bands_per_tap);
     format!(
-        "You adjust the sound of HomeFi, a music player, from one tap of the listener (\"how does it sound?\"). Call \
-set_taste_rule exactly once: pick the scope (the scope hint if there is one; else usually the main genre; the artist, album \
-or track when the rules show the genre already sounds right for other music), and the change, starting from the current \
-tilt and curve of that scope (or of the rule in effect, `playingRuleId`): move the tilt 1 to 3 dB in the direction of the \
-reaction, and / or send `bands`, the scope's whole curve with at most {MAX_AI_BANDS_PER_TAP} bands changed. Bass is a low \
-shelf at 105 Hz, treble a high shelf at 10 kHz, clarity a wide peak at 3 kHz; bands are for anything more precise. Edit a \
-band that is already there instead of adding another at the same place; prefer cuts. On a built-in speaker never add more \
-than +3 dB of bass, nor boost below 150 Hz. Usual changes per tap (gentle; the app allows at most {MAX_AI_STEP_DB} dB per \
-tap, per knob or band):
+        "You adjust the sound of HomeFi, a music player, from one tap of the listener (\"how does it sound?\"). The tap is a \
+complaint the listener wants to HEAR fixed: make a clearly audible change, not a timid one. Call set_taste_rule exactly once: \
+pick the scope (the scope hint if there is one; else usually the main genre; the artist, album or track when the rules show \
+the genre already sounds right for other music), and the change, starting from the current tilt and curve of that scope (or \
+of the rule in effect, `playingRuleId`): move the tilt 2 to {step_db} dB in the direction of the reaction, and / or send \
+`bands`, the scope's whole curve with at most {bands_per_tap} bands changed. Bass is a low shelf at 105 Hz, treble a high \
+shelf at 10 kHz, clarity a wide peak at 3 kHz; bands are for anything more precise. Edit a band that is already there \
+instead of adding another at the same place. Cut when the complaint is a problem (harsh, boomy, tiring); boost when \
+something is missing (bass, air, voices). On a built-in speaker never add more than +3 dB of bass, nor boost below \
+150 Hz. Typical changes per tap at the Balanced intensity (scale by intensity: Subtle x0.6, Bold x1.5; the app allows at \
+most {step_db} dB per tap, per knob or band, at the listener's intensity, `intensity` in the facts):
 {examples}
-`message`: one short line in {language} saying what changed and for which music (\"-2 dB at 3.5 kHz for Rock: softer \
+`message`: one short line in {language} saying what changed and for which music (\"-3 dB at 3.5 kHz for Rock: softer \
 cymbals\"). Facts (JSON): {facts}"
     )
 }
@@ -759,12 +779,63 @@ fn new_token() -> String {
     format!("u{}", crate::dsp::taste::new_id())
 }
 
-/// What a reaction replaced, to put it back.
+/// What a reaction replaced, to put it back as an inverse change (not by
+/// writing a copy of every rule: that would bring back rules deleted since).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SoundSnapshot {
-    pub taste: TasteSettings,
+    /// The rule of that scope before the reaction; `None` when the reaction made it.
+    pub previous_rule: Option<TasteRule>,
+    /// Id of the rule the reaction wrote (empty: it only changed loudness).
+    pub rule_id: String,
+    /// The layers were on before the reaction.
+    pub was_enabled: bool,
     pub loudness: LoudnessSettings,
+}
+
+impl SoundSnapshot {
+    /// The "before" of `result`, which `ctx` produced.
+    pub fn before(ctx: &ReactionContext, result: &ReactionResult) -> Self {
+        let written = result.rule.as_ref();
+        Self {
+            previous_rule: written.and_then(|r| ctx.taste.rule_for(&r.scope)).cloned(),
+            rule_id: written.map(|r| r.id.clone()).unwrap_or_default(),
+            was_enabled: ctx.taste.enabled,
+            loudness: ctx.loudness,
+        }
+    }
+
+    /// The change that puts the rule back, for the settings as `current` is
+    /// now: the previous rule again (only if it still exists there: a rule
+    /// the listener deleted since stays deleted), or no rule at all when the
+    /// reaction made it. The layers go back off only if the reaction switched
+    /// them on.
+    pub fn undo_change(&self, current: &TasteSettings) -> TasteChange {
+        let still_there = self.previous_rule.as_ref().is_some_and(|p| current.rules.iter().any(|r| r.id == p.id));
+        self.inverse(still_there)
+    }
+
+    /// [`undo_change`](Self::undo_change) without knowing the current rules:
+    /// the previous rule comes back even if it was deleted meanwhile.
+    pub fn restore_change(&self) -> TasteChange {
+        self.inverse(true)
+    }
+
+    fn inverse(&self, restore_previous: bool) -> TasteChange {
+        let mut change = TasteChange::default();
+        if self.rule_id.is_empty() {
+            return change;
+        }
+        match &self.previous_rule {
+            Some(previous) if restore_previous => change.push_upsert(previous.clone()),
+            Some(_) => {}
+            None => change.push_remove(self.rule_id.clone()),
+        }
+        if !self.was_enabled {
+            change.enabled = Some(false);
+        }
+        change
+    }
 }
 
 /// The last few reactions' "before", by undo token (for the apps to hold).
@@ -798,7 +869,7 @@ impl UndoStack {
 mod tests {
     use super::*;
     use crate::ai::AiProvider;
-    use crate::dsp::{ItemRef, SourceContext};
+    use crate::dsp::{ItemRef, SourceContext, TasteIntensity};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -942,11 +1013,12 @@ mod tests {
             TasteBand::new(EqBandKind::HighPass, 40.0, 0.0, 0.7),
         ];
         // the model drops everything: the cut eases by 3 dB, the high-pass (1 change) goes too
-        let out = limit_band_step(&base, &[]);
+        let limits = TasteIntensity::Balanced.limits();
+        let out = limit_band_step(&base, &[], &limits);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].band.gain_db, -3.0);
         // nothing changes: the same curve
-        assert_eq!(limit_band_step(&base, &base), base);
+        assert_eq!(limit_band_step(&base, &base, &limits), base);
         let words = band_changes(&base, &out, false);
         assert_eq!(words, ["+3 dB at 100 Hz"]);
         assert_eq!(band_changes(&[], &base[1..], true), ["paso alto en 40 Hz"]);
@@ -1008,9 +1080,9 @@ mod tests {
 
         let undo = UndoStack::default();
         let r = react_guided(SoundReaction::Dull, &c);
-        undo.push(&r.undo_token, SoundSnapshot { taste: c.taste.clone(), loudness: c.loudness });
+        undo.push(&r.undo_token, SoundSnapshot::before(&c, &r));
         let back = undo.undo(&r.undo_token).unwrap();
-        assert_eq!(back.taste, c.taste);
+        assert_eq!(back.previous_rule, None, "the reaction made the rule");
         assert!(undo.undo(&r.undo_token).is_none(), "once");
         // nothing playing
         let none = react_guided(SoundReaction::NeedsBass, &ReactionContext::default());
@@ -1038,7 +1110,7 @@ mod tests {
         assert!(r.by_ai);
         let rule = r.rule.unwrap();
         assert_eq!(rule.scope, TasteScope::Artist { id: String::new(), name: "Daft Punk".into() });
-        assert_eq!(rule.tilt.bass_db, MAX_AI_STEP_DB, "at most 3 dB per tap");
+        assert_eq!(rule.tilt.bass_db, TasteIntensity::Balanced.limits().step_db, "at most 3 dB per tap");
         assert_eq!(rule.created_by, TasteCreator::Ai);
         assert_eq!(r.message, "Le subí el bajo a Daft Punk.");
     }
@@ -1072,18 +1144,20 @@ mod tests {
     #[test]
     fn the_prompt_has_examples_in_the_users_language() {
         let facts = json!({ "reaction": "needsBass" });
-        let es = reaction_system(true, &facts);
+        let limits = TasteIntensity::Balanced.limits();
+        let es = reaction_system(true, &facts, &limits);
         for line in [
-            "needsBass (\"Le falta bajo\"): bassDb +2..3",
-            "tooBoomy (\"Retumba mucho\"): bassDb -2..3",
-            "tooBright (\"Muy brillante / áspero\"): trebleDb -2",
-            "dull (\"Apagado\"): trebleDb +2",
-            "vocalsBuried (\"No se oyen las voces\"): clarityDb +1.5..2",
+            "needsBass (\"Le falta bajo\"): bassDb +3",
+            "tooBoomy (\"Retumba mucho\"): bassDb -3",
+            "tooBright (\"Muy brillante / áspero\"): trebleDb -3",
+            "dull (\"Apagado\"): trebleDb +3",
+            "vocalsBuried (\"No se oyen las voces\"): clarityDb +3",
         ] {
             assert!(es.contains(line), "{line}\n{es}");
         }
         assert!(es.contains("Spanish") && es.contains("at most 3 dB per tap"));
-        let en = reaction_system(false, &facts);
+        assert!(es.contains("Subtle x0.6, Bold x1.5") && es.contains("move the tilt 2 to 3 dB"));
+        let en = reaction_system(false, &facts, &limits);
         for line in [
             "(\"Needs more bass\")",
             "(\"Too boomy\")",
@@ -1094,5 +1168,68 @@ mod tests {
             assert!(en.contains(line), "{line}");
         }
         assert!(!en.contains("Le falta bajo") && en.contains("never add more than +3 dB of bass"));
+        for timid in ["gentle", "prefer cuts"] {
+            assert!(!en.contains(timid) && !es.contains(timid), "{timid}");
+        }
+        // the limits come from the intensity
+        let bold = reaction_system(false, &facts, &TasteIntensity::Bold.limits());
+        assert!(bold.contains("at most 4 dB per tap") && bold.contains("with at most 3 bands changed"));
+    }
+
+    #[test]
+    fn undo_is_the_inverse_change_not_a_copy() {
+        let mut c = ctx("en");
+        let tap = |c: &mut ReactionContext, r: SoundReaction| {
+            let out = react_guided(r, c);
+            let before = SoundSnapshot::before(c, &out);
+            c.taste.apply(&out.taste_change());
+            (out, before)
+        };
+        // the first tap makes the rule: undoing removes it, and the layers go back off
+        let (first, snap) = tap(&mut c, SoundReaction::NeedsBass);
+        let id = first.rule.as_ref().unwrap().id.clone();
+        assert_eq!(first.taste_change().enabled, Some(true));
+        let undo = snap.undo_change(&c.taste);
+        assert_eq!((undo.remove.clone(), undo.upsert.len(), undo.enabled), (vec![id.clone()], 0, Some(false)));
+
+        // another rule made after the tap survives the undo; the copy of the settings would have dropped it
+        let mut now = c.taste.clone();
+        now.upsert(TasteRule::new(
+            TasteScope::Artist { id: String::new(), name: "Bach".into() },
+            Tilt { treble_db: 1.0, ..Default::default() },
+            "Bach",
+            TasteCreator::Manual,
+        ));
+        now.apply(&undo);
+        assert_eq!(now.rules.len(), 1);
+        assert_eq!(now.rules[0].scope.name(), "Bach");
+
+        // a second tap edits the rule: undoing puts the first version back
+        let (second, snap) = tap(&mut c, SoundReaction::NeedsBass);
+        assert_eq!(second.rule.as_ref().unwrap().tilt.bass_db, 2.0 * STEP_DB);
+        let undo = snap.undo_change(&c.taste);
+        let mut back = c.taste.clone();
+        back.apply(&undo);
+        assert_eq!(back.rules[0].tilt.bass_db, STEP_DB);
+        assert_eq!(back.rules[0].id, id);
+        assert!(back.enabled, "it was on before the second tap");
+
+        // the user deleted the rule meanwhile: undo doesn't bring it back
+        let mut gone = c.taste.clone();
+        gone.remove(&id);
+        let undo = snap.undo_change(&gone);
+        gone.apply(&undo);
+        assert!(gone.rules.is_empty());
+    }
+
+    #[test]
+    fn intensity_scales_the_fixed_steps() {
+        let mut c = ctx("en");
+        c.taste.intensity = TasteIntensity::Bold;
+        let r = react_guided(SoundReaction::NeedsBass, &c);
+        assert_eq!(r.rule.unwrap().tilt.bass_db, STEP_DB * 1.5);
+        c.taste.intensity = TasteIntensity::Subtle;
+        let r = react_guided(SoundReaction::NeedsBass, &c);
+        assert!((r.rule.unwrap().tilt.bass_db - STEP_DB * 0.6).abs() < 1e-6);
     }
 }

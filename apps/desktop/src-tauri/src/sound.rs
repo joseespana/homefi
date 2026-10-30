@@ -289,11 +289,15 @@ pub async fn sound_react(
         return Ok(result);
     }
     let sound = app.state::<Sound>();
-    sound.undo.push(&result.undo_token, SoundSnapshot { taste: ctx.taste, loudness: ctx.loudness });
-    let (taste, loudness) = (result.taste.clone(), result.loudness);
+    sound.undo.push(&result.undo_token, SoundSnapshot::before(&ctx, &result));
+    // merge the rule into the settings as they are now (the AI call took seconds), not a whole copy
+    let (change, loudness) = (result.taste_change(), result.loudness);
+    let loudness_changed = loudness != ctx.loudness;
     let saved = app.state::<AppState>().save_settings(|s| {
-        s.taste = taste;
-        s.loudness = loudness;
+        s.taste.apply(&change);
+        if loudness_changed {
+            s.loudness = loudness;
+        }
     })?;
     apply(&app, &saved);
     Ok(result)
@@ -303,8 +307,10 @@ pub async fn sound_react(
 #[tauri::command(async)]
 pub fn sound_undo(app: AppHandle, token: String) -> CmdResult<bool> {
     let Some(before) = app.state::<Sound>().undo.undo(&token) else { return Ok(false) };
+    // the inverse change on today's rules: what the user did since stays
     let saved = app.state::<AppState>().save_settings(|s| {
-        s.taste = before.taste;
+        let change = before.undo_change(&s.taste);
+        s.taste.apply(&change);
         s.loudness = before.loudness;
     })?;
     apply(&app, &saved);

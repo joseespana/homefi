@@ -251,6 +251,12 @@
   .card:hover {
     background: var(--glass-strong);
   }
+  /* the hovered card comes forward, so its record slides over the next sleeve */
+  .card:hover,
+  .card:focus-visible {
+    position: relative;
+    z-index: 2;
+  }
   .sleeve {
     position: relative;
     perspective: 800px;
@@ -272,15 +278,27 @@
     width: 92%;
     aspect-ratio: 1;
     border-radius: 50%;
-    background: repeating-radial-gradient(circle, #111 0 2px, #1c1c1c 2px 4px);
-    box-shadow: 0 8px 20px rgb(0 0 0 / 0.5);
-    transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+    /* grooves, plus a light sweep across them so it reads as vinyl on dark backgrounds */
+    background:
+      conic-gradient(from 30deg, transparent 0 8%, rgb(255 255 255 / 0.16) 12%, transparent 18% 50%, rgb(255 255 255 / 0.1) 58%, transparent 64%),
+      repeating-radial-gradient(circle, #0d0d0f 0 1.6px, #242428 1.6px 3.2px);
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 0.08),
+      0 10px 24px rgb(0 0 0 / 0.55);
+    transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
   .vinyl i {
     position: absolute;
     inset: 34%;
     border-radius: 50%;
-    background: var(--room-accent);
+    /* shaded so its turning shows */
+    background: conic-gradient(
+      var(--room-accent),
+      color-mix(in srgb, var(--room-accent) 55%, #fff) 25%,
+      var(--room-accent) 50%,
+      color-mix(in srgb, var(--room-accent) 65%, #000) 75%,
+      var(--room-accent)
+    );
     box-shadow: inset 0 0 0 6px rgb(0 0 0 / 0.25);
   }
   .vinyl i::after {
@@ -290,8 +308,23 @@
     border-radius: 50%;
     background: #111;
   }
-  .card:hover .vinyl {
-    transform: translateX(34%) rotate(40deg);
+  .card:hover .vinyl,
+  .card:focus-visible .vinyl {
+    transform: translateX(46%) rotate(40deg);
+  }
+  /* once out, it keeps turning slowly while you look at it */
+  .card:hover .vinyl i,
+  .card:focus-visible .vinyl i {
+    animation: spin 3.6s linear 0.5s infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  :global(:root[data-motion="off"]) .vinyl i,
+  :global(:root[data-motion="subtle"]) .vinyl i {
+    animation: none !important;
   }
   .card-title {
     margin-top: 6px;

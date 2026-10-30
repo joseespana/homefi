@@ -18,7 +18,7 @@ use homefi_core::ai::eq_assistant::MAX_BOOST_DB;
 use homefi_core::ai::{AiConfig, AiProvider, AssistantContext, AudioOutput, EqAssistant, Message, OutputKind};
 use homefi_core::dsp::autoeq::AutoEq;
 use homefi_core::dsp::{
-    EqBandKind, TasteBand, TasteCreator, TasteRule, TasteScope, TasteSettings, Tilt, MAX_TASTE_BANDS,
+    EqBandKind, TasteBand, TasteCreator, TasteIntensity, TasteRule, TasteScope, TasteSettings, Tilt, MAX_TASTE_BANDS,
     MAX_TASTE_BAND_DB, MAX_TILT_DB, SMALL_SPEAKER_MAX_BASS_DB,
 };
 use serde_json::Value;
@@ -39,6 +39,10 @@ struct Persona {
     taste: TasteSettings,
     /// Opened from this rule's editor ("Ask the AI to refine"): its index in `taste`.
     refine: Option<usize>,
+    /// Asked for a neutral sound: the change doesn't have to be audible.
+    neutral: bool,
+    /// How many bands (a tilt knob counts as one) the proposal should have, when the persona asks for a clear change.
+    bands: Option<(usize, usize)>,
 }
 
 /// David Guetta with a little bass and a soft 3.2 kHz cut: the refine persona edits that cut.
@@ -76,6 +80,8 @@ fn personas() -> Vec<Persona> {
             ],
             taste: TasteSettings::default(),
             refine: None,
+            neutral: false,
+            bands: None,
         },
         Persona {
             name: "MacBook speakers, podcasts",
@@ -90,6 +96,8 @@ fn personas() -> Vec<Persona> {
             ],
             taste: TasteSettings::default(),
             refine: None,
+            neutral: false,
+            bands: None,
         },
         Persona {
             name: "HD 650 USB DAC, jazz, neutral",
@@ -105,6 +113,8 @@ fn personas() -> Vec<Persona> {
             ],
             taste: TasteSettings::default(),
             refine: None,
+            neutral: true,
+            bands: None,
         },
         Persona {
             name: "Car stereo, rock, noisy",
@@ -114,6 +124,8 @@ fn personas() -> Vec<Persona> {
             replies: &["In my car", "Rock", "It's noisy on the highway and the vocals get lost", "Pretty loud"],
             taste: TasteSettings::default(),
             refine: None,
+            neutral: false,
+            bands: None,
         },
         Persona {
             name: "AirPods Pro 2, pop, chillón",
@@ -128,6 +140,8 @@ fn personas() -> Vec<Persona> {
             ],
             taste: TasteSettings::default(),
             refine: None,
+            neutral: false,
+            bands: None,
         },
         Persona {
             name: "Phone speaker, hip-hop, thin",
@@ -137,6 +151,8 @@ fn personas() -> Vec<Persona> {
             replies: &["The phone's own speaker", "Hip-hop", "It sounds thin, I want more bass", "In my room"],
             taste: TasteSettings::default(),
             refine: None,
+            neutral: false,
+            bands: None,
         },
         Persona {
             name: "DT 770 + DAC, clásica, apagado",
@@ -155,6 +171,8 @@ fn personas() -> Vec<Persona> {
             ],
             taste: TasteSettings::default(),
             refine: None,
+            neutral: false,
+            bands: None,
         },
         Persona {
             name: "Galaxy Buds2 Pro, house, boomy",
@@ -169,6 +187,8 @@ fn personas() -> Vec<Persona> {
             ],
             taste: TasteSettings::default(),
             refine: None,
+            neutral: false,
+            bands: None,
         },
         Persona {
             name: "Refine Guetta layer, cymbals hurt",
@@ -178,6 +198,8 @@ fn personas() -> Vec<Persona> {
             replies: &["The cymbals hurt a bit and the s's hiss", "Just that, keep the bass"],
             taste: guetta(),
             refine: Some(0),
+            neutral: false,
+            bands: None,
         },
         Persona {
             name: "Capa para Bad Bunny, bocina del celular",
@@ -187,6 +209,26 @@ fn personas() -> Vec<Persona> {
             replies: &["Quiero una capa para Bad Bunny con más pegada", "Sí, en el celular", "Que no distorsione"],
             taste: TasteSettings::default(),
             refine: None,
+            neutral: false,
+            bands: None,
+        },
+        Persona {
+            name: "SOAD nu-metal, HD 650 + DAC, que pegue más",
+            es: true,
+            outputs: vec![output("dac", "USB DAC", OutputKind::UsbDac)],
+            measured: true,
+            replies: &[
+                "Sennheiser HD 650",
+                "Un DAC USB sencillo",
+                "System of a Down y nu-metal",
+                "Que pegue más",
+                "En casa, volumen medio",
+            ],
+            taste: TasteSettings::default(),
+            refine: None,
+            neutral: false,
+            // 2 to 4 bands, the biggest at least as big as Balanced's smallest main move
+            bands: Some((2, 4)),
         },
     ]
 }
@@ -204,6 +246,10 @@ struct Score {
     curves_ok: bool,
     /// Taste curves designed (proposed or saved with bands).
     curves: usize,
+    /// The biggest move the model asked for (dB: a band, a profile band or a tilt knob).
+    main_move_db: f32,
+    /// Bands of its biggest curve (a tilt knob counts as one).
+    curve_bands: usize,
     language_ok: bool,
     claims_ok: bool,
     applied: bool,
@@ -280,7 +326,7 @@ async fn run(config: &AiConfig, persona: &Persona, autoeq: Arc<AutoEq>, verbose:
             println!("  [{}] {}", persona.name, t.text.replace('\n', " "));
         }
         texts.push(t.text.clone());
-        if t.confirmed || t.taste.is_some() {
+        if t.confirmed || t.taste_change.is_some() {
             score.applied = true;
             break;
         }
@@ -318,12 +364,36 @@ async fn run(config: &AiConfig, persona: &Persona, autoeq: Arc<AutoEq>, verbose:
     });
     score.caps_ok =
         calls.iter().filter(|(name, _)| *name == "propose_eq").all(|(_, args)| caps_ok(args, small_speaker));
+    (score.main_move_db, score.curve_bands) = biggest_move(&calls);
     let (curves_ok, curves) = curves_ok(&calls, small_speaker);
     score.curves_ok = curves_ok;
     score.curves = curves;
     score.language_ok = texts.iter().all(|t| language_ok(t, persona.es));
     score.claims_ok = texts.iter().all(|t| claims_ok(t));
     score
+}
+
+/// The biggest move the model asked for and how many bands its biggest curve
+/// has, from its own numbers (before the app clamps them): taste bands,
+/// profile bands and tilt knobs of `propose_taste_rule`, `set_taste_rule` and
+/// `propose_eq`. A tilt knob counts as one band.
+fn biggest_move(calls: &[(&str, &Value)]) -> (f32, usize) {
+    let num = |v: &Value| v.as_f64().unwrap_or(0.0) as f32;
+    let (mut main_move_db, mut curve_bands) = (0f32, 0usize);
+    for (name, args) in calls {
+        if !matches!(*name, "propose_taste_rule" | "set_taste_rule" | "propose_eq") {
+            continue;
+        }
+        let tilt = if *name == "propose_eq" { &args["taste"] } else { &args["tilt"] };
+        let knobs: Vec<f32> = ["bassDb", "trebleDb", "clarityDb"].iter().map(|k| num(&tilt[k]).abs()).collect();
+        let bands = args["bands"].as_array().or_else(|| args["profile"]["bands"].as_array());
+        let band_gains = bands.into_iter().flatten().map(|b| num(&b["gainDb"]).abs());
+        let moves = knobs.iter().copied().chain(band_gains);
+        main_move_db = main_move_db.max(moves.fold(0f32, f32::max));
+        let audible_knobs = knobs.iter().filter(|k| **k >= 0.5).count();
+        curve_bands = curve_bands.max(bands.map_or(0, Vec::len) + audible_knobs);
+    }
+    (main_move_db, curve_bands)
 }
 
 /// The model's own numbers (before the app clamps them) respect the caps.
@@ -411,10 +481,19 @@ fn claims_ok(text: &str) -> bool {
         .any(|c| lower.contains(c))
 }
 
+/// The change is clearly audible: the biggest move reaches the smallest main
+/// move of the Balanced intensity (neutral personas are exempt), and a persona
+/// that expects a number of bands gets them.
+fn audible_ok(p: &Persona, s: &Score) -> bool {
+    let loud_enough = p.neutral || s.main_move_db >= TasteIntensity::Balanced.limits().main_move_db.0;
+    let bands_ok = p.bands.is_none_or(|(lo, hi)| (lo..=hi).contains(&s.curve_bands));
+    loud_enough && bands_ok
+}
+
 fn print_table(rows: &[(Persona, Score)]) {
     let mark = |ok: bool| if ok { "ok" } else { "FAIL" };
     println!(
-        "{:<38} {:<4} {:>5} {:>9} {:>7} {:>5} {:>7} {:>6} {:>5} {:>7} {:>7} {:>6}",
+        "{:<44} {:<4} {:>5} {:>9} {:>7} {:>5} {:>7} {:>9} {:>6} {:>5} {:>7} {:>7} {:>6}",
         "persona",
         "lang",
         "turns",
@@ -422,6 +501,7 @@ fn print_table(rows: &[(Persona, Score)]) {
         "autoeq",
         "caps",
         "curves",
+        "audible",
         "<=6 q",
         "lang",
         "claims",
@@ -437,6 +517,7 @@ fn print_table(rows: &[(Persona, Score)]) {
             !p.measured || s.used_autoeq,
             s.caps_ok,
             s.curves_ok && (p.refine.is_none() || s.curves > 0),
+            audible_ok(p, s),
             s.questions <= MAX_QUESTIONS,
             s.language_ok,
             s.claims_ok,
@@ -446,7 +527,7 @@ fn print_table(rows: &[(Persona, Score)]) {
         total += passed;
         max += checks.len();
         println!(
-            "{:<38} {:<4} {:>5} {:>9} {:>7} {:>5} {:>7} {:>6} {:>5} {:>7} {:>7} {:>4}/{}",
+            "{:<44} {:<4} {:>5} {:>9} {:>7} {:>5} {:>7} {:>9} {:>6} {:>5} {:>7} {:>7} {:>4}/{}",
             p.name,
             if p.es { "es" } else { "en" },
             s.user_turns,
@@ -458,6 +539,7 @@ fn print_table(rows: &[(Persona, Score)]) {
             } else {
                 format!("{} {}", s.curves, mark(s.curves_ok && s.curves > 0))
             },
+            if p.neutral { "-".to_owned() } else { format!("{:.1} {}", s.main_move_db, mark(audible_ok(p, s))) },
             format!("{} {}", s.questions, if s.questions <= MAX_QUESTIONS { "ok" } else { "!" }),
             mark(s.language_ok),
             mark(s.claims_ok),
