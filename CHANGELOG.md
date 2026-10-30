@@ -7,6 +7,9 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-30
+
+
 A bolder, more reliable AI sound assistant, Settings redesigned to fit any window or phone, and
 HomeFito takes requests: pick its dance while the music plays. Desktop and Android installs from
 1.2.0 on offer this update by themselves.
