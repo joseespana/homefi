@@ -7,6 +7,9 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-02
+
+
 One Sound screen instead of the equalizer and its taste rules, built around what is playing now, on
 desktop and Android.
 
