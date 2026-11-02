@@ -2,21 +2,19 @@
   // A taste layer the assistant put on the table (not saved yet): its curve
   // over the output's own profile, what plays with both (dashed), each band
   // with the assistant's one-line reason, and Apply / Keep talking.
-  import { api, type TastePreview, type TasteRule } from "../../lib/api";
+  import type { TasteRule } from "../../lib/api";
   import { formatDb, formatHz, hasGain } from "../../lib/eq.svelte";
-  import { ruleWords, scopePhrase } from "../../lib/sound.svelte";
+  import { usePreview } from "../../lib/preview.svelte";
+  import { ruleWords, sound, targetsSummary } from "../../lib/sound.svelte";
   import Icon from "../Icon.svelte";
   import EqGraph from "../eq/EqGraph.svelte";
 
   let { rule, open = true, busy = false, onapply, onkeep }: { rule: TasteRule; open?: boolean; busy?: boolean; onapply: () => void; onkeep: () => void } = $props();
 
-  let preview = $state<TastePreview | null>(null);
-  $effect(() => {
-    api
-      .tastePreview(JSON.parse(JSON.stringify(rule)))
-      .then((p) => (preview = p))
-      .catch(() => (preview = null));
-  });
+  const preview = usePreview(
+    () => rule,
+    () => sound.output,
+  );
   const bands = $derived(rule.bands ?? []);
   let selected = $state<number | null>(null);
 </script>
@@ -25,14 +23,14 @@
   <div class="ptitle">
     <Icon name="layers" size={14} />
     <b class="ellipsis">{rule.label}</b>
-    <span class="muted">for {scopePhrase(rule.scope)}</span>
+    {#if rule.targets.length}<span class="muted">for {targetsSummary(rule)}</span>{/if}
   </div>
-  {#if preview}
-    <EqGraph profile={{ name: "", preampDb: 0, bands, source: { kind: "manual" } }} curve={preview.taste} background={preview.device} compare={preview.combined} notes={bands.map((b) => b.note)} bind:selected height={160} range={12} />
+  {#if preview.value}
+    <EqGraph profile={{ name: "", preampDb: 0, bands, source: { kind: "manual" } }} curve={preview.value.taste} background={preview.value.device} compare={preview.value.combined} notes={bands.map((b) => b.note)} bind:selected height={160} range={12} />
   {/if}
   <div class="legend">
-    <span><i class="sw layer"></i> This layer</span>
-    {#if preview?.device}<span><i class="sw device"></i> {preview.device.name}</span>{/if}
+    <span><i class="sw layer"></i> This sound</span>
+    {#if preview.value?.device}<span><i class="sw device"></i> {preview.value.device.name}</span>{/if}
     <span><i class="sw sum"></i> What plays</span>
     <span class="grow"></span>
     <span class="mono muted">{ruleWords(rule)}</span>
@@ -49,7 +47,7 @@
     </ol>
   {/if}
   {#if rule.explanation}<p class="explain">{rule.explanation}</p>{/if}
-  {#if preview?.notes.length}<p class="kept"><Icon name="shield" size={12} /> Kept safe: {preview.notes.join(" · ")}</p>{/if}
+  {#if preview.value?.notes.length}<p class="kept"><Icon name="shield" size={12} /> Kept safe: {preview.value.notes.join(" · ")}</p>{/if}
   {#if open}
     <div class="pbuttons">
       <button class="btn primary" disabled={busy} onclick={onapply}><Icon name="check" size={16} /> Apply</button>
@@ -152,7 +150,7 @@
     gap: 6px;
     margin: 0;
     font-size: 11.5px;
-    color: #d97706;
+    color: var(--warn);
   }
   .pbuttons {
     display: flex;

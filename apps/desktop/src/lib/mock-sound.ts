@@ -1,67 +1,123 @@
-// Development-only taste layers / loudness / reactions for mock.ts: the same
-// rules as homefi-core (most specific wins, ±2 dB per tap capped at ±6, undo).
-// ?taste starts with a few rules; ?loudness with normalization on (Auto);
-// ?nosuggest makes the suggestion fail quietly. "Ask the AI to refine" a rule
-// answers with a 4-band curve on the table; "yes" saves it.
-import type { AssistantTurn, LoudnessSettings, NowPlayingContext, NowSound, ReactionResult, SoundReaction, SoundUiSettings, TasteBand, TasteChange, TasteIntensity, TasteRule, TasteScope, TasteSettings, Tilt, Track } from "./api";
+// Development-only sounds / loudness / reactions for mock.ts: the same rules as
+// homefi-core (most specific wins: song > album > artist > playlist > genre, a
+// sound can be limited to some outputs, a target belongs to one sound per
+// overlapping outputs, moves can be undone). The master switch is the
+// equalizer's `enabled`.
+// ?taste starts with the mockup's sounds playing "Hotel California" on the
+// Sony WH-1000XM5; ?audition a Try on this song; ?soundoff the master off;
+// ?nomusic nothing playing; ?loudness normalization on; ?nosuggest makes the
+// suggestion fail quietly. "Ask the AI" answers with a proposal (Try / Keep).
+import type {
+  AssistantTurn,
+  LoudnessSettings,
+  NowPlayingContext,
+  NowSound,
+  ReactionResult,
+  SavedSound,
+  SoundReaction,
+  SoundUiSettings,
+  TargetHit,
+  TargetMove,
+  TasteBand,
+  TasteChange,
+  TasteCreator,
+  TasteIntensity,
+  TasteRule,
+  TasteScope,
+  TasteSettings,
+  Tilt,
+  Track,
+} from "./api";
 
 const url = new URLSearchParams(location.search);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const copy = <T>(v: T): T => JSON.parse(JSON.stringify(v));
 
-const rule = (id: string, scope: TasteScope, tilt: Tilt, label: string, createdBy: TasteRule["createdBy"], enabled = true): TasteRule => ({ id, scope, tilt, label, createdBy, enabled });
+const DAY_MS = 86_400_000;
+const NOW_MS = Date.UTC(2026, 10, 2);
+const ago = (days: number) => NOW_MS - days * DAY_MS;
+
 const band = (kind: TasteBand["kind"], freqHz: number, gainDb: number, q: number, note = ""): TasteBand => ({ kind, freqHz, gainDb, q, enabled: true, note });
+const artist = (name: string): TasteScope => ({ kind: "artist", id: "", name });
+const album = (name: string): TasteScope => ({ kind: "album", id: "", name });
+const song = (name: string): TasteScope => ({ kind: "track", id: "", name });
+const playlist = (id: string, name: string): TasteScope => ({ kind: "playlist", id, name });
+const genre = (name: string): TasteScope => ({ kind: "genre", name });
+const target = (scope: TasteScope, addedMs: number, addedBy: TasteCreator = "ai") => ({ scope, addedMs, addedBy });
+
+const sound = (id: string, label: string, createdBy: TasteCreator, tilt: Tilt, targets: TasteRule["targets"], extra: Partial<TasteRule> = {}): TasteRule => ({
+  id,
+  label,
+  tilt,
+  bands: [],
+  createdBy,
+  enabled: true,
+  targets,
+  ...extra,
+});
+
+const SONY = "Sony WH-1000XM5";
 
 let taste: TasteSettings = url.has("taste")
   ? {
       enabled: true,
       intensity: "balanced",
+      version: 1,
       rules: [
-        rule("r1", { kind: "genre", name: "Electronic" }, { bassDb: 4, trebleDb: 0, clarityDb: null }, "More punch · Electronic", "reaction"),
-        rule("r2", { kind: "album", id: "", name: "Kind of Blue" }, { bassDb: 0, trebleDb: 1, clarityDb: 1.5 }, "A touch more detail · Kind of Blue", "manual"),
-        rule("r3", { kind: "playlist", id: "1", name: "Every song, ever" }, { bassDb: 2, trebleDb: -1.5, clarityDb: null }, "Warmer · Every song, ever", "ai"),
-        rule("r4", { kind: "artist", id: "", name: "Radiohead" }, { bassDb: 0, trebleDb: -2, clarityDb: 1 }, "Softer highs · Radiohead", "guided", false),
-        {
-          ...rule("r5", { kind: "artist", id: "", name: "David Guetta" }, { bassDb: 2, trebleDb: 0, clarityDb: null }, "More punch for David Guetta", "ai"),
-          bands: [band("peak", 3200, -2, 3, "Softens the harsh edge of the cymbals"), band("peak", 65, 1.5, 1.2, "More kick from the drum"), band("peak", 320, -1.5, 1.4, "Clears the mud so the kick stays tight")],
-          explanation: "A tighter, punchier low end and less bite on the cymbals at high volume.",
-        },
-        {
-          ...rule("r6", { kind: "album", id: "", name: "Random Access Memories" }, { bassDb: 0, trebleDb: 0, clarityDb: null }, "Less harsh · Random Access Memories", "manual"),
-          bands: [band("peak", 7000, -2.5, 4), band("highShelf", 11000, 1, 0.7)],
-        },
+        sound("bad-omens", "Bad Omens", "ai", { bassDb: 4, trebleDb: 1.5, clarityDb: 1 }, [target(artist("Bad Omens"), ago(4)), target(artist("Architects"), ago(4)), target(artist("Spiritbox"), ago(1))], { explanation: "Bold bass, crisp vocals." }),
+        sound("warm", "Warm and airy", "ai", { bassDb: 0, trebleDb: 0, clarityDb: null }, [
+          target(artist("Eagles"), ago(5)),
+          target(artist("Fleetwood Mac"), ago(5)),
+          target(artist("Steely Dan"), ago(2)),
+          target(song("Hotel California (Live)"), ago(1), "manual"),
+          target(playlist("classic-rock", "Classic Rock Drive"), 0),
+        ], {
+          outputs: [SONY],
+          bands: [band("lowShelf", 120, 2, 0.7, "+2 dB at 120 Hz: lifts the low warmth"), band("highShelf", 9000, 1.5, 0.7, "+1.5 dB above 9 kHz: opens the top end"), band("peak", 3000, -1.2, 2, "−1.2 dB at 3 kHz: trims the glare")],
+          explanation: "Lifts the low warmth +2 dB, opens the top end +1.5 dB, trims the 3 kHz glare.",
+        }),
+        sound("lasgo", "Lasgo", "ai", { bassDb: 3, trebleDb: 1, clarityDb: null }, [target(artist("Lasgo"), ago(9)), target(artist("Alice DJ"), ago(9))], { explanation: "Tight low end, sparkle." }),
+        sound("sting", "Sting", "manual", { bassDb: 0.5, trebleDb: -1.5, clarityDb: 1 }, [target(artist("Sting"), ago(12), "manual"), target(artist("The Police"), ago(12), "manual"), target(album("Synchronicity"), ago(11), "manual"), target(song("Roxanne"), ago(3), "manual")], { explanation: "Soft, intimate." }),
+        sound("soad", "System Of A Down", "ai", { bassDb: 1, trebleDb: -1, clarityDb: 2 }, [target(artist("System Of A Down"), ago(20)), target(artist("Korn"), ago(8))], { explanation: "Tamed mids, fuller kick." }),
       ],
     }
-  : { enabled: false, rules: [], intensity: "balanced" };
+  : { enabled: false, rules: [], intensity: "balanced", version: 1 };
 let loudness: LoudnessSettings = { mode: url.has("loudness") ? "auto" : "off", targetLufs: -14, preventClipping: true };
-let soundUi: SoundUiSettings = { react_deck: true, react_room: true, layer_chip: true, suggestions: !url.has("nosuggest") };
+let soundUi: SoundUiSettings = { react_deck: true, react_room: true, layer_chip: true, suggestions: !url.has("nosuggest"), assistant_deck: true };
 /** What undoes a reaction: the opposite taste change (merged on top of the rules as they are by then) and the loudness before. */
 const undo = new Map<string, { inverse: TasteChange; loudness: LoudnessSettings }>();
 let suggesting: "Electronic" | "Jazz" | null = null;
-/** The rule a refine conversation works on, and the curve proposed for it. */
+/** The sound a refine conversation works on, and the curve proposed for it. */
 let refining: { id: string; proposal: TasteRule | null } | null = null;
+/** A Try: the rule and the song it plays on (it ends when the song changes). */
+let audition: { rule: TasteRule; path: string } | null = null;
+/** The inline "Ask the AI" conversation is on (its answers are proposals). */
+let inline = false;
 
-const KIND_RANK: Record<string, number> = { track: 5, album: 4, playlist: 3, artist: 2, genre: 1 };
+const KIND_RANK: Record<string, number> = { track: 5, album: 4, artist: 3, playlist: 2, genre: 1 };
+const KIND_ORDER = ["artist", "track", "album", "playlist", "genre"];
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase() && a.trim() !== "";
 const sameScope = (a: TasteScope, b: TasteScope) => a.kind === b.kind && (a.kind !== "genre" && b.kind !== "genre" && a.id && b.id ? a.id === b.id : same(a.name, b.name));
+const sharesOutput = (a: TasteRule, b: TasteRule) => !a.outputs?.length || !b.outputs?.length || a.outputs.some((o) => b.outputs!.includes(o));
+const playsOn = (r: TasteRule, output: string) => !r.outputs?.length || r.outputs.includes(output);
 
 const noChange = (): TasteChange => ({ upsert: [], remove: [], enabled: null });
 
-/** homefi-core's `TasteChange::apply`: upsert by id or scope, remove by id, never a whole replacement. */
+/** homefi-core's `TasteChange::apply`: upsert by id, remove by id, never a whole replacement. */
 function merge(current: TasteSettings, change: TasteChange): TasteSettings {
   let rules = current.rules.filter((r) => !change.remove.includes(r.id));
   for (const u of change.upsert) {
-    const at = rules.findIndex((r) => r.id === u.id || sameScope(r.scope, u.scope));
+    const at = rules.findIndex((r) => r.id === u.id);
     rules = at >= 0 ? rules.map((r, i) => (i === at ? u : r)) : [...rules, u];
   }
-  return { ...current, enabled: change.enabled ?? (change.upsert.length ? true : current.enabled), rules };
+  return { ...current, rules };
 }
 
-/** Applies `change` to the live taste and returns what undoes it. */
+/** Applies `change` to the live sounds and returns what undoes it. */
 function applyChange(change: TasteChange): TasteChange {
-  const inverse: TasteChange = { upsert: [], remove: [], enabled: change.enabled === null ? null : taste.enabled };
+  const inverse: TasteChange = { upsert: [], remove: [], enabled: null };
   for (const u of change.upsert) {
-    const prior = taste.rules.find((r) => r.id === u.id || sameScope(r.scope, u.scope));
+    const prior = taste.rules.find((r) => r.id === u.id);
     if (prior) inverse.upsert.push(copy(prior));
     else inverse.remove.push(u.id);
   }
@@ -73,6 +129,32 @@ function applyChange(change: TasteChange): TasteChange {
   return inverse;
 }
 
+/** Takes the targets of `s` out of any other sound on overlapping outputs. */
+function steal(s: TasteRule): TargetMove[] {
+  const moves: TargetMove[] = [];
+  for (const other of taste.rules) {
+    if (other.id === s.id || !sharesOutput(other, s)) continue;
+    for (const t of s.targets) {
+      const at = other.targets.findIndex((x) => sameScope(x.scope, t.scope));
+      if (at >= 0) {
+        other.targets.splice(at, 1);
+        moves.push({ target: t.scope, from: other.id });
+      }
+    }
+  }
+  return moves;
+}
+
+function upsert(r: TasteRule): SavedSound {
+  const clean = copy(r);
+  clean.enabled = true;
+  clean.targets = clean.targets.filter((t, i, all) => all.findIndex((x) => sameScope(x.scope, t.scope)) === i);
+  const at = taste.rules.findIndex((x) => x.id === clean.id);
+  taste = { ...taste, rules: at >= 0 ? taste.rules.map((x, i) => (i === at ? clean : x)) : [...taste.rules, clean] };
+  const moves = steal(taste.rules.find((x) => x.id === clean.id)!);
+  return { rule: copy(taste.rules.find((x) => x.id === clean.id)!), moves };
+}
+
 export function contextOf(t: Track | null): NowPlayingContext | null {
   if (!t) return null;
   return {
@@ -82,7 +164,8 @@ export function contextOf(t: Track | null): NowPlayingContext | null {
     album: t.album ? { id: "", name: t.album } : null,
     artists: t.artist ? [{ id: "", name: t.artist }] : [],
     genres: t.genre.split(",").map((g) => g.trim()).filter(Boolean),
-    source: null,
+    // ?taste plays everything from the playlist "Classic Rock Drive"
+    source: url.has("taste") ? { kind: "playlist", id: "classic-rock", name: "Classic Rock Drive" } : null,
   };
 }
 
@@ -91,26 +174,38 @@ function scopes(c: NowPlayingContext): TasteScope[] {
   if (c.path) out.push({ kind: "track", id: c.path, name: c.title ?? "" });
   if (c.album) out.push({ kind: "album", id: c.album.id, name: c.album.name });
   if (c.artists[0]) out.push({ kind: "artist", id: c.artists[0].id, name: c.artists[0].name });
+  if (c.source?.kind === "playlist") out.push({ kind: "playlist", id: c.source.id, name: c.source.name });
   if (c.genres[0]) out.push({ kind: "genre", name: c.genres[0] });
   return out;
 }
 
-function resolve(c: NowPlayingContext | null): TasteRule | null {
-  if (!c || !taste.enabled) return null;
-  let best: [number, number, TasteRule] | null = null;
+/** How early in the song's own lists `s` matches (-1: it doesn't). */
+function position(s: TasteScope, c: NowPlayingContext): number {
+  if (s.kind === "genre") return c.genres.findIndex((g) => same(g, s.name));
+  if (s.kind === "artist") return c.artists.findIndex((a) => same(a.name, s.name));
+  if (s.kind === "album") return c.album && same(c.album.name, s.name) ? 0 : -1;
+  if (s.kind === "playlist") return c.source?.kind === "playlist" && (c.source.id === s.id || same(c.source.name, s.name)) ? 0 : -1;
+  return c.path === s.id || (!s.id && same(c.title ?? "", s.name)) ? 0 : -1;
+}
+
+interface Resolved {
+  rule: TasteRule;
+  target: TasteScope;
+}
+function resolve(c: NowPlayingContext | null, output: string, master: boolean): Resolved | null {
+  if (!c || !master) return null;
+  if (audition && audition.path === c.path) return { rule: audition.rule, target: { kind: "track", id: c.path ?? "", name: c.title ?? "" } };
+  let best: { rank: number; pos: number; rule: TasteRule; target: TasteScope } | null = null;
   for (const r of taste.rules) {
-    if (!r.enabled) continue;
-    const s = r.scope;
-    let pos = -1;
-    if (s.kind === "genre") pos = c.genres.findIndex((g) => same(g, s.name));
-    else if (s.kind === "artist") pos = c.artists.findIndex((a) => same(a.name, s.name));
-    else if (s.kind === "album") pos = c.album && same(c.album.name, s.name) ? 0 : -1;
-    else if (s.kind === "track") pos = c.path === s.id || (!s.id && same(c.title ?? "", s.name)) ? 0 : -1;
-    if (pos < 0) continue;
-    const score: [number, number, TasteRule] = [KIND_RANK[s.kind], -pos, r];
-    if (!best || score[0] > best[0] || (score[0] === best[0] && score[1] >= best[1])) best = score;
+    if (!playsOn(r, output)) continue;
+    for (const t of r.targets) {
+      const pos = position(t.scope, c);
+      if (pos < 0) continue;
+      const rank = KIND_RANK[t.scope.kind];
+      if (!best || rank > best.rank || (rank === best.rank && -pos >= -best.pos)) best = { rank, pos, rule: r, target: t.scope };
+    }
   }
-  return best?.[2] ?? null;
+  return best && { rule: best.rule, target: best.target };
 }
 
 const words = (t: Tilt) =>
@@ -139,11 +234,11 @@ const LABELS: Record<string, string> = { needsBass: "More bass", tooBoomy: "Less
 const TILT_CAP_DB = 8;
 const cap = (v: number) => Math.max(-TILT_CAP_DB, Math.min(TILT_CAP_DB, v));
 
-function react(reaction: SoundReaction, c: NowPlayingContext | null, hint: TasteScope | null): ReactionResult {
+function react(reaction: SoundReaction, c: NowPlayingContext | null, hint: TasteScope | null, output: string, master: boolean): ReactionResult {
   const out: ReactionResult = { rule: null, taste: copy(taste), tasteChange: noChange(), loudness: { ...loudness }, message: "", undoToken: "", byAi: false };
   if (reaction === "perfect") {
-    const r = resolve(c);
-    return { ...out, message: r ? `Great, it stays as it is (“${r.label}”).` : "Great, nothing to change." };
+    const r = resolve(c, output, master);
+    return { ...out, message: r ? `Great, it stays as it is (“${r.rule.label}”).` : "Great, nothing to change." };
   }
   const token = `u${Date.now()}`;
   const loudnessBefore = { ...loudness };
@@ -159,8 +254,8 @@ function react(reaction: SoundReaction, c: NowPlayingContext | null, hint: Taste
   const all = c ? scopes(c) : [];
   const scope = hint ?? all.find((s) => s.kind === "genre") ?? all.find((s) => s.kind === "artist") ?? all[0];
   if (!scope) return { ...out, message: "Nothing is playing; press play first." };
-  const existing = taste.rules.find((r) => sameScope(r.scope, scope));
-  const base = existing?.tilt ?? resolve(c)?.tilt ?? { bassDb: 0, trebleDb: 0, clarityDb: null };
+  const existing = taste.rules.find((r) => playsOn(r, output) && r.targets.some((t) => sameScope(t.scope, scope)));
+  const base = existing?.tilt ?? resolve(c, output, true)?.rule.tilt ?? { bassDb: 0, trebleDb: 0, clarityDb: null };
   const sign = SIGNS[reaction];
   const db = STEP_DB[taste.intensity];
   const step: Tilt = { bassDb: sign.bassDb * db, trebleDb: sign.trebleDb * db, clarityDb: (sign.clarityDb ?? 0) * db };
@@ -169,10 +264,11 @@ function react(reaction: SoundReaction, c: NowPlayingContext | null, hint: Taste
     trebleDb: cap(base.trebleDb + step.trebleDb),
     clarityDb: base.clarityDb == null && !step.clarityDb ? null : cap((base.clarityDb ?? 0) + (step.clarityDb ?? 0)),
   };
+  const by: TasteCreator = url.has("aikey") ? "ai" : "reaction";
   const r: TasteRule = existing
-    ? { ...existing, tilt, label: `${LABELS[reaction]} · ${scope.name}`, enabled: true }
-    : rule(`r${Date.now()}`, scope, tilt, `${LABELS[reaction]} · ${scope.name}`, url.has("aikey") ? "ai" : "reaction");
-  const tasteChange: TasteChange = { upsert: [r], remove: [], enabled: true };
+    ? { ...copy(existing), tilt, label: `${LABELS[reaction]} · ${scope.name}` }
+    : sound(`r${Date.now()}`, `${LABELS[reaction]} · ${scope.name}`, by, tilt, [target(scope, Date.now(), by)], { outputs: [output] });
+  const tasteChange: TasteChange = { upsert: [r], remove: [], enabled: null };
   undo.set(token, { inverse: applyChange(tasteChange), loudness: loudnessBefore });
   const change: Tilt = { bassDb: tilt.bassDb - base.bassDb, trebleDb: tilt.trebleDb - base.trebleDb, clarityDb: (tilt.clarityDb ?? 0) - (base.clarityDb ?? 0) };
   const said = words(change);
@@ -187,18 +283,119 @@ function react(reaction: SoundReaction, c: NowPlayingContext | null, hint: Taste
   };
 }
 
+// ------------------------------------------------------------------ search
+
+/** Library playlists the search knows (the real app lists the user's own). */
+const LIBRARY_PLAYLISTS: { scope: TasteScope; tracks: number }[] = [
+  { scope: playlist("classic-rock", "Classic Rock Drive"), tracks: 48 },
+  { scope: playlist("every-song", "Every song, ever"), tracks: 437 },
+];
+/** What TIDAL answers (a few fixed hits; the real search is the catalog's). */
+const TIDAL_HITS: { scope: TasteScope; subtitle: string }[] = [
+  { scope: { kind: "album", id: "tidal-aja", name: "Aja" }, subtitle: "Album · Steely Dan" },
+  { scope: playlist("tidal-sd-essentials", "Steely Dan Essentials"), subtitle: "Playlist · 52 tracks" },
+  { scope: { kind: "track", id: "tidal-peg", name: "Peg" }, subtitle: "Song · Steely Dan" },
+];
+
+/** 0 exact, 1 starts with it, 2 a word starts with it, 3 contains it. */
+function matchQuality(name: string, q: string): number {
+  const n = name.toLowerCase();
+  if (n === q) return 0;
+  if (n.startsWith(q)) return 1;
+  if (n.split(/\s+/).some((w) => w.startsWith(q))) return 2;
+  return n.includes(q) ? 3 : -1;
+}
+
+function search(query: string, library: Track[], output: string): TargetHit[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const pool: { scope: TasteScope; subtitle: string; source: TargetHit["source"] }[] = [];
+  const seen = new Set<string>();
+  const add = (scope: TasteScope, subtitle: string, source: TargetHit["source"]) => {
+    const key = `${scope.kind}:${scope.name}`;
+    if (!seen.has(key)) (seen.add(key), pool.push({ scope, subtitle, source }));
+  };
+  for (const t of library) {
+    if (t.artist) add(artist(t.artist), "Artist", "library");
+    if (t.album) add(album(t.album), `Album · ${t.artist}`, "library");
+    add({ kind: "track", id: t.path, name: t.title }, `Song · ${t.artist}`, "library");
+    for (const g of t.genre.split(",")) if (g.trim()) add(genre(g.trim()), "Genre", "library");
+  }
+  for (const p of LIBRARY_PLAYLISTS) add(p.scope, `Playlist · ${p.tracks} tracks`, "library");
+  for (const h of TIDAL_HITS) add(h.scope, h.subtitle, "tidal");
+  return pool
+    // a name that matches ranks first; a song or album by a matching artist comes after
+    .map((p) => ({ ...p, quality: matchQuality(p.scope.name, q) >= 0 ? matchQuality(p.scope.name, q) : p.subtitle.toLowerCase().includes(q) ? 4 : -1 }))
+    .filter((p) => p.quality >= 0)
+    .sort((a, b) => a.quality - b.quality || KIND_ORDER.indexOf(a.scope.kind) - KIND_ORDER.indexOf(b.scope.kind) || (a.source === b.source ? 0 : a.source === "library" ? -1 : 1) || a.scope.name.localeCompare(b.scope.name))
+    .slice(0, 30)
+    .map((p) => ({ scope: p.scope, subtitle: p.subtitle, source: p.source, inSound: taste.rules.find((r) => playsOn(r, output) && r.targets.some((t) => sameScope(t.scope, p.scope)))?.id ?? null }));
+}
+
+// ------------------------------------------------------------------ the inline AI
+
+/** A proposal for what the user asked, on the artist playing (the real AI reads the whole request). */
+function propose(text: string, c: NowPlayingContext | null, es: boolean): AssistantTurn {
+  const say = (en: string, s: string) => (es ? s : en);
+  const who = c?.artists[0]?.name ?? "this song";
+  const t = text.toLowerCase();
+  let label = say("A softer touch", "Un toque más suave");
+  let tilt: Tilt = { bassDb: 0, trebleDb: -1, clarityDb: null };
+  let bands: TasteBand[] = [];
+  let why = say("A small, gentle change.", "Un cambio pequeño y suave.");
+  if (/warm|c[aá]lid/.test(t)) {
+    label = say("Warmer", "Más cálido");
+    tilt = { bassDb: 2.5, trebleDb: -1, clarityDb: null };
+    why = say("More low warmth and a little less treble.", "Más calidez en graves y un poco menos de agudos.");
+  } else if (/bass|boom|bajo/.test(t)) {
+    label = /less|too|menos/.test(t) ? say("Less boomy", "Menos retumbo") : say("More bass", "Más bajo");
+    bands = [band("peak", 180, /less|too|menos/.test(t) ? -3 : 3, 1.1, /less|too|menos/.test(t) ? "Cut 180 Hz −3 dB: tighter bass" : "+3 dB at 180 Hz: more body")];
+    why = say("Tighter bass, vocals stay put.", "Bajo más firme, las voces se quedan donde están.");
+  } else if (/vocal|clear|voz|voces/.test(t)) {
+    label = say("Vocals clearer", "Voces más claras");
+    tilt = { bassDb: 0, trebleDb: 0, clarityDb: 2 };
+    why = say("Lifts the range where voices live.", "Sube la zona donde viven las voces.");
+  } else if (/harsh|[aá]spero|sibil/.test(t)) {
+    label = say("Less harsh", "Menos áspero");
+    bands = [band("peak", 3200, -2.5, 3, "−2.5 dB at 3.2 kHz: softens the harsh edge"), band("peak", 7200, -2, 4.5, "−2 dB at 7.2 kHz: tames hissing s's")];
+    why = say("Narrow cuts where the harshness lives.", "Cortes estrechos donde vive la aspereza.");
+  } else if (/high|treble|agudo/.test(t)) {
+    label = say("Quieter highs", "Agudos más suaves");
+    tilt = { bassDb: 0, trebleDb: -2.5, clarityDb: null };
+    why = say("Brings the top end down a notch.", "Baja un poco la parte alta.");
+  }
+  const proposal: TasteRule = sound(`ai-${Date.now()}`, `${label} for ${who}`, "ai", tilt, c?.artists[0] ? [target(artist(who), Date.now())] : [], { bands, explanation: why });
+  return {
+    text: say(`Here's “${proposal.label}”: ${why} Try it, and keep it if you like it.`, `Aquí va «${proposal.label}»: ${why} Pruébala y quédate con ella si te gusta.`),
+    quick_replies: [say("Less", "Menos"), say("A bit more", "Un poco más"), say("Vocals clearer", "Voces más claras")],
+    proposal: null,
+    confirmed: false,
+    done: false,
+    taste_proposal: proposal,
+  };
+}
+
 export const soundMock = {
-  settings: () => ({ taste, loudness, sound_ui: soundUi }),
+  settings: () => ({ taste: copy(taste), loudness: { ...loudness }, sound_ui: { ...soundUi } }),
   setSettings(s: { taste?: TasteSettings; loudness?: LoudnessSettings; sound_ui?: SoundUiSettings }) {
-    if (s.taste) taste = { ...s.taste };
+    if (s.taste) taste = copy(s.taste);
     if (s.loudness) loudness = s.loudness;
     if (s.sound_ui) soundUi = s.sound_ui;
   },
-  /** `eq_active` and the layer fields of the player for `track`, on top of the equalizer's own. */
-  playerFlags(track: Track | null, eq: { eq_active: boolean; eq_profile: string | null }) {
-    const r = resolve(contextOf(track));
-    const loud = loudness.mode === "off" ? 0 : track?.album === "Kind of Blue" ? 3.4 : -4.2 + (loudness.targetLufs + 14);
-    return { ...eq, eq_active: eq.eq_active || !!r, taste_rule: r?.id ?? null, taste_label: r?.label ?? null, loudness_db: Math.round(loud * 10) / 10 };
+  /** `?audition`: a Try of "Warmer for Eagles" on the song playing at the start. */
+  startAudition(track: Track | null) {
+    if (!url.has("audition") || !track) return;
+    audition = {
+      path: track.path,
+      rule: sound("try-warmer", "Warmer for Eagles", "ai", { bassDb: 2.5, trebleDb: -1, clarityDb: null }, [target(artist("Eagles"), Date.now())], { explanation: "More low warmth and a little less treble." }),
+    };
+  },
+  /** `eq_active` and the sound fields of the player for `track` on `device`, on top of the equalizer's own. */
+  playerFlags(track: Track | null, eq: { eq_active: boolean; eq_profile: string | null }, device: string, master: boolean) {
+    if (audition && audition.path !== track?.path) audition = null;
+    const r = resolve(contextOf(track), device, master);
+    const loud = loudness.mode === "off" || !master ? 0 : track?.album === "Kind of Blue" ? 3.4 : -4.2 + (loudness.targetLufs + 14);
+    return { ...eq, eq_active: eq.eq_active || !!r, taste_rule: r?.rule.id ?? null, taste_label: r?.rule.label ?? null, taste_target: r?.target ?? null, auditioning: !!r && !!audition && audition.rule.id === r.rule.id, loudness_db: Math.round(loud * 10) / 10 };
   },
   /** "Ask the AI to refine": what the curve does now and a 4-band proposal. */
   refine(id: string, es: boolean): AssistantTurn | null {
@@ -230,8 +427,14 @@ export const soundMock = {
       taste_proposal: proposal,
     };
   },
-  /** The mock assistant: an answer to the suggestion card or a refine (null when it isn't one). */
-  reply(text: string): AssistantTurn | null {
+  /** The inline panel starts a session with its first words as notes: answer with a proposal. */
+  inlineStart(notes: string | null, current: Track | null, es: boolean): AssistantTurn | null {
+    inline = !!notes;
+    return notes ? propose(notes, contextOf(current), es) : null;
+  },
+  /** The mock assistant: an answer to the inline panel, the suggestion card or a refine (null when it isn't one). */
+  reply(text: string, current: Track | null, es: boolean): AssistantTurn | null {
+    if (inline) return /^(s[ií]|yes|ok|dale|claro|apply|aplic)/i.test(text.trim()) ? { text: "Done.", quick_replies: [], proposal: null, confirmed: false, done: true } : propose(text, contextOf(current), es);
     if (refining?.proposal) {
       const p = refining.proposal;
       refining = null;
@@ -241,30 +444,97 @@ export const soundMock = {
       applyChange(taste_change);
       return { ...base, text: `Done: “${p.label}” now has ${p.bands?.length ?? 0} bands.`, taste_change };
     }
-    const genre = suggesting;
-    if (!genre) return null;
+    const g = suggesting;
+    if (!g) return null;
     suggesting = null;
     const base: AssistantTurn = { text: "", quick_replies: [], proposal: null, confirmed: false, done: true };
     if (!/^(s[ií]|yes|ok|dale|claro)/i.test(text.trim())) return { ...base, text: "OK, nothing changed." };
-    const tilt: Tilt = genre === "Jazz" ? { bassDb: 0, trebleDb: 1, clarityDb: 1.5 } : { bassDb: 3, trebleDb: 0, clarityDb: null };
-    const label = genre === "Jazz" ? "A touch more detail · Jazz" : "A bit more bass · Electronic";
-    const r = rule(`r${Date.now()}`, { kind: "genre", name: genre }, tilt, label, url.has("aikey") ? "ai" : "guided");
-    const taste_change: TasteChange = { upsert: [r], remove: [], enabled: true };
+    const tilt: Tilt = g === "Jazz" ? { bassDb: 0, trebleDb: 1, clarityDb: 1.5 } : { bassDb: 3, trebleDb: 0, clarityDb: null };
+    const label = g === "Jazz" ? "A touch more detail · Jazz" : "A bit more bass · Electronic";
+    const r = sound(`r${Date.now()}`, label, url.has("aikey") ? "ai" : "guided", tilt, [target(genre(g), Date.now(), "guided")]);
+    const taste_change: TasteChange = { upsert: [r], remove: [], enabled: null };
     applyChange(taste_change);
-    return { ...base, text: `Done: “${label}”. You'll find it in Taste rules, to change or remove it.`, taste_change };
+    return { ...base, text: `Done: “${label}”. You'll find it in Sound, to change or remove it.`, taste_change };
   },
-  handlers: (current: () => Track | null, changed: () => void) => ({
-    taste_get: () => taste,
-    taste_set: ({ taste: t }: { taste: TasteSettings }) => ((taste = t), changed(), taste),
+  handlers: (current: () => Track | null, changed: () => void, output: () => string, master: () => boolean, library: () => Track[]) => ({
+    taste_get: () => copy(taste),
+    taste_set: ({ taste: t }: { taste: TasteSettings }) => ((taste = copy(t)), changed(), copy(taste)),
     loudness_get: () => loudness,
     loudness_set: ({ loudness: l }: { loudness: LoudnessSettings }) => ((loudness = l), changed(), loudness),
     sound_now: (): NowSound => {
       const c = contextOf(current());
-      return { context: c, scopes: c ? scopes(c) : [], rule: resolve(c) };
+      const r = resolve(c, output(), master());
+      return { context: c, scopes: c ? scopes(c) : [], rule: r ? copy(r.rule) : null, target: r?.target ?? null, output: output(), auditioning: !!r && !!audition && audition.rule.id === r.rule.id };
+    },
+    taste_assign: ({ soundId, scope }: { soundId: string; scope: TasteScope }): TargetMove[] => {
+      const s = taste.rules.find((r) => r.id === soundId);
+      if (!s) throw "That sound doesn't exist anymore.";
+      const moves = s.targets.some((t) => sameScope(t.scope, scope)) ? [] : steal({ ...s, targets: [target(scope, Date.now(), "manual")] });
+      if (!s.targets.some((t) => sameScope(t.scope, scope))) s.targets.push(target(scope, Date.now(), "manual"));
+      changed();
+      return moves;
+    },
+    taste_unassign: ({ soundId, scope }: { soundId: string; scope: TasteScope }) => {
+      const s = taste.rules.find((r) => r.id === soundId);
+      if (s) s.targets = s.targets.filter((t) => !sameScope(t.scope, scope));
+      changed();
+    },
+    taste_undo_moves: ({ moves }: { moves: TargetMove[] }) => {
+      for (const m of moves) {
+        const home = taste.rules.find((r) => r.id === m.from);
+        if (!home) continue;
+        for (const other of taste.rules) if (other.id !== home.id && sharesOutput(other, home)) other.targets = other.targets.filter((t) => !sameScope(t.scope, m.target));
+        if (!home.targets.some((t) => sameScope(t.scope, m.target))) home.targets.push(target(m.target, 0, "manual"));
+      }
+      changed();
+    },
+    taste_set_outputs: ({ soundId, outputs }: { soundId: string; outputs: string[] }): TargetMove[] => {
+      const s = taste.rules.find((r) => r.id === soundId);
+      if (!s) throw "That sound doesn't exist anymore.";
+      s.outputs = outputs;
+      const moves = steal(s);
+      changed();
+      return moves;
+    },
+    taste_save: ({ rule }: { rule: TasteRule }): SavedSound => {
+      const saved = upsert(rule);
+      changed();
+      return saved;
+    },
+    taste_remove: ({ soundId }: { soundId: string }) => {
+      const had = taste.rules.some((r) => r.id === soundId);
+      taste = { ...taste, rules: taste.rules.filter((r) => r.id !== soundId) };
+      changed();
+      return had;
+    },
+    taste_audition: ({ rule }: { rule: TasteRule | null }) => {
+      const t = current();
+      if (!rule) {
+        audition = null;
+        changed();
+        return true;
+      }
+      if (!t || !master()) return false;
+      audition = { rule: copy(rule), path: t.path };
+      changed();
+      return true;
+    },
+    taste_keep: ({ rule, scope, onlyOn }: { rule: TasteRule; scope: TasteScope; onlyOn: string | null }): SavedSound => {
+      audition = null;
+      const existing = taste.rules.find((r) => r.id === rule.id);
+      const base = existing ? copy(existing) : { ...copy(rule), targets: [] as TasteRule["targets"], outputs: onlyOn ? [onlyOn] : (rule.outputs ?? []) };
+      if (!base.targets.some((t) => sameScope(t.scope, scope))) base.targets.push(target(scope, Date.now(), "ai"));
+      const saved = upsert(base);
+      changed();
+      return saved;
+    },
+    sound_search_targets: async ({ query }: { query: string }) => {
+      await wait(120);
+      return search(query, library(), output());
     },
     sound_react: async ({ reaction, scope }: { reaction: SoundReaction; scope: TasteScope | null }) => {
       await wait(url.has("aikey") ? 900 : 250);
-      const r = react(reaction, contextOf(current()), scope);
+      const r = react(reaction, contextOf(current()), scope, output(), master());
       changed();
       return r;
     },
@@ -280,7 +550,7 @@ export const soundMock = {
     taste_suggest: async () => {
       await wait(600);
       if (url.has("nosuggest")) throw "no suggestion";
-      if (taste.rules.some((r) => r.scope.kind === "genre" && same(r.scope.name, "Electronic"))) {
+      if (taste.rules.some((r) => r.targets.some((t) => t.scope.kind === "genre" && same(t.scope.name, "Electronic")))) {
         suggesting = "Jazz";
         return { text: "Jazz is your second most played genre. Want a touch more detail when it plays (+1 dB treble, +1.5 dB clarity)?", quick_replies: ["Yes, try it", "No, thanks"], proposal: null, confirmed: false, done: false };
       }

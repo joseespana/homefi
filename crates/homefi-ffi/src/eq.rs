@@ -262,12 +262,22 @@ pub struct TasteBand {
     pub note: String,
 }
 
-/// A taste layer for some music, on top of the output's profile: a tilt
-/// (three broad knobs) and / or a parametric curve of up to 8 bands.
+/// One piece of music a sound applies to, and when / by whom it was added.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct TasteTarget {
+    pub scope: TasteScope,
+    /// Unix ms; 0 = unknown (migrated).
+    #[uniffi(default = 0)]
+    pub added_ms: u64,
+    pub added_by: TasteCreator,
+}
+
+/// A "sound": a curve for any number of songs, albums, artists, playlists and
+/// genres, on top of the output's profile: a tilt (three broad knobs) and / or
+/// a parametric curve of up to 8 bands.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct TasteRule {
     pub id: String,
-    pub scope: TasteScope,
     pub tilt: Tilt,
     pub label: String,
     pub created_by: TasteCreator,
@@ -277,6 +287,78 @@ pub struct TasteRule {
     /// Why (the assistant's words; may be empty).
     #[uniffi(default = "")]
     pub explanation: String,
+    /// Music it applies to (may be empty: an empty sound is kept).
+    #[uniffi(default = [])]
+    pub targets: Vec<TasteTarget>,
+    /// Output ids it plays on; empty = every output.
+    #[uniffi(default = [])]
+    pub outputs: Vec<String>,
+}
+
+/// A target taken out of a sound by an assignment (for Undo).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct TargetMove {
+    pub target: TasteScope,
+    /// Id of the sound it was taken from.
+    pub from: String,
+}
+
+/// "Try on this song": a sound heard on one track only, never saved.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct TasteAudition {
+    pub rule: TasteRule,
+    /// Always the track scope of the track tried on.
+    pub track: TasteScope,
+}
+
+/// Where a search result comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum TargetSource {
+    Library,
+    Tidal,
+}
+
+/// A piece of music offered by "Add" (target search).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct TargetHit {
+    pub scope: TasteScope,
+    /// Shown under the name; the app writes it in its language.
+    #[uniffi(default = "")]
+    pub subtitle: String,
+    pub source: TargetSource,
+    /// Id of the sound already covering it on the output asked about.
+    #[uniffi(default = None)]
+    pub in_sound: Option<String>,
+}
+
+/// A sound as saved, and the targets that moved out of other sounds (for Undo).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct TasteSaveResult {
+    pub taste: TasteSettings,
+    pub rule: TasteRule,
+    pub moves: Vec<TargetMove>,
+}
+
+/// The settings after an assignment, and the targets it took from other sounds.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct TasteAssignResult {
+    pub taste: TasteSettings,
+    pub moves: Vec<TargetMove>,
+}
+
+/// The result of the one-shot 1.5.0 migration (`changed`: save both).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct MigratedSound {
+    pub eq: EqSettings,
+    pub taste: TasteSettings,
+    pub changed: bool,
+}
+
+/// What plays while comparing: no output profile, no sound, no try; loudness stays.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct HeardWithout {
+    pub eq: EqSettings,
+    pub taste: TasteSettings,
 }
 
 /// A curve brought within the taste caps, and what had to change.
@@ -335,13 +417,17 @@ pub struct TasteLimits {
     pub bands_per_tap: u32,
 }
 
-/// Every taste rule and the switch for all of them (off until the first rule).
+/// Every sound. `enabled` is kept for old files: the master switch is
+/// `EqSettings.enabled`.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct TasteSettings {
     pub enabled: bool,
     pub rules: Vec<TasteRule>,
     /// How strong the assistant's, the reactions' and the wizard's proposals are.
     pub intensity: TasteIntensity,
+    /// 1 once saved by 1.5.1 or later; 0 = an older file (run [`taste_migrate`]).
+    #[uniffi(default = 0)]
+    pub version: u8,
 }
 
 /// What changed in the taste rules (not what they are now): merge it into the
@@ -402,11 +488,14 @@ pub struct NowPlayingContext {
     pub source: Option<SourceContext>,
 }
 
-/// The rule that plays and its tilt (in range).
+/// The sound that plays, the target that matched, its tilt (in range), and
+/// whether it is a "Try" rather than a saved sound.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct ResolvedTaste {
     pub rule: TasteRule,
+    pub target: TasteScope,
     pub tilt: Tilt,
+    pub auditioning: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -494,17 +583,30 @@ impl From<TasteBand> for dsp::TasteBand {
     }
 }
 
+impl From<dsp::TasteTarget> for TasteTarget {
+    fn from(t: dsp::TasteTarget) -> Self {
+        Self { scope: t.scope.into(), added_ms: t.added_ms, added_by: t.added_by.into() }
+    }
+}
+
+impl From<TasteTarget> for dsp::TasteTarget {
+    fn from(t: TasteTarget) -> Self {
+        Self { scope: t.scope.into(), added_ms: t.added_ms, added_by: t.added_by.into() }
+    }
+}
+
 impl From<dsp::TasteRule> for TasteRule {
     fn from(r: dsp::TasteRule) -> Self {
         Self {
             id: r.id,
-            scope: r.scope.into(),
             tilt: r.tilt.into(),
             label: r.label,
             created_by: r.created_by.into(),
             enabled: r.enabled,
             bands: r.bands.into_iter().map(Into::into).collect(),
             explanation: r.explanation,
+            targets: r.targets.into_iter().map(Into::into).collect(),
+            outputs: r.outputs,
         }
     }
 }
@@ -513,27 +615,97 @@ impl From<TasteRule> for dsp::TasteRule {
     fn from(r: TasteRule) -> Self {
         Self {
             id: r.id,
-            scope: r.scope.into(),
             tilt: r.tilt.into(),
             label: r.label,
             created_by: r.created_by.into(),
             enabled: r.enabled,
             bands: r.bands.into_iter().map(Into::into).collect(),
             explanation: r.explanation,
+            targets: r.targets.into_iter().map(Into::into).collect(),
+            outputs: r.outputs,
         }
     }
 }
 
 impl From<dsp::TasteSettings> for TasteSettings {
     fn from(s: dsp::TasteSettings) -> Self {
-        Self { enabled: s.enabled, rules: s.rules.into_iter().map(Into::into).collect(), intensity: s.intensity.into() }
+        Self {
+            enabled: s.enabled,
+            rules: s.rules.into_iter().map(Into::into).collect(),
+            intensity: s.intensity.into(),
+            version: s.version,
+        }
     }
 }
 
 impl From<TasteSettings> for dsp::TasteSettings {
     fn from(s: TasteSettings) -> Self {
-        Self { enabled: s.enabled, rules: s.rules.into_iter().map(Into::into).collect(), intensity: s.intensity.into() }
+        Self {
+            enabled: s.enabled,
+            rules: s.rules.into_iter().map(Into::into).collect(),
+            intensity: s.intensity.into(),
+            version: s.version,
+        }
     }
+}
+
+impl From<dsp::TargetMove> for TargetMove {
+    fn from(m: dsp::TargetMove) -> Self {
+        Self { target: m.target.into(), from: m.from }
+    }
+}
+
+impl From<TargetMove> for dsp::TargetMove {
+    fn from(m: TargetMove) -> Self {
+        Self { target: m.target.into(), from: m.from }
+    }
+}
+
+impl From<dsp::TasteAudition> for TasteAudition {
+    fn from(a: dsp::TasteAudition) -> Self {
+        Self { rule: a.rule.into(), track: a.track.into() }
+    }
+}
+
+impl From<TasteAudition> for dsp::TasteAudition {
+    fn from(a: TasteAudition) -> Self {
+        Self { rule: a.rule.into(), track: a.track.into() }
+    }
+}
+
+impl From<dsp::TargetSource> for TargetSource {
+    fn from(s: dsp::TargetSource) -> Self {
+        match s {
+            dsp::TargetSource::Library => Self::Library,
+            dsp::TargetSource::Tidal => Self::Tidal,
+        }
+    }
+}
+
+impl From<TargetSource> for dsp::TargetSource {
+    fn from(s: TargetSource) -> Self {
+        match s {
+            TargetSource::Library => Self::Library,
+            TargetSource::Tidal => Self::Tidal,
+        }
+    }
+}
+
+impl From<dsp::TargetHit> for TargetHit {
+    fn from(h: dsp::TargetHit) -> Self {
+        Self { scope: h.scope.into(), subtitle: h.subtitle, source: h.source.into(), in_sound: h.in_sound }
+    }
+}
+
+impl From<TargetHit> for dsp::TargetHit {
+    fn from(h: TargetHit) -> Self {
+        Self { scope: h.scope.into(), subtitle: h.subtitle, source: h.source.into(), in_sound: h.in_sound }
+    }
+}
+
+/// `TasteError` at the FFI edge: its text is the message for the screen.
+fn taste_failed(e: dsp::TasteError) -> crate::HomefiError {
+    crate::HomefiError::Failed { message: e.to_string() }
 }
 
 impl From<dsp::ItemRef> for ItemRef {
@@ -708,18 +880,36 @@ pub fn eq_default_settings() -> EqSettings {
 
 // ------------------------------------------------- taste layers, loudness
 
-/// The taste rule that applies to `now_playing` (most specific wins: track >
-/// album > playlist > artist > genre); `None` when off or nothing matches.
+/// The sound that applies to `now_playing` on `output_id` (most specific
+/// target wins: track > album > artist > playlist > genre); `None` when
+/// nothing matches. The master switch (`EqSettings.enabled`) is the caller's.
 #[uniffi::export]
-pub fn resolve_taste(taste: TasteSettings, now_playing: NowPlayingContext) -> Option<ResolvedTaste> {
-    let taste = dsp::TasteSettings::from(taste);
-    let (rule, tilt) = dsp::resolve_taste(&taste, &now_playing.into())?;
-    Some(ResolvedTaste { rule: rule.clone().into(), tilt: tilt.into() })
+pub fn resolve_taste(taste: TasteSettings, output_id: String, now_playing: NowPlayingContext) -> Option<ResolvedTaste> {
+    resolve_taste_with(taste, output_id, None, now_playing)
 }
 
-/// [`eq_output_biquads`] for one track: the output's profile (when the
-/// equalizer is on) plus the taste rule for `now_playing` (when the layers are
-/// on), automatic preamp. Run it on track change; empty = bit-perfect.
+/// [`resolve_taste`], but a "Try" that applies to `now_playing` wins.
+#[uniffi::export]
+pub fn resolve_taste_with(
+    taste: TasteSettings,
+    output_id: String,
+    audition: Option<TasteAudition>,
+    now_playing: NowPlayingContext,
+) -> Option<ResolvedTaste> {
+    let taste = dsp::TasteSettings::from(taste);
+    let audition = audition.map(dsp::TasteAudition::from);
+    let heard = dsp::resolve_taste_with(&taste, &output_id, audition.as_ref(), &now_playing.into())?;
+    Some(ResolvedTaste {
+        rule: heard.rule.clone().into(),
+        target: heard.target.clone().into(),
+        tilt: heard.tilt.into(),
+        auditioning: heard.auditioning,
+    })
+}
+
+/// [`eq_output_biquads`] for one track: the output's profile plus the sound for
+/// `now_playing`, automatic preamp. Run it on track change; empty = bit-perfect
+/// (also whenever the master, `EqSettings.enabled`, is off).
 #[uniffi::export]
 pub fn eq_output_biquads_with_taste(
     settings: EqSettings,
@@ -728,16 +918,18 @@ pub fn eq_output_biquads_with_taste(
     now_playing: NowPlayingContext,
     sample_rate: u32,
 ) -> Vec<Biquad> {
-    sound_biquads(settings, taste, output_id, now_playing, 0.0, sample_rate)
+    sound_biquads(settings, taste, None, output_id, now_playing, 0.0, sample_rate)
 }
 
 /// Everything for one track: [`eq_output_biquads_with_taste`] with the
 /// loudness gain (`loudness_db`, from [`loudness_gain_db`]) added to the
-/// preamp stage (first, `b0` = linear gain). Empty = bit-perfect.
+/// preamp stage (first, `b0` = linear gain), and an optional "Try". Empty =
+/// bit-perfect; with the master off the loudness gain is dropped too.
 #[uniffi::export]
 pub fn sound_biquads(
     settings: EqSettings,
     taste: TasteSettings,
+    audition: Option<TasteAudition>,
     output_id: String,
     now_playing: NowPlayingContext,
     loudness_db: f32,
@@ -745,13 +937,24 @@ pub fn sound_biquads(
 ) -> Vec<Biquad> {
     let eq = dsp::EqSettings::from(settings).clamped();
     let taste = dsp::TasteSettings::from(taste).clamped();
-    let plan = dsp::sound_plan(&eq, &taste, &output_id, &now_playing.into(), loudness_db, sample_rate);
+    let audition = audition.map(dsp::TasteAudition::from);
+    let plan =
+        dsp::sound_plan(&eq, &taste, audition.as_ref(), &output_id, &now_playing.into(), loudness_db, sample_rate);
     let mut out = Vec::with_capacity(plan.design.stages().len() + 1);
     if plan.design.gain() != 1.0 {
         out.push(dsp::Biquad::gain(plan.design.gain()).into());
     }
     out.extend(plan.design.stages().iter().copied().map(Biquad::from));
     out
+}
+
+/// "Hear without": the settings to play while comparing (no output profile, no
+/// sound, no try) with the master and the loudness gain kept, so both sides
+/// play at the same level.
+#[uniffi::export]
+pub fn sound_hear_without(settings: EqSettings, taste: TasteSettings) -> HeardWithout {
+    let (eq, taste) = dsp::hear_without(&dsp::EqSettings::from(settings), &dsp::TasteSettings::from(taste));
+    HeardWithout { eq: eq.into(), taste: taste.into() }
 }
 
 /// Gain (dB) loudness normalization applies to a track with `replay_gain`;
@@ -774,10 +977,11 @@ pub fn taste_split_genres(tag: String) -> Vec<String> {
     dsp::split_genres(&tag)
 }
 
-/// A new rule (fresh id, tilt in range, enabled).
+/// A new sound (fresh id, tilt in range, enabled, every output) for `scopes`
+/// (deduped, added now by `created_by`; may be empty).
 #[uniffi::export]
-pub fn taste_new_rule(scope: TasteScope, tilt: Tilt, label: String, created_by: TasteCreator) -> TasteRule {
-    dsp::TasteRule::new(scope.into(), tilt.into(), label, created_by.into()).into()
+pub fn taste_new_rule(scopes: Vec<TasteScope>, tilt: Tilt, label: String, created_by: TasteCreator) -> TasteRule {
+    dsp::TasteRule::new(scopes.into_iter().map(Into::into).collect(), tilt.into(), label, created_by.into()).into()
 }
 
 /// `bands` and `tilt` within the taste caps (each band ±9 dB, peaks Q 0.3..8,
@@ -817,16 +1021,135 @@ pub fn taste_curve_summary(rule: TasteRule, language: String) -> String {
     dsp::curve_summary(&rule.into(), language.to_lowercase().starts_with("es"))
 }
 
-/// Adds `rule` or replaces the one with its id / scope; the first rule turns the layers on.
+/// Adds `rule`, or replaces the one with its id; its targets win every
+/// conflict with sounds on the same outputs (`moves`, for Undo with
+/// [`taste_undo_moves`]).
+#[uniffi::export]
+pub fn taste_save(taste: TasteSettings, rule: TasteRule) -> TasteSaveResult {
+    let mut t = dsp::TasteSettings::from(taste);
+    let saved = t.upsert(rule.into());
+    TasteSaveResult {
+        taste: t.into(),
+        rule: saved.rule.into(),
+        moves: saved.moves.into_iter().map(Into::into).collect(),
+    }
+}
+
+/// [`taste_save`] when only the settings matter.
 #[uniffi::export]
 pub fn taste_upsert(taste: TasteSettings, rule: TasteRule) -> TasteSettings {
+    taste_save(taste, rule).taste
+}
+
+/// "Keep": if a sound with `rule.id` exists its curve is replaced by `rule`'s
+/// and `scope` joins it (`only_on` ignored); else `rule` becomes a new sound
+/// for `scope` that plays only on `only_on` (every output when `None`).
+#[uniffi::export]
+pub fn taste_keep(
+    taste: TasteSettings,
+    rule: TasteRule,
+    scope: TasteScope,
+    only_on: Option<String>,
+    by: TasteCreator,
+) -> Result<TasteSaveResult> {
     let mut t = dsp::TasteSettings::from(taste);
-    t.upsert(rule.into());
+    let saved = t.keep(&rule.into(), scope.into(), only_on, by.into()).map_err(taste_failed)?;
+    Ok(TasteSaveResult {
+        taste: t.into(),
+        rule: saved.rule.into(),
+        moves: saved.moves.into_iter().map(Into::into).collect(),
+    })
+}
+
+/// Puts `scope` in the sound `sound_id` and takes it out of the sounds on
+/// overlapping outputs. Already there: nothing changes.
+#[uniffi::export]
+pub fn taste_assign(
+    taste: TasteSettings,
+    sound_id: String,
+    scope: TasteScope,
+    by: TasteCreator,
+) -> Result<TasteAssignResult> {
+    let mut t = dsp::TasteSettings::from(taste);
+    let moves = t.assign(&sound_id, scope.into(), by.into()).map_err(taste_failed)?;
+    Ok(TasteAssignResult { taste: t.into(), moves: moves.into_iter().map(Into::into).collect() })
+}
+
+/// Takes `scope` out of the sound `sound_id` (the sound stays, even empty).
+#[uniffi::export]
+pub fn taste_unassign(taste: TasteSettings, sound_id: String, scope: TasteScope) -> TasteSettings {
+    let mut t = dsp::TasteSettings::from(taste);
+    t.unassign(&sound_id, &scope.into());
     t.into()
 }
 
+/// New outputs for a sound (empty = every output); its targets win every
+/// conflict that appears.
+#[uniffi::export]
+pub fn taste_set_outputs(taste: TasteSettings, sound_id: String, outputs: Vec<String>) -> Result<TasteAssignResult> {
+    let mut t = dsp::TasteSettings::from(taste);
+    let moves = t.set_outputs(&sound_id, outputs).map_err(taste_failed)?;
+    Ok(TasteAssignResult { taste: t.into(), moves: moves.into_iter().map(Into::into).collect() })
+}
+
+/// Puts each moved target back in the sound it came from.
+#[uniffi::export]
+pub fn taste_undo_moves(taste: TasteSettings, moves: Vec<TargetMove>) -> TasteSettings {
+    let mut t = dsp::TasteSettings::from(taste);
+    let moves: Vec<dsp::TargetMove> = moves.into_iter().map(Into::into).collect();
+    t.undo_moves(&moves);
+    t.into()
+}
+
+/// The sound holding exactly `scope` that plays on `output_id` (`None`: any
+/// output); output-specific sounds first.
+#[uniffi::export]
+pub fn taste_sound_covering(taste: TasteSettings, scope: TasteScope, output_id: Option<String>) -> Option<TasteRule> {
+    let t = dsp::TasteSettings::from(taste);
+    t.sound_covering(&scope.into(), output_id.as_deref()).cloned().map(Into::into)
+}
+
+/// "Try on this song": `rule` heard on the track in `now_playing` only, never
+/// saved. `None` when nothing identifies the track.
+#[uniffi::export]
+pub fn taste_audition_for(rule: TasteRule, now_playing: NowPlayingContext) -> Option<TasteAudition> {
+    dsp::TasteAudition::new(rule.into(), &now_playing.into()).map(Into::into)
+}
+
+/// Whether the "Try" still applies (the same track is playing).
+#[uniffi::export]
+pub fn taste_audition_applies(audition: TasteAudition, now_playing: NowPlayingContext) -> bool {
+    dsp::TasteAudition::from(audition).applies_to(&now_playing.into())
+}
+
+/// Target search ranking: keeps what contains `query`, dedupes (library beats
+/// Tidal), orders by match, kind, source and name, caps at `limit` and marks
+/// what a sound already covers on `output_id`.
+#[uniffi::export]
+pub fn taste_rank_targets(
+    query: String,
+    hits: Vec<TargetHit>,
+    taste: TasteSettings,
+    output_id: Option<String>,
+    limit: u32,
+) -> Vec<TargetHit> {
+    let hits = hits.into_iter().map(Into::into).collect();
+    let taste = dsp::TasteSettings::from(taste);
+    let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+    dsp::rank_targets(&query, hits, &taste, output_id.as_deref(), limit).into_iter().map(Into::into).collect()
+}
+
+/// The one-shot 1.5.0 migration (runs only on `taste.version == 0`): the master
+/// turns on if sounds existed and were on. Save both when `changed`.
+#[uniffi::export]
+pub fn taste_migrate(eq: EqSettings, taste: TasteSettings) -> MigratedSound {
+    let (mut eq, mut taste) = (dsp::EqSettings::from(eq), dsp::TasteSettings::from(taste));
+    let changed = dsp::migrate_sound(&mut eq, &mut taste);
+    MigratedSound { eq: eq.into(), taste: taste.into(), changed }
+}
+
 /// `taste` with `change` merged in, as the rules are now: removals, then
-/// upserts (by id, else by scope, keeping the stored rule's id), then the switch.
+/// upserts (by id), then the old switch.
 #[uniffi::export]
 pub fn taste_apply_change(taste: TasteSettings, change: TasteChange) -> TasteSettings {
     let mut t = dsp::TasteSettings::from(taste);
@@ -857,7 +1180,8 @@ pub fn taste_remove(taste: TasteSettings, id: String) -> TasteSettings {
     t.into()
 }
 
-/// The scopes a track offers, most specific first (for "Sound for this…").
+/// The scopes a track offers, most specific first: track, album, artist,
+/// playlist, genre (for "Sound for this…").
 #[uniffi::export]
 pub fn taste_scopes(now_playing: NowPlayingContext) -> Vec<TasteScope> {
     dsp::NowPlayingContext::from(now_playing).scopes().into_iter().map(Into::into).collect()
@@ -869,10 +1193,14 @@ pub fn taste_settings_to_json(taste: TasteSettings) -> String {
     serde_json::to_string(&dsp::TasteSettings::from(taste)).unwrap_or_else(|_| "{}".into())
 }
 
-/// Unreadable JSON gives the defaults (off, no rules); unreadable rules are dropped.
+/// Unreadable JSON gives the defaults (no rules); unreadable rules are
+/// dropped. The file's `version` is kept (0 = 1.5.0: run [`taste_migrate`]).
 #[uniffi::export]
 pub fn taste_settings_from_json(json: String) -> TasteSettings {
-    serde_json::from_str::<dsp::TasteSettings>(&json).unwrap_or_default().clamped().into()
+    let read = serde_json::from_str::<dsp::TasteSettings>(&json).unwrap_or_default();
+    let version = read.version;
+    // `clamped` stamps the current version; reading must not hide a file that still needs migrating
+    dsp::TasteSettings { version, ..read.clamped() }.into()
 }
 
 #[uniffi::export]
@@ -1131,21 +1459,28 @@ mod tests {
             source: None,
         };
         let rule = taste_new_rule(
-            TasteScope::Genre { name: "house".into() },
+            vec![TasteScope::Genre { name: "house".into() }],
             Tilt { bass_db: 3.0, treble_db: 0.0, clarity_db: None },
             "Punch".into(),
             TasteCreator::Reaction,
         );
         let taste = taste_upsert(taste_default_settings(), rule);
         assert!(taste.enabled);
-        assert_eq!(resolve_taste(taste.clone(), ctx.clone()).unwrap().rule.label, "Punch");
-        // equalizer off, taste on: a preamp and the shelf
-        let b = eq_output_biquads_with_taste(eq_default_settings(), taste.clone(), "usb".into(), ctx.clone(), 48_000);
+        let heard = resolve_taste(taste.clone(), "usb".into(), ctx.clone()).unwrap();
+        assert_eq!((heard.rule.label.as_str(), heard.auditioning), ("Punch", false));
+        assert_eq!(heard.target, TasteScope::Genre { name: "house".into() });
+        // master off: true bit-perfect, sound or not, loudness or not
+        let master = EqSettings { enabled: true, ..eq_default_settings() };
+        let off = eq_default_settings();
+        assert!(eq_output_biquads_with_taste(off.clone(), taste.clone(), "usb".into(), ctx.clone(), 48_000).is_empty());
+        assert!(sound_biquads(off, taste.clone(), None, "usb".into(), ctx.clone(), -6.0, 48_000).is_empty());
+        // master on, the sound alone: a preamp and the shelf
+        let b = eq_output_biquads_with_taste(master.clone(), taste.clone(), "usb".into(), ctx.clone(), 48_000);
         assert_eq!(b.len(), 2);
         // nothing at all: bit-perfect; loudness alone: one gain stage
         let none = taste_default_settings();
-        assert!(sound_biquads(eq_default_settings(), none.clone(), "usb".into(), ctx.clone(), 0.0, 48_000).is_empty());
-        let g = sound_biquads(eq_default_settings(), none, "usb".into(), ctx.clone(), -6.0, 48_000);
+        assert!(sound_biquads(master.clone(), none.clone(), None, "usb".into(), ctx.clone(), 0.0, 48_000).is_empty());
+        let g = sound_biquads(master, none, None, "usb".into(), ctx.clone(), -6.0, 48_000);
         assert_eq!(g.len(), 1);
         assert!((g[0].b0 - 10f64.powf(-0.3)).abs() < 1e-6);
         let json = taste_settings_to_json(taste.clone());
@@ -1178,7 +1513,7 @@ mod tests {
             note: "why".into(),
         };
         let mut rule = taste_new_rule(
-            TasteScope::Genre { name: "Rock".into() },
+            vec![TasteScope::Genre { name: "Rock".into() }],
             Tilt { bass_db: 0.0, treble_db: 0.0, clarity_db: None },
             "Less harsh".into(),
             TasteCreator::Manual,
@@ -1212,8 +1547,134 @@ mod tests {
         let mut eq = eq_default_settings();
         eq.enabled = true;
         eq.per_output.insert("usb".into(), hd650());
-        let b = sound_biquads(eq, back, "usb".into(), ctx, 0.0, 48_000);
+        let b = sound_biquads(eq, back, None, "usb".into(), ctx, 0.0, 48_000);
         assert_eq!(b.len(), 4, "preamp, the shelf and both taste bands");
+    }
+
+    fn artist(name: &str) -> TasteScope {
+        TasteScope::Artist { id: String::new(), name: name.into() }
+    }
+
+    fn playing(genre: &str) -> NowPlayingContext {
+        NowPlayingContext {
+            track_id: Some("1".into()),
+            path: None,
+            title: Some("Song".into()),
+            album: None,
+            artists: vec![],
+            genres: vec![genre.into()],
+            source: None,
+        }
+    }
+
+    #[test]
+    fn a_sound_without_scope_crosses_the_bridge_both_ways() {
+        let t = Tilt { bass_db: 2.0, treble_db: 0.0, clarity_db: None };
+        let rule = taste_new_rule(vec![artist("Eagles"), artist("Steely Dan")], t, "Warm".into(), TasteCreator::Ai);
+        assert_eq!(rule.targets.len(), 2);
+        assert!(rule.outputs.is_empty());
+        let core = dsp::TasteRule::from(rule.clone());
+        assert_eq!(core.targets.len(), 2);
+        assert_eq!(TasteRule::from(core), rule);
+        // limited to an output, saved, serialized and read back
+        let mut limited = rule;
+        limited.outputs = vec!["WH".into()];
+        let saved = taste_save(taste_default_settings(), limited);
+        assert_eq!(saved.taste.version, 1);
+        let back = taste_settings_from_json(taste_settings_to_json(saved.taste.clone()));
+        assert_eq!(back, saved.taste);
+        assert_eq!(back.rules[0].outputs, ["WH"]);
+        let written: serde_json::Value = serde_json::from_str(&taste_settings_to_json(back)).unwrap();
+        assert!(written["rules"][0].get("scope").is_none() && written["rules"][0]["targets"].is_array());
+    }
+
+    #[test]
+    fn a_1_5_0_file_keeps_its_rules_and_migrates_once() {
+        let rules: Vec<serde_json::Value> = (0..5)
+            .map(|i| {
+                serde_json::json!({
+                    "id": format!("r{i}"),
+                    "scope": {"kind": "artist", "id": "", "name": format!("Artist {i}")},
+                    "tilt": {"bassDb": 1.0, "trebleDb": 0.0, "clarityDb": null},
+                    "label": "x", "createdBy": "manual", "enabled": true
+                })
+            })
+            .collect();
+        let json = serde_json::json!({"enabled": true, "rules": rules, "intensity": "balanced"}).to_string();
+        let taste = taste_settings_from_json(json);
+        assert_eq!((taste.rules.len(), taste.version), (5, 0), "reading keeps the version so it can migrate");
+        assert!(taste.rules.iter().all(|r| r.targets.len() == 1 && r.targets[0].added_ms == 0 && r.outputs.is_empty()));
+        // the master was off: it turns on
+        let migrated = taste_migrate(eq_default_settings(), taste);
+        assert!(migrated.changed && migrated.eq.enabled && migrated.taste.version == 1);
+        // the user turns it off: it never comes back
+        let off = EqSettings { enabled: false, ..migrated.eq };
+        let again = taste_migrate(off.clone(), migrated.taste.clone());
+        assert!(!again.changed && !again.eq.enabled && again.taste == migrated.taste);
+        // a UI that drops the field and saves through the JSON helpers can't re-run it
+        let dropped = TasteSettings { version: 0, ..migrated.taste };
+        assert_eq!(taste_settings_from_json(taste_settings_to_json(dropped)).version, 0);
+    }
+
+    #[test]
+    fn sounds_assign_keep_try_and_search_through_the_bridge() {
+        let t = Tilt { bass_db: 2.0, treble_db: 0.0, clarity_db: None };
+        let a = taste_save(
+            taste_default_settings(),
+            taste_new_rule(vec![artist("Eagles")], t, "A".into(), TasteCreator::Manual),
+        );
+        let b = taste_save(a.taste, taste_new_rule(vec![], t, "B".into(), TasteCreator::Manual));
+        // assigning moves the target out of A; undo puts it back
+        let moved = taste_assign(b.taste.clone(), b.rule.id.clone(), artist("Eagles"), TasteCreator::Manual).unwrap();
+        assert_eq!(moved.moves, vec![TargetMove { target: artist("Eagles"), from: a.rule.id.clone() }]);
+        assert!(taste_sound_covering(moved.taste.clone(), artist("Eagles"), None).is_some_and(|r| r.id == b.rule.id));
+        let undone = taste_undo_moves(moved.taste.clone(), moved.moves);
+        assert!(undone.rules.iter().all(|r| r.targets.len() == 1));
+        let err = taste_assign(b.taste.clone(), "nope".into(), artist("x"), TasteCreator::Manual).unwrap_err();
+        assert!(err.to_string().contains("doesn't exist"), "{err}");
+        let outputs = taste_set_outputs(b.taste.clone(), b.rule.id.clone(), vec!["WH".into()]).unwrap();
+        assert_eq!(outputs.taste.rules[1].outputs, ["WH"]);
+        // keep: an unsaved proposal limited to one output
+        let proposal = taste_new_rule(vec![], t, "P".into(), TasteCreator::Ai);
+        let kept = taste_keep(b.taste.clone(), proposal, artist("Toto"), Some("WH".into()), TasteCreator::Ai).unwrap();
+        assert_eq!((kept.rule.outputs.clone(), kept.rule.targets.len()), (vec!["WH".to_owned()], 1));
+        // a try plays on that track only, and the master gates it
+        let attempt = taste_audition_for(kept.rule, playing("Rock")).unwrap();
+        assert!(taste_audition_applies(attempt.clone(), playing("Rock")));
+        let other = NowPlayingContext { track_id: Some("2".into()), ..playing("Rock") };
+        assert!(!taste_audition_applies(attempt.clone(), other));
+        let heard = resolve_taste_with(taste_default_settings(), "usb".into(), Some(attempt.clone()), playing("Rock"));
+        assert!(heard.is_some_and(|h| h.auditioning));
+        let master = EqSettings { enabled: true, ..eq_default_settings() };
+        let tried = sound_biquads(
+            master.clone(),
+            taste_default_settings(),
+            Some(attempt.clone()),
+            "usb".into(),
+            playing("Rock"),
+            0.0,
+            48_000,
+        );
+        assert!(!tried.is_empty());
+        assert!(sound_biquads(
+            eq_default_settings(),
+            taste_default_settings(),
+            Some(attempt),
+            "usb".into(),
+            playing("Rock"),
+            0.0,
+            48_000
+        )
+        .is_empty());
+        // hear without: no sounds, master and loudness stay
+        let without = sound_hear_without(master, b.taste);
+        assert!(without.eq.enabled && without.taste.rules.is_empty());
+        // search
+        let hit = |scope| TargetHit { scope, subtitle: String::new(), source: TargetSource::Tidal, in_sound: None };
+        let ranked = taste_rank_targets("eag".into(), vec![hit(artist("Eagles")), hit(artist("Zed"))], undone, None, 5);
+        assert_eq!(ranked.len(), 1);
+        assert_eq!(ranked[0].in_sound.as_deref(), Some(a.rule.id.as_str()));
+        assert_eq!(taste_scopes(playing("Rock")).len(), 2);
     }
 
     #[test]

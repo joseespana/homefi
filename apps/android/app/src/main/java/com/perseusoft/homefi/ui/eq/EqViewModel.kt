@@ -97,8 +97,6 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
         _selected.value = index
     }
 
-    fun setEnabled(on: Boolean) = eq.setEnabled(on)
-
     fun hold(on: Boolean) = eq.hold(on)
 
     /** A point dragged on the curve: frequency always, gain for bands that have one. */

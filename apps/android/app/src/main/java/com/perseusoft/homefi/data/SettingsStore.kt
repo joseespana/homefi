@@ -20,7 +20,9 @@ import com.perseusoft.homefi.core.TasteSettings
 import com.perseusoft.homefi.core.loudnessDefaultSettings
 import com.perseusoft.homefi.core.loudnessSettingsFromJson
 import com.perseusoft.homefi.core.loudnessSettingsToJson
+import com.perseusoft.homefi.core.MigratedSound
 import com.perseusoft.homefi.core.tasteDefaultSettings
+import com.perseusoft.homefi.core.tasteMigrate
 import com.perseusoft.homefi.core.tasteSettingsFromJson
 import com.perseusoft.homefi.core.tasteSettingsToJson
 import org.json.JSONObject
@@ -245,6 +247,10 @@ data class AppSettings(
     val signalStyle: SignalStyle = SignalStyle.COMPACT,
     /** The chain's links flow while playing (motion settings still win). */
     val signalAnimate: Boolean = true,
+    /** "Ask the AI" button in the player (it stays in the player's menu either way). */
+    val soundAssistantButton: Boolean = true,
+    /** Bass / treble / clarity sliders inside Edit curve (desktop: `eq_ui.taste_sliders`). */
+    val soundTiltSliders: Boolean = true,
     /** A taste suggestion card in the equalizer's taste rules. */
     val soundSuggestions: Boolean = true,
     /** How a taste rule's editor opens: `auto` (the curve when it has bands), `simple` or `advanced`. */
@@ -353,6 +359,8 @@ class SettingsStore(context: Context) {
         ),
         soundReactButton = prefs.getBoolean("sound_react_button", true),
         soundLayerChip = prefs.getBoolean("sound_layer_chip", true),
+        soundAssistantButton = prefs.getBoolean("sound_assistant_button", true),
+        soundTiltSliders = prefs.getBoolean("sound_tilt_sliders", true),
         signalChain = prefs.getBoolean("signal_chain", true),
         signalStyle = SignalStyle.of(prefs.getString("signal_style", null)),
         signalAnimate = prefs.getBoolean("signal_animate", true),
@@ -462,6 +470,8 @@ class SettingsStore(context: Context) {
             .putString("ai_base_urls", JSONObject(next.ai.baseUrls).toString())
             .putBoolean("sound_react_button", next.soundReactButton)
             .putBoolean("sound_layer_chip", next.soundLayerChip)
+            .putBoolean("sound_assistant_button", next.soundAssistantButton)
+            .putBoolean("sound_tilt_sliders", next.soundTiltSliders)
             .putBoolean("signal_chain", next.signalChain)
             .putString("signal_style", next.signalStyle.key)
             .putBoolean("signal_animate", next.signalAnimate)
@@ -519,7 +529,24 @@ class SettingsStore(context: Context) {
 
     // ------------------------------------------------------------ equalizer
 
-    private val _eq = MutableStateFlow(prefs.getString("eq_settings", null)?.let(::eqSettingsFromJson) ?: eqDefaultSettings())
+    /**
+     * The saved equalizer and taste settings, migrated once from 1.5.0 by the core (the master
+     * switch absorbs the old taste switch, rules get targets). Migrate BEFORE any upsert.
+     */
+    private val loadedSound: MigratedSound = run {
+        val eq = prefs.getString("eq_settings", null)?.let { runCatching { eqSettingsFromJson(it) }.getOrNull() } ?: eqDefaultSettings()
+        val taste = prefs.getString("taste_settings", null)?.let { runCatching { tasteSettingsFromJson(it) }.getOrNull() } ?: tasteDefaultSettings()
+        runCatching { tasteMigrate(eq, taste) }.getOrDefault(MigratedSound(eq, taste, false)).also { m ->
+            if (m.changed) {
+                prefs.edit()
+                    .putString("eq_settings", eqSettingsToJson(m.eq))
+                    .putString("taste_settings", tasteSettingsToJson(m.taste))
+                    .apply()
+            }
+        }
+    }
+
+    private val _eq = MutableStateFlow(loadedSound.eq)
     /** On/off, automatic preamp and the profiles per output (the core's JSON, as on the desktop). */
     val eq: StateFlow<EqSettings> = _eq.asStateFlow()
 
@@ -546,10 +573,7 @@ class SettingsStore(context: Context) {
 
     // ------------------------------------------------- taste layers, loudness
 
-    private val _taste = MutableStateFlow(
-        prefs.getString("taste_settings", null)?.let { runCatching { tasteSettingsFromJson(it) }.getOrNull() }
-            ?: tasteDefaultSettings(),
-    )
+    private val _taste = MutableStateFlow(loadedSound.taste)
     /** Taste rules (a tilt per genre, artist, album, playlist or track), the core's JSON as on the desktop. */
     val taste: StateFlow<TasteSettings> = _taste.asStateFlow()
 

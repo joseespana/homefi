@@ -19,6 +19,7 @@ import com.perseusoft.homefi.core.eqSettingsToJson
 import com.perseusoft.homefi.data.userMessage
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.player.AssistantHandoff
+import com.perseusoft.homefi.player.TryResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -163,10 +164,23 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     fun keepTalking() = _ui.update { it.copy(proposalAside = true, tasteProposal = null) }
 
-    /** The taste proposal's Apply: the assistant is told yes and saves it (it comes back in `tasteChange`). */
-    fun applyTaste() {
-        if (_ui.value.tasteProposal == null) return
-        send(getApplication<Application>().getString(R.string.assistant_apply_reply))
+    /** The proposal's Try: it plays on the song now, nothing is saved. */
+    fun tryTaste() {
+        val rule = _ui.value.tasteProposal ?: return
+        when (home.sound.tryNow(rule)) {
+            TryResult.Playing -> Unit
+            TryResult.SoundOff -> home.sound.notify(getApplication<Application>().getString(R.string.sound_turn_on_to_try))
+            TryResult.NothingPlaying -> home.sound.notify(getApplication<Application>().getString(R.string.sound_how_nothing))
+        }
+    }
+
+    /** The proposal's Keep: saved by the core for the song's artist / genre; the chat goes on. */
+    fun keepTaste() {
+        val rule = _ui.value.tasteProposal ?: return
+        val scope = home.sound.suggestedScope(rule) ?: rule.targets.firstOrNull()?.scope ?: return
+        val kept = home.sound.keepRule(rule, scope) ?: return
+        val note = getApplication<Application>().getString(R.string.sound_kept_as, kept.label)
+        _ui.update { it.copy(tasteProposal = null, proposalAside = true, lines = it.lines + ChatLine(nextId++, false, note)) }
     }
 
     private fun turn(text: String?, call: suspend (EqAssistantSession) -> AssistantTurn) {

@@ -159,22 +159,24 @@ Features:
   Download each. Album pages show their labels and "Other versions". Settings → Tidal account → Album
   versions: one card per album on / off, and which release the card shows (explicit or clean, stereo or
   Dolby Atmos, original or latest remaster; the highest quality wins among the rest).
-- **Taste layers** (also on the desktop): a sound for one genre, playlist, artist, album or track, on
-  top of the output's own equalizer profile; the most specific one plays. A layer is three knobs
-  (**Simple**: bass, treble, clarity) and / or a full parametric curve of up to 8 bands (**Advanced**:
-  peak, shelves, high- and low-pass, drawn over the output's profile with what plays dashed). Each band
-  stays within ±9 dB and the whole layer never boosts more than +12 dB; the automatic preamp covers the
-  device profile and the layer together, so nothing clips. The assistant designs curves too (narrow
-  cuts for harshness or sibilance, wide lifts for warmth) and explains every band in one line; "Ask the
-  AI to refine it" opens it on one rule. "How does it sound?" turns a tap into a change (with AI, up to
-  2 bands per tap). Settings → Sound picks which editor opens first.
+- **Sound** (also on the desktop): one screen and one switch (off is bit-perfect: no correction, no
+  sounds, no loudness). A sound is three knobs (bass, treble, clarity) and / or a parametric curve of up
+  to 8 bands (peak, shelves, high- and low-pass) on top of the output's own profile, and it applies to
+  as many songs, albums, artists, playlists and genres as you like, on every output or only some. The
+  most specific one plays: song > album > artist > playlist > genre > everything else. Add music from
+  the Playing now card, the Edit sound panel (searches your library and TIDAL), the "Sound" menu on any
+  song, album, artist or playlist, or the "By music" list; moves can be undone. "Try" plays a sound on
+  the current song without saving it; "Keep" saves it. Each band stays within ±9 dB and the whole sound
+  never boosts more than +12 dB; the automatic preamp covers the device profile and the sound together,
+  so nothing clips. Ask the AI in plain words (it explains every band in one line), or tap "How does it
+  sound?" for a quick change.
 - **Crossfade** (also on the desktop, off by default so playback stays gapless and bit-perfect):
   Settings → Playback. The next song starts while the current one fades out, 1 to 12 s, with an
   equal-power, S-curve or linear curve. "Skip the silence" fades from where the music really ends into
   where the next song starts; "Keep albums gapless" leaves consecutive songs of one album in order
   untouched; "Fade when I skip" gives next / previous / picking a song a short fade (0.5 to 3 s);
   songs shorter than twice the fade (or a length you pick) never fade. Each song keeps its own
-  equalizer, taste layer and loudness during the overlap. The phone plays the two songs on two
+  equalizer, sound and loudness during the overlap. The phone plays the two songs on two
   players; with "Turn off on slow phones" (on by default) phones with under 2 GB of memory, or that lag
   twice during fades, change songs as usual instead. The now-playing screen shows "Crossfading into …"
   while it happens.

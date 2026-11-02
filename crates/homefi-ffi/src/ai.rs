@@ -592,6 +592,9 @@ pub struct ReactionContext {
     /// Where the rule goes; `None`: the main genre (else artist, album, track).
     #[uniffi(default = None)]
     pub scope_hint: Option<TasteScope>,
+    /// Id of the output playing (sounds can be limited to outputs).
+    #[uniffi(default = None)]
+    pub active_output: Option<String>,
 }
 
 /// What a reaction changed: merge `taste_change` into the saved rules
@@ -648,6 +651,7 @@ pub async fn sound_react(
             loudness: context.loudness.into(),
             output_kind: context.output_kind.into(),
             scope_hint: context.scope_hint.map(Into::into),
+            active_output: context.active_output,
         };
         let config = config.map(|c| core_config(c, api_key));
         let r = ai::react(reaction.into(), &ctx, config.as_ref()).await;
@@ -767,7 +771,7 @@ mod tests {
         let bold = crate::eq::taste_intensity_limits(crate::eq::TasteIntensity::Bold);
         assert!(bold.main_move_min_db > balanced.main_move_max_db - 0.1 && bold.boost_db == 12.0);
         let rule = crate::eq::taste_new_rule(
-            TasteScope::Genre { name: "Rock".into() },
+            vec![TasteScope::Genre { name: "Rock".into() }],
             Tilt { bass_db: 2.0, treble_db: 0.0, clarity_db: None },
             "Rock".into(),
             TasteCreator::Ai,
@@ -796,15 +800,16 @@ mod tests {
             loudness: crate::eq::loudness_default_settings(),
             output_kind: OutputKind::Headphones,
             scope_hint: None,
+            active_output: None,
         };
         let r = sound_react(SoundReaction::NeedsBass, ctx, None, None).await;
         assert!(!r.by_ai && r.taste.enabled);
-        assert_eq!(r.rule.unwrap().scope, TasteScope::Genre { name: "Rock".into() });
+        assert_eq!(r.rule.unwrap().targets[0].scope, TasteScope::Genre { name: "Rock".into() });
         let change = r.taste_change.clone().unwrap();
         assert_eq!((change.upsert.len(), change.enabled), (1, Some(true)));
         // the listener makes another rule, then undoes the reaction: only the reaction goes
         let other = crate::eq::taste_new_rule(
-            TasteScope::Genre { name: "Jazz".into() },
+            vec![TasteScope::Genre { name: "Jazz".into() }],
             Tilt { bass_db: 1.0, treble_db: 0.0, clarity_db: None },
             "Jazz".into(),
             TasteCreator::Manual,
@@ -813,7 +818,7 @@ mod tests {
         let undo = sound_undo_on(r.undo_token.clone(), now.clone()).unwrap();
         let back = crate::eq::taste_apply_change(now, undo.taste_change.unwrap());
         assert_eq!(back.rules.len(), 1);
-        assert_eq!(back.rules[0].scope, TasteScope::Genre { name: "Jazz".into() });
+        assert_eq!(back.rules[0].targets[0].scope, TasteScope::Genre { name: "Jazz".into() });
         assert!(sound_undo(r.undo_token).is_none());
         assert_eq!(sound_reaction_label(SoundReaction::Dull, "es-MX".into()), "Apagado");
     }

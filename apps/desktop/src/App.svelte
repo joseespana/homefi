@@ -22,12 +22,12 @@
   import Search from "./components/Search.svelte";
   import TidalItem from "./components/TidalItem.svelte";
   import Settings from "./components/Settings.svelte";
-  import Equalizer from "./components/eq/Equalizer.svelte";
+  import Sound from "./components/sound/Sound.svelte";
   import Assistant from "./components/eq/Assistant.svelte";
   import PlaylistPicker from "./components/PlaylistPicker.svelte";
   import NewPlaylist from "./components/NewPlaylist.svelte";
   import ConfirmDialog from "./components/ConfirmDialog.svelte";
-  import SoundFor from "./components/sound/SoundFor.svelte";
+  import SoundMenu from "./components/sound/SoundMenu.svelte";
   import { sound } from "./lib/sound.svelte";
   import Notifications from "./components/Notifications.svelte";
   import UpdateBanner from "./components/UpdateBanner.svelte";
@@ -112,7 +112,13 @@
     // a confirmation is open: keys belong to it (Space presses its focused button)
     if (app.confirmDialog) return;
     const target = e.target as HTMLElement;
-    if (target.closest("input, textarea, select") && (target as HTMLInputElement).type !== "range") return;
+    if (target.closest("input, textarea, select, [contenteditable]") && (target as HTMLInputElement).type !== "range") return;
+    // A = Ask the AI for a sound (opens Sound with the panel ready)
+    if (e.key.toLowerCase() === "a" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+      e.preventDefault();
+      sound.openAsk();
+      return;
+    }
     const src = shownSource;
     const p = src.player;
     const mod = e.metaKey || e.ctrlKey;
@@ -195,8 +201,8 @@
         <Downloads />
       {:else if app.view.name === "settings"}
         <Settings />
-      {:else if app.view.name === "eq"}
-        <Equalizer />
+      {:else if app.view.name === "sound"}
+        <Sound />
       {:else if app.view.name === "assistant"}
         <Assistant />
       {:else if app.view.name === "guest"}
@@ -220,7 +226,7 @@
 {#if share.panelOpen}<SharePanel />{/if}
 {#if share.joinForm}<JoinDialog />{/if}
 {#if offerHere}<NearbyBanner />{/if}
-{#if sound.forScope}<SoundFor />{/if}
+{#if sound.menu}<SoundMenu scope={sound.menu.scope} label={sound.menu.label} x={sound.menu.x} y={sound.menu.y} onclose={() => (sound.menu = null)} />{/if}
 {#if updates.banner}<UpdateBanner />{/if}
 {#if app.confirmDialog}<ConfirmDialog />{/if}
 <Notifications />

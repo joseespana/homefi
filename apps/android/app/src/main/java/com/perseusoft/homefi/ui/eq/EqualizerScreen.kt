@@ -78,11 +78,7 @@ import com.perseusoft.homefi.core.EqBand
 import com.perseusoft.homefi.core.EqBandKind
 import com.perseusoft.homefi.core.eqAutoPreamp
 import com.perseusoft.homefi.homefi
-import com.perseusoft.homefi.player.EqTab
 import com.perseusoft.homefi.player.Equalizer
-import com.perseusoft.homefi.ui.sound.TasteRulesTab
-import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.Tab
 import com.perseusoft.homefi.ui.ConfirmDialog
 import com.perseusoft.homefi.ui.SelectChip
 import com.perseusoft.homefi.ui.haptics
@@ -94,13 +90,14 @@ import com.perseusoft.homefi.ui.theme.SkinHeading
 import com.perseusoft.homefi.ui.theme.numeric
 
 /**
- * The equalizer: on/off, which output's profile to edit, the response curve with draggable
- * bands, the band list, preamp, taste, presets, AutoEq search and the way to the assistant.
- * Everything is heard as it changes.
+ * The output's own curve ("Everything else" in Sound): which output's profile to edit, the
+ * response curve with draggable bands, the band list, preamp, taste, presets, AutoEq search
+ * and the way to the assistant. Everything is heard as it changes. The master switch lives
+ * in the Sound screen.
  */
 @OptIn(ExperimentalFoundationApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-fun EqualizerScreen(onClose: () -> Unit, onAssistant: () -> Unit, vm: EqViewModel = viewModel()) {
+fun OutputCurveEditor(onClose: () -> Unit, onAssistant: () -> Unit, vm: EqViewModel = viewModel()) {
     BackHandler(onBack = onClose)
     LaunchedEffect(Unit) { vm.reopen() }
     val app = LocalContext.current.homefi
@@ -129,30 +126,13 @@ fun EqualizerScreen(onClose: () -> Unit, onAssistant: () -> Unit, vm: EqViewMode
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.back)) }
             Text(
-                stringResource(R.string.eq_title),
+                stringResource(R.string.sound_output_curve_title),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f),
             )
-            Switch(
-                checked = settings.enabled,
-                onCheckedChange = { v -> haptics.toggle(v); vm.setEnabled(v) },
-                modifier = Modifier.padding(end = 12.dp),
-            )
         }
 
-        val eqTab by eq.tab.collectAsStateWithLifecycle()
-        PrimaryTabRow(selectedTabIndex = eqTab.ordinal) {
-            EqTab.entries.forEach { t ->
-                Tab(
-                    selected = eqTab == t,
-                    onClick = { if (eqTab != t) haptics.tick(); eq.selectTab(t) },
-                    text = { Text(stringResource(if (t == EqTab.EQUALIZER) R.string.eq_tab_equalizer else R.string.sound_rules), maxLines = 1) },
-                )
-            }
-        }
-
-        if (eqTab == EqTab.TASTE) Box(Modifier.weight(1f)) { TasteRulesTab() } else
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
             // what the switch means for the signal
             Note(

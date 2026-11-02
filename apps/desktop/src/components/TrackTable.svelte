@@ -23,6 +23,15 @@
     app.openQueueMenu(e, track.title, (next) => app.queueFiles([track.path], track.title, next), { kind: "track", id: track.path, name: track.title });
   }
 
+  // dev screenshot hook: ?soundmenu opens the queue menu (with "Sound ▸") on the first row
+  let hooked = false;
+  $effect(() => {
+    const first = tracks[0];
+    if (!import.meta.env.DEV || hooked || !first || !new URLSearchParams(location.search).has("soundmenu")) return;
+    hooked = true;
+    app.queueMenu = { label: first.title, x: 420, y: 260, run: () => {}, sound: { scope: { kind: "track", id: first.path, name: first.title }, label: first.title } };
+  });
+
   // the track being heard pauses / resumes instead of starting over
   function play(index: number) {
     if (tracks[index]?.path === currentPath) return api.toggle();

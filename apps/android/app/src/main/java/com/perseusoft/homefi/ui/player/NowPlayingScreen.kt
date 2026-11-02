@@ -3,6 +3,7 @@ package com.perseusoft.homefi.ui.player
 import androidx.compose.material3.HorizontalDivider
 import com.perseusoft.homefi.player.EqPanel
 import com.perseusoft.homefi.ui.sound.HowSoundsButton
+import com.perseusoft.homefi.ui.sound.AskAiButton
 import com.perseusoft.homefi.ui.sound.SoundBadge
 import androidx.compose.material.icons.rounded.Hearing
 
@@ -394,15 +395,26 @@ private fun PlayerActions(
             val app = LocalContext.current.homefi
             val eqActive by app.equalizer.active.collectAsStateWithLifecycle()
             DropdownMenuItem(
-                text = { Text(stringResource(R.string.eq_title)) },
+                text = { Text(stringResource(R.string.sound_title)) },
                 leadingIcon = {
                     Icon(Icons.Rounded.GraphicEq, null, tint = if (eqActive) MaterialTheme.colorScheme.primary else LocalContentColor.current)
                 },
                 onClick = {
                     menu = false
-                    app.equalizer.open(EqPanel.EQUALIZER)
+                    app.equalizer.open(EqPanel.SOUND)
                 },
             )
+            // "Ask the AI" is always here, whatever the button setting says
+            if (playerCapabilities().remoteName == null) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.sound_ask_ai)) },
+                    leadingIcon = { Icon(com.perseusoft.homefi.ui.AiIcon, null) },
+                    onClick = {
+                        menu = false
+                        app.sound.askAssistantWith(null)
+                    },
+                )
+            }
             // "How does it sound?" is always here, whatever the button setting says
             if (playerCapabilities().remoteName == null) {
                 DropdownMenuItem(
@@ -666,6 +678,7 @@ private fun Info(slot: TrackSlot, centered: Boolean, modifier: Modifier = Modifi
                 current?.quality?.let { QualityBadge(it) }
                 EqBadge(remote = caps.remoteName != null)
             }
+            AskAiButton(remote = caps.remoteName != null || current == null)
             HowSoundsButton(remote = caps.remoteName != null || current == null)
             if (id != null && caps.canDownload) {
                 // streaming from Tidal: one tap keeps it

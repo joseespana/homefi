@@ -12,7 +12,7 @@
   import NowActions from "./NowActions.svelte";
   import { lyrics } from "../lib/lyrics.svelte";
   import { pop, swap } from "../lib/motion";
-  import { sound } from "../lib/sound.svelte";
+  import { layersWords, sound } from "../lib/sound.svelte";
   import HowSounds from "./sound/HowSounds.svelte";
 
   let { queueOpen = $bindable(false) }: { queueOpen?: boolean } = $props();
@@ -62,12 +62,8 @@
   const outputLabel = $derived(p?.stream?.device ?? p?.preferred_device ?? "System default");
   // 0..1 mini level bars in the deck
   const level = $derived(Math.max(visual.vuLeft, visual.vuRight));
-  // "HD 650 + Electronic": the output's profile and the taste layer playing
-  const layers = $derived.by(() => {
-    if (!p?.eq_active) return null;
-    const rule = p.taste_rule ? sound.taste.rules.find((r) => r.id === p.taste_rule) : null;
-    return [p.eq_profile, rule?.scope.name ?? p.taste_label].filter(Boolean).join(" + ") || null;
-  });
+  // "HD 650 + Warm and airy · Eagles": the output's profile and the sound playing
+  const layers = $derived(p?.eq_active ? layersWords(p) : null);
   const loudness = $derived(Math.abs(p?.loudness_db ?? 0) >= 0.05 ? (p?.loudness_db ?? 0) : null);
 </script>
 
@@ -86,7 +82,7 @@
             <div class="chip">
               <span class="led" class:warn={p.stream.resampled}></span>
               <span class="fmt"><span class="codec">{p.stream.codec.toUpperCase()}&nbsp;</span>{p.stream.bits_per_sample ? `${p.stream.bits_per_sample}/` : ""}{khz(p.stream.source_rate)}{#if p.stream.resampled}&nbsp;→ {khz(p.stream.output_rate)}{/if}</span>
-              {#if p.eq_active}<span class="eq-tag ellipsis" title={`Equalizer on: ${layers ?? "on"} (not bit-perfect)`}>EQ{#if sound.ui.layer_chip && layers}<span class="layers">&nbsp;· {layers}</span>{/if}</span>{/if}
+              {#if p.eq_active}<span class="eq-tag ellipsis" title={`Sound on: ${layers ?? "on"}${p.auditioning ? " (trying)" : ""} (not bit-perfect)`}>{p.auditioning ? "Trying" : "EQ"}{#if sound.ui.layer_chip && layers}<span class="layers">&nbsp;· {layers}</span>{/if}</span>{/if}
               {#if loudness !== null}<span class="eq-tag loud" title="Loudness normalization: not bit-perfect">{loudness > 0 ? "+" : "−"}{Math.abs(loudness).toFixed(1)} dB</span>{/if}
               {#if p.fading}<span class="eq-tag fade" style:--p={p.fading.progress} title={`Crossfading (${p.fading.seconds.toFixed(1)} s): not bit-perfect until it ends`}>Fade</span>{/if}
             </div>
@@ -154,14 +150,19 @@
     {#if sound.ui.react_deck && !src.remote}
       <HowSounds place="deck" look="hw" up />
     {/if}
+    {#if sound.ui.assistant_deck && !src.remote}
+      <button class="hw small" class:active={sound.askOpen && app.view.name === "sound"} title="Ask the AI for a sound (A)" aria-label="Ask the AI" onclick={() => sound.openAsk()}>
+        <Icon name="ai" size={16} />
+      </button>
+    {/if}
     {#if app.settings?.eq_ui?.deck_button ?? true}
       <button
         class="hw small eq-btn"
         class:on={!src.remote && p?.eq_active}
-        class:active={app.view.name === "eq"}
-        title={p?.eq_active ? `Equalizer: ${layers ?? "on"} (not bit-perfect)` : app.settings?.eq.enabled ? "Equalizer: on, flat for this output" : "Equalizer: off (bit-perfect)"}
-        aria-label="Equalizer"
-        onclick={() => (app.view = app.view.name === "eq" ? { name: "room" } : { name: "eq" })}
+        class:active={app.view.name === "sound"}
+        title={p?.eq_active ? `Sound: ${layers ?? "on"} (not bit-perfect)` : app.settings?.eq.enabled ? "Sound: on, flat for this output" : "Sound: off (bit-perfect)"}
+        aria-label="Sound"
+        onclick={() => (app.view = app.view.name === "sound" ? { name: "room" } : { name: "sound" })}
       >
         <Icon name="eq" size={16} />
         {#if !src.remote && p?.eq_active}<span class="eq-dot"></span>{/if}

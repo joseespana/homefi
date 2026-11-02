@@ -1037,6 +1037,12 @@ pub fn forget_local_playlists() {
     *LOCAL_PLAYLISTS.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
+/// The .m3u files already found for the current folders (no disk walk).
+pub fn cached_local_playlists(roots: &[PathBuf]) -> Option<Arc<Vec<LocalPlaylistView>>> {
+    let guard = LOCAL_PLAYLISTS.lock().unwrap_or_else(|e| e.into_inner());
+    guard.as_ref().filter(|(seen, _)| seen == roots).map(|(_, lists)| lists.clone())
+}
+
 #[tauri::command]
 pub async fn local_playlists(state: State<'_, AppState>) -> CmdResult<Arc<Vec<LocalPlaylistView>>> {
     let roots = state.settings().library_roots();
@@ -1436,7 +1442,11 @@ pub fn get_settings(state: State<'_, AppState>) -> DesktopSettings {
 pub async fn set_settings(app: AppHandle, settings: DesktopSettings) -> CmdResult<DesktopSettings> {
     let state = app.state::<AppState>();
     let before = state.settings();
-    let saved = state.save_settings(|s| *s = settings)?;
+    // `version` is stamped, so a UI that drops it can't re-run the 1.5.0 migration
+    let saved = state.save_settings(|s| {
+        *s = settings;
+        s.taste = s.taste.clamped();
+    })?;
     crate::share::on_settings(&app, &before, &saved);
     if before.eq != saved.eq {
         crate::eq::apply(&app, &saved.eq);

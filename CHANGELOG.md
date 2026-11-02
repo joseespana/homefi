@@ -7,6 +7,39 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+One Sound screen instead of the equalizer and its taste rules, built around what is playing now, on
+desktop and Android.
+
+### Added
+- Sound: one sound can apply to many songs, albums, artists, playlists and genres, and can be limited
+  to some outputs ("only on my WH-1000XM5"). Add or remove music from the Playing now card, the
+  Edit sound panel (search your library and TIDAL) or the new "Sound ▸" menu on any song, album,
+  artist or playlist. Moving music between sounds can be undone for 8 seconds.
+- Try: hear a sound (yours or one the AI proposes) on the song playing without saving it; Keep saves it
+  for that song, album, artist or playlist. Leaving the song ends the try.
+- "By music": every song, album, artist, playlist and genre with its sound, sortable and filterable,
+  to move or remove them in one place.
+- Ask the AI from the Sound screen (inline chat), the player ("Ask the AI" button, a setting) and the
+  `A` key on desktop; a floating button and a bottom sheet on Android.
+- Settings → Sound: the "Ask the AI" player button, and the bass / treble / clarity sliders inside
+  Edit curve (now on Android too).
+
+### Changed
+- One switch: Sound on or off. Off is truly bit-perfect: no headphone correction, no sounds and no
+  loudness normalization.
+- Precedence is now song > album > artist > playlist > genre > everything else (an artist's sound
+  wins over a playlist's).
+- Settings from 1.5.0 are converted once: each taste rule becomes a sound for its music on all
+  outputs, and Sound is switched on if your taste layers were on. If you had the equalizer on but
+  taste layers off, your saved layers now play: remove them in Sound → By music if you don't want them.
+
+### Removed
+- The separate taste layers switch and the equalizer's "Taste" tab (everything lives in Sound).
+
+### Fixed
+- Desktop: the equalizer said "Off · bit-perfect" while a taste layer was still playing.
+- The AI suggestion card no longer stays on its loading dots when the AI doesn't answer.
+
 ## [1.5.0] - 2026-10-30
 
 ### Fixed

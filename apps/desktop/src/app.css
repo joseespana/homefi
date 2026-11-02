@@ -59,6 +59,12 @@
   --badge-bg: #0b4f70;
   --badge-text: #d7f0fd;
   --danger: #f87171;
+  /* Sound: the AI tag and the amber "moves from…" note (text >= 4.5:1 on their own tint, light and dark) */
+  --ai-tag-bg: rgb(167 139 250 / 0.22);
+  --ai-tag-text: #d9ccff;
+  --warn: #fbbf24;
+  --warn-bg: rgb(251 191 36 / 0.12);
+  --warn-border: rgb(251 191 36 / 0.45);
   --ok: #4ade80;
   --shadow: 0 12px 32px rgb(0 0 0 / 0.45);
 
@@ -102,6 +108,11 @@
     --viz-grid: rgb(11 30 58 / 0.1);
     --ok: #15803d;
     --danger: #dc2626;
+    --ai-tag-bg: rgb(109 40 217 / 0.12);
+    --ai-tag-text: #5b21b6;
+    --warn: #92400e;
+    --warn-bg: rgb(217 119 6 / 0.12);
+    --warn-border: rgb(180 83 9 / 0.45);
   }
 }
 :root[data-theme="light"] {
@@ -130,6 +141,11 @@
   --room-bg: var(--room-paper);
   --viz-peak: var(--room-ink);
   --viz-grid: rgb(11 30 58 / 0.1);
+  --ai-tag-bg: rgb(109 40 217 / 0.12);
+  --ai-tag-text: #5b21b6;
+  --warn: #92400e;
+  --warn-bg: rgb(217 119 6 / 0.12);
+  --warn-border: rgb(180 83 9 / 0.45);
 }
 
 * {

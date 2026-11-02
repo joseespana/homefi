@@ -35,14 +35,10 @@ pub fn eq_set(app: AppHandle, settings: EqSettings) -> CmdResult<EqSettings> {
     Ok(saved.eq)
 }
 
-/// "Hear without EQ": while `on` the player runs flat; nothing is saved.
+/// "Hear without": while `on` the player runs flat (no output profiles, no
+/// sounds, no Try); nothing is saved. Loudness stays: same level, fair comparison.
 #[tauri::command(async)]
 pub fn eq_bypass(app: AppHandle, on: bool) {
-    let mut eq = app.state::<AppState>().settings().eq;
-    if on {
-        eq.enabled = false;
-    }
-    apply(&app, &eq);
     crate::sound::bypass(&app, on);
 }
 

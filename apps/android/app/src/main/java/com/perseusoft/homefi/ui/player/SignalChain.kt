@@ -84,7 +84,6 @@ import com.perseusoft.homefi.data.SignalStyle
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.player.AudioOutput
 import com.perseusoft.homefi.player.EqPanel
-import com.perseusoft.homefi.player.EqTab
 import com.perseusoft.homefi.player.NowPlaying
 import com.perseusoft.homefi.player.OutputKind
 import com.perseusoft.homefi.player.isFilePath
@@ -341,7 +340,7 @@ fun SignalChain(
             onDismiss = { open = null },
             onOpenEqualizer = {
                 open = null
-                app.equalizer.open(EqPanel.EQUALIZER, if (facts.rule != null && facts.eqName == null) EqTab.TASTE else null)
+                app.equalizer.open(EqPanel.SOUND)
             },
             onChangeOutput = {
                 open = null
@@ -700,7 +699,7 @@ private fun chainNodes(f: ChainFacts): List<Node> {
     if (f.eqShown) {
         val caption = stringResource(R.string.signal_stage_eq)
         val profile = f.eqName?.let { it.ifBlank { stringResource(R.string.eq_custom) } }
-        val taste = f.rule?.let { r -> r.label.ifBlank { r.scope.name() }.ifBlank { null } }
+        val taste = f.rule?.let { r -> r.label.ifBlank { r.targets.firstOrNull()?.scope?.name().orEmpty() }.ifBlank { null } }
         val text = profile ?: taste ?: stringResource(R.string.eq_custom)
         val extra = taste.takeIf { profile != null }
         nodes += Node(
@@ -836,7 +835,7 @@ private fun EqDetails(f: ChainFacts, onOpen: () -> Unit) {
     }
     val r = f.rule
     if (r != null) {
-        Fact(R.string.signal_taste, listOf(r.label.ifBlank { r.scope.phrase() }, LocalContext.current.homefi.sound.ruleWords(r)).joinToString(" · "))
+        Fact(R.string.signal_taste, listOf(r.label.ifBlank { r.targets.firstOrNull()?.scope?.name().orEmpty() }, LocalContext.current.homefi.sound.ruleWords(r)).joinToString(" · "))
         if (r.bands.isNotEmpty()) Fact(R.string.signal_taste_bands, stringResource(R.string.signal_taste_bands_value, r.bands.count { it.band.enabled }, r.bands.size))
         Fact(R.string.signal_profile_source, r.createdBy.label())
     } else {

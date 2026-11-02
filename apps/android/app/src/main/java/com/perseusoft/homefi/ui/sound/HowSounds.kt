@@ -55,11 +55,11 @@ import com.perseusoft.homefi.core.SoundReaction
 import com.perseusoft.homefi.core.TasteScope
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.player.EqPanel
-import com.perseusoft.homefi.player.EqTab
 import com.perseusoft.homefi.player.SoundLayers
 import com.perseusoft.homefi.ui.SelectChip
 import com.perseusoft.homefi.ui.haptics
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * "How does it sound?": where the change goes (Auto = the main genre, or a scope the user
@@ -75,7 +75,7 @@ fun HowSoundsSheet(onDismiss: () -> Unit) {
     val haptics = haptics()
     val scopes = now.scopes
     // Auto: the layer that plays now (a narrower rule would hide a new genre rule), else the main genre
-    val playingScope = now.rule?.scope
+    val playingScope = now.target
     val auto = remember(scopes, playingScope) {
         playingScope?.let { r -> scopes.firstOrNull { SoundLayers.sameScope(it, r) } ?: r } ?: autoScope(scopes)
     }
@@ -167,7 +167,7 @@ fun HowSoundsSheet(onDismiss: () -> Unit) {
                         modifier = Modifier.weight(1f),
                     )
                 }
-                TextButton(onClick = { onDismiss(); app.equalizer.open(EqPanel.EQUALIZER, EqTab.TASTE) }) { Text(stringResource(R.string.sound_rules)) }
+                TextButton(onClick = { onDismiss(); app.equalizer.open(EqPanel.SOUND) }) { Text(stringResource(R.string.sound_rules)) }
             }
         }
     }
@@ -203,77 +203,26 @@ fun SoundNotices(host: SnackbarHostState) {
     val undo = stringResource(R.string.sound_undo)
     LaunchedEffect(host) {
         app.sound.notices.collect { n ->
-            if (n.undoToken != null) haptics.confirm()
+            val undoable = n.undoToken != null || n.moves.isNotEmpty()
+            if (undoable) haptics.confirm()
             launch {
                 host.currentSnackbarData?.dismiss()
-                val result = host.showSnackbar(
-                    n.message,
-                    actionLabel = n.undoToken?.let { undo },
-                    withDismissAction = n.undoToken == null,
-                    duration = if (n.undoToken != null) SnackbarDuration.Long else SnackbarDuration.Short,
-                )
-                val token = n.undoToken
-                if (result == SnackbarResult.ActionPerformed && token != null) app.sound.undo(token)
+                // moves wait 8 s for an Undo, then go away by themselves
+                val result = withTimeoutOrNull(UNDO_WINDOW_MS) {
+                    host.showSnackbar(
+                        n.message,
+                        actionLabel = if (undoable) undo else null,
+                        withDismissAction = !undoable,
+                        duration = if (n.moves.isNotEmpty()) SnackbarDuration.Indefinite else if (undoable) SnackbarDuration.Long else SnackbarDuration.Short,
+                    )
+                }
+                if (result == SnackbarResult.ActionPerformed) {
+                    n.undoToken?.let(app.sound::undo)
+                    if (n.moves.isNotEmpty()) app.sound.undoMoves(n.moves)
+                }
             }
         }
     }
 }
 
-/**
- * "Sound for this…" on an album, playlist or artist: ask the assistant about it, or set a
- * tilt by hand (the rule is saved and heard when that music plays).
- */
-@Composable
-fun SoundForDialog(scope: TasteScope, onDismiss: () -> Unit) {
-    val app = LocalContext.current.homefi
-    val taste by app.sound.taste.collectAsStateWithLifecycle()
-    val existing = remember(taste, scope) { app.sound.ruleFor(scope) }
-    var manual by rememberSaveable { mutableStateOf(false) }
-    val haptics = haptics()
-    val phrase = scope.phrase()
-    if (manual) {
-        val aiOn = remember { app.ai.hasProvider() }
-        TasteRuleDialog(
-            title = stringResource(R.string.sound_for_title, phrase),
-            subtitle = stringResource(R.string.sound_for_hint, phrase),
-            scope = scope,
-            initial = existing,
-            onDismiss = onDismiss,
-            onSave = { tilt, bands, label ->
-                app.sound.setRule(scope, tilt, label, bands = bands)
-                onDismiss()
-            },
-            onDelete = existing?.let { r -> { app.sound.removeRule(r.id); onDismiss() } },
-            onRefine = if (aiOn) { tilt, bands, label ->
-                app.sound.setRule(scope, tilt, label, bands = bands)
-                app.sound.ruleFor(scope)?.let(app.sound::refine)
-                onDismiss()
-            } else null,
-        )
-        return
-    }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = { Icon(scope.icon(), null) },
-        title = { Text(stringResource(R.string.sound_for_title, phrase), maxLines = 2, overflow = TextOverflow.Ellipsis) },
-        text = {
-            Column {
-                Text(stringResource(R.string.sound_for_hint, phrase))
-                existing?.let {
-                    Spacer(Modifier.size(8.dp))
-                    Text(
-                        stringResource(R.string.sound_for_existing, "${it.label} · ${app.sound.ruleWords(it)}"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { haptics.press(); app.sound.askAssistant(scope) }) { Text(stringResource(R.string.sound_for_ask)) }
-        },
-        dismissButton = {
-            TextButton(onClick = { haptics.tick(); manual = true }) { Text(stringResource(R.string.sound_for_manual)) }
-        },
-    )
-}
+private const val UNDO_WINDOW_MS = 8_000L

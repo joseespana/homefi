@@ -1,31 +1,30 @@
 <script lang="ts">
-  // The equalizer screen: a profile per output (and a default for the rest),
-  // an editable curve, the band list, preamp, presets, AutoEq headphone
-  // corrections, taste sliders and "Hear without EQ". Every change is applied
-  // live a moment later (lib/eq.svelte.ts).
+  // An output's own curve ("Everything else"): a profile per output (and a
+  // default for the rest), an editable curve, the band list, preamp, presets
+  // and AutoEq headphone corrections ("Find my headphones"). Opened from the
+  // Sound screen as a side panel. Every change is applied live a moment later
+  // (lib/eq.svelte.ts).
   import { onDestroy, untrack } from "svelte";
-  import { api, EQ_LIMITS, errorText, outputIcon, type EqBandKind, type EqProfile, type EqUiSettings, type HeadphoneEntry, type Tilt } from "../../lib/api";
+  import { api, EQ_LIMITS, errorText, outputIcon, type EqBandKind, type EqProfile, type EqUiSettings, type HeadphoneEntry } from "../../lib/api";
   import { OTHER_OUTPUTS, clamp, copyProfile, eq, flatProfile, formatDb, newBand, sourceLabel } from "../../lib/eq.svelte";
-  import { pop, rise } from "../../lib/motion";
+  import { pop } from "../../lib/motion";
   import { app } from "../../lib/state.svelte";
+  import HearWithout from "../sound/HearWithout.svelte";
+  import SidePanel from "../sound/SidePanel.svelte";
   import Icon from "../Icon.svelte";
   import BandList from "./BandList.svelte";
   import EqGraph from "./EqGraph.svelte";
   import HeadphoneSearch from "./HeadphoneSearch.svelte";
-  import TasteRules from "../sound/TasteRules.svelte";
-  import { sound } from "../../lib/sound.svelte";
+
+  let { output = null, onclose }: { output?: string | null; onclose: () => void } = $props();
 
   const FLAT = flatProfile();
   const UI_DEFAULTS: EqUiSettings = { deck_button: true, ab_mode: "hold", band_labels: true, taste_sliders: true };
   const ui = $derived({ ...UI_DEFAULTS, ...(app.settings?.eq_ui ?? {}) });
 
-  let tab = $state<"device" | "taste">("device");
   $effect(() => {
-    const v = app.view;
-    untrack(() => {
-      eq.load(v.name === "eq" ? v.output : undefined);
-      tab = v.name === "eq" && v.tab === "taste" ? "taste" : "device";
-    });
+    const o = output;
+    untrack(() => eq.load(o ?? undefined));
   });
   // saved elsewhere (Settings → Sound, the assistant): shown here too
   $effect(() => {
@@ -39,46 +38,16 @@
   const targetLabel = $derived(eq.target === OTHER_OUTPUTS ? "other outputs" : eq.target);
   const playingOn = $derived(eq.playingOn);
   let selected = $state<number | null>(null);
+  let bypass = $state(false);
 
-  // the target changed: nothing is selected, the taste starts again
   $effect(() => {
     eq.target;
-    untrack(() => {
-      selected = null;
-      resetTaste();
-    });
+    untrack(() => (selected = null));
   });
-
-  // ------------------------------------------------------------ status
-  const playingActive = $derived(!!app.player?.eq_active);
-  // "HD 650 + Electronic": the output's profile and the taste layer playing
-  const layers = $derived.by(() => {
-    const p = app.player;
-    const rule = p?.taste_rule ? sound.taste.rules.find((r) => r.id === p.taste_rule) : null;
-    return [p?.eq_profile, rule?.scope.name ?? p?.taste_label].filter(Boolean).join(" + ") || profile?.name || null;
-  });
-  let bypass = $state(false);
-  const status = $derived.by(() => {
-    const dev = playingOn ?? "this computer";
-    if (bypass) return { tone: "ok", text: `Hearing without EQ: bit-perfect on ${dev}. ${ui.ab_mode === "hold" ? "Let go" : "Click again"} to hear it with EQ.` };
-    if (!s?.enabled) return { tone: "ok", text: `Off · bit-perfect: the music reaches ${dev} untouched.` };
-    if (playingActive) return { tone: "warn", text: `On · “${layers ?? "EQ"}” on ${dev}. The sound is processed, so it isn't bit-perfect.` };
-    return { tone: "ok", text: `On, but flat for ${dev}: nothing is changed, still bit-perfect.` };
-  });
-
-  function setBypass(on: boolean) {
-    if (bypass === on) return;
-    bypass = on;
-    api.eqBypass(on).catch((e) => (eq.error = errorText(e)));
-  }
-  onDestroy(() => {
-    if (bypass) api.eqBypass(false);
-    eq.flush();
-  });
+  onDestroy(() => eq.flush());
 
   // ------------------------------------------------------------ edits
   function editBand(i: number, patch: Partial<{ freqHz: number; gainDb: number; q: number; kind: EqBandKind; enabled: boolean }>) {
-    resetTaste();
     eq.edit((p) => {
       const b = p.bands[i];
       if (!b) return;
@@ -91,14 +60,12 @@
   }
   function addBand(freqHz?: number, gainDb = 0) {
     if ((profile?.bands.length ?? 0) >= EQ_LIMITS.maxBands) return;
-    resetTaste();
     eq.edit((p) => {
       p.bands.push(newBand(p.bands, freqHz, gainDb));
       selected = p.bands.length - 1;
     });
   }
   function removeBand(i: number) {
-    resetTaste();
     eq.edit((p) => p.bands.splice(i, 1));
     selected = null;
   }
@@ -113,32 +80,6 @@
   });
   const preamp = $derived(s?.autoPreamp ? autoValue : (profile?.preampDb ?? 0));
 
-  // ------------------------------------------------------------ taste
-  const ZERO: Required<Tilt> = { bassDb: 0, trebleDb: 0, clarityDb: 0 };
-  let tilt = $state<Required<Tilt>>({ ...ZERO });
-  let tasteBase: EqProfile | null = null;
-  let tasteSeq = 0;
-  function resetTaste() {
-    tasteBase = null;
-    tilt = { ...ZERO };
-  }
-  async function setTaste(key: keyof Tilt, value: number) {
-    tasteBase ??= copyProfile(profile ?? flatProfile());
-    tilt = { ...tilt, [key]: value };
-    const my = ++tasteSeq;
-    try {
-      const next = await api.eqWithTaste(tasteBase, tilt);
-      if (my === tasteSeq) eq.setProfile(next);
-    } catch (e) {
-      eq.error = errorText(e);
-    }
-  }
-  const TASTE: { key: keyof Tilt; label: string; hint: string }[] = [
-    { key: "bassDb", label: "Bass", hint: "Warmth and punch, below 150 Hz" },
-    { key: "trebleDb", label: "Treble", hint: "Air and sparkle, above 8 kHz" },
-    { key: "clarityDb", label: "Clarity", hint: "Voices and detail, around 3 kHz" },
-  ];
-
   // ------------------------------------------------------------ presets
   const presets = $derived(app.settings?.eq_presets ?? []);
   let presetsOpen = $state(false);
@@ -146,7 +87,6 @@
   let renaming = $state<{ index: number; name: string } | null>(null);
 
   function usePreset(p: EqProfile) {
-    resetTaste();
     selected = null;
     eq.setProfile(copyProfile(p));
     presetsOpen = false;
@@ -181,7 +121,6 @@
 
   // ------------------------------------------------------------ AutoEq
   function applyHeadphones(p: EqProfile, entry: HeadphoneEntry) {
-    resetTaste();
     selected = null;
     eq.setProfile(p);
     if (!s?.enabled) eq.update((x) => (x.enabled = true));
@@ -191,34 +130,14 @@
   const targets = $derived([...eq.outputs.map((o) => ({ ...o, id: o.name, label: o.name })), { id: OTHER_OUTPUTS, name: "", label: "Other outputs", connected: true }]);
 </script>
 
-{#if s}
-<div class="eq">
-  <header class="head">
-    <div class="titles">
-      <h1>Equalizer</h1>
-      <p class="status {status.tone}" aria-live="polite"><span class="led"></span>{status.text}</p>
-    </div>
-    <div class="actions">
-      <button class="btn tonal" onclick={() => (app.view = { name: "assistant" })}><Icon name="ai" size={16} /> Set up my sound</button>
-      <label class="switch" title={s.enabled ? "Turn the equalizer off" : "Turn the equalizer on"}>
-        <input type="checkbox" role="switch" checked={s.enabled} onchange={(e) => eq.update((x) => (x.enabled = e.currentTarget.checked))} />
-        <span class="track"><span class="thumb"></span></span>
-        <b>{s.enabled ? "On" : "Off"}</b>
-      </label>
-    </div>
-  </header>
+<SidePanel label="Output curve" wide {onclose}>
+  {#if s}
+  <div class="eq">
+    <header class="head">
+      <h2>Everything else</h2>
+      <p class="muted">The output's own curve and headphone correction. Sounds play on top of it.{#if !s.enabled} <b>Sound is off</b>, so none of this is heard until you turn it on.{/if}</p>
+    </header>
 
-  <div class="tabs" role="tablist" aria-label="Equalizer">
-    <button role="tab" aria-selected={tab === "device"} class:on={tab === "device"} onclick={() => (tab = "device")}><Icon name="headphones" size={15} /> Your outputs</button>
-    <button role="tab" aria-selected={tab === "taste"} class:on={tab === "taste"} onclick={() => (tab = "taste")}>
-      <Icon name="layers" size={15} /> Taste rules
-      {#if sound.taste.rules.length}<span class="count">{sound.taste.rules.length}</span>{/if}
-    </button>
-  </div>
-
-  {#if tab === "taste"}
-    <TasteRules />
-  {:else}
   <section class="outputs" aria-label="Output">
     <span class="cap">Profile for</span>
     <div class="chips" role="radiogroup">
@@ -234,8 +153,6 @@
     </div>
   </section>
 
-  <div class="layout">
-    <div class="main">
       <section class="card">
         <div class="profile-bar">
           <div class="pname">
@@ -313,22 +230,7 @@
             {/if}
           </div>
           <div class="buttons">
-            {#if ui.ab_mode === "hold"}
-              <button
-                class="btn tonal ab"
-                class:pressed={bypass}
-                disabled={!s.enabled}
-                title="Hold to hear the music without the equalizer"
-                onpointerdown={() => setBypass(true)}
-                onpointerup={() => setBypass(false)}
-                onpointerleave={() => setBypass(false)}
-                onkeydown={(e) => (e.key === " " || e.key === "Enter") && (e.preventDefault(), e.stopPropagation(), setBypass(true))}
-                onkeyup={() => setBypass(false)}
-                onblur={() => setBypass(false)}
-              ><Icon name="ear" size={16} /> Hear without EQ</button>
-            {:else}
-              <button class="btn tonal ab" class:pressed={bypass} aria-pressed={bypass} disabled={!s.enabled} title="Click to compare with and without the equalizer" onclick={() => setBypass(!bypass)}><Icon name="ear" size={16} /> {bypass ? "Back to EQ" : "Hear without EQ"}</button>
-            {/if}
+            <HearWithout disabled={!s.enabled} onchange={(on) => (bypass = on)} />
             <button class="btn tonal" disabled={full} title={full ? `At most ${EQ_LIMITS.maxBands} bands` : "Add a band"} onclick={() => addBand()}><Icon name="plus" size={16} /> Band</button>
             <button class="btn tonal" disabled={!profile?.bands.length} onclick={() => usePreset({ ...flatProfile(profile?.name ?? "Flat") })}>Reset</button>
           </div>
@@ -343,169 +245,43 @@
           <BandList bands={profile.bands} bind:selected onedit={(i, patch) => editBand(i, patch)} onremove={removeBand} />
         {/if}
       </section>
-    </div>
 
-    <aside class="side">
       <section class="card">
         <h3><Icon name="headphones" size={16} /> Find my headphones</h3>
         <HeadphoneSearch target={targetLabel} onapply={applyHeadphones} />
       </section>
 
-      {#if ui.taste_sliders}
-        <section class="card" in:rise>
-          <h3>Your taste</h3>
-          <p class="muted small">On top of the profile; the preamp follows so it doesn't clip.</p>
-          {#each TASTE as t}
-            <label class="taste">
-              <span><b>{t.label}</b> <span class="mono">{formatDb(tilt[t.key] ?? 0)}</span></span>
-              <input type="range" min="-6" max="6" step="0.5" value={tilt[t.key] ?? 0} oninput={(e) => setTaste(t.key, Number(e.currentTarget.value))} />
-              <small class="muted">{t.hint}</small>
-            </label>
-          {/each}
-          <button class="link" onclick={resetTaste} disabled={!tilt.bassDb && !tilt.trebleDb && !tilt.clarityDb}>Set the sliders back to 0 (keeps the sound)</button>
-        </section>
-      {/if}
-
-      <section class="card soft">
-        <h3><Icon name="ai" size={16} /> Not sure where to start?</h3>
-        <p class="muted small">Answer a few questions (or chat with your AI) and HomeFi builds the profile for you.</p>
-        <button class="btn primary" onclick={() => (app.view = { name: "assistant" })}>Set up my sound</button>
-        <button class="link" onclick={() => (app.view = { name: "settings", page: "sound" })}>Equalizer settings</button>
-      </section>
-    </aside>
+    {#if eq.error}<p class="error"><Icon name="alert" size={14} /> {eq.error}</p>{/if}
   </div>
   {/if}
-  {#if eq.error}<p class="error"><Icon name="alert" size={14} /> {eq.error}</p>{/if}
-</div>
-{/if}
+</SidePanel>
 
 <style>
   .eq {
     display: flex;
     flex-direction: column;
     gap: 16px;
-    max-width: 1280px;
   }
   .head {
     display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 4px;
   }
-  .status {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 6px 0 0;
-    font-size: 13px;
-    color: var(--muted);
+  .head h2 {
+    margin: 0;
+    font-size: 19px;
   }
-  .led {
-    flex: none;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--ok);
-    box-shadow: 0 0 8px var(--ok);
-  }
-  .status.warn .led {
-    background: #fbbf24;
-    box-shadow: 0 0 8px #fbbf24;
-  }
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+  .head p {
+    margin: 0;
+    font-size: 12.5px;
   }
   /* a big on / off switch */
-  .switch {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-  }
-  .switch input {
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
-  }
-  .track {
-    position: relative;
-    width: 46px;
-    height: 26px;
-    border-radius: min(999px, var(--r-max));
-    background: var(--surface-3);
-    border: 1px solid var(--border);
-    transition: background 0.2s;
-  }
-  .thumb {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 20px;
-    height: 20px;
-    border-radius: min(999px, var(--r-max));
-    background: var(--surface);
-    box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
-    transition: transform calc(0.2s * var(--motion-speed)) var(--ease-pop);
-  }
-  .switch input:checked + .track {
-    background: var(--primary-strong);
-  }
-  .switch input:checked + .track .thumb {
-    transform: translateX(20px);
-  }
-  .switch input:focus-visible + .track {
-    outline: 2px solid var(--primary);
-    outline-offset: 2px;
-  }
   .cap {
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--faint);
-  }
-  .tabs {
-    display: flex;
-    gap: 4px;
-    padding: 4px;
-    width: fit-content;
-    border-radius: min(14px, var(--r-max));
-    background: var(--glass);
-    border: 1px solid var(--glass-border);
-  }
-  .tabs button {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    height: 34px;
-    padding: 0 14px;
-    border-radius: min(10px, var(--r-max));
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--muted);
-    transition: background 0.15s, color 0.15s;
-  }
-  .tabs button:hover {
-    color: var(--text);
-  }
-  .tabs button.on {
-    color: var(--text);
-    background: color-mix(in srgb, var(--primary) 16%, var(--surface));
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 55%, transparent);
-  }
-  .tabs .count {
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    display: grid;
-    place-items: center;
-    border-radius: min(999px, var(--r-max));
-    font-size: 10.5px;
-    background: var(--primary-strong);
-    color: var(--on-primary-strong);
   }
   .outputs {
     display: flex;
@@ -551,39 +327,12 @@
     font-size: 8px;
     color: var(--accent-text);
   }
-  .layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 16px;
-  }
-  @container (min-width: 980px) {
-    .layout {
-      grid-template-columns: minmax(0, 1fr) 320px;
-      align-items: start;
-    }
-  }
-  .main,
-  .side {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    min-width: 0;
-  }
   .card {
     padding: 14px 16px;
     border-radius: min(16px, var(--r-max));
     background: var(--glass);
     border: 1px solid var(--glass-border);
     backdrop-filter: blur(18px) saturate(1.2);
-  }
-  .card.soft {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-  .card.soft p {
-    margin: 0;
   }
   h3 {
     display: flex;
@@ -761,25 +510,6 @@
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
-  }
-  .ab.pressed {
-    background: var(--primary-strong);
-    color: var(--on-primary-strong);
-    transform: translateY(1px);
-  }
-  .taste {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    margin-bottom: 10px;
-    font-size: 13px;
-  }
-  .taste > span {
-    display: flex;
-    justify-content: space-between;
-  }
-  .taste input {
-    accent-color: var(--primary-strong);
   }
   .error {
     display: flex;

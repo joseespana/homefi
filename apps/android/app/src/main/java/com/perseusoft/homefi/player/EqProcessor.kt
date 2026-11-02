@@ -8,7 +8,9 @@ import androidx.media3.common.util.UnstableApi
 import com.perseusoft.homefi.core.Biquad
 import com.perseusoft.homefi.core.EqSettings
 import com.perseusoft.homefi.core.NowPlayingContext
+import com.perseusoft.homefi.core.TasteAudition
 import com.perseusoft.homefi.core.TasteSettings
+import com.perseusoft.homefi.core.soundHearWithout
 import com.perseusoft.homefi.core.soundBiquads
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -17,8 +19,8 @@ import kotlin.math.abs
 
 /**
  * Everything that decides one track's filters: the equalizer, the taste rules, the output,
- * what plays (for the rules) and the loudness gain. [held] ("hold to hear without EQ")
- * mutes the equalizer and the taste layers but keeps the loudness, so the comparison is at
+ * what plays (for the rules) and the loudness gain. [held] ("hold to hear without")
+ * mutes the equalizer and the sounds (the core's `soundHearWithout`) but keeps the loudness, so the comparison is at
  * the same level.
  */
 data class SoundInput(
@@ -28,16 +30,23 @@ data class SoundInput(
     val now: NowPlayingContext,
     val loudnessDb: Float,
     val held: Boolean,
+    /** A sound being tried on this song (not saved), or null. */
+    val audition: TasteAudition? = null,
 ) {
     /** The filters at [sampleRate] (see `soundBiquads`); empty = bit-perfect. */
-    fun biquads(sampleRate: Int): List<Biquad> = soundBiquads(
-        if (held) eq.copy(enabled = false) else eq,
-        if (held) taste.copy(enabled = false) else taste,
-        outputId,
-        now,
-        loudnessDb,
-        sampleRate.toUInt(),
-    )
+    fun biquads(sampleRate: Int): List<Biquad> {
+        // "Hear without": the core says what plays without any curve, at the same level
+        val (settings, tasteSettings) = if (held) soundHearWithout(eq, taste).let { it.eq to it.taste } else eq to taste
+        return soundBiquads(
+            settings,
+            tasteSettings,
+            if (held) null else audition,
+            outputId,
+            now,
+            loudnessDb,
+            sampleRate.toUInt(),
+        )
+    }
 }
 
 /**

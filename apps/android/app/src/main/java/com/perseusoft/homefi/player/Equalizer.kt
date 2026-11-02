@@ -18,11 +18,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** The full-screen panels of the equalizer, over the rest of the app. */
-enum class EqPanel { EQUALIZER, ASSISTANT }
-
-/** The equalizer screen's tabs: the profile per output, and the taste rules with loudness. */
-enum class EqTab { EQUALIZER, TASTE }
+/**
+ * The full-screen panels of the Sound area, over the rest of the app: the Sound screen, the
+ * output's own curve ("Everything else") and the "Set up my sound" assistant page.
+ */
+enum class EqPanel { SOUND, OUTPUT_CURVE, ASSISTANT }
 
 /**
  * The equalizer as the app sees it: the settings (saved shortly after each change, so a
@@ -50,31 +50,23 @@ class Equalizer(private val store: SettingsStore, outputs: AudioOutputs, private
         _active.value = on
     }
 
-    private val _tab = MutableStateFlow(EqTab.EQUALIZER)
-    val tab: StateFlow<EqTab> = _tab.asStateFlow()
-
-    fun selectTab(tab: EqTab) {
-        _tab.value = tab
-    }
-
     private val _panel = MutableStateFlow<EqPanel?>(null)
     val panel: StateFlow<EqPanel?> = _panel.asStateFlow()
 
     private var saveJob: Job? = null
 
-    /** The assistant was opened from the equalizer screen, so back returns there. */
-    private var assistantFromEq = false
+    /** The output curve or the assistant was opened from the Sound screen, so back returns there. */
+    private var fromSound = false
 
-    /** Opens [panel]; the equalizer on [tab] when given (else where it was). */
-    fun open(panel: EqPanel, tab: EqTab? = null) {
-        if (panel == EqPanel.ASSISTANT) assistantFromEq = _panel.value == EqPanel.EQUALIZER
-        if (tab != null) _tab.value = tab
+    fun open(panel: EqPanel) {
+        fromSound = panel != EqPanel.SOUND && _panel.value == EqPanel.SOUND
         _panel.value = panel
     }
 
-    /** Back from the open panel: the assistant returns to the equalizer it came from. */
+    /** Back from the open panel: the output curve and the assistant return to Sound when they came from it. */
     fun back() {
-        _panel.value = if (_panel.value == EqPanel.ASSISTANT && assistantFromEq) EqPanel.EQUALIZER else null
+        _panel.value = if (_panel.value != EqPanel.SOUND && fromSound) EqPanel.SOUND else null
+        fromSound = false
     }
 
     fun close() {

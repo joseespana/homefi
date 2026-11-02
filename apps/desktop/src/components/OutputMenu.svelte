@@ -51,17 +51,17 @@
         <div class="ok">Native rate, no resampling.</div>
       {/if}
       {#if app.player?.eq_active}
-        <div class="warn">Equalizer on (“{app.player.eq_profile}”): processed, not bit-perfect.</div>
+        <div class="warn">Sound on (“{app.player.eq_profile}”): processed, not bit-perfect.</div>
       {:else if !stream.resampled}
         <div class="ok">Bit-perfect.</div>
       {/if}
     </div>
   {/if}
-  <button class="item eq" role="menuitem" onclick={() => ((app.view = { name: "eq", output: stream?.device ?? preferred ?? undefined }), onclose())}>
+  <button class="item eq" role="menuitem" onclick={() => ((app.view = { name: "sound", output: stream?.device ?? preferred ?? undefined }), onclose())}>
     <Icon name="eq" />
     <div class="grow">
-      <div>Equalizer…</div>
-      <div class="sub">{app.settings?.eq.enabled ? "On" : "Off"} · a profile for each output</div>
+      <div>Sound…</div>
+      <div class="sub">{app.settings?.eq.enabled ? "On" : "Off"} · sounds and a curve for each output</div>
     </div>
   </button>
 </div>

@@ -10,7 +10,8 @@ use std::time::{Duration, Instant};
 use cpal::traits::DeviceTrait;
 use homefi_core::dsp::crossfade::{CrossfadeSettings, TrackInfo, MAX_TRIM_SECONDS};
 use homefi_core::dsp::{
-    self, EqDesign, EqSettings, LoudnessSettings, ReplayGain, SoundPlan, TasteSettings, TrackSound,
+    self, EqDesign, EqSettings, LoudnessSettings, NowPlayingContext, ReplayGain, SoundPlan, TasteAudition, TasteScope,
+    TasteSettings, TrackSound,
 };
 use rand::seq::SliceRandom;
 use ringbuf::traits::{Observer, Producer};
@@ -116,6 +117,10 @@ pub struct Snapshot {
     /// Id and label of the taste rule playing (when `eq_active`).
     pub taste_rule: Option<String>,
     pub taste_label: Option<String>,
+    /// The target of that sound that matched this track.
+    pub taste_target: Option<TasteScope>,
+    /// The sound playing is a Try, not a saved one.
+    pub auditioning: bool,
     /// Loudness normalization gain applied to this track (dB; 0 = none).
     pub loudness_db: f32,
     /// A crossfade is playing (see [`Player::set_crossfade`]).
@@ -140,6 +145,7 @@ enum Command {
     Repeat(RepeatMode),
     Eq(Box<EqSettings>),
     Taste(Box<TasteSettings>),
+    Audition(Option<Box<TasteAudition>>),
     Loudness(LoudnessSettings),
     SoundSource(SoundSource),
     Crossfade(CrossfadeSettings),
@@ -266,6 +272,12 @@ impl Player {
     pub fn set_taste(&self, settings: TasteSettings) {
         self.send(Command::Taste(Box::new(settings)))
     }
+    /// Try on this song: plays on the track it was made for, wins over saved
+    /// sounds while the master is on, ends by itself when another track plays;
+    /// never saved. `None` stops trying.
+    pub fn set_audition(&self, audition: Option<TasteAudition>) {
+        self.send(Command::Audition(audition.map(Box::new)))
+    }
     /// Loudness normalization (ReplayGain from [`TrackSound`] or the file's tags).
     pub fn set_loudness(&self, settings: LoudnessSettings) {
         self.send(Command::Loudness(settings))
@@ -365,6 +377,8 @@ struct Engine {
     error: Option<String>,
     eq: EqSettings,
     taste: TasteSettings,
+    /// The Try on the track playing (see [`Player::set_audition`]).
+    audition: Option<TasteAudition>,
     loudness: LoudnessSettings,
     sound_source: Option<SoundSource>,
     crossfade: CrossfadeSettings,
@@ -407,6 +421,7 @@ impl Engine {
             error: None,
             eq: EqSettings::default(),
             taste: TasteSettings::default(),
+            audition: None,
             loudness: LoudnessSettings::default(),
             sound_source: None,
             crossfade: CrossfadeSettings::default(),
@@ -529,6 +544,10 @@ impl Engine {
             }
             Command::Taste(settings) => {
                 self.taste = settings.clamped();
+                self.replan();
+            }
+            Command::Audition(audition) => {
+                self.audition = audition.map(|a| *a);
                 self.replan();
             }
             Command::Loudness(settings) => {
@@ -856,7 +875,7 @@ impl Engine {
         } else {
             0.0
         };
-        dsp::sound_plan(&self.eq, &self.taste, device, &sound.context, loudness_db, rate)
+        dsp::sound_plan(&self.eq, &self.taste, self.audition.as_ref(), device, &sound.context, loudness_db, rate)
     }
 
     /// The settings changed: every buffered track gets new filters (the one
@@ -1275,6 +1294,10 @@ impl Engine {
     }
 
     fn publish(&mut self) {
+        if audition_over(self.audition.as_ref(), self.segments.front().map(|s| &s.sound.context)) {
+            // the other segments were planned without it: nothing to replan
+            self.audition = None;
+        }
         let seg = self.segments.front();
         let plan = seg.filter(|_| self.output.is_some()).map(|s| &s.plan);
         let played = self.shared.frames_played.load(Ordering::Relaxed);
@@ -1302,6 +1325,8 @@ impl Engine {
             eq_profile: plan.and_then(|p| p.profile.clone()),
             taste_rule: plan.and_then(|p| p.taste_rule.as_ref().map(|r| r.id.clone())),
             taste_label: plan.and_then(|p| p.taste_rule.as_ref().map(|r| r.label.clone())),
+            taste_target: plan.and_then(|p| p.taste_target.clone()),
+            auditioning: plan.is_some_and(|p| p.auditioning),
             loudness_db: plan.map_or(0.0, |p| p.loudness_db),
             fading,
         };
@@ -1314,6 +1339,12 @@ impl Engine {
             (self.listener)(&snapshot);
         }
     }
+}
+
+/// A Try is over once the track playing is another one (`front` = None: the
+/// queue is changing, nothing to judge yet).
+fn audition_over(audition: Option<&TasteAudition>, front: Option<&NowPlayingContext>) -> bool {
+    matches!((audition, front), (Some(a), Some(ctx)) if !a.applies_to(ctx))
 }
 
 /// Rate to open `device` at for a `source` Hz file: the file's own rate when
@@ -1392,6 +1423,24 @@ fn pick_rate(supported: &[u32], source: u32) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use homefi_core::dsp::{TasteCreator, TasteRule, Tilt};
+
+    fn ctx(path: &str) -> NowPlayingContext {
+        NowPlayingContext { path: Some(path.into()), ..NowPlayingContext::default() }
+    }
+
+    #[test]
+    fn a_try_ends_when_another_track_plays() {
+        let rule = TasteRule::new(Vec::new(), Tilt::default(), "Try", TasteCreator::Manual);
+        let a = TasteAudition::new(rule, &ctx("/m/a.flac")).expect("a local track can be tried");
+        assert!(!audition_over(Some(&a), Some(&ctx("/m/a.flac"))));
+        assert!(audition_over(Some(&a), Some(&ctx("/m/b.flac"))));
+        // the queue is changing: keep it until something plays
+        assert!(!audition_over(Some(&a), None));
+        assert!(!audition_over(None, Some(&ctx("/m/b.flac"))));
+    }
+
     #[test]
     fn moved_index_matches_vec_move() {
         for (from, to) in [(0, 3), (3, 0), (1, 2), (2, 1), (4, 4)] {
@@ -1403,8 +1452,6 @@ mod tests {
             }
         }
     }
-
-    use super::*;
 
     #[test]
     fn upcoming_replaces_what_comes_next() {

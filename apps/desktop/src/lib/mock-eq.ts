@@ -25,6 +25,9 @@ const hd650: EqProfile = {
   source: { kind: "autoEq", model: "Sennheiser HD 650", source: "oratory1990" },
 };
 
+/** ?taste: the Sony WH-1000XM5 with its oratory1990 correction (the mockup's output). */
+const sony: EqProfile = { ...hd650, name: "Sony WH-1000XM5", source: { kind: "autoEq", model: "Sony WH-1000XM5", source: "oratory1990" } };
+
 const entries: HeadphoneEntry[] = [
   ["Sennheiser HD 650", "oratory1990", "over-ear", null],
   ["Sennheiser HD 650", "crinacle", "over-ear", "GRAS 43AG-7"],
@@ -36,9 +39,12 @@ const entries: HeadphoneEntry[] = [
   ["Apple AirPods (3rd generation)", "Rtings", "earbud", "HMS II.3"],
 ].map(([name, source, kind, rig]) => ({ name: name!, source: source!, kind: kind!, rig, path: `${source}/${rig ? `${rig} ` : ""}${kind}/${name}` }));
 
-let settings: EqSettings = url.has("eq")
-  ? { enabled: true, autoPreamp: true, defaultProfile: null, perOutput: { "External Headphones": hd650 } }
-  : { enabled: false, autoPreamp: true, defaultProfile: null, perOutput: {} };
+// ?eq: the equalizer on with an HD 650; ?taste: Sound on with the Sony's correction (?soundoff: the master off)
+let settings: EqSettings = url.has("taste")
+  ? { enabled: !url.has("soundoff"), autoPreamp: true, defaultProfile: null, perOutput: { "Sony WH-1000XM5": sony } }
+  : url.has("eq")
+    ? { enabled: !url.has("soundoff"), autoPreamp: true, defaultProfile: null, perOutput: { "External Headphones": hd650 } }
+    : { enabled: false, autoPreamp: true, defaultProfile: null, perOutput: {} };
 
 // ------------------------------------------------------------------ math
 
@@ -137,9 +143,9 @@ function tasteProfile(bands: TasteBand[], t: Tilt): EqProfile {
   return { ...tilt, preampDb: 0, bands: [...tilt.bands, ...bands.map(({ note: _note, ...b }) => b)] };
 }
 
-function preview(rule: TasteRule): TastePreview {
-  const output = Object.keys(settings.perOutput)[0] ?? null;
-  const device = settings.enabled ? (output ? settings.perOutput[output] : settings.defaultProfile) : null;
+function preview(rule: TasteRule, requested: string | null): TastePreview {
+  const output = requested ?? Object.keys(settings.perOutput)[0] ?? null;
+  const device = settings.enabled ? ((output && settings.perOutput[output]) || settings.defaultProfile) : null;
   const { bands, notes } = clampCurve(rule.bands ?? []);
   const base = device ? withTaste(device, rule.tilt) : withTaste({ name: "", preampDb: 0, bands: [], source: { kind: "manual" } }, rule.tilt);
   const combined: EqProfile = { ...base, bands: [...base.bands, ...bands.map(({ note: _note, ...b }) => b)] };
@@ -171,7 +177,7 @@ export const eqMock = {
     eq_log_freqs: ({ n }: { n: number }) => logFreqs(n),
     eq_auto_preamp: ({ profile }: { profile: EqProfile }) => autoPreamp(profile),
     eq_with_taste: ({ profile, tilt }: { profile: EqProfile; tilt: Tilt }) => withTaste(profile, tilt),
-    taste_preview: ({ rule }: { rule: TasteRule }) => preview(rule),
+    taste_preview: ({ rule, output }: { rule: TasteRule; output: string | null }) => preview(rule, output),
     autoeq_search: async ({ query }: { query: string }) => {
       await wait(300);
       if (url.has("autoeqoffline")) throw "Couldn't download the headphone list from AutoEq. Check your connection and try again.";

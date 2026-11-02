@@ -74,9 +74,9 @@
         {#if now?.rule}
           <span class="active ellipsis" title={ruleWords(now.rule)}><Icon name="layers" size={13} /> {now.rule.label}</span>
         {:else}
-          <span class="muted small">No taste layer for this music yet.</span>
+          <span class="muted small">No sound for this music yet.</span>
         {/if}
-        <button class="link" onclick={() => ((sound.reacting = null), (app.view = { name: "eq", tab: "taste" }))}>Taste rules</button>
+        <button class="link" onclick={() => ((sound.reacting = null), (app.view = { name: "sound" }))}>Sound</button>
       </div>
     </div>
   {/if}

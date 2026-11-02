@@ -130,6 +130,10 @@ export interface PlayerState {
   /** Id and label of the taste rule playing (when `eq_active`). */
   taste_rule?: string | null;
   taste_label?: string | null;
+  /** The target that matched (with `taste_rule` / `taste_label`). */
+  taste_target?: TasteScope | null;
+  /** The sound playing is a Try (not saved). */
+  auditioning?: boolean;
   /** Loudness normalization gain on this track (dB; 0 = none, bit-perfect). */
   loudness_db?: number;
   /** A crossfade is playing (null otherwise; absent in views built by the UI). */
@@ -347,7 +351,7 @@ export interface Settings {
   /** The user's saved equalizer presets ("Save as preset"). */
   eq_presets: EqProfile[];
   eq_ui: EqUiSettings;
-  /** Taste layers (camelCase inside, like `eq`); off until the first rule. */
+  /** Sounds (camelCase inside, like `eq`); the master switch is `eq.enabled`. */
   taste: TasteSettings;
   /** Loudness normalization from ReplayGain; off keeps playback bit-perfect. */
   loudness: LoudnessSettings;
@@ -442,8 +446,10 @@ export interface SoundUiSettings {
   react_room: boolean;
   /** "HD 650 + Electronic" next to the EQ button. */
   layer_chip: boolean;
-  /** Suggestion cards (a taste layer for what you listen to most). */
+  /** Suggestion cards (a sound for what you listen to most). */
   suggestions: boolean;
+  /** The "Ask the AI" button in the player bar. */
+  assistant_deck: boolean;
   /** How a taste rule's editor opens: the curve when it has bands (`auto`), the three sliders, or the curve. */
   taste_editor?: "auto" | "simple" | "advanced";
 }
@@ -456,7 +462,7 @@ export interface EqUiSettings {
   ab_mode: "hold" | "toggle";
   /** Band numbers on the handles of the curve. */
   band_labels: boolean;
-  /** Bass / treble / clarity sliders. */
+  /** Bass / treble / clarity sliders inside Edit curve. */
   taste_sliders: boolean;
 }
 
@@ -523,18 +529,30 @@ export interface TasteBand extends EqBand {
   note?: string;
 }
 
-/** A taste layer for some music, on top of the output's profile: a tilt (three knobs) and / or a curve of up to 8 bands. The most specific rule plays: track > album > playlist > artist > genre. */
+/** One thing a sound applies to, and when / by whom it was added. */
+export interface TasteTarget {
+  scope: TasteScope;
+  /** Unix ms; 0 = unknown (migrated from 1.5.0). */
+  addedMs: number;
+  addedBy: TasteCreator;
+}
+
+/** A sound: a curve (tilt and / or up to 8 bands) for its targets, on its outputs (none = every output).
+ * Precedence: song > album > artist > playlist > genre > everything else (the output's own curve). */
 export interface TasteRule {
   id: string;
-  scope: TasteScope;
+  label: string;
   tilt: Tilt;
   /** The parametric curve (absent on simple and old rules). */
   bands?: TasteBand[];
-  label: string;
   /** Why, in the assistant's words. */
   explanation?: string;
   createdBy: TasteCreator;
+  /** Kept for old files; no toggle in the UI. */
   enabled: boolean;
+  targets: TasteTarget[];
+  /** Output ids (desktop: device names); absent / empty = all outputs. */
+  outputs?: string[];
 }
 
 /** What a rule's editor draws (src-tauri/src/sound.rs `taste_preview`). */
@@ -558,9 +576,12 @@ export interface TastePreview {
 export type TasteIntensity = "subtle" | "balanced" | "bold";
 
 export interface TasteSettings {
+  /** Compat only: playback ignores it. The master switch is `settings.eq.enabled`. */
   enabled: boolean;
   rules: TasteRule[];
   intensity: TasteIntensity;
+  /** Settings format; always send back what you received. */
+  version?: number;
 }
 
 /** What a turn or a reaction changed in the taste rules: merge it into the current ones (upsert by id or scope, remove by id). */
@@ -603,13 +624,38 @@ export interface NowPlayingContext {
   source: SourceContext | null;
 }
 
-/** The track playing and what taste layers can say about it. */
+/** A target that moved from one sound to another (for Undo). */
+export interface TargetMove {
+  target: TasteScope;
+  /** Id of the sound it came from. */
+  from: string;
+}
+export interface SavedSound {
+  rule: TasteRule;
+  moves: TargetMove[];
+}
+export type TargetSource = "library" | "tidal";
+export interface TargetHit {
+  scope: TasteScope;
+  /** "Song · Steely Dan", "Artist", "Playlist · 48 tracks". */
+  subtitle: string;
+  source: TargetSource;
+  /** Id of the sound already holding it on the current output. */
+  inSound: string | null;
+}
+
+/** The track playing and the sound it plays with. */
 export interface NowSound {
   context: NowPlayingContext | null;
-  /** Scopes to offer, most specific first. */
+  /** Most specific first: track, album, artist, playlist, genre. */
   scopes: TasteScope[];
-  /** The rule that plays now. */
+  /** The sound playing now (the Try while auditioning). */
   rule: TasteRule | null;
+  /** Which of its targets matched. */
+  target: TasteScope | null;
+  /** The output id it resolves for. */
+  output: string | null;
+  auditioning: boolean;
 }
 
 export type SoundReaction = "needsBass" | "tooBoomy" | "tooBright" | "dull" | "vocalsBuried" | "tooQuiet" | "tooLoud" | "perfect";
@@ -994,7 +1040,7 @@ export interface AssistantTurn {
   taste_change?: TasteChange | null;
   /** Loudness changed this turn (already saved and applied). */
   loudness?: LoudnessSettings | null;
-  /** A taste layer proposed this turn (not saved yet): draw its curve and band notes. */
+  /** A sound proposed this turn (not saved yet): draw its curve and band notes; Try / Keep it. */
   taste_proposal?: TasteRule | null;
 }
 
@@ -1137,7 +1183,20 @@ export const api = {
   /** The track playing, the scopes it offers and the rule that plays. */
   soundNow: () => invoke<NowSound>("sound_now"),
   /** A rule's curve, the output's profile and both together, for its editor. */
-  tastePreview: (rule: TasteRule) => invoke<TastePreview>("taste_preview", { rule }),
+  tastePreview: (rule: TasteRule, output: string | null = null) => invoke<TastePreview>("taste_preview", { rule, output }),
+  tasteAssign: (soundId: string, scope: TasteScope) => invoke<TargetMove[]>("taste_assign", { soundId, scope }),
+  tasteUnassign: (soundId: string, scope: TasteScope) => invoke<void>("taste_unassign", { soundId, scope }),
+  tasteUndoMoves: (moves: TargetMove[]) => invoke<void>("taste_undo_moves", { moves }),
+  tasteSetOutputs: (soundId: string, outputs: string[]) => invoke<TargetMove[]>("taste_set_outputs", { soundId, outputs }),
+  /** New sound, rename, curve edits, "New sound from this song". */
+  tasteSave: (rule: TasteRule) => invoke<SavedSound>("taste_save", { rule }),
+  /** Delete sound. */
+  tasteRemove: (soundId: string) => invoke<boolean>("taste_remove", { soundId }),
+  /** false: nothing plays or Sound is off. */
+  tasteAudition: (rule: TasteRule | null) => invoke<boolean>("taste_audition", { rule }),
+  tasteKeep: (rule: TasteRule, scope: TasteScope, onlyOn: string | null = null) => invoke<SavedSound>("taste_keep", { rule, scope, onlyOn }),
+  /** At most 30, ranked. */
+  soundSearchTargets: (query: string) => invoke<TargetHit[]>("sound_search_targets", { query }),
   /** A reaction to what plays (AI when set up, else fixed safe steps); saved and applied. */
   soundReact: (reaction: SoundReaction, scope: TasteScope | null = null, language = "en") => invoke<ReactionResult>("sound_react", { reaction, scope, language }),
   /** Puts back what a reaction changed; false when already undone. */

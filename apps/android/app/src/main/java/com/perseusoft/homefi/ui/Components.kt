@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Tune
 import com.perseusoft.homefi.ui.theme.FilledTonalButton
 import com.perseusoft.homefi.ui.theme.LocalSkin
 import com.perseusoft.homefi.ui.theme.bevel
@@ -99,9 +100,9 @@ fun formatDuration(ms: Long): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
-/** "Play next / Add to queue", opened by a long press on a song or a Queue button. */
+/** "Play next / Add to queue" (and "Sound ▸" for a song), opened by a long press on a song or a Queue button. */
 @Composable
-fun QueueMenu(expanded: Boolean, onDismiss: () -> Unit, onQueue: (next: Boolean) -> Unit) {
+fun QueueMenu(expanded: Boolean, onDismiss: () -> Unit, onSound: (() -> Unit)? = null, onQueue: (next: Boolean) -> Unit) {
     val haptics = haptics()
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         DropdownMenuItem(
@@ -122,6 +123,18 @@ fun QueueMenu(expanded: Boolean, onDismiss: () -> Unit, onQueue: (next: Boolean)
                 onQueue(false)
             },
         )
+        // "Sound ▸": which sound plays for this song
+        if (onSound != null) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.sound_menu_item)) },
+                leadingIcon = { Icon(Icons.Rounded.Tune, null) },
+                onClick = {
+                    onDismiss()
+                    haptics.tick()
+                    onSound()
+                },
+            )
+        }
     }
 }
 
@@ -133,7 +146,7 @@ fun QueueButton(onQueue: (next: Boolean) -> Unit, enabled: Boolean = true) {
         FilledTonalButton(onClick = { open = true }, enabled = enabled) {
             Icon(Icons.AutoMirrored.Rounded.QueueMusic, stringResource(R.string.queue_add))
         }
-        QueueMenu(open, { open = false }, onQueue)
+        QueueMenu(open, { open = false }, onQueue = onQueue)
     }
 }
 

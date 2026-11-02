@@ -1,13 +1,15 @@
 <script lang="ts">
-  // A taste rule's sound, two ways: "Simple" (bass / treble / clarity) or
-  // "Advanced" (the parametric curve: drag a band, double-click to add one,
-  // wheel or pinch for its width, the band list below). The curve of the layer
-  // is drawn on top of the output's own profile (faint), with what plays,
-  // both together, dashed. The assistant's note for each band shows on hover
-  // and under it. Settings → Sound picks which tab opens first.
-  import { api, TASTE_LIMITS, type EqBandKind, type EqProfile, type TasteBand, type TastePreview, type TasteRule, type Tilt } from "../../lib/api";
+  // A sound's curve, two ways: "Simple" (bass / treble / clarity sliders; only
+  // when Settings → Sound keeps the tilt sliders on) or "Advanced" (the
+  // parametric curve: drag a band, double-click to add one, wheel or pinch for
+  // its width, the band list below). The sound's own curve is drawn over the
+  // output's profile (faint), with what plays, both together, dashed. The
+  // assistant's note for each band shows on hover and under it.
+  import { TASTE_LIMITS, type EqBandKind, type EqProfile, type TasteBand, type TasteRule, type Tilt } from "../../lib/api";
   import { clamp, formatHz, newBand } from "../../lib/eq.svelte";
-  import { sound, tiltWords } from "../../lib/sound.svelte";
+  import { usePreview } from "../../lib/preview.svelte";
+  import { neutralRule, sound, tiltWords } from "../../lib/sound.svelte";
+  import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
   import BandList from "../eq/BandList.svelte";
   import EqGraph from "../eq/EqGraph.svelte";
@@ -22,32 +24,24 @@
   }: {
     tilt: Tilt;
     bands: TasteBand[];
-    /** The rule being edited (its scope and label), for the preview. */
+    /** The sound being edited (for the preview on its outputs). */
     rule?: TasteRule | null;
     height?: number;
     /** "Ask the AI to refine" (hidden without it). */
     onrefine?: (() => void) | null;
   } = $props();
 
+  /** Settings → Sound → "Tilt sliders in Edit curve": off leaves only the curve. */
+  const sliders = $derived(app.settings?.eq_ui?.taste_sliders ?? true);
   const pref = sound.ui.taste_editor ?? "auto";
-  let mode = $state<"simple" | "advanced">(pref === "advanced" || (pref === "auto" && bands.length > 0) ? "advanced" : "simple");
+  let picked = $state<"simple" | "advanced">(pref === "advanced" || (pref === "auto" && bands.length > 0) ? "advanced" : "simple");
+  const mode = $derived(sliders ? picked : "advanced");
   let selected = $state<number | null>(null);
-  let preview = $state<TastePreview | null>(null);
 
-  // the core draws it: the curve, the output's profile and both together (newest edit wins)
-  let seq = 0;
-  $effect(() => {
-    const base: TasteRule = rule ?? { id: "preview", scope: { kind: "genre", name: "" }, tilt, label: "", createdBy: "manual", enabled: true };
-    const r: TasteRule = JSON.parse(JSON.stringify({ ...base, tilt, bands }));
-    const my = ++seq;
-    const t = setTimeout(() => {
-      api
-        .tastePreview(r)
-        .then((p) => my === seq && (preview = p))
-        .catch(() => {});
-    }, 50);
-    return () => clearTimeout(t);
-  });
+  const preview = usePreview(
+    () => ({ ...(rule ?? neutralRule("")), tilt, bands }),
+    () => sound.output,
+  );
 
   const handles = $derived<EqProfile>({ name: "", preampDb: 0, bands, source: { kind: "manual" } });
   const full = $derived(bands.length >= TASTE_LIMITS.maxBands);
@@ -80,10 +74,12 @@
 
 <div class="tce">
   <div class="modes" role="tablist" aria-label="Editor">
-    <button role="tab" aria-selected={mode === "simple"} class:on={mode === "simple"} onclick={() => (mode = "simple")}>Simple</button>
-    <button role="tab" aria-selected={mode === "advanced"} class:on={mode === "advanced"} onclick={() => (mode = "advanced")}>
-      Advanced{#if bands.length}<span class="count">{bands.length}</span>{/if}
-    </button>
+    {#if sliders}
+      <button role="tab" aria-selected={mode === "simple"} class:on={mode === "simple"} onclick={() => (picked = "simple")}>Simple</button>
+      <button role="tab" aria-selected={mode === "advanced"} class:on={mode === "advanced"} onclick={() => (picked = "advanced")}>
+        Advanced{#if bands.length}<span class="count">{bands.length}</span>{/if}
+      </button>
+    {/if}
     <span class="grow"></span>
     {#if onrefine}<button class="btn tonal small refine" onclick={onrefine}><Icon name="ai" size={14} /> Ask the AI to refine</button>{/if}
   </div>
@@ -94,9 +90,9 @@
   {:else}
     <EqGraph
       profile={handles}
-      curve={preview?.taste ?? null}
-      background={preview?.device ?? null}
-      compare={preview?.combined ?? null}
+      curve={preview.value?.taste ?? null}
+      background={preview.value?.device ?? null}
+      compare={preview.value?.combined ?? null}
       editable
       bind:selected
       {height}
@@ -108,9 +104,9 @@
       onremove={remove}
     />
     <div class="legend">
-      <span><i class="sw layer"></i> This layer</span>
-      {#if preview?.device}<span title="The output's own profile, under the layer"><i class="sw device"></i> {preview.device.name}</span>{/if}
-      <span title="Output profile and layer together, as it plays"><i class="sw sum"></i> What plays</span>
+      <span><i class="sw layer"></i> This sound</span>
+      {#if preview.value?.device}<span title="The output's own profile, under the sound"><i class="sw device"></i> {preview.value.device.name}</span>{/if}
+      <span title="Output profile and sound together, as it plays"><i class="sw sum"></i> What plays</span>
       <span class="grow"></span>
       <button class="btn tonal small" disabled={full} title={full ? `At most ${TASTE_LIMITS.maxBands} bands` : "Add a band"} onclick={() => add()}><Icon name="plus" size={14} /> Band</button>
     </div>
@@ -122,7 +118,7 @@
     {/if}
     {#if tiltSaid !== "No change"}<p class="muted small">Also from Simple: {tiltSaid}.</p>{/if}
   {/if}
-  {#if preview?.notes.length}<p class="kept small"><Icon name="shield" size={12} /> Kept safe: {preview.notes.join(" · ")}</p>{/if}
+  {#if preview.value?.notes.length}<p class="kept small"><Icon name="shield" size={12} /> Kept safe: {preview.value.notes.join(" · ")}</p>{/if}
 </div>
 
 <style>
@@ -214,6 +210,6 @@
     display: flex;
     align-items: flex-start;
     gap: 6px;
-    color: #d97706;
+    color: var(--warn);
   }
 </style>

@@ -252,7 +252,7 @@
         {/if}
         {#if scope}
           {@const s = scope}
-          <button class="btn tonal" title="How this {s.kind} sounds: ask the assistant or set it by hand" onclick={() => (sound.forScope = { scope: s, label: s.name })}><Icon name="soundwave" size={16} /> Sound</button>
+          <button class="btn tonal" title="Pick the sound for this {s.kind}" aria-haspopup="menu" onclick={(e) => sound.openMenu(e, s, s.name)}><Icon name="soundwave" size={16} /> Sound</button>
         {/if}
         {#if complete && !dlActive}
           <span class="btn tonal done" title="Every track is in your library"><Icon name="check" size={16} /> Downloaded</span>

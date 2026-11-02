@@ -1,224 +1,102 @@
 <script lang="ts">
   // "Set up my sound": one chat for both the AI assistant (the user's own key)
-  // and the guided wizard. A confirmed proposal is already saved and applied by
-  // the backend; then we jump to the equalizer.
+  // and the guided wizard. The conversation lives in lib/assistant.svelte.ts
+  // (the inline "Ask the AI" panel on the Sound screen shares it). A confirmed
+  // proposal is already saved and applied by the backend; then we jump to Sound.
   import { onDestroy, tick, untrack } from "svelte";
-  import { api, errorText, type AiProviderId, type AiProviderInfo, type AssistantTurn, type EqProfile, type EqProposal, type TasteChange, type TasteRule } from "../../lib/api";
-  import { eq, uiLanguage } from "../../lib/eq.svelte";
+  import { assistant as a, type Msg } from "../../lib/assistant.svelte";
   import { fade, rise } from "../../lib/motion";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
   import EqGraph from "./EqGraph.svelte";
   import SuggestionCard from "../sound/SuggestionCard.svelte";
   import TasteProposal from "../sound/TasteProposal.svelte";
-  import { ruleWords, sound } from "../../lib/sound.svelte";
 
-  type Msg = { id: number; from: "bot" | "me" | "error"; text: string; proposal?: EqProposal; before?: EqProfile | null; tasteProposal?: TasteRule; settled?: boolean; retry?: () => void };
+  /** How long "Applied" shows before Sound opens by itself. */
+  const OPEN_SOUND_AFTER_MS = 2200;
 
-  const lang = uiLanguage();
-  let providers = $state<AiProviderInfo[]>([]);
-  let keys = $state<Partial<Record<AiProviderId, boolean>>>({});
-  let loaded = $state(false);
-  $effect(() => {
-    Promise.all([api.aiProviders(), api.aiKeyStatus()])
-      .then(([p, k]) => ((providers = p), (keys = k)))
-      .catch(() => {})
-      .finally(() => (loaded = true));
-  });
-  const ai = $derived(app.settings?.ai);
-  const provider = $derived(providers.find((p) => p.id === ai?.provider) ?? null);
-  const aiReady = $derived(!!provider && (!provider.needs_key || !!keys[provider.id]));
-
-  let phase = $state<"intro" | "chat">("intro");
-  let guided = $state(true);
-  let notes = $state("");
-  let messages = $state<Msg[]>([]);
-  let quick = $state<string[]>([]);
-  let thinking = $state(false);
-  let done = $state(false);
-  let applied = $state<EqProposal | null>(null);
-  /** Taste layers / loudness the conversation changed (already saved). */
-  let tasteSaved = $state<string | null>(null);
   let text = $state("");
-  let ids = 0;
   let list = $state<HTMLElement | null>(null);
   let input = $state<HTMLInputElement | null>(null);
-  let jump: ReturnType<typeof setTimeout> | null = null;
 
-  const push = (m: Omit<Msg, "id">) => (messages = [...messages, { ...m, id: ++ids }]);
-
-  /** One line for what the turn saved and removed (removed rules are known by id only). */
-  function describeTasteChange(c: TasteChange): string | null {
-    const saved = c.upsert.map((r) => `${r.label} (${ruleWords(r)})`);
-    const removed = c.remove.map((id) => app.settings?.taste?.rules.find((r) => r.id === id)?.label ?? "a rule");
-    const parts = [saved.length ? saved.join(" · ") : null, removed.length ? `Removed: ${removed.join(" · ")}` : null, c.enabled === null ? null : `Taste layers ${c.enabled ? "on" : "off"}`];
-    return parts.filter(Boolean).join(" · ") || null;
-  }
-
-  function handle(turn: AssistantTurn) {
-    const p = turn.proposal;
-    // the card repeats the explanation only when the text doesn't say it already
-    const shown = p && !turn.confirmed ? p : undefined;
-    // "before" is what the output plays with now, kept as it was when proposed
-    push({ from: "bot", text: turn.text, proposal: shown, before: shown ? beforeOf(shown.output_id) : null, tasteProposal: turn.taste_proposal ?? undefined });
-    quick = turn.quick_replies;
-    done = turn.done;
-    if (turn.confirmed && p) {
-      applied = p;
-      eq.target = p.output_id;
-      // a taste offer may follow: stay for it
-      if (turn.done) jump = setTimeout(() => openEq(), 2200);
-    }
-    if (turn.taste_change) tasteSaved = describeTasteChange(turn.taste_change);
-    if (turn.loudness) tasteSaved = [tasteSaved, `Loudness: ${turn.loudness.mode}`].filter(Boolean).join(" · ");
-  }
-
-  // a suggestion card's answer goes on here; "Sound for this…" leaves its notes
   $effect(() => {
-    const h = sound.handoff;
-    if (!h) return;
-    untrack(() => {
-      sound.handoff = null;
-      guided = !app.settings?.ai.provider;
-      phase = "chat";
-      messages = [];
-      done = false;
-      applied = null;
-      tasteSaved = null;
-        handle(h.turn);
-      if (h.reply) send(h.reply);
-    });
+    a.loadStatus();
+  });
+  // opened with a first note ("Set up my sound" from a sound, the Add key flow)
+  $effect(() => {
+    const v = app.view;
+    if (v.name === "assistant" && v.say) untrack(() => ((a.notes = v.say!), (a.phase = "intro")));
+  });
+  // "Ask the AI to refine" a sound: the AI starts from its curve right away
+  $effect(() => {
+    if (a.focus && a.loaded && a.ready && a.phase === "intro") untrack(() => a.start(false));
+  });
+  // an applied profile closes the chat after a moment
+  $effect(() => {
+    if (!(a.applied && a.done)) return;
+    const t = setTimeout(openSound, OPEN_SOUND_AFTER_MS);
+    return () => clearTimeout(t);
   });
   $effect(() => {
-    const n = sound.assistantNotes;
-    if (n) untrack(() => ((notes = n), (sound.assistantNotes = null), (phase = "intro")));
+    if (!a.thinking) tick().then(() => input?.focus());
   });
-  // "Ask the AI to refine" a rule: the AI starts from its curve right away
-  let focus = $state<string | null>(null);
-  $effect(() => {
-    const f = sound.assistantFocus;
-    if (f) untrack(() => ((focus = f), (sound.assistantFocus = null), (phase = "intro")));
-  });
-  $effect(() => {
-    if (focus && loaded && aiReady && phase === "intro") untrack(() => start(false));
-  });
-
-  async function run(action: () => Promise<AssistantTurn>) {
-    thinking = true;
-    quick = [];
-    try {
-      handle(await action());
-    } catch (e) {
-      push({ from: "error", text: errorText(e), retry: () => run(action) });
-    } finally {
-      thinking = false;
-      await tick();
-      input?.focus();
-    }
-  }
-
-  function start(asGuided: boolean) {
-    guided = asGuided;
-    phase = "chat";
-    messages = [];
-    done = false;
-    applied = null;
-    tasteSaved = null;
-    const f = asGuided ? null : focus;
-    focus = null;
-    run(() => api.eqAssistantStart(asGuided, lang, notes.trim() || null, f));
-  }
 
   function send(reply: string) {
-    const t = reply.trim();
-    if (!t || thinking) return;
     text = "";
-    // answering settles the proposal on the table
-    messages = messages.map((m) => (m.proposal || m.tasteProposal ? { ...m, settled: true } : m));
-    push({ from: "me", text: t });
-    run(() => api.eqAssistantReply(t));
+    a.send(reply);
   }
-
-  function keepTalking(m: Msg) {
-    messages = messages.map((x) => (x.id === m.id ? { ...x, settled: true } : x));
-    input?.focus();
-  }
-
-  function openEq() {
-    if (jump) clearTimeout(jump);
-    app.view = { name: "eq", output: applied?.output_id };
-  }
-
-  function restart() {
-    api.eqAssistantClose().catch(() => {});
-    phase = "intro";
-    messages = [];
-    quick = [];
-    done = false;
-    applied = null;
-  }
-
-  // with a proposal card on the table its own Apply button stands for the "Apply" reply
-  const pending = $derived(messages.some((m) => (m.proposal || m.tasteProposal) && !m.settled));
-  const chips = $derived(pending ? quick.filter((q) => !/^(apply|aplicar)$/i.test(q.trim())) : quick);
-
-  function beforeOf(output: string): EqProfile | null {
-    const p = app.settings?.eq.perOutput[output] ?? app.settings?.eq.defaultProfile ?? null;
-    return p && JSON.parse(JSON.stringify(p));
-  }
+  const openSound = () => (app.view = { name: "sound", output: a.applied?.output_id });
+  const keepTalking = (m: Msg) => (a.keepTalking(m), input?.focus());
 
   // the newest message stays in view
   $effect(() => {
-    messages.length;
-    thinking;
+    a.messages.length;
+    a.thinking;
     // the page (not the log) scrolls: bring the last message above the composer
     tick().then(() => requestAnimationFrame(() => list?.lastElementChild?.scrollIntoView({ block: "end", behavior: "smooth" })));
   });
 
-  onDestroy(() => {
-    if (jump) clearTimeout(jump);
-    api.eqAssistantClose().catch(() => {});
-  });
+  onDestroy(() => (a.focus = null));
 </script>
 
 <div class="assistant">
   <header class="head">
-    <button class="icon-btn" title="Back to the equalizer" aria-label="Back to the equalizer" onclick={() => (app.view = { name: "eq" })}><Icon name="back" /></button>
+    <button class="icon-btn" title="Back to Sound" aria-label="Back to Sound" onclick={() => (app.view = { name: "sound" })}><Icon name="back" /></button>
     <div class="titles">
       <h1>Set up my sound</h1>
-      {#if phase === "chat"}
-        <p class="muted small">{guided ? "Guided setup · a few quick questions" : `Chatting with ${provider?.name ?? "your AI"}`}</p>
+      {#if a.phase === "chat"}
+        <p class="muted small">{a.guided ? "Guided setup · a few quick questions" : `Chatting with ${a.provider?.name ?? "your AI"}`}</p>
       {/if}
     </div>
-    {#if phase === "chat"}<button class="btn tonal" onclick={restart}><Icon name="refresh" size={16} /> Start over</button>{/if}
+    {#if a.phase === "chat"}<button class="btn tonal" onclick={() => a.restart()}><Icon name="refresh" size={16} /> Start over</button>{/if}
   </header>
 
-  {#if phase === "intro"}
+  {#if a.phase === "intro"}
     <section class="intro" in:rise>
       <div class="hero"><Icon name="ai" size={30} /></div>
       <h2>Your headphones, your taste</h2>
       <p class="muted">Tell HomeFi what you listen with and how you like it. It finds the measured correction for your headphones, adds your taste and shows you the curve before anything changes.</p>
       <label class="notes">
         <span>Anything to tell first? <small class="muted">optional</small></span>
-        <textarea bind:value={notes} rows="2" maxlength="500" placeholder="e.g. Sennheiser HD 650 on a USB DAC, I listen to jazz and find them a bit dark"></textarea>
+        <textarea value={a.notes} oninput={(e) => (a.notes = e.currentTarget.value)} rows="2" maxlength="500" placeholder="e.g. Sennheiser HD 650 on a USB DAC, I listen to jazz and find them a bit dark"></textarea>
       </label>
-      {#if !loaded}
+      {#if !a.loaded}
         <p class="muted small">Checking your AI setup…</p>
-      {:else if aiReady}
+      {:else if a.ready}
         <div class="choices">
-          <button class="btn primary" onclick={() => start(false)}><Icon name="ai" size={16} /> Chat with {provider?.name}</button>
-          <button class="btn tonal" onclick={() => start(true)}>Guided questions instead</button>
+          <button class="btn primary" onclick={() => a.start(false)}><Icon name="ai" size={16} /> Chat with {a.provider?.name}</button>
+          <button class="btn tonal" onclick={() => a.start(true)}>Guided questions instead</button>
         </div>
-        <p class="muted tiny"><Icon name="shield" size={12} /> Only what the conversation needs goes to {provider?.name} (your outputs, the genres and artists you play most): never your music files or your Tidal session.</p>
+        <p class="muted tiny"><Icon name="shield" size={12} /> Only what the conversation needs goes to {a.provider?.name} (your outputs, the genres and artists you play most): never your music files or your Tidal session.</p>
       {:else}
         <div class="choices">
-          <button class="btn primary" onclick={() => start(true)}>Start the guided setup</button>
+          <button class="btn primary" onclick={() => a.start(true)}>Start the guided setup</button>
         </div>
         <div class="no-ai">
           <Icon name="key" size={16} />
           <span>
-            {#if provider && provider.needs_key}
-              {provider.name} has no key yet.
+            {#if a.provider && a.provider.needs_key}
+              {a.provider.name} has no key yet.
             {:else}
               Prefer to just talk about it?
             {/if}
@@ -232,7 +110,7 @@
   {:else}
     <section class="chat">
       <div class="log" bind:this={list} aria-live="polite">
-        {#each messages as m (m.id)}
+        {#each a.messages as m (m.id)}
           <div class="msg {m.from}" in:rise={{ y: 8, duration: 220 }}>
             {#if m.from === "bot"}<span class="avatar" aria-hidden="true"><Icon name="ai" size={14} /></span>{/if}
             <div class="bubble-col">
@@ -240,11 +118,11 @@
                 <div class="bubble">
                   {#if m.from === "error"}<Icon name="alert" size={14} />{/if}
                   <span class="text">{m.text}</span>
-                  {#if m.retry && m.id === messages[messages.length - 1].id}<button class="link" onclick={() => ((messages = messages.filter((x) => x.id !== m.id)), m.retry?.())}>Try again</button>{/if}
+                  {#if m.retry && m.id === a.messages[a.messages.length - 1].id}<button class="link" onclick={() => a.retry(m)}>Try again</button>{/if}
                 </div>
               {/if}
               {#if m.tasteProposal}
-                <TasteProposal rule={m.tasteProposal} open={!m.settled && !done} busy={thinking} onapply={() => send(lang === "es" ? "Sí, aplícalo" : "Yes, apply it")} onkeep={() => keepTalking(m)} />
+                <TasteProposal rule={m.tasteProposal} open={!m.settled && !a.done} busy={a.thinking} onapply={() => a.applyTaste()} onkeep={() => keepTalking(m)} />
               {/if}
               {#if m.proposal}
                 {@const p = m.proposal}
@@ -256,10 +134,10 @@
                   <EqGraph profile={p.profile} compare={m.before ?? null} height={170} />
                   <div class="legend"><span class="now-line"></span> New <span class="old-line"></span> Now</div>
                   {#if p.explanation && !m.text.includes(p.explanation)}<p class="explain">{p.explanation}</p>{/if}
-                  {#if !m.settled && !done}
+                  {#if !m.settled && !a.done}
                     <div class="pbuttons">
-                      <button class="btn primary" disabled={thinking} onclick={() => send(lang === "es" ? "Aplicar" : "Apply")}><Icon name="check" size={16} /> Apply</button>
-                      <button class="btn tonal" disabled={thinking} onclick={() => keepTalking(m)}>Keep talking</button>
+                      <button class="btn primary" disabled={a.thinking} onclick={() => a.applyProfile()}><Icon name="check" size={16} /> Apply</button>
+                      <button class="btn tonal" disabled={a.thinking} onclick={() => keepTalking(m)}>Keep talking</button>
                     </div>
                   {/if}
                 </div>
@@ -267,43 +145,43 @@
             </div>
           </div>
         {/each}
-        {#if thinking}
+        {#if a.thinking}
           <div class="msg bot" in:fade>
             <span class="avatar" aria-hidden="true"><Icon name="ai" size={14} /></span>
             <div class="bubble typing" aria-label="Thinking"><i></i><i></i><i></i></div>
           </div>
         {/if}
-        {#if tasteSaved}
+        {#if a.tasteSaved}
           <div class="success" in:rise>
             <Icon name="layers" size={18} />
-            <span><b>Saved.</b> {tasteSaved}</span>
-            <button class="btn tonal" onclick={() => (app.view = { name: "eq", tab: "taste" })}>Taste rules</button>
+            <span><b>Saved.</b> {a.tasteSaved}</span>
+            <button class="btn tonal" onclick={() => (app.view = { name: "sound" })}>Sound</button>
           </div>
         {/if}
-        {#if applied}
+        {#if a.applied}
           <div class="success" in:rise>
             <Icon name="check" size={18} />
-            <span><b>Applied.</b> “{applied.profile.name}” is on for {applied.output_id}.{done ? " Opening the equalizer…" : ""}</span>
-            <button class="btn tonal" onclick={openEq}>Open now</button>
+            <span><b>Applied.</b> “{a.applied.profile.name}” is on for {a.applied.output_id}.{a.done ? " Opening Sound…" : ""}</span>
+            <button class="btn tonal" onclick={openSound}>Open now</button>
           </div>
-        {:else if done}
+        {:else if a.done}
           <div class="ended" in:rise>
             <span class="muted">The conversation is over.</span>
-            <button class="btn tonal" onclick={restart}>Start again</button>
-            <button class="btn tonal" onclick={() => (app.view = { name: "eq" })}>Open the equalizer</button>
+            <button class="btn tonal" onclick={() => a.restart()}>Start again</button>
+            <button class="btn tonal" onclick={() => (app.view = { name: "sound" })}>Open Sound</button>
           </div>
         {/if}
       </div>
 
-      {#if !done}
-        {#if chips.length && !thinking}
+      {#if !a.done}
+        {#if a.chips.length && !a.thinking}
           <div class="chips" in:fade>
-            {#each chips as q}<button onclick={() => send(q)}>{q}</button>{/each}
+            {#each a.chips as q}<button onclick={() => send(q)}>{q}</button>{/each}
           </div>
         {/if}
         <form class="composer" onsubmit={(e) => (e.preventDefault(), send(text))}>
-          <input bind:this={input} bind:value={text} placeholder={guided ? "Type an answer, or pick one above" : "Write a message"} maxlength="1000" disabled={thinking} aria-label="Your answer" />
-          <button class="btn primary" disabled={!text.trim() || thinking} aria-label="Send"><Icon name="send" size={16} /></button>
+          <input bind:this={input} bind:value={text} placeholder={a.guided ? "Type an answer, or pick one above" : "Write a message"} maxlength="1000" disabled={a.thinking} aria-label="Your answer" />
+          <button class="btn primary" disabled={!text.trim() || a.thinking} aria-label="Send"><Icon name="send" size={16} /></button>
         </form>
       {/if}
     </section>

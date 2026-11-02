@@ -25,7 +25,7 @@ export function summaryOf(id: PageId, s: Settings): string {
       const own = Object.keys(s.eq?.perOutput ?? {}).length;
       const rules = s.taste?.rules?.length ?? 0;
       const loud = s.loudness?.mode && s.loudness.mode !== "off" ? " · loudness" : "";
-      return `Equalizer ${s.eq?.enabled ? "on" : "off"}${own ? ` · ${own === 1 ? "1 output" : `${own} outputs`}` : ""}${rules && s.taste?.enabled ? ` · ${rules} taste ${rules === 1 ? "layer" : "layers"}` : ""}${loud}`;
+      return `Sound ${s.eq?.enabled ? "on" : "off"}${own ? ` · ${own === 1 ? "1 output" : `${own} outputs`}` : ""}${rules ? ` · ${rules} ${rules === 1 ? "sound" : "sounds"}` : ""}${loud}`;
     }
     case "playback": {
       const xf = s.crossfade?.mode === "on" ? `Crossfade ${s.crossfade.seconds} s` : "Gapless";

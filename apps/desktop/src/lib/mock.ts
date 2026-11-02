@@ -47,6 +47,15 @@ const albums = [
 ];
 const titles = ["One More Time", "Aerodynamic", "Digital Love", "Harder, Better", "Something About Us", "Veridis Quo", "Get Lucky", "Instant Crush", "Touch", "Contact", "Reckoner", "Nude", "Weird Fishes", "Videotape", "15 Step", "Let It Happen", "The Less I Know", "Eventually", "Yes I'm Changing", "Nikes", "Ivy", "Pink + White", "So What", "Freddie Freeloader", "Blue in Green", "All Blues", "Flamenco Sketches"];
 
+// ?taste: the mockup's library (Eagles playing, Steely Dan to search for)
+if (url.has("taste")) {
+  albums.unshift(
+    { album: "Hotel California", artist: "Eagles", year: 1976, hue: 24, n: 5, q: "FLAC · 24-bit / 96 kHz", rate: 96000, bits: 24, genre: "Rock, Classic Rock" },
+    { album: "Can't Buy a Thrill", artist: "Steely Dan", year: 1972, hue: 200, n: 3, q: "FLAC · 16-bit / 44.1 kHz", rate: 44100, bits: 16, genre: "Rock, Yacht rock" },
+  );
+  titles.unshift("Hotel California", "New Kid in Town", "Life in the Fast Lane", "Wasted Time", "Victim of Love", "Do It Again", "Dirty Work", "Midnight Cruiser");
+}
+
 let k = 0;
 const tracks: Track[] = albums.flatMap((a) =>
   Array.from({ length: a.n }, (_, i) => ({
@@ -85,6 +94,8 @@ function coverSvg(path: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
+/** The output the mock plays on (?taste: the Sony of the Sound mockup). */
+const MOCK_OUTPUT = url.has("taste") ? "Sony WH-1000XM5" : "External Headphones";
 let mockMuted = false;
 let state: PlayerState = {
   status: url.has("guest") ? "paused" : "playing",
@@ -95,14 +106,18 @@ let state: PlayerState = {
   volume: 0.72,
   shuffle: false,
   repeat: "off",
-  preferred_device: "External Headphones",
-  stream: { codec: "flac", source_rate: 96000, bits_per_sample: 24, source_channels: 2, output_rate: 96000, output_channels: 2, resampled: false, device: "External Headphones" },
+  preferred_device: MOCK_OUTPUT,
+  stream: { codec: "flac", source_rate: 96000, bits_per_sample: 24, source_channels: 2, output_rate: 96000, output_channels: 2, resampled: false, device: MOCK_OUTPUT },
   error: null,
   track: tracks[0],
-  ...soundMock.playerFlags(tracks[0], eqMock.playerFlags("External Headphones")),
+  ...soundMock.playerFlags(tracks[0], eqMock.playerFlags(MOCK_OUTPUT), MOCK_OUTPUT, eqMock.settings().enabled),
 };
 /** Equalizer and taste-layer fields of the player on `device` for the current track. */
-const flagsFor = (device: string) => soundMock.playerFlags(state.track, eqMock.playerFlags(device));
+const flagsFor = (device: string) => soundMock.playerFlags(state.track, eqMock.playerFlags(device), device, eqMock.settings().enabled);
+// ?nomusic: nothing is playing
+if (url.has("nomusic")) state = { ...state, status: "stopped", queue: [], current: null, position_ms: 0, duration_ms: null, track: null, stream: null, ...flagsFor(MOCK_OUTPUT) };
+soundMock.startAudition(state.track);
+state = { ...state, ...flagsFor(MOCK_OUTPUT) };
 // ?chain=: the signal chain's cases (bitperfect, resampled, usb, bluetooth, fading)
 {
   const chain = url.get("chain");
@@ -282,15 +297,18 @@ const handlers: Record<string, (args: any) => unknown> = {
   ...soundMock.handlers(
     () => state.track,
     () => {
-      state = { ...state, ...flagsFor(state.stream?.device ?? "WH-1000XM5") };
+      state = { ...state, ...flagsFor(state.stream?.device ?? MOCK_OUTPUT) };
       emit("player", state);
       emit("settings", handlers.get_settings({}));
     },
+    () => state.stream?.device ?? state.preferred_device ?? MOCK_OUTPUT,
+    () => eqMock.settings().enabled,
+    () => tracks,
   ),
   eq_bypass: ({ on }) => {
     const eq = eqMock.settings();
     const flags = flagsFor(state.stream?.device ?? "WH-1000XM5");
-    state = { ...state, ...(on && (eq.enabled || flags.eq_active) ? { eq_active: false, eq_profile: null, taste_rule: null, taste_label: null } : flags) };
+    state = { ...state, ...(on && (eq.enabled || flags.eq_active) ? { eq_active: false, eq_profile: null, taste_rule: null, taste_label: null, taste_target: null, auditioning: false } : flags) };
     emit("player", state);
   },
   eq_set: ({ settings }) => {
@@ -314,17 +332,17 @@ const handlers: Record<string, (args: any) => unknown> = {
     if (typeof key === "string" && key.startsWith("bad")) throw `The ${provider} key isn't valid. Check it in Settings.`;
   },
   ai_default_model: ({ provider }) => (aiModels[provider]?.find((m) => m[1]) ?? ["model-a"])[0],
-  eq_assistant_start: async ({ language, focusRule, guided }) => {
+  eq_assistant_start: async ({ language, focusRule, guided, notes }) => {
     assistantStep = 0;
     assistantEs = String(language).toLowerCase().startsWith("es");
     await wait(700);
     const refine = focusRule && !guided ? soundMock.refine(focusRule, assistantEs) : null;
-    return refine ?? assistantTurn("");
+    return refine ?? (!guided && !focusRule ? soundMock.inlineStart(notes, state.track, assistantEs) : null) ?? assistantTurn("");
   },
   eq_assistant_reply: async ({ text }) => {
     await wait(900);
     if (url.has("aierror")) throw assistantEs ? "Anthropic pidió ir más despacio. Espera un minuto y vuelve a intentarlo." : "Anthropic asked us to slow down. Wait a minute and try again.";
-    const suggested = soundMock.reply(text);
+    const suggested = soundMock.reply(text, state.track, assistantEs);
     if (suggested) {
       state = { ...state, ...flagsFor(state.stream?.device ?? "WH-1000XM5") };
       emit("settings", handlers.get_settings({}));
@@ -463,6 +481,7 @@ const handlers: Record<string, (args: any) => unknown> = {
   player_muted: () => mockMuted,
   visual: ({ bands }) => visual(bands),
   output_devices: () => [
+    ...(url.has("taste") ? [{ name: "Sony WH-1000XM5", is_default: false, sample_rates: [44100, 48000], default_rate: 48000, max_channels: 2 }] : []),
     { name: "External Headphones", is_default: false, sample_rates: [44100, 48000, 88200, 96000], default_rate: 48000, max_channels: 2 },
     { name: "WH-1000XM5", is_default: true, sample_rates: [44100], default_rate: 44100, max_channels: 2 },
     { name: "Razer Seiren V2 X", is_default: false, sample_rates: [44100, 48000], default_rate: 48000, max_channels: 2 },

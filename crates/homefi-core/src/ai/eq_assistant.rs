@@ -277,19 +277,17 @@ impl EqAssistant {
         let es = self.state.context.spanish();
         let kickoff = match self.state.context.focus() {
             Some(r) if es => format!(
-                "(El usuario abrió el asistente desde el editor de la capa «{}» ({}: {}) para afinarla. Llama analyze_sound con \
-                 ese scope, di en una o dos frases qué hace su curva ahora y pregunta qué quiere cambiar, con suggest_replies.)",
+                "(El usuario abrió el asistente desde el editor del sonido «{}» ({}) para afinarlo. Llama analyze_sound con \
+                 el primer scope, di en una o dos frases qué hace su curva ahora y pregunta qué quiere cambiar, con suggest_replies.)",
                 r.label,
-                r.scope.kind(),
-                r.scope.name()
+                targets_line(r, true)
             ),
             Some(r) => format!(
-                "(The user opened the assistant from the editor of the taste layer “{}” ({}: {}) to refine it. Call \
-                 analyze_sound with that scope, say in one or two sentences what its curve does now and ask what they'd like \
+                "(The user opened the assistant from the editor of the sound “{}” ({}) to refine it. Call \
+                 analyze_sound with its first scope, say in one or two sentences what its curve does now and ask what they'd like \
                  to change, with suggest_replies.)",
                 r.label,
-                r.scope.kind(),
-                r.scope.name()
+                targets_line(r, false)
             ),
             None if es => {
                 "(El usuario abrió el asistente del ecualizador. Salúdalo en una frase y haz la primera pregunta.)".to_owned()
@@ -427,7 +425,7 @@ impl EqAssistant {
             },
             "list_taste_rules" => {
                 let t = &self.state.context.taste;
-                (json!({ "layersOn": t.enabled, "rules": t.rules }).to_string(), false, false)
+                (json!({ "soundOn": self.state.context.current.enabled, "rules": t.rules }).to_string(), false, false)
             }
             "listening_summary" => {
                 let summary = match &self.state.context.listening {
@@ -573,27 +571,34 @@ impl EqAssistant {
         Ok(())
     }
 
-    /// Saves a taste layer (after a yes): its own values, else the proposal
-    /// on the table for that scope. Returns the rule and what was clamped.
+    /// Saves a sound (after a yes): its own values, else the proposal on the
+    /// table for that scope. Returns the sound and what was clamped.
     fn set_taste_rule(&mut self, args: &Value) -> std::result::Result<(TasteRule, Vec<String>), String> {
         self.agreed()?;
         let (rule, notes) = self.taste_curve(args, true)?;
-        let stored = self.state.context.taste.upsert(rule);
-        if self.state.taste_proposal.as_ref().is_some_and(|p| p.scope.same_as(&stored.scope)) {
+        let scope = scope_arg(args.get("scope"))?;
+        // the moves (targets leaving overlapping sounds) are redone when the app applies the change
+        let stored = self.state.context.taste.upsert(rule).rule;
+        if self.state.taste_proposal.as_ref().is_some_and(|p| p.id == stored.id || p.covers(&scope)) {
             self.state.taste_proposal = None;
         }
         Ok((stored, notes))
     }
 
-    /// A taste rule from the model's arguments, validated for the output
-    /// playing (not saved). Missing `bands` / `tilt` keep the ones it starts
-    /// from: the proposal on the table for that scope (`from_proposal`), else
-    /// the saved rule.
+    /// A sound from the model's arguments, validated for the output playing
+    /// (not saved). Missing `bands` / `tilt` keep the ones it starts from: the
+    /// proposal on the table for that scope (`from_proposal`), else the saved
+    /// sound covering it (which is then the one changed: all its music hears
+    /// the change); with none, a new sound for that scope.
     fn taste_curve(&self, args: &Value, from_proposal: bool) -> std::result::Result<(TasteRule, Vec<String>), String> {
         let ctx = &self.state.context;
         let scope = scope_arg(args.get("scope"))?;
-        let proposal = self.state.taste_proposal.as_ref().filter(|p| from_proposal && p.scope.same_as(&scope));
-        let start = proposal.or_else(|| ctx.taste.rule_for(&scope));
+        let active_output = ctx.active_output.as_deref();
+        let proposal = self.state.taste_proposal.as_ref().filter(|p| from_proposal && p.covers(&scope));
+        let start = proposal.or_else(|| ctx.taste.sound_covering(&scope, active_output));
+        // a sound already saved is changed; anything else becomes a new sound
+        let saved = start.filter(|s| ctx.taste.rules.iter().any(|r| r.id == s.id));
+        let only_on_active_output = args.get("only_on_active_output").and_then(Value::as_bool).unwrap_or(false);
         let mut notes = Vec::new();
         let bands = match args.get("bands") {
             Some(v) => {
@@ -632,10 +637,32 @@ impl EqAssistant {
         let es = ctx.spanish();
         let label = text("label", 60)
             .or_else(|| proposal.map(|p| p.label.clone()))
+            // naming one of many targets would mislead: keep the sound's own name
+            .or_else(|| saved.filter(|s| s.targets.len() > 1).map(|s| s.label.clone()))
             .unwrap_or_else(|| super::reactions::describe_curve(&scope, tilt, &bands, es));
         let explanation =
             text("explanation", 400).or_else(|| proposal.map(|p| p.explanation.clone())).unwrap_or_default();
-        let rule = TasteRule { bands, explanation, ..TasteRule::new(scope, tilt, label, TasteCreator::Ai) };
+        let rule = match saved {
+            Some(s) => TasteRule { tilt, bands, label, explanation, ..s.clone() },
+            None => {
+                let outputs = match (only_on_active_output, active_output) {
+                    (true, Some(active)) => vec![active.to_owned()],
+                    // the proposal the user saw keeps its outputs
+                    _ if proposal.is_some_and(|p| !p.outputs.is_empty()) => {
+                        proposal.map(|p| p.outputs.clone()).unwrap_or_default()
+                    }
+                    _ => ctx.taste.outputs_for_new(&scope, active_output),
+                };
+                let fresh = TasteRule {
+                    bands,
+                    explanation,
+                    outputs,
+                    ..TasteRule::for_target(scope, tilt, label, TasteCreator::Ai)
+                };
+                // the proposal's id stays, so "apply" saves what was on the table
+                TasteRule { id: proposal.map(|p| p.id.clone()).unwrap_or(fresh.id.clone()), ..fresh }
+            }
+        };
         Ok((rule, notes))
     }
 
@@ -648,13 +675,16 @@ impl EqAssistant {
         let device = ctx.current.profile_for(&output_id).filter(|_| ctx.current.enabled).map(EqProfile::clamped);
         let asked = args.get("scope").filter(|v| !v.is_null()).map(|v| scope_arg(Some(v)));
         let (rule, from) = match &asked {
-            Some(Ok(scope)) => match self.state.taste_proposal.as_ref().filter(|p| p.scope.same_as(scope)) {
+            Some(Ok(scope)) => match self.state.taste_proposal.as_ref().filter(|p| p.covers(scope)) {
                 Some(p) => (Some(p.clone()), "proposal on the table"),
-                None => (ctx.taste.rule_for(scope).cloned(), "saved rule for that scope"),
+                None => (
+                    ctx.taste.sound_covering(scope, ctx.active_output.as_deref()).cloned(),
+                    "saved sound for that scope",
+                ),
             },
             _ => {
                 let now = ctx.now_playing.clone().unwrap_or_default();
-                (resolve_taste(&ctx.taste, &now).map(|(r, _)| r.clone()), "rule playing now")
+                (resolve_taste(&ctx.taste, &output_id, &now).map(|r| r.rule.clone()), "sound playing now")
             }
         };
         let small = output.is_some_and(|o| o.kind == OutputKind::BuiltIn);
@@ -685,8 +715,8 @@ impl EqAssistant {
             "deviceProfile": device.map(|p| json!({ "name": p.name, "source": p.source, "bands": p.bands })),
             "scopeError": match &asked { Some(Err(e)) => Some(e.clone()), _ => None },
             "tasteRule": rule.as_ref().map(|r| json!({
-                "from": from, "id": r.id, "label": r.label, "scope": r.scope, "tilt": r.tilt, "bands": r.bands,
-                "summary": curve_summary(r, ctx.spanish()), "enabled": r.enabled,
+                "from": from, "id": r.id, "label": r.label, "targets": target_scopes(r), "outputs": r.outputs,
+                "tilt": r.tilt, "bands": r.bands, "summary": curve_summary(r, ctx.spanish()), "enabled": r.enabled,
             })),
             "tasteBandsLeft": MAX_TASTE_BANDS.saturating_sub(bands.len()),
             "response": points,
@@ -899,6 +929,23 @@ fn small_speaker_safe(base: &EqProfile, notes: &mut Vec<String>) -> EqProfile {
     p
 }
 
+/// The scopes a sound applies to (for the model).
+fn target_scopes(rule: &TasteRule) -> Vec<&TasteScope> {
+    rule.targets.iter().map(|t| &t.scope).collect()
+}
+
+/// `artist: Eagles`, or `12 pieces of music (first: artist: Eagles)`.
+fn targets_line(rule: &TasteRule, es: bool) -> String {
+    let first = |s: &TasteScope| format!("{}: {}", s.kind(), s.name());
+    match (rule.main_target(), rule.targets.len()) {
+        (None, _) if es => "sin música todavía".to_owned(),
+        (None, _) => "no music yet".to_owned(),
+        (Some(s), 1) => first(s),
+        (Some(s), n) if es => format!("{n} piezas de música, la primera {}", first(s)),
+        (Some(s), n) => format!("{n} pieces of music, the first {}", first(s)),
+    }
+}
+
 /// A scope from the model: `{kind, id?, name}`.
 pub(crate) fn scope_arg(v: Option<&Value>) -> std::result::Result<TasteScope, String> {
     let v = v.ok_or("scope is required")?;
@@ -1062,6 +1109,10 @@ fn tools() -> Vec<Tool> {
             "type": "object",
             "properties": {
                 "scope": scope.clone(),
+                "only_on_active_output": {
+                    "type": "boolean",
+                    "description": "Make a NEW sound play only on the output playing now; ignored for an existing sound"
+                },
                 "label": { "type": "string", "description": "Short name the user sees, in their language (\"More punch for Electronic\")" },
                 "explanation": { "type": "string", "description": "Why, in one or two plain sentences in the user's language" },
                 "bands": {
@@ -1128,7 +1179,7 @@ fn tools() -> Vec<Tool> {
         ),
         tool(
             "list_taste_rules",
-            "The user's taste layers: rules that tilt the sound for a genre, playlist, artist, album or track, on top of the output's profile.",
+            "The user's sounds: curves that tilt the sound for any number of songs, albums, artists, playlists and genres (and, if limited, some outputs), on top of the output's profile.",
             json!({ "type": "object", "properties": {} }),
         ),
         tool(
@@ -1146,8 +1197,10 @@ fn tools() -> Vec<Tool> {
         ),
         tool(
             "set_taste_rule",
-            "Save the taste layer for one genre, playlist, artist, album or track (one rule per scope; the most specific one \
-             plays: track > album > playlist > artist > genre). Only after the user clearly said yes to it. Give `bands` (a \
+            "Save a sound for `scope` (a genre, playlist, artist, album or track). A sound can apply to several songs, albums, \
+             artists, playlists and genres, and can be limited to some outputs. If `scope` already belongs to a sound, that sound \
+             changes, for ALL its music; to change one song or album only, set a rule with that song's / album's own scope (it \
+             becomes a new sound). The most specific one plays: track > album > artist > playlist > genre. Only after the user clearly said yes to it. Give `bands` (a \
              parametric curve, few bands, each within the intensity's caps) and / or `tilt` (broad knobs, each -6..6 dB). Omitted fields keep \
              the proposal on the table for that scope, else the saved rule's. The whole layer never boosts more than +12 dB.",
             taste_rule("Omit to keep the proposal's / saved curve; [] removes it."),
@@ -1279,9 +1332,9 @@ fn system_prompt(state: &AssistantState) -> String {
         "notes": ctx.notes,
         "questionsAskedSoFar": state.user_turns,
         "proposalOnTheTable": state.proposal.as_ref().map(|p| json!({ "outputId": p.output_id, "name": p.profile.name })),
-        "tasteProposalOnTheTable": state.taste_proposal.as_ref().map(|r| json!({ "scope": r.scope, "label": r.label })),
-        "tasteLayers": ctx.taste.rules.len(),
-        "refiningRule": ctx.focus().map(|r| json!({ "id": r.id, "label": r.label, "scope": r.scope, "tilt": r.tilt, "bands": r.bands })),
+        "tasteProposalOnTheTable": state.taste_proposal.as_ref().map(|r| json!({ "targets": target_scopes(r), "outputs": r.outputs, "label": r.label })),
+        "sounds": ctx.taste.rules.len(),
+        "refiningRule": ctx.focus().map(|r| json!({ "id": r.id, "label": r.label, "targets": target_scopes(r), "outputs": r.outputs, "tilt": r.tilt, "bands": r.bands })),
         "loudness": ctx.loudness.mode,
         "nowPlaying": ctx.now_playing.as_ref().map(|n| json!({
             "title": n.title, "album": n.album.as_ref().map(|a| &a.name),
@@ -1333,7 +1386,9 @@ What people say and what it usually needs (starting points at Balanced; two or t
 
 Taste layers (after the device step, or right away when the device is already set up):
 - Taste layers change the sound for some music only: a genre, a playlist, an artist, an album or one track, on top of the \
-output's profile. The most specific one plays (track > album > playlist > artist > genre). A layer is a simple `tilt` (bass, \
+output's profile. The most specific one plays (track > album > artist > playlist > genre). A sound can apply to several \
+songs, albums, artists, playlists and genres, and can be limited to some outputs. Changing a sound changes it for all its \
+music: to change one song or album only, set a rule with that song's / album's own scope (it becomes a new sound). A layer is a simple `tilt` (bass, \
 treble, clarity knobs) and / or a parametric curve of up to {MAX_TASTE_BANDS} `bands`: as precise as the user's own equalizer.
 - Look at listening_summary and list_taste_rules, then offer at most two concrete layers that fit what they listen to (for \
 example \"more bass for Electronic\"). Show a curve with propose_taste_rule (the app draws it with your band notes), \
@@ -1720,7 +1775,7 @@ pub(crate) mod tests {
         // and the next analysis sees the saved rule playing on top of the HD 650
         let (out, _, _) = a.run_tool(&call("a6", "analyze_sound", json!({"scope": guetta})), &mut turn).await;
         let v: Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["tasteRule"]["from"], "saved rule for that scope");
+        assert_eq!(v["tasteRule"]["from"], "saved sound for that scope");
         assert!(v["maxCutDb"].as_f64().unwrap() < -5.0);
         // a flat curve is refused
         let (_, err, _) = a
@@ -1729,18 +1784,72 @@ pub(crate) mod tests {
         assert!(err);
     }
 
+    #[tokio::test]
+    async fn sounds_can_be_limited_to_the_active_output_and_edit_all_their_music() {
+        let config = AiConfig::new(AiProvider::Anthropic, "m", Some("k".into()));
+        let mut ctx = context();
+        ctx.active_output = Some("dac".into());
+        let mut a = EqAssistant::new(config, ctx);
+        a.state.user_turns = 1;
+        let call = |id: &str, name: &str, input: Value| ToolCall { id: id.into(), name: name.into(), arguments: input };
+        let rock = json!({"kind": "genre", "name": "Rock"});
+        let mut turn = AssistantTurn::default();
+        let (out, err, _) = a
+            .run_tool(
+                &call(
+                    "o1",
+                    "set_taste_rule",
+                    json!({"scope": rock, "tilt": {"bassDb": 2}, "only_on_active_output": true}),
+                ),
+                &mut turn,
+            )
+            .await;
+        assert!(!err, "{out}");
+        let made = turn.taste_change.clone().unwrap().upsert[0].clone();
+        assert_eq!(made.outputs, ["dac"]);
+        assert_eq!(made.targets.len(), 1);
+
+        // the sound grows to another target (the user added it); the model changes it for Rock: all its music changes
+        let bach = TasteScope::Artist { id: String::new(), name: "Bach".into() };
+        a.state.context.taste.assign(&made.id, bach.clone(), TasteCreator::Manual).unwrap();
+        let mut turn = AssistantTurn::default();
+        let (out, err, _) =
+            a.run_tool(&call("o2", "set_taste_rule", json!({"scope": rock, "tilt": {"bassDb": 4}})), &mut turn).await;
+        assert!(!err, "{out}");
+        let edited = turn.taste_change.unwrap().upsert[0].clone();
+        assert_eq!(
+            (edited.id.as_str(), edited.targets.len(), edited.outputs.clone()),
+            (made.id.as_str(), 2, vec!["dac".to_owned()])
+        );
+        assert_eq!(a.state.context.taste.rules.len(), 1);
+
+        // one song only: its own scope makes a new sound that takes the song
+        let song = json!({"kind": "track", "id": "t1", "name": "Hotel California"});
+        let mut turn = AssistantTurn::default();
+        let (out, err, _) =
+            a.run_tool(&call("o3", "set_taste_rule", json!({"scope": song, "tilt": {"bassDb": -2}})), &mut turn).await;
+        assert!(!err, "{out}");
+        let one = turn.taste_change.unwrap().upsert[0].clone();
+        assert_ne!(one.id, made.id);
+        assert_eq!(a.state.context.taste.rules.len(), 2);
+        assert!(a.state.context.taste.rules[0].covers(&bach));
+    }
+
     /// The bug "I delete it and it comes back": a turn used to carry a copy of
     /// every rule, made when the conversation began.
     #[tokio::test]
     async fn a_turn_reports_a_change_not_a_snapshot() {
         let config = AiConfig::new(AiProvider::Anthropic, "m", Some("k".into()));
         let mut ctx = context();
-        let old = ctx.taste.upsert(TasteRule::new(
-            TasteScope::Genre { name: "Jazz".into() },
-            Tilt { bass_db: 1.0, ..Default::default() },
-            "Jazz",
-            TasteCreator::Manual,
-        ));
+        let old = ctx
+            .taste
+            .upsert(TasteRule::for_target(
+                TasteScope::Genre { name: "Jazz".into() },
+                Tilt { bass_db: 1.0, ..Default::default() },
+                "Jazz",
+                TasteCreator::Manual,
+            ))
+            .rule;
         let mut a = EqAssistant::new(config, ctx);
         a.state.user_turns = 1;
         let call = |id: &str, name: &str, input: Value| ToolCall { id: id.into(), name: name.into(), arguments: input };
@@ -1752,7 +1861,7 @@ pub(crate) mod tests {
         let change = turn.taste_change.clone().expect("a change");
         // only the rule of this turn: not the Jazz one the user already had
         assert_eq!((change.upsert.len(), change.remove.len()), (1, 0));
-        assert_eq!(change.upsert[0].scope.name(), "Rock");
+        assert_eq!(change.upsert[0].main_target().unwrap().name(), "Rock");
 
         // the user deletes the Jazz rule on the settings screen; merging the change leaves it deleted
         let mut now = TasteSettings::default();
@@ -1772,12 +1881,15 @@ pub(crate) mod tests {
     #[test]
     fn sync_replaces_the_copy() {
         let mut ctx = context();
-        let rule = ctx.taste.upsert(TasteRule::new(
-            TasteScope::Genre { name: "Jazz".into() },
-            Tilt { bass_db: 1.0, ..Default::default() },
-            "Jazz",
-            TasteCreator::Manual,
-        ));
+        let rule = ctx
+            .taste
+            .upsert(TasteRule::for_target(
+                TasteScope::Genre { name: "Jazz".into() },
+                Tilt { bass_db: 1.0, ..Default::default() },
+                "Jazz",
+                TasteCreator::Manual,
+            ))
+            .rule;
         let mut session = EqSession::guided(ctx);
         // the rule is deleted, loudness and the equalizer changed since the conversation began
         let loudness = LoudnessSettings { mode: LoudnessMode::Album, ..Default::default() };
@@ -1786,7 +1898,7 @@ pub(crate) mod tests {
         session.sync(taste.clone(), loudness, eq.clone());
         let EqSession::Guided(g) = &session else { panic!("guided") };
         let c = &g.state().context;
-        assert!(c.taste.rule_for(&rule.scope).is_none() && c.taste == taste);
+        assert!(c.taste.sound_covering(rule.main_target().unwrap(), None).is_none() && c.taste == taste);
         assert_eq!((c.loudness, c.current.enabled), (loudness, true));
         // the AI conversation too, and the model sees the new intensity
         let mut session = EqSession::ai(AiConfig::new(AiProvider::Anthropic, "m", None), context());
@@ -1813,15 +1925,18 @@ pub(crate) mod tests {
     #[test]
     fn refining_a_rule_starts_from_it() {
         let mut ctx = context();
-        let rule = ctx.taste.upsert(
-            TasteRule::new(
-                TasteScope::Artist { id: String::new(), name: "Bach".into() },
-                Tilt::default(),
-                "Bach suave",
-                TasteCreator::Manual,
+        let rule = ctx
+            .taste
+            .upsert(
+                TasteRule::for_target(
+                    TasteScope::Artist { id: String::new(), name: "Bach".into() },
+                    Tilt::default(),
+                    "Bach suave",
+                    TasteCreator::Manual,
+                )
+                .with_bands(vec![TasteBand::new(EqBandKind::Peak, 3000.0, -2.0, 2.0)]),
             )
-            .with_bands(vec![TasteBand::new(EqBandKind::Peak, 3000.0, -2.0, 2.0)]),
-        );
+            .rule;
         ctx.focus_rule = Some(rule.id.clone());
         let state = AssistantState { context: ctx, ..Default::default() };
         let prompt = system_prompt(&state);

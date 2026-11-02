@@ -2,9 +2,9 @@
 //! "sound"): the settings, what the engine needs to know about each file
 //! (genre, album, artist, where the queue came from) and the reactions.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use homefi_core::ai::{
@@ -12,8 +12,9 @@ use homefi_core::ai::{
     UndoStack,
 };
 use homefi_core::dsp::{
-    self, split_genres, CrossfadeSettings, ItemRef, LoudnessSettings, NowPlayingContext, SourceContext, TasteRule,
-    TasteScope, TasteSettings, TrackSound,
+    self, split_genres, CrossfadeSettings, ItemRef, LoudnessSettings, NowPlayingContext, SavedSound, SourceContext,
+    TargetHit, TargetMove, TargetSource, TasteAudition, TasteCreator, TasteError, TasteRule, TasteScope, TasteSettings,
+    TrackSound,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
@@ -26,6 +27,17 @@ type CmdResult<T> = Result<T, String>;
 const SUMMARY_TTL: Duration = Duration::from_secs(30 * 60);
 /// Paths remembered with their source (the queue rarely holds more).
 const MAX_SOURCES: usize = 5000;
+/// Library candidates gathered for one target search (the ranking keeps far fewer).
+const MAX_LIBRARY_CANDIDATES: usize = 200;
+/// Target hits returned to the UI.
+const MAX_TARGET_HITS: usize = 30;
+/// How long Tidal gets to answer a target search before only the library is shown.
+const TIDAL_SEARCH_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The guarded value even if another thread panicked holding the lock.
+fn locked<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// Where a queued file came from, and its Tidal id.
 type Origin = (Option<SourceContext>, Option<String>);
@@ -38,12 +50,14 @@ pub struct Sound {
     sources: Mutex<HashMap<PathBuf, Origin>>,
     undo: UndoStack,
     summary: Mutex<Option<(Instant, ListeningSummary)>>,
+    /// The Try on the track playing (the player holds the same one).
+    audition: Mutex<Option<TasteAudition>>,
 }
 
 /// Remembers that `path` was queued from `source` (and is Tidal track `tidal_id`).
 pub fn remember<R: Runtime>(app: &AppHandle<R>, path: &Path, source: Option<SourceContext>, tidal_id: Option<String>) {
     let Some(sound) = app.try_state::<Sound>() else { return };
-    let mut map = sound.sources.lock().unwrap();
+    let mut map = locked(&sound.sources);
     if map.len() > MAX_SOURCES {
         map.clear();
     }
@@ -59,7 +73,7 @@ pub fn remember<R: Runtime>(app: &AppHandle<R>, path: &Path, source: Option<Sour
 /// A new play replaces the sources of what was queued before.
 pub fn forget_sources<R: Runtime>(app: &AppHandle<R>) {
     if let Some(sound) = app.try_state::<Sound>() {
-        sound.sources.lock().unwrap().clear();
+        locked(&sound.sources).clear();
     }
 }
 
@@ -67,7 +81,7 @@ pub fn forget_sources<R: Runtime>(app: &AppHandle<R>) {
 pub fn track_sound<R: Runtime>(app: &AppHandle<R>, path: &Path) -> TrackSound {
     let Some(state) = app.try_state::<AppState>() else { return TrackSound::default() };
     let (source, tidal_id) =
-        app.try_state::<Sound>().and_then(|s| s.sources.lock().unwrap().get(path).cloned()).unwrap_or_default();
+        app.try_state::<Sound>().and_then(|s| locked(&s.sources).get(path).cloned()).unwrap_or_default();
     // streamed tracks are `<stream-cache>/<id>.<ext>`
     let tidal_id = tidal_id.or_else(|| {
         let in_cache = path.parent() == Some(crate::stream::cache_dir(&state).as_path());
@@ -110,6 +124,22 @@ fn now_context(app: &AppHandle) -> Option<NowPlayingContext> {
     let snapshot = state.player.snapshot();
     let path = snapshot.current.and_then(|i| snapshot.queue.get(i))?.clone();
     Some(track_sound(app, &path).context)
+}
+
+/// The output sounds are resolved for: the device playing, else the chosen one.
+fn current_output(app: &AppHandle) -> Option<String> {
+    let state = app.state::<AppState>();
+    state.player.snapshot().stream.map(|s| s.device).or_else(|| state.settings().output_device)
+}
+
+/// The stored Try if it is still about the track playing; else it is dropped.
+fn live_audition(app: &AppHandle, now: Option<&NowPlayingContext>) -> Option<TasteAudition> {
+    let sound = app.state::<Sound>();
+    let mut stored = locked(&sound.audition);
+    if !stored.as_ref().is_some_and(|a| now.is_some_and(|c| a.applies_to(c))) {
+        *stored = None;
+    }
+    stored.clone()
 }
 
 /// Gives the player its settings and the way to learn about files.
@@ -193,23 +223,238 @@ pub fn output_options_set(
     Ok(saved.output)
 }
 
-/// The track playing and what taste layers can say about it.
+/// Saves a change to the sounds and applies it; the error text is for the user.
+fn edit_taste<T>(app: &AppHandle, change: impl FnOnce(&mut TasteSettings) -> Result<T, TasteError>) -> CmdResult<T> {
+    let mut outcome = None;
+    let saved = app.state::<AppState>().save_settings(|s| outcome = Some(change(&mut s.taste)))?;
+    let value = outcome.ok_or_else(|| "The sound could not be changed.".to_owned())?.map_err(|e| e.to_string())?;
+    apply(app, &saved);
+    Ok(value)
+}
+
+/// Puts `scope` in the sound `sound_id`, taking it out of the ones that overlap.
+#[tauri::command(async)]
+pub fn taste_assign(app: AppHandle, sound_id: String, scope: TasteScope) -> CmdResult<Vec<TargetMove>> {
+    edit_taste(&app, |t| t.assign(&sound_id, scope, TasteCreator::Manual))
+}
+
+#[tauri::command(async)]
+pub fn taste_unassign(app: AppHandle, sound_id: String, scope: TasteScope) -> CmdResult<()> {
+    edit_taste(&app, |t| {
+        t.unassign(&sound_id, &scope);
+        Ok(())
+    })
+}
+
+/// Undo of an assignment: each target goes back to the sound it came from.
+#[tauri::command(async)]
+pub fn taste_undo_moves(app: AppHandle, moves: Vec<TargetMove>) -> CmdResult<()> {
+    edit_taste(&app, |t| {
+        t.undo_moves(&moves);
+        Ok(())
+    })
+}
+
+#[tauri::command(async)]
+pub fn taste_set_outputs(app: AppHandle, sound_id: String, outputs: Vec<String>) -> CmdResult<Vec<TargetMove>> {
+    edit_taste(&app, |t| t.set_outputs(&sound_id, outputs))
+}
+
+/// Adds or replaces a sound (by id): "+ New", rename, curve edits.
+#[tauri::command(async)]
+pub fn taste_save(app: AppHandle, rule: TasteRule) -> CmdResult<SavedSound> {
+    edit_taste(&app, |t| Ok(t.upsert(rule)))
+}
+
+#[tauri::command(async)]
+pub fn taste_remove(app: AppHandle, sound_id: String) -> CmdResult<bool> {
+    edit_taste(&app, |t| Ok(t.remove(&sound_id)))
+}
+
+/// Tries `rule` on the track playing (never saved); `None` stops trying.
+/// `false` when nothing plays, the Sound master is off or the track can't be tried.
+#[tauri::command(async)]
+pub fn taste_audition(app: AppHandle, rule: Option<TasteRule>) -> CmdResult<bool> {
+    let state = app.state::<AppState>();
+    let sound = app.state::<Sound>();
+    let Some(rule) = rule else {
+        *locked(&sound.audition) = None;
+        state.player.set_audition(None);
+        return Ok(true);
+    };
+    if !state.settings().eq.enabled {
+        return Ok(false);
+    }
+    let Some(audition) = now_context(&app).and_then(|ctx| TasteAudition::new(rule, &ctx)) else { return Ok(false) };
+    *locked(&sound.audition) = Some(audition.clone());
+    state.player.set_audition(Some(audition));
+    Ok(true)
+}
+
+/// "Keep": the Try (or a proposal) becomes a saved sound for `scope`, or its
+/// curve replaces the one it came from. Ends the Try if it was this rule.
+#[tauri::command(async)]
+pub fn taste_keep(
+    app: AppHandle,
+    rule: TasteRule,
+    scope: TasteScope,
+    only_on: Option<String>,
+) -> CmdResult<SavedSound> {
+    let by = rule.created_by;
+    let tried = locked(&app.state::<Sound>().audition).as_ref().is_some_and(|a| a.rule.id == rule.id);
+    let saved = edit_taste(&app, |t| t.keep(&rule, scope, only_on, by))?;
+    if tried {
+        *locked(&app.state::<Sound>().audition) = None;
+        app.state::<AppState>().player.set_audition(None);
+    }
+    Ok(saved)
+}
+
+/// Candidates from the library tags for `query` (no disk access, capped).
+fn library_hits(state: &AppState, query: &str) -> Vec<TargetHit> {
+    let query = query.trim().to_lowercase();
+    let mut seen: HashSet<(&'static str, String)> = HashSet::new();
+    let mut hits: Vec<TargetHit> = Vec::new();
+    let count = std::cell::Cell::new(0usize);
+    let mut add = |scope: TasteScope, subtitle: String, key: String| {
+        if count.get() < MAX_LIBRARY_CANDIDATES && seen.insert((scope.kind(), key)) {
+            count.set(count.get() + 1);
+            hits.push(TargetHit { scope, subtitle, source: TargetSource::Library, in_sound: None });
+        }
+    };
+    let has = |text: &str| text.to_lowercase().contains(&query);
+    for t in locked(&state.library).iter() {
+        if count.get() >= MAX_LIBRARY_CANDIDATES {
+            break;
+        }
+        let by = if t.album_artist.trim().is_empty() { t.artist.as_str() } else { t.album_artist.as_str() };
+        if has(&t.title) {
+            let scope = TasteScope::Track { id: t.path.clone(), name: t.title.clone() };
+            add(scope, format!("Song · {}", t.artist), t.path.clone());
+        }
+        if !t.album.is_empty() && has(&t.album) {
+            let scope = TasteScope::Album { id: String::new(), name: t.album.clone() };
+            add(scope, format!("Album · {by}"), t.album.to_lowercase());
+        }
+        for name in t.artist.split([';', '/']).chain(std::iter::once(t.album_artist.as_str())) {
+            let name = name.trim();
+            if !name.is_empty() && has(name) {
+                add(
+                    TasteScope::Artist { id: String::new(), name: name.to_owned() },
+                    "Artist".into(),
+                    name.to_lowercase(),
+                );
+            }
+        }
+        for genre in split_genres(&t.genre).into_iter().filter(|g| has(g)) {
+            let key = genre.to_lowercase();
+            add(TasteScope::Genre { name: genre }, "Genre".into(), key);
+        }
+    }
+    // playlists already found on disk (nothing is scanned here)
+    if let Some(lists) = crate::commands::cached_local_playlists(&state.settings().library_roots()) {
+        for p in lists.iter().filter(|p| has(&p.name)) {
+            add(TasteScope::Playlist { id: p.path.clone(), name: p.name.clone() }, "Playlist".into(), p.path.clone());
+        }
+    }
+    hits
+}
+
+/// What Tidal finds for `query`; empty when it is slow, fails or isn't connected.
+async fn tidal_hits(state: &AppState, query: &str) -> Vec<TargetHit> {
+    let Ok(api) = state.api() else { return Vec::new() };
+    let found = match tokio::time::timeout(TIDAL_SEARCH_TIMEOUT, api.search(query)).await {
+        Ok(Ok(found)) => found,
+        Ok(Err(e)) => {
+            tracing::debug!("Tidal target search failed: {e}");
+            return Vec::new();
+        }
+        Err(_) => {
+            tracing::debug!("Tidal target search timed out");
+            return Vec::new();
+        }
+    };
+    let by = |main: Option<&homefi_core::models::ArtistRef>, all: &[homefi_core::models::ArtistRef]| {
+        main.or(all.first()).map(|a| a.name.clone()).unwrap_or_default()
+    };
+    let hit = |scope: TasteScope, subtitle: String| TargetHit {
+        scope,
+        subtitle,
+        source: TargetSource::Tidal,
+        in_sound: None,
+    };
+    let mut hits = Vec::new();
+    hits.extend(
+        found
+            .artists
+            .items
+            .iter()
+            .map(|a| hit(TasteScope::Artist { id: a.id.to_string(), name: a.name.clone() }, "Artist".into())),
+    );
+    hits.extend(found.albums.items.iter().map(|a| {
+        let scope = TasteScope::Album { id: a.id.to_string(), name: a.title.clone() };
+        hit(scope, format!("Album · {}", by(a.artist.as_ref(), &a.artists)))
+    }));
+    hits.extend(found.tracks.items.iter().map(|t| {
+        let scope = TasteScope::Track { id: t.id.to_string(), name: t.title.clone() };
+        hit(scope, format!("Song · {}", by(t.artist.as_ref(), &t.artists)))
+    }));
+    hits.extend(found.playlists.items.iter().map(|p| {
+        let subtitle = if p.number_of_tracks > 0 {
+            format!("Playlist · {} tracks", p.number_of_tracks)
+        } else {
+            "Playlist".to_owned()
+        };
+        hit(TasteScope::Playlist { id: p.uuid.clone(), name: p.title.clone() }, subtitle)
+    }));
+    hits
+}
+
+/// "Add" in a sound: songs, albums, artists, playlists and genres matching
+/// `query`, from the library and (when connected) Tidal, best first.
+#[tauri::command]
+pub async fn sound_search_targets(app: AppHandle, query: String) -> CmdResult<Vec<TargetHit>> {
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let state = app.state::<AppState>();
+    let mut hits = library_hits(&state, &query);
+    hits.extend(tidal_hits(&state, query.trim()).await);
+    let taste = state.settings().taste;
+    Ok(dsp::rank_targets(&query, hits, &taste, current_output(&app).as_deref(), MAX_TARGET_HITS))
+}
+
+/// The track playing and what sounds can say about it.
 #[derive(Debug, Clone, Serialize)]
 pub struct NowSound {
     pub context: Option<NowPlayingContext>,
-    /// Scopes to offer, most specific first.
+    /// Scopes to offer, most specific first (track, album, artist, playlist, genre).
     pub scopes: Vec<TasteScope>,
-    /// The rule that plays now.
+    /// The sound playing now (the Try while auditioning).
     pub rule: Option<TasteRule>,
+    /// Which of its targets matched this track.
+    pub target: Option<TasteScope>,
+    /// The output it resolves for (playing device, else the chosen one).
+    pub output: Option<String>,
+    pub auditioning: bool,
 }
 
 #[tauri::command(async)]
 pub fn sound_now(app: AppHandle) -> NowSound {
-    let taste = app.state::<AppState>().settings().taste;
+    let settings = app.state::<AppState>().settings();
+    let output = current_output(&app);
     let context = now_context(&app);
+    // a Try only counts while the master is on and the track is the one tried
+    let audition = live_audition(&app, context.as_ref()).filter(|_| settings.eq.enabled);
     let scopes = context.as_ref().map(NowPlayingContext::scopes).unwrap_or_default();
-    let rule = context.as_ref().and_then(|c| dsp::resolve_taste(&taste, c).map(|(r, _)| r.clone()));
-    NowSound { context, scopes, rule }
+    let resolved = context
+        .as_ref()
+        .and_then(|c| dsp::resolve_taste_with(&settings.taste, output.as_deref().unwrap_or(""), audition.as_ref(), c));
+    let (rule, target, auditioning) = match resolved {
+        Some(r) => (Some(r.rule.clone()), Some(r.target.clone()), r.auditioning),
+        None => (None, None, false),
+    };
+    NowSound { context, scopes, rule, target, output, auditioning }
 }
 
 /// What a taste rule's editor draws: the output's own profile (faint, when
@@ -229,10 +474,9 @@ pub struct TastePreview {
 }
 
 #[tauri::command(async)]
-pub fn taste_preview(app: AppHandle, rule: TasteRule) -> TastePreview {
-    let state = app.state::<AppState>();
-    let settings = state.settings();
-    let output = state.player.snapshot().stream.map(|s| s.device).or(settings.output_device.clone());
+pub fn taste_preview(app: AppHandle, rule: TasteRule, output: Option<String>) -> TastePreview {
+    let settings = app.state::<AppState>().settings();
+    let output = output.or_else(|| current_output(&app));
     let small = output.as_deref().is_some_and(dsp::is_built_in_speaker);
     let device = output
         .as_deref()
@@ -282,6 +526,7 @@ pub async fn sound_react(
         loudness: settings.loudness,
         output_kind: output_kind(&app),
         scope_hint: scope,
+        active_output: current_output(&app),
     };
     let config = crate::ai::settings_config(&app).await;
     let result = ai::react(reaction, &ctx, config.as_ref()).await;
@@ -333,7 +578,7 @@ pub async fn listening_summary(app: AppHandle) -> ListeningSummary {
 
 pub async fn summary(app: &AppHandle) -> ListeningSummary {
     let sound = app.state::<Sound>();
-    if let Some((at, s)) = sound.summary.lock().unwrap().as_ref() {
+    if let Some((at, s)) = locked(&sound.summary).as_ref() {
         if at.elapsed() < SUMMARY_TTL {
             return s.clone();
         }
@@ -353,7 +598,7 @@ pub async fn summary(app: &AppHandle) -> ListeningSummary {
         }
     }
     let s = summarize(&library, artists_tidal, playlists);
-    *sound.summary.lock().unwrap() = Some((Instant::now(), s.clone()));
+    *locked(&sound.summary) = Some((Instant::now(), s.clone()));
     s
 }
 
@@ -387,15 +632,23 @@ fn summarize(library: &[TrackView], favorite_artists: Vec<ItemRef>, playlists: V
     ListeningSummary { top_genres: top(genres, 6), top_artists, playlists }
 }
 
-/// "Hear without EQ" also mutes the taste layers (loudness stays: the
-/// comparison is at the same level).
+/// "Hear without": while `on` the player runs with no output profiles, no
+/// sounds and no Try; off puts everything back. Nothing is saved, loudness
+/// stays (the comparison is at the same level).
 pub fn bypass(app: &AppHandle, on: bool) {
     let state = app.state::<AppState>();
-    let mut taste = state.settings().taste;
+    let settings = state.settings();
     if on {
-        taste.enabled = false;
+        let (eq, taste) = dsp::hear_without(&settings.eq, &settings.taste);
+        state.player.set_eq(eq);
+        state.player.set_taste(taste);
+        state.player.set_audition(None);
+    } else {
+        state.player.set_eq(settings.eq);
+        state.player.set_taste(settings.taste);
+        let audition = live_audition(app, now_context(app).as_ref());
+        state.player.set_audition(audition);
     }
-    state.player.set_taste(taste);
 }
 
 #[cfg(test)]

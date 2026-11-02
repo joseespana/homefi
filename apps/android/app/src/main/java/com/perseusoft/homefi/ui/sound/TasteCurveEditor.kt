@@ -76,7 +76,7 @@ private fun newBand(bands: List<TasteBand>): TasteBand {
 }
 
 /**
- * A taste rule's sound, two ways: "Simple" (bass / treble / clarity) or "Advanced" (the
+ * A sound's curve, two ways: "Simple" (bass / treble / clarity) or "Advanced" (the
  * parametric curve: drag a point, the band list with an editor for the selected one).
  * The layer is drawn over the output's own profile (faint) with what plays, both
  * together, dashed; the assistant's note for each band shows under it. Settings → Sound
@@ -88,22 +88,24 @@ fun TasteCurveEditor(
     bands: List<TasteBand>,
     onTilt: (Tilt) -> Unit,
     onBands: (List<TasteBand>) -> Unit,
-    scope: TasteScope?,
     onRefine: (() -> Unit)?,
+    /** Bass / treble / clarity sliders in the simple mode (Settings → Sound); off: the curve only. */
+    tiltSliders: Boolean = true,
 ) {
     val app = LocalContext.current.homefi
     val settings by app.settings.settings.collectAsStateWithLifecycle()
     val haptics = haptics()
     val pref = settings.tasteEditor
-    var advanced by rememberSaveable { mutableStateOf(pref == "advanced" || (pref == "auto" && bands.isNotEmpty())) }
+    var advancedPicked by rememberSaveable { mutableStateOf(pref == "advanced" || (pref == "auto" && bands.isNotEmpty())) }
+    val advanced = advancedPicked || !tiltSliders
     var selected by rememberSaveable { mutableStateOf<Int?>(null) }
 
-    Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-        SelectChip(selected = !advanced, onClick = { haptics.tick(); advanced = false }, label = { Text(stringResource(R.string.taste_mode_simple)) })
+    if (tiltSliders) Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+        SelectChip(selected = !advanced, onClick = { haptics.tick(); advancedPicked = false }, label = { Text(stringResource(R.string.taste_mode_simple)) })
         Spacer(Modifier.width(8.dp))
         SelectChip(
             selected = advanced,
-            onClick = { haptics.tick(); advanced = true },
+            onClick = { haptics.tick(); advancedPicked = true },
             label = { Text(if (bands.isEmpty()) stringResource(R.string.taste_mode_advanced) else stringResource(R.string.taste_mode_advanced_count, bands.size)) },
         )
     }
@@ -126,7 +128,6 @@ fun TasteCurveEditor(
     val device = remember { app.sound.deviceProfile() }
     val rule = TasteRule(
         id = "preview",
-        scope = scope ?: TasteScope.Genre(""),
         tilt = tilt,
         label = "",
         createdBy = TasteCreator.MANUAL,
@@ -211,61 +212,4 @@ fun TasteCurveEditor(
 @Composable
 private fun Hint(text: String) {
     Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 4.dp))
-}
-
-/**
- * Edits a taste rule (or makes one for [scope]): its name, and its sound in the Simple /
- * Advanced editor. [onDelete] adds a delete button; [onRefine] (with AI set up) saves what
- * is there and opens the assistant on it.
- */
-@Composable
-fun TasteRuleDialog(
-    title: String,
-    subtitle: String?,
-    scope: TasteScope?,
-    initial: TasteRule?,
-    onDismiss: () -> Unit,
-    onSave: (Tilt, List<TasteBand>, String?) -> Unit,
-    onDelete: (() -> Unit)? = null,
-    onRefine: ((Tilt, List<TasteBand>, String?) -> Unit)? = null,
-) {
-    var tilt by remember { mutableStateOf(initial?.tilt ?: Tilt(0f, 0f, null)) }
-    var bands by remember { mutableStateOf(initial?.bands.orEmpty()) }
-    var label by rememberSaveable { mutableStateOf(initial?.label.orEmpty()) }
-    val haptics = haptics()
-    val neutral = ruleNeutral(tilt, bands)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                initial?.explanation?.ifBlank { null }?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp)) }
-                OutlinedTextField(
-                    value = label,
-                    onValueChange = { label = it.take(60) },
-                    label = { Text(stringResource(R.string.sound_rule_name)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                )
-                TasteCurveEditor(
-                    tilt = tilt,
-                    bands = bands,
-                    onTilt = { tilt = it },
-                    onBands = { bands = it },
-                    scope = scope ?: initial?.scope,
-                    onRefine = onRefine?.takeIf { !neutral }?.let { r -> { r(tilt, bands, label) } },
-                )
-                if (onDelete != null) {
-                    TextButton(onClick = { haptics.tick(); onDelete() }) {
-                        Text(stringResource(R.string.sound_rule_delete), color = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { haptics.confirm(); onSave(tilt, bands, label) }, enabled = !neutral) { Text(stringResource(R.string.sound_save)) }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
-    )
 }

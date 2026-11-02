@@ -57,7 +57,7 @@
     color: var(--accent-text);
   }
   .neg {
-    color: #d97706;
+    color: var(--warn);
   }
   small {
     font-size: 11px;

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Equalizer -->
-    <string name="eq_title">Equalizer</string>
-    <string name="eq_on">Equalizer on</string>
+    <string name="eq_title">Sound</string>
+    <string name="eq_on">Sound on</string>
     <string name="eq_output">Output</string>
     <string name="eq_output_default">All outputs</string>
     <string name="eq_output_now">Playing here</string>
@@ -14,7 +14,7 @@
     <string name="eq_curve_hint">Drag a point: sideways for frequency, up and down for gain.</string>
     <string name="eq_empty">No bands: the sound goes through untouched.</string>
     <string name="eq_not_bitperfect">EQ · not bit-perfect</string>
-    <string name="eq_not_bitperfect_note">While the equalizer works, playback is not bit-perfect. Off or flat, the samples go through untouched.</string>
+    <string name="eq_not_bitperfect_note">While Sound works, playback is not bit-perfect. Off or flat, the samples go through untouched.</string>
     <string name="eq_off_note">Off: playback stays bit-perfect.</string>
     <string name="eq_presets">Presets</string>
     <string name="eq_flat">Flat</string>
@@ -57,7 +57,7 @@
     <string name="eq_search">Search</string>
     <string name="eq_assistant">Set up my sound</string>
     <string name="eq_assistant_hint">Answer a few questions and get a profile made for you.</string>
-    <string name="eq_open">Open the equalizer</string>
+    <string name="eq_open">Open Sound</string>
     <string name="eq_summary_on">On · %1$s</string>
     <string name="eq_summary_off">Off · bit-perfect</string>
 

@@ -42,7 +42,6 @@ import com.perseusoft.homefi.core.TasteScope
 import com.perseusoft.homefi.core.Tilt
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.player.EqPanel
-import com.perseusoft.homefi.player.EqTab
 import com.perseusoft.homefi.player.name
 import com.perseusoft.homefi.ui.QualityBadge
 import com.perseusoft.homefi.ui.SelectChip
@@ -231,7 +230,7 @@ fun SoundBadge(heardHere: Boolean, modifier: Modifier = Modifier) {
     val text = if (settings.soundLayerChip) {
         val layers = listOfNotNull(
             now.eqProfile?.ifBlank { stringResource(R.string.eq_custom) },
-            now.rule?.scope?.name()?.ifBlank { null },
+            now.target?.name()?.ifBlank { null },
         ).joinToString(" + ")
         val gain = now.loudnessDb.takeIf { kotlin.math.abs(it) >= 0.05f }?.let { stringResource(R.string.eq_db, formatDb(it)) }
         val parts = listOf(layers, gain.orEmpty()).filter(String::isNotEmpty).joinToString(" · ")
@@ -244,9 +243,21 @@ fun SoundBadge(heardHere: Boolean, modifier: Modifier = Modifier) {
         modifier
             .clip(RoundedCornerShape(50))
             .clickable {
-                app.equalizer.open(EqPanel.EQUALIZER, if (now.rule != null && now.eqProfile == null) EqTab.TASTE else null)
+                app.equalizer.open(EqPanel.SOUND)
             },
     )
+}
+
+/** The player's visible "Ask the AI" button (hidden by its setting or for a hub's song). */
+@Composable
+fun AskAiButton(remote: Boolean, size: androidx.compose.ui.unit.Dp = 32.dp) {
+    val app = LocalContext.current.homefi
+    val settings by app.settings.settings.collectAsStateWithLifecycle()
+    if (!settings.soundAssistantButton || remote) return
+    val haptics = haptics()
+    IconButton(onClick = { haptics.press(); app.sound.askAssistantWith(null) }, modifier = Modifier.size(size)) {
+        Icon(com.perseusoft.homefi.ui.AiIcon, stringResource(R.string.sound_ask_ai), Modifier.size(size * 0.62f), tint = MaterialTheme.colorScheme.primary)
+    }
 }
 
 /** The player's visible "How does it sound?" button (hidden by its setting or for a hub's song). */

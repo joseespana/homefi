@@ -25,9 +25,11 @@ pub use crossfade::{lenient_crossfade, CrossfadeMode, CrossfadeSettings, FadeCur
 pub use equalizer::{glide_frames, EqDesign, Equalizer};
 pub use loudness::{lenient_loudness, read_replay_gain, LoudnessMode, LoudnessSettings, ReplayGain};
 pub use taste::{
-    clamp_taste_curve, clamp_taste_to, curve_summary, lenient_taste, resolve_taste, split_genres, ItemRef,
-    NowPlayingContext, SourceContext, TasteBand, TasteChange, TasteCreator, TasteIntensity, TasteLimits, TasteRule,
-    TasteScope, TasteSettings, MAX_TASTE_BANDS, MAX_TASTE_BAND_DB, MAX_TASTE_BOOST_DB, MAX_TILT_DB,
+    clamp_taste_curve, clamp_taste_to, curve_summary, lenient_taste, rank_targets, resolve_taste, resolve_taste_with,
+    split_genres, ItemRef, NowPlayingContext, ResolvedTaste, SavedSound, SourceContext, TargetHit, TargetMove,
+    TargetSource, TasteAudition, TasteBand, TasteChange, TasteCreator, TasteError, TasteIntensity, TasteLimits,
+    TasteRule, TasteScope, TasteSettings, TasteTarget, MAX_TARGETS, MAX_TASTE_BANDS, MAX_TASTE_BAND_DB,
+    MAX_TASTE_BOOST_DB, MAX_TILT_DB, TASTE_VERSION,
 };
 
 /// Bands a profile can hold (AutoEq profiles use exactly 10).
@@ -228,6 +230,17 @@ impl EqSettings {
         match self.active_profile(output_id) {
             Some(p) => EqDesign::new(p, self.preamp_db(p), sample_rate),
             None => EqDesign::BYPASS,
+        }
+    }
+
+    /// "Hear without": master and auto-preamp kept, no profile anywhere (so
+    /// loudness still applies).
+    pub fn without_profiles(&self) -> Self {
+        Self {
+            enabled: self.enabled,
+            auto_preamp: self.auto_preamp,
+            default_profile: None,
+            per_output: BTreeMap::new(),
         }
     }
 
@@ -526,25 +539,29 @@ pub struct TrackSound {
 }
 
 /// The profile to run on `output_id` for the track `ctx`: the output's own
-/// (when the equalizer is on) plus the taste rule that applies (when taste
-/// layers are on), with the preamp set (automatic or own, never less room
-/// than the taste needs). `None` when nothing changes the sound. Returns the
-/// rule used, too.
+/// plus the sound that applies (an audition wins), with the preamp set
+/// (automatic or own, never less room than the sound needs). `None` when the
+/// master (`eq.enabled`) is off, or nothing changes the sound. Returns the
+/// sound used, too.
 pub fn track_profile<'a>(
     eq: &EqSettings,
     taste: &'a TasteSettings,
+    audition: Option<&'a TasteAudition>,
     output_id: &str,
     ctx: &NowPlayingContext,
-) -> Option<(EqProfile, Option<&'a TasteRule>)> {
-    let base = if eq.enabled { eq.profile_for(output_id) } else { None };
-    let rule =
-        resolve_taste(taste, ctx).filter(|(r, t)| !t.is_neutral() || r.bands.iter().any(|b| !b.band.is_neutral()));
-    let (mut profile, used) = match (base, rule) {
+) -> Option<(EqProfile, Option<ResolvedTaste<'a>>)> {
+    if !eq.enabled {
+        return None;
+    }
+    let base = eq.profile_for(output_id);
+    let sound = resolve_taste_with(taste, output_id, audition, ctx)
+        .filter(|r| !r.tilt.is_neutral() || r.rule.bands.iter().any(|b| !b.band.is_neutral()));
+    let mut profile = match (base, &sound) {
         (None, None) => return None,
-        (Some(b), None) => (b.clamped(), None),
-        (b, Some((r, tilt))) => {
+        (Some(b), None) => b.clamped(),
+        (b, Some(r)) => {
             let base = b.cloned().unwrap_or_else(|| EqProfile::flat(""));
-            (with_taste_rule(&base, &r.bands, tilt, is_built_in_speaker(output_id)), Some(r))
+            with_taste_rule(&base, &r.rule.bands, r.tilt, is_built_in_speaker(output_id))
         }
     };
     let flat = if eq.auto_preamp || base.is_none() { profile.bands_flat() } else { profile.is_flat() };
@@ -552,7 +569,7 @@ pub fn track_profile<'a>(
         return None;
     }
     profile.preamp_db = if base.is_none() { auto_preamp_db(&profile) } else { eq.preamp_db(&profile) };
-    Some((profile, used))
+    Some((profile, sound))
 }
 
 /// Everything the player runs for one track: the filters (with the
@@ -560,41 +577,84 @@ pub fn track_profile<'a>(
 #[derive(Debug, Clone, PartialEq)]
 pub struct SoundPlan {
     pub design: EqDesign,
-    /// Filters change the sound (output profile and / or taste).
+    /// Filters change the sound (output profile and / or a sound).
     pub eq_active: bool,
     /// Name of the output's profile in use.
     pub profile: Option<String>,
-    /// The taste rule in use.
+    /// The sound in use.
     pub taste_rule: Option<TasteRule>,
+    /// The target of `taste_rule` that matched this track.
+    pub taste_target: Option<TasteScope>,
+    /// `taste_rule` is a Try, not a saved sound.
+    pub auditioning: bool,
     /// Loudness gain applied (dB).
     pub loudness_db: f32,
 }
 
 impl SoundPlan {
-    pub const BYPASS: Self =
-        Self { design: EqDesign::BYPASS, eq_active: false, profile: None, taste_rule: None, loudness_db: 0.0 };
+    pub const BYPASS: Self = Self {
+        design: EqDesign::BYPASS,
+        eq_active: false,
+        profile: None,
+        taste_rule: None,
+        taste_target: None,
+        auditioning: false,
+        loudness_db: 0.0,
+    };
 }
 
 /// The [`SoundPlan`] of a track: [`track_profile`] plus `loudness_db` (from
 /// [`LoudnessSettings::gain_db`]) added to the preamp, at `sample_rate`.
+/// Master off: true bit-perfect (bypass, loudness 0), whatever `loudness_db` says.
 pub fn sound_plan(
     eq: &EqSettings,
     taste: &TasteSettings,
+    audition: Option<&TasteAudition>,
     output_id: &str,
     ctx: &NowPlayingContext,
     loudness_db: f32,
     sample_rate: u32,
 ) -> SoundPlan {
+    if !eq.enabled {
+        return SoundPlan::BYPASS;
+    }
     let loudness_db = if loudness_db.is_finite() && audible(loudness_db) { loudness_db } else { 0.0 };
-    let found = track_profile(eq, taste, output_id, ctx);
-    let (design, eq_active, profile, rule) = match &found {
-        Some((p, rule)) => {
-            let own = if eq.enabled { eq.profile_for(output_id).map(|p| p.name.clone()) } else { None };
-            (EqDesign::new(p, p.preamp_db + loudness_db, sample_rate), true, own, rule.cloned())
-        }
-        None => (EqDesign::new(&EqProfile::default(), loudness_db, sample_rate), false, None, None),
-    };
-    SoundPlan { design, eq_active, profile, taste_rule: rule, loudness_db }
+    match track_profile(eq, taste, audition, output_id, ctx) {
+        Some((p, sound)) => SoundPlan {
+            design: EqDesign::new(&p, p.preamp_db + loudness_db, sample_rate),
+            eq_active: true,
+            profile: eq.profile_for(output_id).map(|p| p.name.clone()),
+            taste_rule: sound.map(|r| r.rule.clone()),
+            taste_target: sound.map(|r| r.target.clone()),
+            auditioning: sound.is_some_and(|r| r.auditioning),
+            loudness_db,
+        },
+        None => SoundPlan {
+            design: EqDesign::new(&EqProfile::default(), loudness_db, sample_rate),
+            loudness_db,
+            ..SoundPlan::BYPASS
+        },
+    }
+}
+
+/// "Hear without": what plays while comparing (no output profile, no sound,
+/// no try) but with the loudness gain kept (when the master is on), so both
+/// sides play at the same level.
+pub fn hear_without(eq: &EqSettings, taste: &TasteSettings) -> (EqSettings, TasteSettings) {
+    (eq.without_profiles(), taste.without_sounds())
+}
+
+/// One-shot migration of 1.5.0 files (only when `taste.version == 0`): the
+/// master turns on if sounds existed and were on, `taste.enabled = true`,
+/// `taste.version = TASTE_VERSION`. Returns `true` when it ran (callers save).
+pub fn migrate_sound(eq: &mut EqSettings, taste: &mut TasteSettings) -> bool {
+    if taste.version != 0 {
+        return false;
+    }
+    eq.enabled |= taste.enabled && !taste.rules.is_empty();
+    taste.enabled = true;
+    taste.version = TASTE_VERSION;
+    true
 }
 
 /// `true` when a gain of `db` is heard (`false` for NaN).
@@ -865,7 +925,7 @@ mod tests {
 
     fn electronic_bass(db: f32) -> TasteSettings {
         let mut t = TasteSettings::default();
-        t.upsert(TasteRule::new(
+        t.upsert(TasteRule::for_target(
             TasteScope::Genre { name: "Electronic".into() },
             Tilt { bass_db: db, ..Default::default() },
             "More punch",
@@ -884,30 +944,117 @@ mod tests {
         let mut eq = EqSettings { enabled: true, ..Default::default() };
         eq.per_output.insert("USB DAC".into(), hd650.clone());
         let taste = electronic_bass(3.0);
-        // electronic: the device shelf plus the taste
-        let (p, rule) = track_profile(&eq, &taste, "USB DAC", &genre_ctx("Electronic")).unwrap();
-        assert_eq!(rule.unwrap().label, "More punch");
+        // electronic: the device shelf plus the sound
+        let (p, sound) = track_profile(&eq, &taste, None, "USB DAC", &genre_ctx("Electronic")).unwrap();
+        assert_eq!(sound.unwrap().rule.label, "More punch");
         assert_eq!(p.bands[0].gain_db, 9.0);
         assert_eq!(p.preamp_db, auto_preamp_db(&p));
         // jazz: the device alone
-        let (p, rule) = track_profile(&eq, &taste, "USB DAC", &genre_ctx("Jazz")).unwrap();
-        assert!(rule.is_none() && p.bands[0].gain_db == 6.0);
-        // the equalizer off: the taste layer still plays, on a flat base
-        eq.enabled = false;
-        let (p, _) = track_profile(&eq, &taste, "USB DAC", &genre_ctx("Electronic")).unwrap();
-        assert_eq!(p.bands.len(), 1);
-        assert!(track_profile(&eq, &taste, "USB DAC", &genre_ctx("Jazz")).is_none(), "bit-perfect");
-        // layers off: nothing
+        let (p, sound) = track_profile(&eq, &taste, None, "USB DAC", &genre_ctx("Jazz")).unwrap();
+        assert!(sound.is_none() && p.bands[0].gain_db == 6.0);
+        // the old switch of the sounds is not read
         let mut off = taste.clone();
         off.enabled = false;
-        assert!(track_profile(&eq, &off, "USB DAC", &genre_ctx("Electronic")).is_none());
+        assert!(track_profile(&eq, &off, None, "USB DAC", &genre_ctx("Electronic")).unwrap().1.is_some());
+        // a sound limited to another output doesn't play here
+        let mut elsewhere = taste.clone();
+        elsewhere.rules[0].outputs = vec!["speakers".into()];
+        assert!(track_profile(&eq, &elsewhere, None, "USB DAC", &genre_ctx("Electronic")).unwrap().1.is_none());
 
-        let plan = sound_plan(&eq, &taste, "USB DAC", &genre_ctx("Jazz"), -4.0, 48_000);
-        assert!(!plan.eq_active && !plan.design.is_bypass(), "loudness alone is a gain stage");
+        let plan = sound_plan(&eq, &taste, None, "USB DAC", &genre_ctx("Jazz"), -4.0, 48_000);
+        assert!(plan.eq_active && plan.taste_rule.is_none(), "the device profile is still on");
+        let plan = sound_plan(&eq, &taste, None, "USB DAC", &genre_ctx("Electronic"), 0.0, 48_000);
+        assert!(plan.eq_active && plan.taste_rule.is_some() && plan.profile.as_deref() == Some("HD 650"));
+        assert!(matches!(plan.taste_target, Some(TasteScope::Genre { .. })) && !plan.auditioning);
+    }
+
+    #[test]
+    fn the_master_switch_is_true_bit_perfect_when_off() {
+        let mut eq = EqSettings::default();
+        eq.per_output.insert("dac".into(), EqProfile::flat("x"));
+        let taste = electronic_bass(3.0);
+        let ctx = genre_ctx("Electronic");
+        assert!(!eq.enabled);
+        // a matching sound doesn't play, and neither does an audition
+        assert!(track_profile(&eq, &taste, None, "dac", &ctx).is_none());
+        let attempt = TasteAudition::new(
+            TasteRule::for_target(
+                TasteScope::Genre { name: "x".into() },
+                Tilt { bass_db: 3.0, ..Default::default() },
+                "",
+                TasteCreator::Ai,
+            ),
+            &NowPlayingContext { track_id: Some("1".into()), ..ctx.clone() },
+        )
+        .unwrap();
+        let heard_ctx = NowPlayingContext { track_id: Some("1".into()), ..ctx.clone() };
+        assert!(track_profile(&eq, &taste, Some(&attempt), "dac", &heard_ctx).is_none());
+        // loudness is dropped: bypass, gain 0
+        let plan = sound_plan(&eq, &taste, None, "dac", &ctx, -4.0, 48_000);
+        assert!(plan.design.is_bypass() && plan.loudness_db == 0.0 && !plan.eq_active);
+        // master on, no profile and no sound: loudness alone is a gain stage
+        eq.enabled = true;
+        eq.per_output.clear();
+        let plan = sound_plan(&eq, &TasteSettings::default(), None, "dac", &ctx, -4.0, 48_000);
+        assert!(!plan.eq_active && !plan.design.is_bypass() && plan.loudness_db == -4.0);
         assert!((plan.design.gain() - 10f64.powf(-0.2)).abs() < 1e-6);
-        assert!(sound_plan(&eq, &taste, "USB DAC", &genre_ctx("Jazz"), 0.0, 48_000).design.is_bypass());
-        let plan = sound_plan(&eq, &taste, "USB DAC", &genre_ctx("Electronic"), 0.0, 48_000);
-        assert!(plan.eq_active && plan.taste_rule.is_some() && plan.profile.is_none());
+        assert!(sound_plan(&eq, &TasteSettings::default(), None, "dac", &ctx, 0.0, 48_000).design.is_bypass());
+        // with the master on, a try plays and is flagged
+        let plan = sound_plan(&eq, &TasteSettings::default(), Some(&attempt), "dac", &heard_ctx, 0.0, 48_000);
+        assert!(plan.auditioning && plan.eq_active && matches!(plan.taste_target, Some(TasteScope::Track { .. })));
+    }
+
+    #[test]
+    fn hear_without_keeps_only_the_loudness() {
+        let mut eq = EqSettings { enabled: true, ..Default::default() };
+        eq.per_output.insert("dac".into(), EqProfile { bands: vec![peak(1000.0, 4.0, 1.0)], ..Default::default() });
+        eq.default_profile = Some(EqProfile { bands: vec![peak(500.0, 2.0, 1.0)], ..Default::default() });
+        let taste = electronic_bass(3.0);
+        let (eq2, taste2) = hear_without(&eq, &taste);
+        assert!(eq2.enabled && eq2.auto_preamp && eq2.default_profile.is_none() && eq2.per_output.is_empty());
+        assert!(taste2.rules.is_empty());
+        let plan = sound_plan(&eq2, &taste2, None, "dac", &genre_ctx("Electronic"), -3.0, 48_000);
+        assert!(plan.design.stages().is_empty() && !plan.eq_active);
+        assert!((plan.design.gain() - 10f64.powf(-3.0 / 20.0)).abs() < 1e-6);
+        assert_eq!(plan.loudness_db, -3.0);
+    }
+
+    #[test]
+    fn the_one_shot_migration_turns_the_master_on_only_when_sounds_were_on() {
+        let sounds = |n: usize, on: bool| {
+            let mut t = TasteSettings::default();
+            for i in 0..n {
+                t.rules.push(TasteRule::for_target(
+                    TasteScope::Artist { id: i.to_string(), name: format!("A{i}") },
+                    Tilt { bass_db: 1.0, ..Default::default() },
+                    "",
+                    TasteCreator::Manual,
+                ));
+            }
+            t.enabled = on;
+            t
+        };
+        // sounds on, EQ off: the master turns on
+        let (mut eq, mut taste) = (EqSettings::default(), sounds(5, true));
+        assert!(migrate_sound(&mut eq, &mut taste));
+        assert!(eq.enabled && taste.enabled && taste.version == TASTE_VERSION);
+        // the user turns the master off: it stays off, nothing runs again
+        eq.enabled = false;
+        let before = (eq.clone(), taste.clone());
+        assert!(!migrate_sound(&mut eq, &mut taste));
+        assert_eq!((eq, taste), before);
+        // nothing on: stays off
+        let (mut eq, mut taste) = (EqSettings::default(), sounds(0, false));
+        assert!(migrate_sound(&mut eq, &mut taste) && !eq.enabled);
+        // sounds off: the EQ keeps its own state
+        let (mut eq, mut taste) = (EqSettings { enabled: true, ..Default::default() }, sounds(5, false));
+        assert!(migrate_sound(&mut eq, &mut taste) && eq.enabled);
+        let (mut eq, mut taste) = (EqSettings::default(), sounds(5, false));
+        assert!(migrate_sound(&mut eq, &mut taste) && !eq.enabled);
+        // a UI that drops the field still saves through clamped(): migrated
+        let fresh = TasteSettings::default();
+        assert_eq!(fresh.version, 0);
+        assert_eq!(fresh.clamped().version, TASTE_VERSION);
     }
 
     #[test]
@@ -931,8 +1078,14 @@ mod tests {
         assert_eq!(safe_tilt(Tilt { bass_db: 5.0, ..Default::default() }, true).bass_db, 3.0);
         // taste rules on a laptop's speakers
         let taste = electronic_bass(4.0);
-        let (p, _) =
-            track_profile(&EqSettings::default(), &taste, "MacBook Air Speakers", &genre_ctx("Electronic")).unwrap();
+        let (p, _) = track_profile(
+            &EqSettings { enabled: true, ..Default::default() },
+            &taste,
+            None,
+            "MacBook Air Speakers",
+            &genre_ctx("Electronic"),
+        )
+        .unwrap();
         assert!(p.bands.iter().any(|b| b.kind == EqBandKind::HighPass));
     }
 
@@ -952,7 +1105,7 @@ mod tests {
         eq.per_output.insert("dac".into(), device);
         let mut taste = TasteSettings::default();
         taste.upsert(
-            TasteRule::new(
+            TasteRule::for_target(
                 TasteScope::Genre { name: "House".into() },
                 Tilt { bass_db: 2.0, treble_db: 1.0, clarity_db: Some(1.0) },
                 "Curve",
@@ -960,7 +1113,7 @@ mod tests {
             )
             .with_bands(curve),
         );
-        let (p, rule) = track_profile(&eq, &taste, "dac", &genre_ctx("House")).unwrap();
+        let (p, rule) = track_profile(&eq, &taste, None, "dac", &genre_ctx("House")).unwrap();
         assert!(rule.is_some());
         // the device's 10 (two shelves took the tilt), the clarity peak, the 8 taste bands
         assert_eq!(p.bands.len(), 10 + 1 + MAX_TASTE_BANDS);
@@ -973,17 +1126,22 @@ mod tests {
         let max = response_db(&p, &log_freqs(1024), 48_000).into_iter().fold(f32::MIN, f32::max);
         assert!(p.preamp_db <= -max + 0.01, "preamp {} for a {max} dB peak", p.preamp_db);
         assert_eq!(p.preamp_db, auto_preamp_db(&p));
-        // the same with the equalizer off: the taste curve alone
-        eq.enabled = false;
-        let (p, _) = track_profile(&eq, &taste, "dac", &genre_ctx("House")).unwrap();
+        // without the device profile: the taste curve alone
+        eq.per_output.clear();
+        let (p, _) = track_profile(&eq, &taste, None, "dac", &genre_ctx("House")).unwrap();
         assert_eq!(p.bands.len(), 3 + MAX_TASTE_BANDS);
         // a rule with only bands (no tilt) still plays
         let mut only = TasteSettings::default();
         only.upsert(
-            TasteRule::new(TasteScope::Genre { name: "House".into() }, Tilt::default(), "", TasteCreator::Manual)
-                .with_bands(vec![TasteBand::new(EqBandKind::Peak, 3500.0, -2.0, 2.0)]),
+            TasteRule::for_target(
+                TasteScope::Genre { name: "House".into() },
+                Tilt::default(),
+                "",
+                TasteCreator::Manual,
+            )
+            .with_bands(vec![TasteBand::new(EqBandKind::Peak, 3500.0, -2.0, 2.0)]),
         );
-        let (p, _) = track_profile(&eq, &only, "dac", &genre_ctx("House")).unwrap();
+        let (p, _) = track_profile(&eq, &only, None, "dac", &genre_ctx("House")).unwrap();
         assert_eq!(p.bands.len(), 1);
         assert_eq!(p.preamp_db, 0.0, "a cut needs no headroom");
     }

@@ -3,7 +3,10 @@
   import { pop } from "../lib/motion";
   import { app } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
-  import { sound } from "../lib/sound.svelte";
+  import SoundMenu from "./sound/SoundMenu.svelte";
+
+  /** Dev screenshot hook: ?soundmenu opens the "Sound ▸" submenu at once. */
+  let soundOpen = $state(import.meta.env.DEV && new URLSearchParams(location.search).has("soundmenu"));
 
   const menu = $derived(app.queueMenu!);
   const left = $derived(Math.max(12, Math.min(menu.x - 200, window.innerWidth - 212)));
@@ -27,7 +30,12 @@
   {#if menu.sound}
     {@const s = menu.sound}
     <div class="sep"></div>
-    <button class="row" onclick={() => (close(), (sound.forScope = s))} role="menuitem"><Icon name="soundwave" size={16} /> Sound for this {s.scope.kind}…</button>
+    <div class="sub">
+      <button class="row" onclick={() => (soundOpen = !soundOpen)} onmouseenter={() => (soundOpen = true)} role="menuitem" aria-haspopup="menu" aria-expanded={soundOpen}>
+        <Icon name="soundwave" size={16} /> <span class="grow">Sound</span> <Icon name="chevron" size={14} />
+      </button>
+      {#if soundOpen}<SoundMenu scope={s.scope} label={s.label} flyout onclose={close} />{/if}
+    </div>
   {/if}
 </div>
 
@@ -58,6 +66,12 @@
     font-size: 12px;
     font-weight: 600;
     color: var(--muted);
+  }
+  .sub {
+    position: relative;
+  }
+  .grow {
+    flex: 1;
   }
   .row {
     width: 100%;

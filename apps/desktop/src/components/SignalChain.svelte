@@ -48,14 +48,14 @@
     speaker: "Speakers",
   };
 
-  function curveOf(profile: EqProfile, rate: number, rule: TasteRule | null): Promise<number[]> {
-    const key = JSON.stringify([profile, rate, rule?.tilt, rule?.bands]);
+  function curveOf(profile: EqProfile, rate: number, rule: TasteRule | null, device: string | null): Promise<number[]> {
+    const key = JSON.stringify([profile, rate, rule?.tilt, rule?.bands, device]);
     let c = curves.get(key);
     if (!c) {
       c = (async () => {
         const freqs = Array.from({ length: 48 }, (_, i) => 20 * Math.pow(1000, i / 47));
         // the taste curve's bands play too: the core combines them as the player does
-        const p = rule?.bands?.length ? (await api.tastePreview(rule)).combined : rule ? await api.eqWithTaste(profile, rule.tilt) : profile;
+        const p = rule?.bands?.length ? (await api.tastePreview(rule, device)).combined : rule ? await api.eqWithTaste(profile, rule.tilt) : profile;
         return api.eqResponse(p, freqs, rate);
       })();
       c.catch(() => curves.delete(key));
@@ -77,7 +77,7 @@
   import { portal } from "../lib/portal";
   import { khz, outputIcon, type PlayerState } from "../lib/api";
   import { flatProfile, formatDb, sourceLabel } from "../lib/eq.svelte";
-  import { LOUDNESS_MODES, ruleWords, scopePhrase, sound } from "../lib/sound.svelte";
+  import { LOUDNESS_MODES, ruleWords, scopePhrase, sound, targetsSummary } from "../lib/sound.svelte";
   import { useSource } from "../lib/source.svelte";
   import { app } from "../lib/state.svelte";
   import { visual } from "../lib/visual.svelte";
@@ -144,7 +144,7 @@
     if (!s || !stream) return null;
     return s.perOutput[stream.device] ?? s.defaultProfile ?? null;
   });
-  const rule = $derived(p?.taste_rule ? (sound.taste.rules.find((r) => r.id === p!.taste_rule) ?? null) : null);
+  const rule = $derived(p?.taste_rule ? (sound.ruleById(p.taste_rule) ?? (p.auditioning ? (sound.now?.rule ?? null) : null)) : null);
   const loud = $derived(sound.loudness);
 
   // ------------------------------------------------------------------ the tooltip card
@@ -187,7 +187,7 @@
     if (!stream) return;
     const profile = eqProfile && p?.eq_profile ? eqProfile : rule ? flatProfile() : null;
     if (!profile) return (curve = null);
-    curveOf(profile, stream.output_rate, rule)
+    curveOf(profile, stream.output_rate, rule, stream.device)
       .then((c) => (curve = c))
       .catch(() => (curve = null));
   }
@@ -225,7 +225,7 @@
       return;
     }
     close();
-    if (id === "eq") app.view = { name: "eq", output: stream?.device, tab: p?.eq_profile ? "device" : "taste" };
+    if (id === "eq") app.view = { name: "sound", output: p?.eq_profile ? stream?.device : undefined };
     else if (id === "loudness" || id === "fade") settingsAt("sound");
     else {
       const r = el.getBoundingClientRect();
@@ -387,7 +387,7 @@
           <dt>Clipping</dt><dd>{loud.preventClipping ? "Protected: never boosted past its peak" : "Not limited"}</dd>
         </dl>
       {:else if open === "eq"}
-        <div class="sc-head"><b class="ellipsis">{p?.eq_profile ?? "Taste layer"}</b>{#if p?.eq_profile && eqProfile}<span class="sub">{sourceLabel(eqProfile)}</span>{/if}</div>
+        <div class="sc-head"><b class="ellipsis">{p?.eq_profile ?? "Sound"}</b>{#if p?.eq_profile && eqProfile}<span class="sub">{sourceLabel(eqProfile)}</span>{/if}</div>
         {#if curvePath}
           <svg class="curve" viewBox="0 0 268 46" preserveAspectRatio="none" aria-hidden="true">
             <line x1="0" y1="23" x2="268" y2="23" />
@@ -400,12 +400,12 @@
             <dt>Bands</dt><dd>{eqProfile.bands.filter((b) => b.enabled).length} of {eqProfile.bands.length} on</dd>
           {/if}
           {#if rule}
-            <dt>Taste layer</dt><dd>{rule.label}</dd>
-            <dt>For</dt><dd>{scopePhrase(rule.scope)}</dd>
-            <dt>Sound</dt><dd>{ruleWords(rule)}</dd>
+            <dt>Sound</dt><dd>{rule.label}{#if p?.auditioning} (trying){/if}</dd>
+            <dt>For</dt><dd>{p?.taste_target ? scopePhrase(p.taste_target) : targetsSummary(rule)}</dd>
+            <dt>Curve</dt><dd>{ruleWords(rule)}</dd>
             {#if rule.bands?.length}<dt>Taste bands</dt><dd>{rule.bands.filter((b) => b.enabled).length} of {rule.bands.length} on · up to {(eqProfile?.bands.length ?? 0) + rule.bands.length + 3} filters in all</dd>{/if}
           {:else if tasteLabel}
-            <dt>Taste layer</dt><dd>{tasteLabel}</dd>
+            <dt>Sound</dt><dd>{tasteLabel}</dd>
           {/if}
           <dt>Processing</dt><dd>64-bit float DSP</dd>
         </dl>

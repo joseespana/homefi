@@ -278,7 +278,7 @@ internal fun ColumnScope.RetroAmpLayout(state: PlayerUiState) {
             // lit while the real equalizer works (not bit-perfect); opens it
             val eq = LocalContext.current.homefi.equalizer
             val eqOn by eq.active.collectAsStateWithLifecycle()
-            AmpToggle("EQ", eqOn, { eq.open(EqPanel.EQUALIZER) })
+            AmpToggle("EQ", eqOn, { eq.open(EqPanel.SOUND) })
             AmpToggle("SHUF", state.shuffle, player::toggleShuffle, caps.canShuffleRepeat)
             AmpToggle(if (state.repeatMode == Player.REPEAT_MODE_ONE) "REP1" else "REP", state.repeatMode != Player.REPEAT_MODE_OFF, player::cycleRepeat, caps.canShuffleRepeat)
         }

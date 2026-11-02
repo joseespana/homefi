@@ -163,6 +163,42 @@ los visuales. Probado en la Mac con jack a 96 kHz y Bluetooth a 44.1.
   `?guest`, `?party`, `?nearby`, `?playback`).
 - Sin probar con mouse real: arrastre, rueda y doble click de la mascota.
 
+### Sonido (rediseño 1.5.1, escritorio y Android)
+- Una sola pantalla **Sound** en vez del ecualizador y su pestaña de capas.
+  Un solo interruptor: `EqSettings.enabled`. Apagado es bit-perfect de verdad:
+  sin perfil, sin sonidos y loudness 0. `TasteSettings.enabled` solo queda por
+  compatibilidad y nadie lo lee al reproducir.
+- Un **sonido** (`TasteRule`) tiene `targets: Vec<TasteTarget>` (canciones,
+  álbumes, artistas, listas, géneros) y `outputs` (vacío = todas las salidas).
+  Un destino pertenece a un solo sonido por salida: asignarlo a otro sonido con
+  salidas que se cruzan lo mueve y devuelve `TargetMove` para Deshacer (8 s).
+  Precedencia: canción 5 > álbum 4 > artista 3 > lista 2 > género 1 > "todo lo
+  demás" (el perfil de la salida). Todo esto vive en `dsp/taste.rs`: `resolve_taste(_with)`,
+  `assign/unassign/set_outputs/undo_moves/upsert/keep`, `rank_targets`.
+- **Try** (`TasteAudition`): suena solo en la canción actual, gana a los sonidos
+  guardados con el interruptor encendido y termina sola al cambiar de canción.
+  "Escuchar sin" usa `dsp::hear_without`: sin curvas pero con el mismo loudness.
+- **Migración** única (`migrate_sound`, `TasteSettings.version` 0 → 1) al cargar,
+  en escritorio (`DesktopSettings::load`, reescritura atómica) y Android
+  (`tasteMigrate` en `SettingsStore`): cada regla vieja pasa a ser un sonido de un
+  destino en todas las salidas, y el interruptor se enciende si las capas lo
+  estaban. `TasteSettings::clamped()` marca la versión para que no se repita.
+  Probada con una copia de `~/.homefi/desktop.json` de José (8 reglas) en un
+  `HOMEFI_PATH` temporal: migra una vez, no reescribe en el segundo arranque y
+  respeta el interruptor apagado.
+- Tauri (`src-tauri/src/sound.rs`): `sound_now`, `taste_assign`, `taste_unassign`,
+  `taste_undo_moves`, `taste_set_outputs`, `taste_save`, `taste_remove`,
+  `taste_audition`, `taste_keep`, `sound_search_targets` (biblioteca + .m3u en
+  caché + búsqueda de Tidal con 5 s de límite), `taste_preview(rule, output)`.
+  El snapshot del reproductor trae `taste_target` y `auditioning`.
+- Ajustes nuevos: botón "Ask the AI" en el reproductor (`sound_ui.assistant_deck` /
+  `sound_assistant_button`) y los deslizadores de graves/agudos/claridad dentro de
+  Editar curva (`eq_ui.taste_sliders` / `sound_tilt_sliders`).
+- Mock de escritorio: `?taste`, `?audition`, `?soundoff`, `?nomusic`, y en DEV
+  `?soundtab=music`, `?soundedit=<id>`, `?soundsearch=<texto>`, `?soundmenu`.
+- **Sin probar en vivo**: la búsqueda de Tidal con sesión, el audio del Try y de
+  "Escuchar sin" en un dispositivo real, Windows.
+
 ### Android (`apps/android`)
 - Pestañas: Home (recientes, continuar), biblioteca (incluye .m3u), búsqueda,
   Tidal (colección, páginas de artista/álbum/playlist, streaming con caché 2 GB),
@@ -412,6 +448,9 @@ cargo run -p homefi-cli -- auth login    # sesión de Tidal (~/.homefi/auth.json
       layouts/skins del reproductor Android, de Home/recientes y un fondo
       difuminado configurable; vista previa de la mascota en Ajustes de Android.
 - [ ] Con la mascota flotante, los vúmetros de la sala se separan un poco.
+- [ ] Sonido 1.5.1: escuchar el Try, "Escuchar sin" y la precedencia en la app
+      real con audífonos, y la búsqueda de Tidal con sesión. Decidir si apagar el
+      interruptor también debe quitar el loudness (hoy sí: bit-perfect).
 
 ---
 

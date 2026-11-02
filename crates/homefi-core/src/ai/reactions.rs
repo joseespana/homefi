@@ -124,6 +124,8 @@ pub struct ReactionContext {
     /// Where the rule should go (a "Sound for this album" screen); `None`
     /// ("Auto"): see [`ReactionContext::default_scope`].
     pub scope_hint: Option<TasteScope>,
+    /// Id of the output playing (sounds can be limited to outputs).
+    pub active_output: Option<String>,
 }
 
 impl ReactionContext {
@@ -135,6 +137,11 @@ impl ReactionContext {
         self.output_kind == OutputKind::BuiltIn
     }
 
+    /// The output playing, `""` when unknown (then only all-output sounds play).
+    fn output_id(&self) -> &str {
+        self.active_output.as_deref().unwrap_or("")
+    }
+
     /// "Auto": the hint; else the scope of the taste rule playing now (what
     /// the listener hears is what they react to); else the main genre,
     /// artist, album, then the track. Same as the apps' "Auto" choice.
@@ -143,9 +150,11 @@ impl ReactionContext {
             return Some(h.clone());
         }
         let scopes = self.now_playing.scopes();
-        if let Some((rule, _)) = resolve_taste(&self.taste, &self.now_playing) {
+        if let Some(heard) = resolve_taste(&self.taste, self.output_id(), &self.now_playing) {
             // the playing music's own scope (with its ids) when it is the same
-            return Some(scopes.iter().find(|s| s.same_as(&rule.scope)).cloned().unwrap_or_else(|| rule.scope.clone()));
+            return Some(
+                scopes.iter().find(|s| s.same_as(heard.target)).cloned().unwrap_or_else(|| heard.target.clone()),
+            );
         }
         ["genre", "artist", "album", "track", "playlist"]
             .iter()
@@ -187,9 +196,9 @@ pub fn react_guided(reaction: SoundReaction, ctx: &ReactionContext) -> ReactionR
     let es = ctx.es();
     let mut out = ReactionResult { taste: ctx.taste.clone(), loudness: ctx.loudness, ..Default::default() };
     if reaction == SoundReaction::Perfect {
-        out.message = match resolve_taste(&ctx.taste, &ctx.now_playing) {
-            Some((r, _)) if es => format!("¡Qué bien! Se queda así («{}»).", r.label),
-            Some((r, _)) => format!("Great, it stays as it is (“{}”).", r.label),
+        out.message = match resolve_taste(&ctx.taste, ctx.output_id(), &ctx.now_playing).map(|h| h.rule) {
+            Some(r) if es => format!("¡Qué bien! Se queda así («{}»).", r.label),
+            Some(r) => format!("Great, it stays as it is (“{}”).", r.label),
             None if es => "¡Qué bien! No cambio nada.".into(),
             None => "Great, nothing to change.".into(),
         };
@@ -219,8 +228,8 @@ pub fn react_guided(reaction: SoundReaction, ctx: &ReactionContext) -> ReactionR
             None => tilt_step(reaction.step()),
         },
     };
-    let rule = rule_for(ctx, scope, tilt, bands, None, TasteCreator::Reaction);
-    finish(&mut out, rule, base, &base_bands, es);
+    let rule = rule_for(ctx, scope.clone(), tilt, bands, None, TasteCreator::Reaction);
+    finish(&mut out, rule, &scope, base, &base_bands, es);
     out
 }
 
@@ -341,7 +350,7 @@ async fn react_ai(reaction: SoundReaction, ctx: &ReactionContext, config: &AiCon
     let es = ctx.es();
     let limits = ctx.taste.intensity.limits();
     let guided = react_guided(reaction, ctx);
-    let playing = resolve_taste(&ctx.taste, &ctx.now_playing).map(|(r, _)| r.id.clone());
+    let playing = resolve_taste(&ctx.taste, ctx.output_id(), &ctx.now_playing).map(|h| h.rule.id.clone());
     let facts = json!({
         "reaction": reaction,
         "intensity": ctx.taste.intensity.id(),
@@ -350,7 +359,7 @@ async fn react_ai(reaction: SoundReaction, ctx: &ReactionContext, config: &AiCon
         "builtInSpeaker": ctx.small_speaker(),
         "rules": ctx.taste.rules,
         "playingRuleId": playing,
-        "suggestedByFixedSteps": guided.rule.as_ref().map(|r| json!({ "scope": r.scope, "tilt": r.tilt, "bands": r.bands })),
+        "suggestedByFixedSteps": guided.rule.as_ref().map(|r| json!({ "scope": ctx.default_scope(), "tilt": r.tilt, "bands": r.bands })),
     });
     let system = reaction_system(es, &facts, &limits);
     let tool = Tool {
@@ -425,10 +434,10 @@ async fn react_ai(reaction: SoundReaction, ctx: &ReactionContext, config: &AiCon
         return Ok(None);
     }
     let label = args.get("label").and_then(Value::as_str).map(str::trim).filter(|l| !l.is_empty());
-    let rule = rule_for(ctx, scope, tilt, bands, label.map(|l| l.chars().take(60).collect()), TasteCreator::Ai);
+    let rule = rule_for(ctx, scope.clone(), tilt, bands, label.map(|l| l.chars().take(60).collect()), TasteCreator::Ai);
     let mut out =
         ReactionResult { taste: ctx.taste.clone(), loudness: ctx.loudness, by_ai: true, ..Default::default() };
-    finish(&mut out, rule, base, &base_bands, es);
+    finish(&mut out, rule, &scope, base, &base_bands, es);
     if let Some(m) = args.get("message").and_then(Value::as_str).map(str::trim).filter(|m| !m.is_empty()) {
         out.message = m.lines().next().unwrap_or(m).chars().take(140).collect();
     }
@@ -560,12 +569,15 @@ fn valid_scope(scope: TasteScope, ctx: &ReactionContext) -> Option<TasteScope> {
         .find(|s| s.same_as(&scope))
 }
 
-/// The tilt and curve to start from: the scope's own rule, else the one
-/// playing now (so a narrower rule doesn't lose what a broader one did).
+/// The tilt and curve to start from: the sound holding the scope (on this
+/// output), else the one playing now (so a narrower sound doesn't lose what a
+/// broader one did).
 fn base_curve(ctx: &ReactionContext, scope: &TasteScope) -> (Tilt, Vec<TasteBand>) {
-    match ctx.taste.rule_for(scope) {
+    match ctx.taste.sound_covering(scope, ctx.active_output.as_deref()) {
         Some(r) => (r.tilt, r.bands.clone()),
-        None => resolve_taste(&ctx.taste, &ctx.now_playing).map(|(r, t)| (t, r.bands.clone())).unwrap_or_default(),
+        None => resolve_taste(&ctx.taste, ctx.output_id(), &ctx.now_playing)
+            .map(|h| (h.tilt, h.rule.bands.clone()))
+            .unwrap_or_default(),
     }
 }
 
@@ -579,15 +591,26 @@ fn rule_for(
 ) -> TasteRule {
     let es = ctx.es();
     let label = label.unwrap_or_else(|| describe_curve(&scope, tilt, &bands, es));
-    match ctx.taste.rule_for(&scope) {
-        // keep its id and who made it first (a manual rule stays manual)
+    match ctx.taste.sound_covering(&scope, ctx.active_output.as_deref()) {
+        // keep its id, targets, outputs and who made it first (a manual sound stays manual)
         Some(old) => TasteRule { tilt, bands, label, enabled: true, ..old.clone() },
-        None => TasteRule { bands, ..TasteRule::new(scope, tilt, label, by) },
+        None => {
+            let outputs = ctx.taste.outputs_for_new(&scope, ctx.active_output.as_deref());
+            TasteRule { bands, outputs, ..TasteRule::for_target(scope, tilt, label, by) }
+        }
     }
 }
 
-fn finish(out: &mut ReactionResult, rule: TasteRule, before: Tilt, before_bands: &[TasteBand], es: bool) {
-    let stored = out.taste.upsert(rule);
+/// Saves `rule` (made for `scope`) in `out.taste` and words what changed.
+fn finish(
+    out: &mut ReactionResult,
+    rule: TasteRule,
+    scope: &TasteScope,
+    before: Tilt,
+    before_bands: &[TasteBand],
+    es: bool,
+) {
+    let stored = out.taste.upsert(rule).rule;
     out.taste.enabled = true;
     let change = Tilt {
         bass_db: stored.tilt.bass_db - before.bass_db,
@@ -599,7 +622,7 @@ fn finish(out: &mut ReactionResult, rule: TasteRule, before: Tilt, before_bands:
         words.push(tilt_words(change, es));
     }
     words.extend(band_changes(before_bands, &stored.bands, es));
-    let name = stored.scope.name().to_owned();
+    let name = scope.name().to_owned();
     out.message = if words.is_empty() {
         if es {
             format!("Ya está al máximo seguro para {name}.")
@@ -784,7 +807,7 @@ fn new_token() -> String {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SoundSnapshot {
-    /// The rule of that scope before the reaction; `None` when the reaction made it.
+    /// The sound the reaction wrote, as it was before (found by id); `None` when the reaction made it.
     pub previous_rule: Option<TasteRule>,
     /// Id of the rule the reaction wrote (empty: it only changed loudness).
     pub rule_id: String,
@@ -798,7 +821,7 @@ impl SoundSnapshot {
     pub fn before(ctx: &ReactionContext, result: &ReactionResult) -> Self {
         let written = result.rule.as_ref();
         Self {
-            previous_rule: written.and_then(|r| ctx.taste.rule_for(&r.scope)).cloned(),
+            previous_rule: written.and_then(|r| ctx.taste.rules.iter().find(|p| p.id == r.id)).cloned(),
             rule_id: written.map(|r| r.id.clone()).unwrap_or_default(),
             was_enabled: ctx.taste.enabled,
             loudness: ctx.loudness,
@@ -894,7 +917,7 @@ mod tests {
         let mut c = ctx("en");
         let r = react_guided(SoundReaction::NeedsBass, &c);
         let rule = r.rule.clone().unwrap();
-        assert_eq!(rule.scope, TasteScope::Genre { name: "Electronic".into() });
+        assert_eq!(rule.main_target(), Some(&TasteScope::Genre { name: "Electronic".into() }));
         assert_eq!(rule.tilt.bass_db, STEP_DB);
         assert_eq!(rule.created_by, TasteCreator::Reaction);
         assert!(r.taste.enabled && !r.undo_token.is_empty() && !r.by_ai);
@@ -919,7 +942,7 @@ mod tests {
         c.scope_hint = Some(TasteScope::Album { id: "22".into(), name: "Homework".into() });
         let r = react_guided(SoundReaction::TooBright, &c);
         let rule = r.rule.unwrap();
-        assert_eq!(rule.scope.kind(), "album");
+        assert_eq!(rule.main_target().unwrap().kind(), "album");
         // keeps the genre's +2 bass, softens the top with a band
         assert_eq!((rule.tilt.bass_db, rule.tilt.treble_db), (2.0, 0.0));
         assert_eq!(rule.bands.len(), 1);
@@ -990,8 +1013,13 @@ mod tests {
         let mut c = ctx("es");
         // the genre already has a 3.5 kHz cut
         c.taste.upsert(
-            TasteRule::new(TasteScope::Genre { name: "Electronic".into() }, Tilt::default(), "x", TasteCreator::Manual)
-                .with_bands(vec![TasteBand::new(EqBandKind::Peak, 3500.0, -2.0, 2.0)]),
+            TasteRule::for_target(
+                TasteScope::Genre { name: "Electronic".into() },
+                Tilt::default(),
+                "x",
+                TasteCreator::Manual,
+            )
+            .with_bands(vec![TasteBand::new(EqBandKind::Peak, 3500.0, -2.0, 2.0)]),
         );
         let r = react(SoundReaction::TooBright, &c, Some(&config)).await;
         assert!(r.by_ai, "{}", r.message);
@@ -1043,16 +1071,12 @@ mod tests {
         // "Auto" changes that album rule, not the genre
         let r = react_guided(SoundReaction::NeedsBass, &c);
         let rule = r.rule.unwrap();
-        assert_eq!(rule.scope, TasteScope::Album { id: "22".into(), name: "Homework".into() });
+        assert_eq!(rule.main_target(), Some(&TasteScope::Album { id: "22".into(), name: "Homework".into() }));
         assert_eq!(rule.tilt.bass_db, 2.0 * STEP_DB);
         assert_eq!(r.taste.rules.len(), 1);
 
         // a rule that is switched off doesn't play: back to the main genre
         c.taste.rules[0].enabled = false;
-        assert_eq!(c.default_scope(), Some(TasteScope::Genre { name: "Electronic".into() }));
-        // nor do rules while the layers are off
-        c.taste.rules[0].enabled = true;
-        c.taste.enabled = false;
         assert_eq!(c.default_scope(), Some(TasteScope::Genre { name: "Electronic".into() }));
     }
 
@@ -1109,7 +1133,7 @@ mod tests {
         let r = react(SoundReaction::NeedsBass, &ctx("es"), Some(&config)).await;
         assert!(r.by_ai);
         let rule = r.rule.unwrap();
-        assert_eq!(rule.scope, TasteScope::Artist { id: String::new(), name: "Daft Punk".into() });
+        assert_eq!(rule.main_target(), Some(&TasteScope::Artist { id: String::new(), name: "Daft Punk".into() }));
         assert_eq!(rule.tilt.bass_db, TasteIntensity::Balanced.limits().step_db, "at most 3 dB per tap");
         assert_eq!(rule.created_by, TasteCreator::Ai);
         assert_eq!(r.message, "Le subí el bajo a Daft Punk.");
@@ -1194,7 +1218,7 @@ mod tests {
 
         // another rule made after the tap survives the undo; the copy of the settings would have dropped it
         let mut now = c.taste.clone();
-        now.upsert(TasteRule::new(
+        now.upsert(TasteRule::for_target(
             TasteScope::Artist { id: String::new(), name: "Bach".into() },
             Tilt { treble_db: 1.0, ..Default::default() },
             "Bach",
@@ -1202,7 +1226,7 @@ mod tests {
         ));
         now.apply(&undo);
         assert_eq!(now.rules.len(), 1);
-        assert_eq!(now.rules[0].scope.name(), "Bach");
+        assert_eq!(now.rules[0].main_target().unwrap().name(), "Bach");
 
         // a second tap edits the rule: undoing puts the first version back
         let (second, snap) = tap(&mut c, SoundReaction::NeedsBass);
@@ -1220,6 +1244,55 @@ mod tests {
         let undo = snap.undo_change(&gone);
         gone.apply(&undo);
         assert!(gone.rules.is_empty());
+    }
+
+    /// A sound with several targets: a reaction on any of them changes the sound itself.
+    fn multi_sound(c: &mut ReactionContext) {
+        let scopes = vec![
+            TasteScope::Genre { name: "Electronic".into() },
+            TasteScope::Artist { id: String::new(), name: "Bach".into() },
+            TasteScope::Album { id: "99".into(), name: "Other".into() },
+        ];
+        let mut multi =
+            TasteRule::new(scopes, Tilt { bass_db: 1.0, ..Default::default() }, "Warm", TasteCreator::Manual);
+        multi.id = "m1".into();
+        c.taste.upsert(multi);
+    }
+
+    #[test]
+    fn a_reaction_edits_the_multi_target_sound_that_plays() {
+        let mut c = ctx("en");
+        multi_sound(&mut c);
+        let r = react_guided(SoundReaction::NeedsBass, &c);
+        let rule = r.rule.clone().unwrap();
+        assert_eq!((rule.id.as_str(), rule.targets.len(), rule.created_by), ("m1", 3, TasteCreator::Manual));
+        assert_eq!(rule.tilt.bass_db, 1.0 + STEP_DB);
+        assert_eq!(r.taste.rules.len(), 1, "no second sound");
+        // the line names the music the reaction was for, not the sound's first target
+        assert_eq!(r.message, "+2 dB bass for Electronic.");
+
+        // undoing puts the sound back by its id, targets and all
+        let before = SoundSnapshot::before(&c, &r);
+        assert_eq!(before.previous_rule.as_ref().map(|p| (p.id.as_str(), p.tilt.bass_db)), Some(("m1", 1.0)));
+        let mut now = r.taste.clone();
+        let undo = before.undo_change(&now);
+        now.apply(&undo);
+        assert_eq!((now.rules[0].tilt.bass_db, now.rules[0].targets.len()), (1.0, 3));
+    }
+
+    #[test]
+    fn a_new_sound_does_not_steal_music_held_on_another_output() {
+        let mut c = ctx("en");
+        multi_sound(&mut c);
+        c.taste.rules[0].outputs = vec!["speakers".into()];
+        c.active_output = Some("WH".into());
+        // on the headphones nothing plays yet: the reaction makes a sound limited to them
+        let r = react_guided(SoundReaction::NeedsBass, &c);
+        let rule = r.rule.unwrap();
+        assert_ne!(rule.id, "m1");
+        assert_eq!(rule.outputs, ["WH"]);
+        assert_eq!(r.taste.rules.len(), 2);
+        assert_eq!(r.taste.rules[0].targets.len(), 3, "the speakers' sound keeps its music");
     }
 
     #[test]

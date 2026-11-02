@@ -175,7 +175,7 @@ fun LibraryScreen() {
                         ScreenHeader(
                             openPlaylist.name,
                             onBack = { playlistPath = null },
-                            onSound = { app.sound.soundFor(TasteScope.Playlist(id = "", name = openPlaylist.name)) },
+                            onSound = { app.sound.openMenu(TasteScope.Playlist(id = "", name = openPlaylist.name)) },
                         )
                         val missing = openPlaylist.tracks.size - found.size
                         PlayHeader(
@@ -196,7 +196,7 @@ fun LibraryScreen() {
                         ScreenHeader(
                             openArtist.name,
                             onBack = { artistName = null },
-                            onSound = openArtist.name.takeIf { it.isNotBlank() }?.let { n -> { app.sound.soundFor(TasteScope.Artist(id = "", name = n)) } },
+                            onSound = openArtist.name.takeIf { it.isNotBlank() }?.let { n -> { app.sound.openMenu(TasteScope.Artist(id = "", name = n)) } },
                         )
                     },
                 )
@@ -214,7 +214,7 @@ fun LibraryScreen() {
                 onAlbum = { albumKey = it.key },
                 onArtist = { artistName = it.name },
                 onPlaylist = { playlistPath = it.path },
-                onSound = app.sound::soundFor,
+                onSound = app.sound::openMenu,
             )
         }
     }
@@ -463,7 +463,8 @@ fun TrackRow(track: LibraryTrack, current: Boolean, index: Int = 0, modifier: Mo
     var menu by remember { mutableStateOf(false) }
     val haptics = haptics()
     Box(modifier) {
-    QueueMenu(menu, { menu = false }) { next -> player.queueTracks(listOf(track), next) }
+    val sound = LocalContext.current.homefi.sound
+    QueueMenu(menu, { menu = false }, onSound = { sound.openMenu(TasteScope.Track(id = track.path, name = track.title)) }) { next -> player.queueTracks(listOf(track), next) }
     ListItem(
         modifier = Modifier.combinedClickable(
             onClick = {
@@ -621,7 +622,7 @@ private fun AlbumDetail(album: Album, currentId: String?, onBack: () -> Unit) {
             ScreenHeader(
                 album.title.ifBlank { stringResource(R.string.unknown_album) },
                 onBack,
-                onSound = album.title.takeIf { it.isNotBlank() }?.let { t -> { app.sound.soundFor(TasteScope.Album(id = "", name = t)) } },
+                onSound = album.title.takeIf { it.isNotBlank() }?.let { t -> { app.sound.openMenu(TasteScope.Album(id = "", name = t)) } },
             )
             Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 CoverArt(album.cover, 128.dp, icon = Icons.Rounded.Album, radius = 12.dp)

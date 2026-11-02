@@ -68,7 +68,7 @@
         <button class="btn primary" onclick={() => playAll(album.tracks, false, albumSource(album.title))}><Icon name="play" size={16} /> Play</button>
         <button class="btn tonal" onclick={() => playAll(album.tracks, true, albumSource(album.title))}><Icon name="shuffle" size={16} /> Shuffle</button>
         <button class="btn tonal" onclick={(e) => queueAll(e, album.title || "Unknown album", album.tracks, album.title ? { kind: "album", id: "", name: album.title } : undefined)}><Icon name="queue" size={16} /> Queue</button>
-        {#if album.title}<button class="btn tonal" onclick={() => (sound.forScope = { scope: { kind: "album", id: "", name: album.title }, label: album.title })}><Icon name="soundwave" size={16} /> Sound</button>{/if}
+        {#if album.title}<button class="btn tonal" aria-haspopup="menu" onclick={(e) => sound.openMenu(e, { kind: "album", id: "", name: album.title }, album.title)}><Icon name="soundwave" size={16} /> Sound</button>{/if}
       </div>
     </div>
   </header>

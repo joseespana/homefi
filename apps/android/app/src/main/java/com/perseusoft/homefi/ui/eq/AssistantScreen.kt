@@ -71,6 +71,10 @@ import com.perseusoft.homefi.core.tasteCombinedProfile
 import com.perseusoft.homefi.core.tasteCurveProfile
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.ui.sound.phrase
+import com.perseusoft.homefi.ui.sound.kindLabel
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material.icons.rounded.Close
 import com.perseusoft.homefi.ui.haptics
 import com.perseusoft.homefi.ui.theme.Button
 import com.perseusoft.homefi.ui.theme.Card
@@ -79,13 +83,49 @@ import com.perseusoft.homefi.ui.theme.LocalSkin
 import com.perseusoft.homefi.ui.theme.OutlinedButton
 import androidx.compose.foundation.lazy.LazyItemScope
 
-/**
- * "Set up my sound": a chat with the AI (or the guided questions), quick replies as chips,
- * and the proposal as a card with the before / after curve. Back returns to the equalizer.
- */
+/** "Set up my sound" as a full page (Settings, or from the Sound screen). Back returns to where it came from. */
 @Composable
 fun AssistantScreen(onClose: () -> Unit, onEqualizer: () -> Unit, vm: AssistantViewModel = viewModel()) {
     BackHandler(onBack = onClose)
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(LocalSkin.current.base)
+            .systemBarsPadding()
+            .imePadding(),
+    ) {
+        AssistantContent(onClose = onClose, onEqualizer = onEqualizer, vm = vm)
+    }
+}
+
+/**
+ * "Ask the AI" as a bottom sheet over whatever is open (Sound, the player, a list): the
+ * Try bar stays pinned on top while a sound is tried, and the keyboard pushes the chat up.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun AssistantSheet(onDismiss: () -> Unit, vm: AssistantViewModel = viewModel()) {
+    val app = LocalContext.current.homefi
+    androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight(SHEET_HEIGHT_FRACTION).imePadding()) {
+            AssistantContent(
+                onClose = onDismiss,
+                onEqualizer = { onDismiss(); app.equalizer.open(com.perseusoft.homefi.player.EqPanel.SOUND) },
+                vm = vm,
+                closeIcon = true,
+            )
+        }
+    }
+}
+
+private const val SHEET_HEIGHT_FRACTION = 0.92f
+
+/** The chat itself: header, the Try bar, messages and proposals, quick replies and the input. */
+@Composable
+fun ColumnScope.AssistantContent(onClose: () -> Unit, onEqualizer: () -> Unit, vm: AssistantViewModel, closeIcon: Boolean = false) {
     LaunchedEffect(Unit) { vm.takeHandoff() }
     val ui by vm.ui.collectAsStateWithLifecycle()
     val app = LocalContext.current.homefi
@@ -101,15 +141,11 @@ fun AssistantScreen(onClose: () -> Unit, onEqualizer: () -> Unit, vm: AssistantV
         if (count > 0) list.animateScrollToItem(list.layoutInfo.totalItemsCount.coerceAtLeast(1) - 1)
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(LocalSkin.current.base)
-            .systemBarsPadding()
-            .imePadding(),
-    ) {
+    run {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.back)) }
+            IconButton(onClick = onClose) {
+                if (closeIcon) Icon(Icons.Rounded.Close, stringResource(R.string.sound_close)) else Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.back))
+            }
             Column(Modifier.weight(1f)) {
                 Text(stringResource(R.string.eq_assistant), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text(
@@ -120,6 +156,8 @@ fun AssistantScreen(onClose: () -> Unit, onEqualizer: () -> Unit, vm: AssistantV
             }
             IconButton(onClick = { haptics.tick(); vm.restart() }) { Icon(Icons.Rounded.RestartAlt, stringResource(R.string.assistant_restart)) }
         }
+
+        com.perseusoft.homefi.ui.sound.TryBar()
 
         LazyColumn(
             state = list,
@@ -158,7 +196,8 @@ fun AssistantScreen(onClose: () -> Unit, onEqualizer: () -> Unit, vm: AssistantV
                     TasteProposalCard(
                         rule = rule,
                         enabled = !ui.typing,
-                        onApply = { haptics.confirm(); vm.applyTaste() },
+                        onTry = { haptics.tick(); vm.tryTaste() },
+                        onKeep = { haptics.confirm(); vm.keepTaste() },
                         onKeepTalking = { haptics.tick(); vm.keepTalking() },
                         modifier = chatMotion(),
                     )
@@ -328,7 +367,7 @@ private fun ProposalCard(
  * profile (faint), what plays with both (dashed), each band with its one-line reason.
  */
 @Composable
-private fun TasteProposalCard(rule: TasteRule, enabled: Boolean, onApply: () -> Unit, onKeepTalking: () -> Unit, modifier: Modifier) {
+private fun TasteProposalCard(rule: TasteRule, enabled: Boolean, onTry: () -> Unit, onKeep: () -> Unit, onKeepTalking: () -> Unit, modifier: Modifier) {
     val app = LocalContext.current.homefi
     val scheme = MaterialTheme.colorScheme
     val device = remember { app.sound.deviceProfile() }
@@ -338,7 +377,8 @@ private fun TasteProposalCard(rule: TasteRule, enabled: Boolean, onApply: () -> 
     val points = remember(rule) { EqProfile(name = "", preampDb = 0f, bands = rule.bands.map { it.band }, source = EqSource.Manual) }
     Card(modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
-            Text(stringResource(R.string.taste_proposal_title, rule.scope.phrase()), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            val keepScope = remember(rule) { app.sound.suggestedScope(rule) ?: rule.targets.firstOrNull()?.scope }
+            Text(keepScope?.let { stringResource(R.string.taste_proposal_title, it.phrase()) } ?: stringResource(R.string.sound_proposal_title), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             Text(rule.label, style = MaterialTheme.typography.bodySmall, color = scheme.primary)
             Spacer(Modifier.height(8.dp))
             EqCurve(profile = points, curve = curve, background = device, compare = combined, maxRange = 12f, modifier = Modifier.fillMaxWidth().height(140.dp))
@@ -368,7 +408,11 @@ private fun TasteProposalCard(rule: TasteRule, enabled: Boolean, onApply: () -> 
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.End) {
                 OutlinedButton(onClick = onKeepTalking, enabled = enabled) { Text(stringResource(R.string.taste_proposal_keep)) }
                 Spacer(Modifier.width(8.dp))
-                Button(onClick = onApply, enabled = enabled) { Text(stringResource(R.string.taste_proposal_apply)) }
+                OutlinedButton(onClick = onTry, enabled = enabled) { Text(stringResource(R.string.sound_try)) }
+                Spacer(Modifier.width(8.dp))
+                Button(onClick = onKeep, enabled = enabled && keepScope != null) {
+                    Text(stringResource(R.string.sound_keep_for, keepScope?.kindLabel()?.lowercase().orEmpty()), maxLines = 1)
+                }
             }
         }
     }

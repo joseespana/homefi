@@ -21,10 +21,10 @@ export type View =
   | { name: "downloads" }
   /** `page` opens a section (Settings → Sound, AI...). */
   | { name: "settings"; page?: string }
-  /** The equalizer; `output` preselects whose profile to edit. */
-  | { name: "eq"; output?: string; tab?: "device" | "taste" }
-  /** "Set up my sound": the EQ assistant (AI or the guided wizard). */
-  | { name: "assistant" }
+  /** Sound: what is playing and how it sounds. `edit` opens a sound's panel, `output` an output's own curve. */
+  | { name: "sound"; edit?: string; tab?: "sounds" | "music"; output?: string }
+  /** "Set up my sound": the EQ assistant (AI or the guided wizard); `say` fills the first note. */
+  | { name: "assistant"; say?: string }
   /** Someone else's room (shared control / party), as a guest. */
   | { name: "guest" };
 

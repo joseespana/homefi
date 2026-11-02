@@ -254,7 +254,7 @@ pub struct EqUiSettings {
     pub ab_mode: String,
     /// Band numbers on the handles of the curve.
     pub band_labels: bool,
-    /// Bass / treble / clarity sliders on the equalizer screen.
+    /// Bass / treble / clarity sliders inside Edit curve.
     pub taste_sliders: bool,
 }
 
@@ -279,11 +279,20 @@ pub struct SoundUiSettings {
     /// How a taste rule's editor opens: `auto` (the curve editor when the rule
     /// has bands, else the three sliders), `simple` or `advanced`.
     pub taste_editor: String,
+    /// An "Ask the AI" button in the player bar.
+    pub assistant_deck: bool,
 }
 
 impl Default for SoundUiSettings {
     fn default() -> Self {
-        Self { react_deck: true, react_room: true, layer_chip: true, suggestions: true, taste_editor: "auto".into() }
+        Self {
+            react_deck: true,
+            react_room: true,
+            layer_chip: true,
+            suggestions: true,
+            taste_editor: "auto".into(),
+            assistant_deck: true,
+        }
     }
 }
 
@@ -439,7 +448,15 @@ impl Default for DesktopSettings {
 
 impl DesktopSettings {
     pub fn load(path: &Path) -> Self {
-        std::fs::read(path).ok().and_then(|raw| serde_json::from_slice(&raw).ok()).unwrap_or_default()
+        let loaded: Option<Self> = std::fs::read(path).ok().and_then(|raw| serde_json::from_slice(&raw).ok());
+        let Some(mut settings) = loaded else { return Self::default() };
+        // 1.5.0 files: the sounds move to the single master switch, once
+        if homefi_core::dsp::migrate_sound(&mut settings.eq, &mut settings.taste) {
+            if let Err(e) = settings.save(path) {
+                tracing::warn!("couldn't save the migrated sound settings: {e}");
+            }
+        }
+        settings
     }
 
     /// Writes the file whole or not at all (a temp file renamed over it): a
@@ -539,6 +556,55 @@ mod tests {
         assert_eq!(set.updates, UpdateSettings { auto_check: false, prereleases: true, install: UpdateInstall::Idle });
         let bad: DesktopSettings = serde_json::from_str(r#"{"theme":"dark","updates":{"install":"always"}}"#).unwrap();
         assert_eq!((bad.theme.as_str(), bad.updates), ("dark", UpdateSettings::default()));
+    }
+
+    /// A settings file as 1.5.0 wrote it: five artist sounds, the master (`eq.enabled`) off.
+    const V1_5_0_FILE: &str = r#"{"theme":"dark",
+     "eq":{"enabled":false,"autoPreamp":true,"defaultProfile":null,"perOutput":{}},
+     "taste":{"enabled":true,"intensity":"balanced","rules":[
+      {"id":"a1","scope":{"kind":"artist","id":"","name":"Bad Omens"},"tilt":{"bassDb":2,"trebleDb":1,"clarityDb":null},"label":"Bold bass","createdBy":"ai","enabled":true},
+      {"id":"a2","scope":{"kind":"artist","id":"","name":"Eagles"},"tilt":{"bassDb":2,"trebleDb":1.5,"clarityDb":null},"label":"Warm and airy","createdBy":"ai","enabled":true},
+      {"id":"a3","scope":{"kind":"artist","id":"","name":"Lasgo"},"tilt":{"bassDb":1,"trebleDb":2,"clarityDb":null},"label":"Tight low end","createdBy":"ai","enabled":true},
+      {"id":"a4","scope":{"kind":"artist","id":"","name":"Sting"},"tilt":{"bassDb":0,"trebleDb":-1,"clarityDb":1},"label":"Soft, intimate","createdBy":"ai","enabled":true},
+      {"id":"a5","scope":{"kind":"artist","id":"","name":"System Of A Down"},"tilt":{"bassDb":1,"trebleDb":0,"clarityDb":-1},"label":"Tamed mids","createdBy":"ai","enabled":true}]}}"#;
+
+    fn temp_file(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("homefi-settings-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("settings.json")
+    }
+
+    #[test]
+    fn a_1_5_0_file_migrates_once_and_keeps_the_master_the_user_sets() {
+        let path = temp_file("migrate");
+        std::fs::write(&path, V1_5_0_FILE).unwrap();
+        let first = DesktopSettings::load(&path);
+        assert!(first.eq.enabled, "the sounds were on: the master turns on");
+        assert_eq!(first.taste.version, 1);
+        assert_eq!(first.taste.rules.len(), 5);
+        for r in &first.taste.rules {
+            assert_eq!(r.targets.len(), 1);
+            assert!(matches!(r.targets[0].scope, homefi_core::dsp::TasteScope::Artist { .. }));
+            assert!(r.outputs.is_empty());
+        }
+        // rewritten once: the file now says version 1 ...
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert_ne!(written, V1_5_0_FILE);
+        assert_eq!(DesktopSettings::load(&path).taste, first.taste);
+        // ... and a second load leaves it alone
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), written);
+        // the user turns the master off: it stays off
+        let mut off = first.clone();
+        off.eq.enabled = false;
+        off.save(&path).unwrap();
+        assert!(!DesktopSettings::load(&path).eq.enabled);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn old_files_get_the_assistant_button() {
+        let old: DesktopSettings = serde_json::from_str(r#"{"theme":"dark","sound_ui":{"react_deck":false}}"#).unwrap();
+        assert!(old.sound_ui.assistant_deck && !old.sound_ui.react_deck);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { EqUiSettings, Settings, SoundUiSettings } from "../../../lib/api";
-  import { INTENSITIES, LOUDNESS_DEFAULTS, LOUDNESS_MODES, SOUND_UI_DEFAULTS, TASTE_DEFAULTS } from "../../../lib/sound.svelte";
+  import { INTENSITIES, LOUDNESS_DEFAULTS, LOUDNESS_MODES, SOUND_UI_DEFAULTS, TASTE_DEFAULTS, layersWords } from "../../../lib/sound.svelte";
   import { app } from "../../../lib/state.svelte";
   import Icon from "../../Icon.svelte";
   import { useSettings } from "../model.svelte";
@@ -38,36 +38,31 @@
   const outputProfiles = $derived(Object.keys(settings.eq?.perOutput ?? {}).length);
 </script>
 
-<SettingsIntro>A parametric equalizer between the music and your output: a profile for each output (headphones, speakers, a DAC), measured corrections for thousands of headphones, and your own taste on top. While it changes the sound, playback isn't bit-perfect.</SettingsIntro>
+<SettingsIntro>One Sound screen for how your music sounds: a switch (off is bit-perfect), a correction for each output (measured for thousands of headphones), and sounds you make for songs, albums, artists, playlists or genres. While it changes the sound, playback isn't bit-perfect.</SettingsIntro>
 
-<SettingsGroup title="Equalizer" description="{outputProfiles} output profiles · {settings.eq?.defaultProfile ? `“${settings.eq.defaultProfile.name}” for other outputs` : 'other outputs flat'} · {settings.eq_presets?.length ?? 0} saved presets">
+<SettingsGroup title="Sound" description="{outputProfiles} output corrections · {settings.eq?.defaultProfile ? `“${settings.eq.defaultProfile.name}” for other outputs` : 'other outputs flat'} · {settings.eq_presets?.length ?? 0} saved presets · {taste.rules.length} {taste.rules.length === 1 ? 'sound' : 'sounds'}">
   <SwitchRow
-    label="Equalizer on"
-    hint={app.player?.eq_active ? `Playing with “${app.player.eq_profile}” now: processed, not bit-perfect` : "Nothing is changed right now: bit-perfect"}
+    label="Sound on"
+    hint={settings.eq?.enabled ? (app.player?.eq_active ? `Playing with “${layersWords(app.player)}” now: processed, not bit-perfect` : "Nothing is changed for this song right now: bit-perfect") : "Off: bit-perfect, HomeFi does not touch the audio"}
     checked={settings.eq?.enabled ?? false}
     onchange={(on) => m.save({ eq: { ...settings.eq, enabled: on } })}
   />
   <SwitchRow label="Automatic preamp" hint="Lowers the volume before the boosts just enough that nothing clips" checked={settings.eq?.autoPreamp ?? true} onchange={(on) => m.save({ eq: { ...settings.eq, autoPreamp: on } })} />
-  <ActionRow label="Tune it" hint="Open the equalizer, or let the assistant set it up for you">
-    <button type="button" class="btn primary" onclick={() => (app.view = { name: "eq" })}><Icon name="eq" size={16} /> Open equalizer</button>
+  <ActionRow label="Tune it" hint="Open Sound, or let the assistant set it up for you">
+    <button type="button" class="btn primary" onclick={() => (app.view = { name: "sound" })}><Icon name="eq" size={16} /> Open Sound</button>
     <button type="button" class="btn tonal" onclick={() => (app.view = { name: "assistant" })}><Icon name="ai" size={16} /> Set up my sound</button>
   </ActionRow>
 </SettingsGroup>
 
-<SettingsGroup title="Equalizer screen">
-  <SwitchRow label="EQ button in the player bar" hint="Next to the output" checked={eqUi.deck_button} onchange={(on) => saveEqUi({ deck_button: on })} />
+<SettingsGroup title="Sound screen">
+  <SwitchRow label="Sound button in the player bar" hint="Next to the output" checked={eqUi.deck_button} onchange={(on) => saveEqUi({ deck_button: on })} />
+  <SwitchRow label="“Ask the AI” button in the player" hint="Opens Sound with the AI panel ready; the A key does the same" checked={soundUi.assistant_deck} onchange={(on) => saveSoundUi({ assistant_deck: on })} />
   <SwitchRow label="Band numbers on the curve" checked={eqUi.band_labels} onchange={(on) => saveEqUi({ band_labels: on })} />
-  <SwitchRow label="Taste sliders" hint="Bass, treble, clarity" checked={eqUi.taste_sliders} onchange={(on) => saveEqUi({ taste_sliders: on })} />
-  <SegmentedRow label="“Hear without EQ”" hint="Compare the music with and without the equalizer; nothing is saved" options={AB_MODES} value={eqUi.ab_mode} onchange={(id) => saveEqUi({ ab_mode: id })} />
+  <SwitchRow label="Tilt sliders in Edit curve" hint="Bass, treble and clarity sliders next to the full curve" checked={eqUi.taste_sliders} onchange={(on) => saveEqUi({ taste_sliders: on })} />
+  <SegmentedRow label="“Hear without”" hint="Compare the music with and without the sound; nothing is saved" options={AB_MODES} value={eqUi.ab_mode} onchange={(id) => saveEqUi({ ab_mode: id })} />
 </SettingsGroup>
 
-<SettingsGroup title="Taste layers">
-  <SwitchRow
-    label="Taste layers on"
-    hint={taste.rules.length ? `${taste.rules.length} ${taste.rules.length === 1 ? "rule" : "rules"} for genres, playlists, artists, albums or tracks, on top of each output's profile` : "None yet: tap “How does it sound?” while music plays"}
-    checked={taste.enabled}
-    onchange={(on) => m.save({ taste: { ...taste, enabled: on } })}
-  />
+<SettingsGroup title="Sounds">
   <SegmentedRow
     label="Change size"
     hint="Intensity: the strength of each step the assistant and “How does it sound?” take. {INTENSITIES.map((i) => `${i.label}: ${i.hint}`).join(' · ')}"
@@ -77,17 +72,18 @@
   />
   <SwitchRow label="“How does it sound?” button in the player bar" checked={soundUi.react_deck} onchange={(on) => saveSoundUi({ react_deck: on })} />
   <SwitchRow label="“How does it sound?” in the listening room" checked={soundUi.react_room} onchange={(on) => saveSoundUi({ react_room: on })} />
-  <SwitchRow label="Show the layers playing next to EQ" hint="Like “HD 650 + Electronic”" checked={soundUi.layer_chip} onchange={(on) => saveSoundUi({ layer_chip: on })} />
+  <SwitchRow label="Show the sound playing next to the output" hint="Like “HD 650 + Warm and airy · Eagles”" checked={soundUi.layer_chip} onchange={(on) => saveSoundUi({ layer_chip: on })} />
   <SwitchRow label="Suggestions for what you listen to most" checked={soundUi.suggestions} onchange={(on) => saveSoundUi({ suggestions: on })} />
   <SegmentedRow
-    label="A rule's editor opens in"
-    hint="Simple: bass, treble and clarity sliders. Advanced: the full curve with bands. Auto: the curve when the rule has bands"
+    label="A sound's curve opens in"
+    hint="Simple: bass, treble and clarity sliders. Advanced: the full curve with bands. Auto: the curve when the sound has bands"
     options={TASTE_EDITORS}
     value={soundUi.taste_editor ?? "auto"}
     onchange={(id) => saveSoundUi({ taste_editor: id })}
   />
-  <ActionRow label="Taste rules" hint="Make, edit and remove the rules">
-    <button type="button" class="btn tonal" onclick={() => (app.view = { name: "eq", tab: "taste" })}><Icon name="layers" size={16} /> Taste rules</button>
+  <ActionRow label="Your sounds" hint="Make, edit and remove sounds, or see every song with its sound">
+    <button type="button" class="btn tonal" onclick={() => (app.view = { name: "sound" })}><Icon name="layers" size={16} /> Sounds</button>
+    <button type="button" class="btn tonal" onclick={() => (app.view = { name: "sound", tab: "music" })}><Icon name="music" size={16} /> By music</button>
   </ActionRow>
 </SettingsGroup>
 

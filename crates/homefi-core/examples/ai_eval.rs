@@ -49,7 +49,7 @@ struct Persona {
 fn guetta() -> TasteSettings {
     let mut t = TasteSettings::default();
     t.upsert(
-        TasteRule::new(
+        TasteRule::for_target(
             TasteScope::Artist { id: String::new(), name: "David Guetta".into() },
             Tilt { bass_db: 2.0, ..Default::default() },
             "More punch for David Guetta",

@@ -156,7 +156,8 @@ fun TidalRow(hit: SearchHit, list: List<SearchHit>, index: Int, ctx: RowContext,
     val hasVersions = hit.versions.size > 1
     val haptics = haptics()
     Box(modifier) {
-    if (isTrack) QueueMenu(menu, { menu = false }) { next -> player.queueTidal(listOf(hit), next) }
+    val sound = LocalContext.current.homefi.sound
+    if (isTrack) QueueMenu(menu, { menu = false }, onSound = { sound.openMenu(TasteScope.Track(id = hit.id, name = hit.title)) }) { next -> player.queueTidal(listOf(hit), next) }
     if (picker) AlbumVersionsSheet(hit.title, hit.versions, null, { picker = false }, ctx.onVersion)
     ListItem(
         modifier = Modifier.combinedClickable(
@@ -490,7 +491,7 @@ fun TidalRoutePage(route: TidalRoute, vm: TidalViewModel) {
             is TidalRoute.Artist -> Loaded(load?.artist(), { vm.load(route) }, { SkeletonDetail(round = true) }) { artist ->
                 ListEntrance {
                 LazyColumn(Modifier.fillMaxSize()) {
-                    item(key = "bar") { BackBar(artist.name, vm::pop) { sound.soundFor(TasteScope.Artist(id = artist.id, name = artist.name)) } }
+                    item(key = "bar") { BackBar(artist.name, vm::pop) { sound.openMenu(TasteScope.Artist(id = artist.id, name = artist.name)) } }
                     item(key = "hero") {
                         Hero(
                             artist.pictureUrl, 120.dp, true, artist.name, stringResource(R.string.tidal_top_tracks),
@@ -514,7 +515,7 @@ fun TidalRoutePage(route: TidalRoute, vm: TidalViewModel) {
                 LoadMoreEffect(state, tracks, { vm.loadMore(key) })
                 ListEntrance {
                 LazyColumn(Modifier.fillMaxSize(), state = state) {
-                    item(key = "bar") { BackBar(album.title, vm::pop) { sound.soundFor(TasteScope.Album(id = album.id, name = album.title)) } }
+                    item(key = "bar") { BackBar(album.title, vm::pop) { sound.openMenu(TasteScope.Album(id = album.id, name = album.title)) } }
                     item(key = "hero") {
                         Hero(
                             album.coverUrl, 180.dp, false, album.title,
@@ -545,7 +546,7 @@ fun TidalRoutePage(route: TidalRoute, vm: TidalViewModel) {
                 LoadMoreEffect(state, tracks, { vm.loadMore(key) })
                 ListEntrance {
                 LazyColumn(Modifier.fillMaxSize(), state = state) {
-                    item(key = "bar") { BackBar(playlist.title, vm::pop) { sound.soundFor(TasteScope.Playlist(id = playlist.uuid, name = playlist.title)) } }
+                    item(key = "bar") { BackBar(playlist.title, vm::pop) { sound.openMenu(TasteScope.Playlist(id = playlist.uuid, name = playlist.title)) } }
                     item(key = "hero") {
                         Hero(
                             playlist.coverUrl, 180.dp, false, playlist.title,

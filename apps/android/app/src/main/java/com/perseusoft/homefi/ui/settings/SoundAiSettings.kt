@@ -69,7 +69,6 @@ import com.perseusoft.homefi.data.AiSettings
 import com.perseusoft.homefi.data.userMessage
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.player.EqPanel
-import com.perseusoft.homefi.player.EqTab
 import com.perseusoft.homefi.core.LoudnessMode
 import com.perseusoft.homefi.core.LoudnessSettings
 import com.perseusoft.homefi.ui.eq.formatDb
@@ -97,10 +96,10 @@ internal fun soundSummary(): String {
     val settings by eq.settings.collectAsStateWithLifecycle()
     val output by eq.outputId.collectAsStateWithLifecycle()
     val taste by LocalContext.current.homefi.sound.taste.collectAsStateWithLifecycle()
-    val active = taste.enabled && taste.rules.any { it.enabled }
+    val active = taste.rules.any { it.enabled }
     val rules = if (active) " · " + stringResource(R.string.sound_summary_rules, taste.rules.count { it.enabled }) else ""
-    // off but with taste rules: not "bit-perfect" for the music they cover
-    if (!settings.enabled) return if (active) stringResource(R.string.sound_summary_eq_off_rules, taste.rules.count { it.enabled }) else stringResource(R.string.eq_summary_off)
+    // the master switch: off is bit-perfect, whatever the sounds are
+    if (!settings.enabled) return stringResource(R.string.eq_summary_off)
     val profile = remember(settings, output) { runCatching { eqProfileFor(settings, output) }.getOrNull() }
     val fallback = if (profile?.bands.isNullOrEmpty()) R.string.eq_flat else R.string.eq_custom
     return stringResource(R.string.eq_summary_on, profile?.name?.ifBlank { null } ?: stringResource(fallback)) + rules
@@ -128,7 +127,7 @@ internal fun SoundSettings() {
         RowDivider()
         NavRow(stringResource(R.string.eq_open), soundSummary()) {
             haptics.press()
-            eq.open(EqPanel.EQUALIZER)
+            eq.open(EqPanel.SOUND)
         }
         RowDivider()
         NavRow(stringResource(R.string.eq_assistant), stringResource(R.string.eq_assistant_hint)) {
@@ -138,17 +137,7 @@ internal fun SoundSettings() {
     }
 
     SettingsGroup(title = stringResource(R.string.sound_layers_on)) {
-        SwitchRow(
-            stringResource(R.string.sound_layers_toggle), taste.enabled,
-            hint = stringResource(R.string.sound_layers_hint),
-        ) { app.sound.setEnabled(it) }
-        RowDivider()
         TasteIntensityRow()
-        RowDivider()
-        NavRow(stringResource(R.string.sound_open_rules), stringResource(R.string.sound_summary_rules, taste.rules.size)) {
-            haptics.press()
-            eq.open(EqPanel.EQUALIZER, EqTab.TASTE)
-        }
     }
 
     SettingsGroup(title = stringResource(R.string.sound_loudness)) {
@@ -170,6 +159,14 @@ internal fun SoundSettings() {
             stringResource(R.string.sound_settings_suggestions), appSettings.soundSuggestions,
             hint = stringResource(R.string.sound_settings_suggestions_hint),
         ) { v -> app.settings.update { it.copy(soundSuggestions = v) } }
+        RowDivider()
+        SwitchRow(
+            stringResource(R.string.sound_settings_assistant_button), appSettings.soundAssistantButton,
+        ) { v -> app.settings.update { it.copy(soundAssistantButton = v) } }
+        RowDivider()
+        SwitchRow(
+            stringResource(R.string.sound_settings_tilt_sliders), appSettings.soundTiltSliders,
+        ) { v -> app.settings.update { it.copy(soundTiltSliders = v) } }
         RowDivider()
         SegmentedRow(
             stringResource(R.string.taste_editor_setting), TASTE_EDITOR_IDS, appSettings.tasteEditor,

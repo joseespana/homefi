@@ -1,8 +1,10 @@
-//! Taste layers: a sound that applies only to some music (a genre, a
-//! playlist, an artist, an album or one track), on top of the output's own
-//! profile. A rule is a [`Tilt`] (three broad knobs) and / or a parametric
-//! curve of up to [`MAX_TASTE_BANDS`] [`TasteBand`]s. The most specific rule
-//! that matches what plays wins: track > album > playlist > artist > genre.
+//! Sounds: a curve that plays for any number of targets (songs, albums,
+//! artists, playlists, genres) and, optionally, only on some outputs, on top
+//! of the output's own profile. A sound is a [`Tilt`] (three broad knobs)
+//! and / or a parametric curve of up to [`MAX_TASTE_BANDS`] [`TasteBand`]s.
+//! The most specific target that matches what plays wins:
+//! track > album > artist > playlist > genre. One target belongs to at most
+//! one sound per output.
 //!
 //! Persisted like [`super::EqSettings`]: stable camelCase JSON, and an
 //! unreadable rule is dropped instead of failing the whole file.
@@ -11,6 +13,10 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use super::{EqBand, EqBandKind, Tilt};
 
+/// Targets one sound can hold (bounded growth; a full sound refuses more).
+pub const MAX_TARGETS: usize = 500;
+/// `TasteSettings::version` written by this release (0 = files from 1.5.0 and older).
+pub const TASTE_VERSION: u8 = 1;
 /// Each taste adjustment (bass, treble, clarity) stays within ± this (dB).
 pub const MAX_TILT_DB: f32 = 6.0;
 /// Rules kept at most (oldest manual ones are never dropped silently: callers cap first).
@@ -96,13 +102,13 @@ pub enum TasteScope {
 }
 
 impl TasteScope {
-    /// Higher wins: track 5, album 4, playlist 3, artist 2, genre 1.
+    /// Higher wins: track 5, album 4, artist 3, playlist 2, genre 1.
     pub fn specificity(&self) -> u8 {
         match self {
             Self::Track { .. } => 5,
             Self::Album { .. } => 4,
-            Self::Playlist { .. } => 3,
-            Self::Artist { .. } => 2,
+            Self::Artist { .. } => 3,
+            Self::Playlist { .. } => 2,
             Self::Genre { .. } => 1,
         }
     }
@@ -236,47 +242,165 @@ impl From<EqBand> for TasteBand {
     }
 }
 
-/// A taste adjustment for some music.
+/// One piece of music a sound applies to, and when / by whom it was added.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TasteTarget {
+    pub scope: TasteScope,
+    /// Unix ms; 0 = unknown (migrated).
+    #[serde(default)]
+    pub added_ms: u64,
+    #[serde(default, deserialize_with = "lenient_creator")]
+    pub added_by: TasteCreator,
+}
+
+impl TasteTarget {
+    /// `scope`, added now by `by`.
+    fn now(scope: TasteScope, by: TasteCreator) -> Self {
+        Self { scope, added_ms: now_ms(), added_by: by }
+    }
+}
+
+/// Unix ms now (0 if the clock is before 1970).
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
+}
+
+/// A "sound": a curve that plays for its targets on its outputs.
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TasteRule {
     pub id: String,
-    pub scope: TasteScope,
     /// The three broad knobs (simple rules; kept for old rules).
-    #[serde(default)]
     pub tilt: Tilt,
     /// The parametric curve, on top of the tilt (at most [`MAX_TASTE_BANDS`]).
-    #[serde(default, deserialize_with = "lenient_bands", skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub bands: Vec<TasteBand>,
     /// What the user sees ("More punch for Electronic").
-    #[serde(default)]
     pub label: String,
     /// Why, in a sentence or two (the assistant's words; may be empty).
-    #[serde(default, skip_serializing_if = "String::is_empty")]
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub explanation: String,
-    #[serde(default, deserialize_with = "lenient_creator")]
     pub created_by: TasteCreator,
-    #[serde(default = "yes")]
+    /// Kept for old files; no UI toggle in 1.5.1. Disabled sounds never play.
     pub enabled: bool,
+    /// Music it applies to (any number, may be empty: an empty sound is kept).
+    pub targets: Vec<TasteTarget>,
+    /// Output ids it plays on; empty = every output.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub outputs: Vec<String>,
 }
 
-fn yes() -> bool {
-    true
+/// What a saved sound looks like on disk, old (`scope`) and new (`targets`).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct RuleJson {
+    id: String,
+    tilt: Tilt,
+    #[serde(deserialize_with = "lenient_bands")]
+    bands: Vec<TasteBand>,
+    label: String,
+    explanation: String,
+    #[serde(deserialize_with = "lenient_creator")]
+    created_by: TasteCreator,
+    enabled: bool,
+    scope: Option<serde_json::Value>,
+    targets: Option<Vec<serde_json::Value>>,
+    outputs: Option<Vec<String>>,
+}
+
+impl Default for RuleJson {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            tilt: Tilt::default(),
+            bands: Vec::new(),
+            label: String::new(),
+            explanation: String::new(),
+            created_by: TasteCreator::Manual,
+            enabled: true,
+            scope: None,
+            targets: None,
+            outputs: None,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for TasteRule {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let j = RuleJson::deserialize(d)?;
+        // unreadable targets (a kind from a newer version) are dropped, the sound is kept
+        let targets = match (j.targets, j.scope) {
+            (Some(list), _) => list.into_iter().filter_map(|v| serde_json::from_value(v).ok()).collect(),
+            (None, Some(scope)) => serde_json::from_value::<TasteScope>(scope)
+                .map(|scope| vec![TasteTarget { scope, added_ms: 0, added_by: j.created_by }])
+                .unwrap_or_default(),
+            (None, None) => Vec::new(),
+        };
+        Ok(Self {
+            id: j.id,
+            tilt: j.tilt,
+            bands: j.bands,
+            label: j.label,
+            explanation: j.explanation,
+            created_by: j.created_by,
+            enabled: j.enabled,
+            targets,
+            outputs: clean_outputs(j.outputs.unwrap_or_default()),
+        })
+    }
+}
+
+/// Output ids trimmed, empties dropped, duplicates removed (order kept).
+fn clean_outputs(outputs: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::with_capacity(outputs.len());
+    for o in outputs {
+        let o = o.trim();
+        if !o.is_empty() && !out.iter().any(|x| x == o) {
+            out.push(o.to_owned());
+        }
+    }
+    out
+}
+
+/// `targets` without repeats (first wins), at most [`MAX_TARGETS`].
+fn clean_targets(targets: Vec<TasteTarget>) -> Vec<TasteTarget> {
+    let mut out: Vec<TasteTarget> = Vec::with_capacity(targets.len().min(MAX_TARGETS));
+    for t in targets {
+        if out.len() >= MAX_TARGETS {
+            break;
+        }
+        if !out.iter().any(|o| o.scope.same_as(&t.scope)) {
+            out.push(t);
+        }
+    }
+    out
 }
 
 impl TasteRule {
-    /// A new, enabled rule with a fresh id; the tilt is brought in range.
-    pub fn new(scope: TasteScope, tilt: Tilt, label: impl Into<String>, created_by: TasteCreator) -> Self {
+    /// A new, enabled sound with a fresh id for every output; the tilt is
+    /// brought in range, the targets deduped and added now by `created_by`.
+    pub fn new(targets: Vec<TasteScope>, tilt: Tilt, label: impl Into<String>, created_by: TasteCreator) -> Self {
+        let targets = clean_targets(targets.into_iter().map(|s| TasteTarget::now(s, created_by)).collect());
         Self {
             id: new_id(),
-            scope,
             tilt: tilt.clamped(MAX_TILT_DB),
             bands: Vec::new(),
             label: label.into(),
             explanation: String::new(),
             created_by,
             enabled: true,
+            targets,
+            outputs: Vec::new(),
         }
+    }
+
+    /// A sound for one target.
+    pub fn for_target(scope: TasteScope, tilt: Tilt, label: impl Into<String>, created_by: TasteCreator) -> Self {
+        Self::new(vec![scope], tilt, label, created_by)
     }
 
     /// The rule with `bands` as its curve (brought in range, see [`clamp_taste_curve`]).
@@ -293,6 +417,14 @@ impl TasteRule {
         self.tilt = tilt;
     }
 
+    /// Everything a stored sound must satisfy: curve in range, targets
+    /// deduped and capped, outputs clean.
+    fn normalize(&mut self) {
+        self.clamp();
+        self.targets = clean_targets(std::mem::take(&mut self.targets));
+        self.outputs = clean_outputs(std::mem::take(&mut self.outputs));
+    }
+
     /// `true` when it changes nothing (a neutral tilt and no audible band).
     pub fn is_neutral(&self) -> bool {
         self.tilt.is_neutral() && self.bands.iter().all(|b| b.band.is_neutral())
@@ -302,6 +434,26 @@ impl TasteRule {
     pub fn curve_for(&self, small_speaker: bool) -> (Vec<EqBand>, Tilt) {
         let (bands, tilt, _) = clamp_taste_curve(&self.bands, self.tilt, small_speaker);
         (bands.into_iter().map(|b| b.band).filter(|b| !b.is_neutral()).collect(), tilt)
+    }
+
+    /// Whether `scope` is one of its targets.
+    pub fn covers(&self, scope: &TasteScope) -> bool {
+        self.targets.iter().any(|t| t.scope.same_as(scope))
+    }
+
+    /// Whether it plays on `output_id` (no outputs listed = on every one).
+    pub fn plays_on(&self, output_id: &str) -> bool {
+        self.outputs.is_empty() || self.outputs.iter().any(|o| o == output_id)
+    }
+
+    /// Whether the two can play at the same time on some output.
+    pub fn overlaps_outputs(&self, other: &TasteRule) -> bool {
+        self.outputs.is_empty() || other.outputs.is_empty() || self.outputs.iter().any(|o| other.outputs.contains(o))
+    }
+
+    /// First target (for one-line labels and prompts); `None` when empty.
+    pub fn main_target(&self) -> Option<&TasteScope> {
+        self.targets.first().map(|t| &t.scope)
     }
 }
 
@@ -647,7 +799,7 @@ impl TasteRule {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TasteChange {
-    /// Rules to add, or to replace by id (else by scope).
+    /// Sounds to add, or to replace by id.
     pub upsert: Vec<TasteRule>,
     /// Ids of the rules to remove.
     pub remove: Vec<String>,
@@ -678,7 +830,7 @@ impl TasteChange {
     /// same rule replaces the earlier; a removal of it is forgotten).
     pub fn push_upsert(&mut self, rule: TasteRule) {
         self.remove.retain(|id| *id != rule.id);
-        match self.upsert.iter().position(|r| r.id == rule.id || r.scope.same_as(&rule.scope)) {
+        match self.upsert.iter().position(|r| r.id == rule.id) {
             Some(i) => self.upsert[i] = rule,
             None => self.upsert.push(rule),
         }
@@ -694,42 +846,144 @@ impl TasteChange {
     }
 }
 
-/// Every taste rule of an app, and the switch for all of them.
+/// A target taken out of a sound by an assignment (for Undo).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TargetMove {
+    pub target: TasteScope,
+    /// Id of the sound it was taken from.
+    pub from: String,
+}
+
+/// A sound as saved, and the targets that moved out of other sounds to make room.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedSound {
+    pub rule: TasteRule,
+    pub moves: Vec<TargetMove>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum TasteError {
+    #[error("That sound doesn't exist any more.")]
+    NoSuchSound,
+    #[error("A sound holds at most {MAX_TARGETS} songs, albums, artists, playlists and genres.")]
+    TooManyTargets,
+}
+
+/// Every sound of an app.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TasteSettings {
-    /// Off until the first rule is made ([`TasteSettings::upsert`] turns it on).
+    /// Kept for old files; nothing reads it for playback (the master switch is `EqSettings::enabled`).
     pub enabled: bool,
     #[serde(deserialize_with = "lenient_rules")]
     pub rules: Vec<TasteRule>,
     /// How strong what the assistant, the reactions and the wizard propose is.
     #[serde(deserialize_with = "lenient_intensity")]
     pub intensity: TasteIntensity,
+    /// [`TASTE_VERSION`] when last saved by this release (0 = 1.5.0 and older).
+    pub version: u8,
 }
 
 impl TasteSettings {
-    /// The enabled rule for exactly `scope`, if any.
-    pub fn rule_for(&self, scope: &TasteScope) -> Option<&TasteRule> {
-        self.rules.iter().find(|r| r.scope.same_as(scope))
+    /// The sound holding exactly `scope` that plays on `output_id` (`None` =
+    /// on any output). Output-specific sounds first.
+    pub fn sound_covering(&self, scope: &TasteScope, output_id: Option<&str>) -> Option<&TasteRule> {
+        self.rules
+            .iter()
+            .filter(|r| r.covers(scope) && output_id.is_none_or(|o| r.plays_on(o)))
+            .min_by_key(|r| r.outputs.is_empty())
     }
 
-    /// Adds `rule`, or replaces the one with its id or its scope (keeping that
-    /// one's id). The first rule turns the layers on. Returns the stored rule.
-    pub fn upsert(&mut self, mut rule: TasteRule) -> TasteRule {
-        rule.clamp();
+    /// Outputs for a NEW sound made for `scope` by the AI / a reaction:
+    /// `[active]` when another sound already holds `scope` on some output (so
+    /// the new one doesn't steal it there), else `[]`.
+    pub fn outputs_for_new(&self, scope: &TasteScope, active_output: Option<&str>) -> Vec<String> {
+        match active_output.map(str::trim).filter(|a| !a.is_empty()) {
+            Some(active) if self.rules.iter().any(|r| r.covers(scope)) => vec![active.to_owned()],
+            _ => Vec::new(),
+        }
+    }
+
+    /// Takes `scope` out of every sound but `keep` whose outputs overlap its.
+    fn take_from_others(&mut self, keep: usize, scope: &TasteScope, moves: &mut Vec<TargetMove>) {
+        let Some(mine) = self.rules.get(keep).cloned() else { return };
+        for (i, r) in self.rules.iter_mut().enumerate() {
+            if i != keep && r.overlaps_outputs(&mine) {
+                if let Some(at) = r.targets.iter().position(|t| t.scope.same_as(scope)) {
+                    let gone = r.targets.remove(at);
+                    moves.push(TargetMove { target: gone.scope, from: r.id.clone() });
+                }
+            }
+        }
+    }
+
+    /// Puts `scope` in sound `to` (added now by `by`) and takes it out of every
+    /// other sound whose outputs overlap `to`'s. Idempotent (already there →
+    /// `Ok(vec![])`).
+    pub fn assign(&mut self, to: &str, scope: TasteScope, by: TasteCreator) -> Result<Vec<TargetMove>, TasteError> {
+        let at = self.rules.iter().position(|r| r.id == to).ok_or(TasteError::NoSuchSound)?;
+        if self.rules[at].covers(&scope) {
+            return Ok(Vec::new());
+        }
+        if self.rules[at].targets.len() >= MAX_TARGETS {
+            return Err(TasteError::TooManyTargets);
+        }
+        let mut moves = Vec::new();
+        self.take_from_others(at, &scope, &mut moves);
+        self.rules[at].targets.push(TasteTarget::now(scope, by));
+        self.version = TASTE_VERSION;
+        Ok(moves)
+    }
+
+    /// Takes `scope` out of `from`; `true` when it was there.
+    pub fn unassign(&mut self, from: &str, scope: &TasteScope) -> bool {
+        let Some(r) = self.rules.iter_mut().find(|r| r.id == from) else { return false };
+        let before = r.targets.len();
+        r.targets.retain(|t| !t.scope.same_as(scope));
+        before != r.targets.len()
+    }
+
+    /// New outputs for a sound (trimmed, deduped); its targets win every
+    /// conflict that appears.
+    pub fn set_outputs(&mut self, id: &str, outputs: Vec<String>) -> Result<Vec<TargetMove>, TasteError> {
+        let at = self.rules.iter().position(|r| r.id == id).ok_or(TasteError::NoSuchSound)?;
+        self.rules[at].outputs = clean_outputs(outputs);
+        let mine: Vec<TasteScope> = self.rules[at].targets.iter().map(|t| t.scope.clone()).collect();
+        let mut moves = Vec::new();
+        for scope in &mine {
+            self.take_from_others(at, scope, &mut moves);
+        }
+        self.version = TASTE_VERSION;
+        Ok(moves)
+    }
+
+    /// Puts each moved target back in its `from` sound (newest first; skipped
+    /// if that sound is gone or full). The original date is not kept (0).
+    pub fn undo_moves(&mut self, moves: &[TargetMove]) {
+        for m in moves.iter().rev() {
+            if let Some(r) = self.rules.iter_mut().find(|r| r.id == m.from) {
+                if !r.covers(&m.target) && r.targets.len() < MAX_TARGETS {
+                    r.targets.push(TasteTarget { scope: m.target.clone(), added_ms: 0, added_by: r.created_by });
+                }
+            }
+        }
+    }
+
+    /// Adds `rule`, or replaces the one with its id. Clamped, targets deduped
+    /// and capped at [`MAX_TARGETS`], empty id → new id; its targets win
+    /// conflicts with overlapping sounds. At most [`MAX_RULES`] are kept.
+    pub fn upsert(&mut self, mut rule: TasteRule) -> SavedSound {
+        rule.normalize();
+        if rule.id.trim().is_empty() {
+            rule.id = new_id();
+        }
         if self.rules.is_empty() {
             self.enabled = true;
         }
-        let at = self
-            .rules
-            .iter()
-            .position(|r| r.id == rule.id)
-            .or_else(|| self.rules.iter().position(|r| r.scope.same_as(&rule.scope)));
-        match at {
-            Some(i) => {
-                rule.id = self.rules[i].id.clone();
-                self.rules[i] = rule.clone();
-            }
+        match self.rules.iter().position(|r| r.id == rule.id) {
+            Some(i) => self.rules[i] = rule.clone(),
             None => {
                 self.rules.push(rule.clone());
                 if self.rules.len() > MAX_RULES {
@@ -737,11 +991,18 @@ impl TasteSettings {
                 }
             }
         }
-        rule
+        let mut moves = Vec::new();
+        if let Some(at) = self.rules.iter().position(|r| r.id == rule.id) {
+            for t in &rule.targets {
+                self.take_from_others(at, &t.scope, &mut moves);
+            }
+        }
+        self.version = TASTE_VERSION;
+        SavedSound { rule, moves }
     }
 
     /// Merges `change` into these settings as they are now: removals, then
-    /// upserts (by id, else by scope, keeping the stored rule's id), then the switch.
+    /// upserts (by id), then the old switch. Moves are discarded.
     pub fn apply(&mut self, change: &TasteChange) {
         for id in &change.remove {
             self.remove(id);
@@ -754,24 +1015,188 @@ impl TasteSettings {
         }
     }
 
-    /// Removes the rule `id`; `true` when there was one.
+    /// Removes the sound `id`; `true` when there was one.
     pub fn remove(&mut self, id: &str) -> bool {
         let before = self.rules.len();
         self.rules.retain(|r| r.id != id);
         before != self.rules.len()
     }
 
-    /// Every tilt and curve in range, ids filled in.
+    /// "Keep": if a sound with `rule.id` exists, its curve (tilt, bands,
+    /// explanation, non-empty label) is replaced by `rule`'s and `scope` is
+    /// assigned to it (`only_on` ignored). Else a NEW sound = `rule` with
+    /// `targets = [scope]` (added now by `by`) and `outputs = only_on`.
+    pub fn keep(
+        &mut self,
+        rule: &TasteRule,
+        scope: TasteScope,
+        only_on: Option<String>,
+        by: TasteCreator,
+    ) -> Result<SavedSound, TasteError> {
+        if self.rules.iter().any(|r| r.id == rule.id) {
+            let moves = self.assign(&rule.id, scope, by)?;
+            let stored = self.rules.iter_mut().find(|r| r.id == rule.id).ok_or(TasteError::NoSuchSound)?;
+            stored.tilt = rule.tilt;
+            stored.bands = rule.bands.clone();
+            stored.explanation = rule.explanation.clone();
+            if !rule.label.trim().is_empty() {
+                stored.label = rule.label.clone();
+            }
+            stored.clamp();
+            return Ok(SavedSound { rule: stored.clone(), moves });
+        }
+        let mut fresh = rule.clone();
+        fresh.targets = vec![TasteTarget::now(scope, by)];
+        fresh.outputs = only_on.into_iter().collect();
+        Ok(self.upsert(fresh))
+    }
+
+    /// Every curve in range, ids filled, targets deduped, and
+    /// `version = TASTE_VERSION` (whatever an app saves through this is
+    /// already migrated, even if its UI drops the field).
     pub fn clamped(&self) -> Self {
         let mut s = self.clone();
         for r in &mut s.rules {
-            r.clamp();
+            r.normalize();
             if r.id.trim().is_empty() {
                 r.id = new_id();
             }
         }
+        s.version = TASTE_VERSION;
         s
     }
+
+    /// "Hear without": the same settings with no sounds.
+    pub fn without_sounds(&self) -> Self {
+        Self { enabled: self.enabled, rules: Vec::new(), intensity: self.intensity, version: self.version }
+    }
+}
+
+/// A "Try on this song": a sound heard on one track only, never saved. While
+/// the master is on it wins over every saved sound; it ends when another
+/// track plays.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TasteAudition {
+    pub rule: TasteRule,
+    /// Always the [`TasteScope::Track`] of the track tried on.
+    pub track: TasteScope,
+}
+
+impl TasteAudition {
+    /// `None` when `ctx` has neither a track id nor a path.
+    pub fn new(mut rule: TasteRule, ctx: &NowPlayingContext) -> Option<Self> {
+        let track = ctx.scopes().into_iter().find(|s| matches!(s, TasteScope::Track { .. }))?;
+        rule.clamp();
+        Some(Self { rule, track })
+    }
+
+    /// Whether `ctx` is the same track.
+    pub fn applies_to(&self, ctx: &NowPlayingContext) -> bool {
+        self.track.fit(ctx).is_some()
+    }
+}
+
+/// What a track hears: the sound, the target that matched, its tilt (in
+/// range), and whether it is a "Try" rather than a saved sound.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ResolvedTaste<'a> {
+    pub rule: &'a TasteRule,
+    pub target: &'a TasteScope,
+    pub tilt: Tilt,
+    pub auditioning: bool,
+}
+
+/// Where a search result comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TargetSource {
+    Library,
+    Tidal,
+}
+
+/// A piece of music offered by "Add" (target search).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TargetHit {
+    pub scope: TasteScope,
+    /// Shown under the name ("Song · Steely Dan"); the shell writes it in its language.
+    #[serde(default)]
+    pub subtitle: String,
+    pub source: TargetSource,
+    /// Id of the sound already covering it on the output asked about (filled by [`rank_targets`]).
+    #[serde(default)]
+    pub in_sound: Option<String>,
+}
+
+/// Order of kinds in search results (the mockup's).
+fn kind_order(scope: &TasteScope) -> u8 {
+    match scope {
+        TasteScope::Artist { .. } => 0,
+        TasteScope::Track { .. } => 1,
+        TasteScope::Album { .. } => 2,
+        TasteScope::Playlist { .. } => 3,
+        TasteScope::Genre { .. } => 4,
+    }
+}
+
+/// How well `name` (lowercase) matches `query` (lowercase, non-empty): exact
+/// 0, prefix 1, a later word's prefix 2, contains 3; `None` when it doesn't.
+fn match_rank(name: &str, query: &str) -> Option<u8> {
+    if name == query {
+        return Some(0);
+    }
+    if name.starts_with(query) {
+        return Some(1);
+    }
+    let mut found = false;
+    for (at, _) in name.match_indices(query) {
+        found = true;
+        if name[..at].chars().next_back().is_some_and(|c| !c.is_alphanumeric()) {
+            return Some(2);
+        }
+    }
+    found.then_some(3)
+}
+
+/// Target search: keeps hits whose name contains `query` (case-insensitive,
+/// trimmed; blank → empty), dedupes with `same_as` (library beats Tidal),
+/// orders by match quality, kind (artist, song, album, playlist, genre),
+/// library before Tidal, then name, caps at `limit`, and fills `in_sound`.
+pub fn rank_targets(
+    query: &str,
+    hits: Vec<TargetHit>,
+    taste: &TasteSettings,
+    output_id: Option<&str>,
+    limit: usize,
+) -> Vec<TargetHit> {
+    let query = query.trim().to_lowercase();
+    if query.is_empty() {
+        return Vec::new();
+    }
+    // (match rank, hit, lowercase name)
+    let mut kept: Vec<(u8, TargetHit, String)> = Vec::with_capacity(hits.len());
+    for hit in hits {
+        let name = hit.scope.name().trim().to_lowercase();
+        let Some(rank) = match_rank(&name, &query) else { continue };
+        match kept.iter().position(|(_, k, _)| k.scope.same_as(&hit.scope)) {
+            Some(i) if kept[i].1.source == TargetSource::Tidal && hit.source == TargetSource::Library => {
+                kept[i] = (rank, hit, name)
+            }
+            Some(_) => {}
+            None => kept.push((rank, hit, name)),
+        }
+    }
+    kept.sort_by_cached_key(|(rank, hit, name)| {
+        (*rank, kind_order(&hit.scope), matches!(hit.source, TargetSource::Tidal), name.clone())
+    });
+    kept.into_iter()
+        .take(limit)
+        .map(|(_, mut hit, _)| {
+            hit.in_sound = taste.sound_covering(&hit.scope, output_id).map(|r| r.id.clone());
+            hit
+        })
+        .collect()
 }
 
 /// Where the queue came from (`album`, `playlist`, `artist`, `mix`, `library`,
@@ -836,11 +1261,11 @@ impl NowPlayingContext {
         if let Some(a) = self.album.as_ref().filter(|a| !a.is_empty()) {
             out.push(TasteScope::Album { id: a.id.clone(), name: a.name.clone() });
         }
-        if let Some(p) = self.playlist().filter(|p| !p.is_empty()) {
-            out.push(TasteScope::Playlist { id: p.id, name: p.name });
-        }
         if let Some(a) = self.main_artist() {
             out.push(TasteScope::Artist { id: a.id.clone(), name: a.name.clone() });
+        }
+        if let Some(p) = self.playlist().filter(|p| !p.is_empty()) {
+            out.push(TasteScope::Playlist { id: p.id, name: p.name });
         }
         if let Some(g) = self.main_genre() {
             out.push(TasteScope::Genre { name: g.to_owned() });
@@ -849,22 +1274,49 @@ impl NowPlayingContext {
     }
 }
 
-/// The rule that applies to `ctx` and its tilt (in range); `None` when the
-/// layers are off or nothing matches. Most specific wins: track > album >
-/// playlist > artist > genre; between two of the same kind, the track's main
-/// genre / artist (the first one) wins. Cheap: run it on track change.
-pub fn resolve_taste<'a>(settings: &'a TasteSettings, ctx: &NowPlayingContext) -> Option<(&'a TasteRule, Tilt)> {
-    if !settings.enabled {
-        return None;
-    }
+/// The sound for `ctx` on `output_id`. Candidates: enabled, plays on the
+/// output, has a target that fits `ctx`. Best = most specific target, then a
+/// sound limited to outputs over an all-outputs one, then the track's main
+/// genre / artist, then the later sound. `settings.enabled` is NOT read (the
+/// master switch is the caller's). Neutral curves are returned.
+pub fn resolve_taste<'a>(
+    settings: &'a TasteSettings,
+    output_id: &str,
+    ctx: &NowPlayingContext,
+) -> Option<ResolvedTaste<'a>> {
     settings
         .rules
         .iter()
-        .filter(|r| r.enabled)
-        .filter_map(|r| r.scope.fit(ctx).map(|fit| (fit, r)))
-        // ties: the later rule (newer) wins
-        .max_by(|(a, _), (b, _)| a.cmp(b))
-        .map(|(_, r)| (r, r.tilt.clamped(MAX_TILT_DB)))
+        .enumerate()
+        .filter(|(_, r)| r.enabled && r.plays_on(output_id))
+        .filter_map(|(i, r)| {
+            let (fit, target) = r
+                .targets
+                .iter()
+                .filter_map(|t| t.scope.fit(ctx).map(|fit| (fit, &t.scope)))
+                .max_by_key(|(fit, _)| *fit)?;
+            Some(((fit.0, u8::from(!r.outputs.is_empty()), fit.1, i), r, target))
+        })
+        .max_by_key(|(key, _, _)| *key)
+        .map(|(_, r, target)| ResolvedTaste { rule: r, target, tilt: r.tilt.clamped(MAX_TILT_DB), auditioning: false })
+}
+
+/// [`resolve_taste`], but an audition that applies to `ctx` wins.
+pub fn resolve_taste_with<'a>(
+    settings: &'a TasteSettings,
+    output_id: &str,
+    audition: Option<&'a TasteAudition>,
+    ctx: &NowPlayingContext,
+) -> Option<ResolvedTaste<'a>> {
+    match audition.filter(|a| a.applies_to(ctx)) {
+        Some(a) => Some(ResolvedTaste {
+            rule: &a.rule,
+            target: &a.track,
+            tilt: a.rule.tilt.clamped(MAX_TILT_DB),
+            auditioning: true,
+        }),
+        None => resolve_taste(settings, output_id, ctx),
+    }
 }
 
 /// A GENRE tag as a list: `Electronic, House` / `Rock; Indie` → two genres.
@@ -968,56 +1420,109 @@ mod tests {
     }
 
     fn rule(scope: TasteScope, db: f32) -> TasteRule {
-        TasteRule::new(scope, bass(db), "", TasteCreator::Manual)
+        TasteRule::for_target(scope, bass(db), "", TasteCreator::Manual)
+    }
+
+    fn genre(name: &str) -> TasteScope {
+        TasteScope::Genre { name: name.into() }
+    }
+
+    fn playlist() -> TasteScope {
+        TasteScope::Playlist { id: "pl-1".into(), name: "Friday".into() }
+    }
+
+    /// Saves a sound with a known id, targets and outputs.
+    fn sound(s: &mut TasteSettings, id: &str, scopes: Vec<TasteScope>, outputs: &[&str], db: f32) -> TasteRule {
+        let mut r = TasteRule::new(scopes, bass(db), "", TasteCreator::Manual);
+        r.id = id.into();
+        r.outputs = outputs.iter().map(|o| (*o).to_owned()).collect();
+        s.upsert(r).rule
+    }
+
+    fn other_track() -> NowPlayingContext {
+        NowPlayingContext { track_id: Some("222".into()), path: Some("/m/b.flac".into()), ..ctx() }
     }
 
     #[test]
-    fn the_most_specific_rule_wins() {
+    fn the_most_specific_target_wins() {
         let mut s = TasteSettings::default();
-        s.upsert(rule(TasteScope::Genre { name: "electronic".into() }, 1.0));
+        s.upsert(rule(genre("electronic"), 1.0));
         s.upsert(rule(TasteScope::Artist { id: String::new(), name: "daft punk".into() }, 2.0));
-        s.upsert(rule(TasteScope::Playlist { id: "pl-1".into(), name: "Friday".into() }, 3.0));
+        s.upsert(rule(playlist(), 3.0));
         s.upsert(rule(TasteScope::Album { id: "22".into(), name: "Other name".into() }, 4.0));
         s.upsert(rule(TasteScope::Track { id: "/m/a.flac".into(), name: "Song".into() }, 5.0));
-        assert!(s.enabled, "the first rule turns the layers on");
+        assert!(s.enabled, "the first rule turns the old switch on");
         let c = ctx();
-        let mut expect = [5.0, 4.0, 3.0, 2.0, 1.0].into_iter();
-        while let Some((r, t)) = resolve_taste(&s, &c) {
-            assert_eq!(t.bass_db, expect.next().unwrap(), "{:?}", r.scope);
-            let id = r.id.clone();
+        // track > album > artist > playlist > genre
+        let mut expect = [5.0, 4.0, 2.0, 3.0, 1.0].into_iter();
+        while let Some(heard) = resolve_taste(&s, "", &c) {
+            assert_eq!(heard.tilt.bass_db, expect.next().unwrap(), "{:?}", heard.target);
+            assert!(!heard.auditioning);
+            let id = heard.rule.id.clone();
             s.remove(&id);
         }
         assert_eq!(expect.next(), None);
     }
 
     #[test]
-    fn ties_go_to_the_main_genre_and_off_means_off() {
+    fn ties_go_to_the_main_genre_and_the_old_switch_is_ignored() {
         let mut s = TasteSettings::default();
-        s.upsert(rule(TasteScope::Genre { name: "House".into() }, 2.0));
-        s.upsert(rule(TasteScope::Genre { name: "Electronic".into() }, 1.0));
-        assert_eq!(resolve_taste(&s, &ctx()).unwrap().1.bass_db, 1.0);
+        s.upsert(rule(genre("House"), 2.0));
+        s.upsert(rule(genre("Electronic"), 1.0));
+        assert_eq!(resolve_taste(&s, "", &ctx()).unwrap().tilt.bass_db, 1.0);
         s.rules[1].enabled = false;
-        assert_eq!(resolve_taste(&s, &ctx()).unwrap().1.bass_db, 2.0);
+        assert_eq!(resolve_taste(&s, "", &ctx()).unwrap().tilt.bass_db, 2.0, "disabled sounds never play");
         s.enabled = false;
-        assert!(resolve_taste(&s, &ctx()).is_none());
+        assert!(resolve_taste(&s, "", &ctx()).is_some(), "taste.enabled is not read any more");
         // ids win over names: another album with the same title doesn't match
         let mut s = TasteSettings::default();
         s.upsert(rule(TasteScope::Album { id: "99".into(), name: "Discovery".into() }, 3.0));
-        assert!(resolve_taste(&s, &ctx()).is_none());
+        assert!(resolve_taste(&s, "", &ctx()).is_none());
         // nothing matches a track of another genre
         let jazz = NowPlayingContext { genres: vec!["Jazz".into()], ..Default::default() };
-        assert!(resolve_taste(&TasteSettings::default(), &jazz).is_none());
+        assert!(resolve_taste(&TasteSettings::default(), "", &jazz).is_none());
     }
 
     #[test]
-    fn upsert_replaces_the_same_scope_and_clamps() {
+    fn outputs_decide_who_plays() {
         let mut s = TasteSettings::default();
-        let a = s.upsert(rule(TasteScope::Genre { name: "Rock".into() }, 2.0));
-        let b = s.upsert(rule(TasteScope::Genre { name: "rock".into() }, 40.0));
-        assert_eq!(s.rules.len(), 1);
-        assert_eq!(a.id, b.id);
+        // two sounds for the same music can only exist in files written by other versions: build them directly
+        let mut all = rule(genre("Electronic"), 1.0);
+        all.id = "all".into();
+        let mut wh = rule(genre("Electronic"), 2.0);
+        wh.id = "wh".into();
+        wh.outputs = vec!["WH".into()];
+        s.rules = vec![all, wh];
+        let id_on = |s: &TasteSettings, out: &str| resolve_taste(s, out, &ctx()).map(|h| h.rule.id.clone());
+        assert_eq!(id_on(&s, "WH").as_deref(), Some("wh"), "the output's own sound beats the all-outputs one");
+        assert_eq!(id_on(&s, "speakers").as_deref(), Some("all"));
+        // a sound limited to speakers is silent on the headphones
+        let mut only = TasteSettings::default();
+        sound(&mut only, "sp", vec![genre("Electronic")], &["speakers"], 1.0);
+        assert!(resolve_taste(&only, "WH", &ctx()).is_none());
+        assert!(resolve_taste(&only, "speakers", &ctx()).is_some());
+    }
+
+    #[test]
+    fn upsert_replaces_by_id_clamps_and_moves_the_targets() {
+        let mut s = TasteSettings::default();
+        let a = s.upsert(rule(genre("Rock"), 2.0)).rule;
+        let mut again = rule(genre("rock"), 40.0);
+        again.id = a.id.clone();
+        let b = s.upsert(again).rule;
+        assert_eq!((s.rules.len(), a.id.as_str()), (1, b.id.as_str()));
         assert_eq!(s.rules[0].tilt.bass_db, MAX_TILT_DB);
+        assert_eq!(s.version, TASTE_VERSION);
+        // another sound for the same music takes it over (same outputs): never matched by scope
+        let saved = s.upsert(rule(genre("rock"), 1.0));
+        assert_eq!(s.rules.len(), 2);
+        assert_eq!(saved.moves, vec![TargetMove { target: genre("rock"), from: a.id.clone() }]);
+        assert!(s.rules[0].targets.is_empty(), "an empty sound is kept");
         assert!(s.remove(&a.id) && !s.remove(&a.id));
+        // an empty id gets one
+        let mut blank = rule(genre("Pop"), 1.0);
+        blank.id.clear();
+        assert!(!s.upsert(blank).rule.id.is_empty());
     }
 
     #[test]
@@ -1027,6 +1532,7 @@ mod tests {
         r.id = "r1".into();
         r.label = "Warmer Bach".into();
         r.created_by = TasteCreator::Reaction;
+        r.targets[0].added_ms = 5;
         s.upsert(r);
         let json = serde_json::to_value(&s).unwrap();
         assert_eq!(
@@ -1034,25 +1540,27 @@ mod tests {
             serde_json::json!({
                 "enabled": true,
                 "intensity": "balanced",
+                "version": 1,
                 "rules": [{
                     "id": "r1",
-                    "scope": {"kind": "artist", "id": "7", "name": "Bach"},
                     "tilt": {"bassDb": 2.0, "trebleDb": 0.0, "clarityDb": null},
                     "label": "Warmer Bach",
                     "createdBy": "reaction",
-                    "enabled": true
+                    "enabled": true,
+                    "targets": [{"scope": {"kind": "artist", "id": "7", "name": "Bach"}, "addedMs": 5, "addedBy": "manual"}]
                 }]
             })
         );
         assert_eq!(serde_json::from_value::<TasteSettings>(json).unwrap(), s);
-        // unknown scopes / creators from newer versions
+        // an unknown creator reads as manual; a rule with no scope is kept, empty
         let s: TasteSettings = serde_json::from_str(
             r#"{"enabled":true,"rules":[{"id":"a","scope":{"kind":"mood","name":"x"}},{"id":"b","scope":{"kind":"genre","name":"Pop"},"createdBy":"robot"}]}"#,
         )
         .unwrap();
-        assert_eq!(s.rules.len(), 1);
-        assert_eq!(s.rules[0].created_by, TasteCreator::Manual);
-        assert!(s.rules[0].enabled);
+        assert_eq!(s.rules.len(), 2);
+        assert!(s.rules[0].targets.is_empty());
+        assert_eq!(s.rules[1].created_by, TasteCreator::Manual);
+        assert!(s.rules[1].enabled);
         #[derive(Deserialize)]
         struct W {
             #[serde(default, deserialize_with = "lenient_taste")]
@@ -1065,43 +1573,255 @@ mod tests {
         assert_eq!(s.intensity, TasteIntensity::Balanced);
         let s: TasteSettings = serde_json::from_str(r#"{"enabled":true,"intensity":"bold"}"#).unwrap();
         assert_eq!(s.intensity, TasteIntensity::Bold);
-        // old files have none
+        // old files have no intensity and no version
         let s: TasteSettings = serde_json::from_str(r#"{"enabled":true,"rules":[]}"#).unwrap();
-        assert_eq!(s.intensity, TasteIntensity::Balanced);
+        assert_eq!((s.intensity, s.version), (TasteIntensity::Balanced, 0));
     }
 
     #[test]
-    fn apply_merges_by_scope_and_keeps_the_id() {
+    fn old_rules_with_a_scope_become_one_target_and_new_ones_round_trip() {
+        let old: TasteRule = serde_json::from_str(
+            r#"{"id":"r1","scope":{"kind":"genre","name":"Pop"},"tilt":{"bassDb":2.0,"trebleDb":0.0,"clarityDb":null},"label":"x","createdBy":"ai","enabled":true}"#,
+        )
+        .unwrap();
+        assert_eq!(old.targets, vec![TasteTarget { scope: genre("Pop"), added_ms: 0, added_by: TasteCreator::Ai }]);
+        assert!(old.outputs.is_empty() && old.enabled);
+        let json = serde_json::to_value(&old).unwrap();
+        assert!(json.get("scope").is_none(), "{json}");
+        assert!(json.get("outputs").is_none());
+        assert_eq!(serde_json::from_value::<TasteRule>(json).unwrap(), old);
+
+        let new = r#"{"id":"t1","label":"Warm and airy","tilt":{"bassDb":2,"trebleDb":1.5,"clarityDb":null},
+            "bands":[{"kind":"peak","freqHz":3000,"gainDb":-2,"q":2,"enabled":true,"note":"trims the glare"}],
+            "createdBy":"ai","enabled":true,
+            "targets":[{"scope":{"kind":"artist","id":"","name":"Eagles"},"addedMs":1761700000000,"addedBy":"ai"}],
+            "outputs":["WH-1000XM5"]}"#;
+        let r: TasteRule = serde_json::from_str(new).unwrap();
+        assert_eq!(
+            (r.targets.len(), r.targets[0].added_ms, r.outputs.clone()),
+            (1, 1_761_700_000_000, vec!["WH-1000XM5".to_owned()])
+        );
+        assert_eq!(r.bands[0].note, "trims the glare");
+        let back = serde_json::to_value(&r).unwrap();
+        assert_eq!(back["targets"][0]["addedMs"], 1_761_700_000_000u64);
+        assert_eq!(
+            (back["targets"][0]["addedBy"].as_str(), back["outputs"][0].as_str()),
+            (Some("ai"), Some("WH-1000XM5"))
+        );
+        assert!(back.get("scope").is_none());
+        assert_eq!(serde_json::from_value::<TasteRule>(back).unwrap(), r);
+
+        // neither scope nor targets: the sound is kept, empty
+        let r: TasteRule = serde_json::from_str(r#"{"id":"e","label":"Empty"}"#).unwrap();
+        assert!(r.targets.is_empty() && r.enabled);
+        // a target of a kind from a newer version is dropped, the rest stay; outputs are cleaned
+        let r: TasteRule = serde_json::from_str(
+            r#"{"id":"m","targets":[{"scope":{"kind":"mood","name":"x"}},{"scope":{"kind":"genre","name":"Pop"}}],
+                "outputs":[" WH ","", "WH"]}"#,
+        )
+        .unwrap();
+        assert_eq!(r.targets.len(), 1);
+        assert_eq!(r.outputs, ["WH"]);
+    }
+
+    #[test]
+    fn assign_moves_targets_only_between_overlapping_outputs() {
         let mut s = TasteSettings::default();
-        let jazz = s.upsert(rule(TasteScope::Genre { name: "Jazz".into() }, 1.0));
-        let rock = s.upsert(rule(TasteScope::Genre { name: "Rock".into() }, 2.0));
-        // another copy of the Rock rule (new id, same scope) replaces it and keeps the stored id
-        let again = rule(TasteScope::Genre { name: "rock".into() }, 4.0);
-        assert_ne!(again.id, rock.id);
-        let mut change = TasteChange::upserting(again);
-        change.push_upsert(rule(TasteScope::Genre { name: "Pop".into() }, 3.0));
+        let p = playlist();
+        sound(&mut s, "A", vec![p.clone()], &["WH"], 1.0);
+        sound(&mut s, "B", vec![p.clone()], &["speakers"], 2.0);
+        assert!(s.rules[0].covers(&p) && s.rules[1].covers(&p), "different outputs coexist");
+        sound(&mut s, "C", vec![], &[], 3.0);
+        let moves = s.assign("C", p.clone(), TasteCreator::Manual).unwrap();
+        assert_eq!(moves.len(), 2);
+        assert!(s.rules[2].covers(&p) && !s.rules[0].covers(&p) && !s.rules[1].covers(&p));
+        assert_eq!(s.assign("C", p.clone(), TasteCreator::Manual), Ok(vec![]), "idempotent");
+        s.undo_moves(&moves);
+        assert!(s.rules[0].covers(&p) && s.rules[1].covers(&p));
+        assert_eq!(s.assign("nope", p.clone(), TasteCreator::Manual), Err(TasteError::NoSuchSound));
+        // a sound is full at MAX_TARGETS
+        let many = (0..MAX_TARGETS).map(|i| TasteScope::Track { id: format!("t{i}"), name: String::new() }).collect();
+        sound(&mut s, "D", many, &[], 1.0);
+        assert_eq!(s.rules[3].targets.len(), MAX_TARGETS);
+        assert_eq!(s.assign("D", genre("Pop"), TasteCreator::Manual), Err(TasteError::TooManyTargets));
+        assert!(s.unassign("D", &TasteScope::Track { id: "t0".into(), name: String::new() }));
+        assert!(!s.unassign("D", &TasteScope::Track { id: "t0".into(), name: String::new() }));
+        assert!(s.assign("D", genre("Pop"), TasteCreator::Manual).is_ok());
+    }
+
+    #[test]
+    fn new_outputs_win_the_conflicts_they_create() {
+        let mut s = TasteSettings::default();
+        let p = playlist();
+        sound(&mut s, "A", vec![p.clone()], &["WH"], 1.0);
+        sound(&mut s, "B", vec![p.clone()], &["speakers"], 2.0);
+        let moves = s.set_outputs("B", vec![" WH ".into(), "speakers".into(), "WH".into()]).unwrap();
+        assert_eq!(moves, vec![TargetMove { target: p.clone(), from: "A".into() }]);
+        assert_eq!(s.rules[1].outputs, ["WH", "speakers"]);
+        assert!(!s.rules[0].covers(&p) && s.rules[1].covers(&p));
+        assert_eq!(s.set_outputs("nope", vec![]), Err(TasteError::NoSuchSound));
+    }
+
+    #[test]
+    fn sound_covering_prefers_the_output_specific_one() {
+        let mut s = TasteSettings::default();
+        let g = genre("Rock");
+        let mut all = rule(g.clone(), 1.0);
+        all.id = "all".into();
+        let mut wh = rule(g.clone(), 2.0);
+        wh.id = "wh".into();
+        wh.outputs = vec!["WH".into()];
+        s.rules = vec![all, wh];
+        assert_eq!(s.sound_covering(&g, Some("WH")).unwrap().id, "wh");
+        assert_eq!(s.sound_covering(&g, Some("speakers")).unwrap().id, "all");
+        assert_eq!(s.sound_covering(&g, None).unwrap().id, "wh");
+        assert!(s.sound_covering(&genre("Pop"), None).is_none());
+    }
+
+    #[test]
+    fn outputs_for_new_does_not_steal_a_held_target() {
+        let mut s = TasteSettings::default();
+        let g = genre("Rock");
+        assert!(s.outputs_for_new(&g, Some("WH")).is_empty(), "nothing holds it");
+        sound(&mut s, "A", vec![g.clone()], &[], 1.0);
+        assert_eq!(s.outputs_for_new(&g, Some("WH")), ["WH"]);
+        assert!(s.outputs_for_new(&g, None).is_empty());
+        assert!(s.outputs_for_new(&genre("Pop"), Some("WH")).is_empty());
+    }
+
+    #[test]
+    fn keep_adds_to_a_saved_sound_or_makes_a_new_one() {
+        let mut s = TasteSettings::default();
+        let artist = TasteScope::Artist { id: String::new(), name: "Eagles".into() };
+        let saved = sound(&mut s, "s1", vec![artist.clone()], &[], 1.0);
+        // a saved sound + a new scope: the same sound gains the target and the proposal's curve
+        let mut tweaked = saved.clone();
+        tweaked.tilt = bass(3.0);
+        tweaked.label = "Warmer".into();
+        let r = s.keep(&tweaked, genre("Rock"), Some("WH".into()), TasteCreator::Reaction).unwrap();
+        assert_eq!((r.rule.id.as_str(), r.rule.tilt.bass_db, r.rule.label.as_str()), ("s1", 3.0, "Warmer"));
+        assert!(r.rule.covers(&artist) && r.rule.covers(&genre("Rock")) && r.rule.outputs.is_empty());
+        assert_eq!(s.rules.len(), 1);
+
+        // an unsaved proposal limited to one output: a new sound with only that target
+        let proposal = rule(genre("Jazz"), 2.0);
+        let r = s.keep(&proposal, genre("Jazz"), Some("WH".into()), TasteCreator::Ai).unwrap();
+        assert_eq!((r.rule.id.as_str(), r.rule.outputs.clone()), (proposal.id.as_str(), vec!["WH".to_owned()]));
+        assert_eq!(r.rule.targets.len(), 1);
+        assert_eq!(r.rule.targets[0].added_by, TasteCreator::Ai);
+        assert!(r.moves.is_empty() && s.rules.len() == 2);
+
+        // a conflict comes back as a move (for Undo)
+        let proposal = rule(genre("Rock"), 1.0);
+        let r = s.keep(&proposal, genre("Rock"), None, TasteCreator::Manual).unwrap();
+        assert_eq!(r.moves, vec![TargetMove { target: genre("Rock"), from: "s1".into() }]);
+        s.undo_moves(&r.moves);
+        assert!(s.sound_covering(&genre("Rock"), None).is_some());
+        // a missing id is not "saved": a full sound is refused
+        let full: Vec<TasteScope> =
+            (0..MAX_TARGETS).map(|i| TasteScope::Track { id: format!("t{i}"), name: String::new() }).collect();
+        let big = sound(&mut s, "big", full, &[], 1.0);
+        assert_eq!(s.keep(&big, genre("Pop"), None, TasteCreator::Manual), Err(TasteError::TooManyTargets));
+    }
+
+    #[test]
+    fn a_try_plays_on_one_track_only() {
+        let mut s = TasteSettings::default();
+        sound(&mut s, "s1", vec![genre("Electronic")], &[], 1.0);
+        let attempt = rule(genre("Jazz"), 4.0);
+        let a = TasteAudition::new(attempt, &ctx()).unwrap();
+        assert!(matches!(a.track, TasteScope::Track { .. }));
+        let heard = resolve_taste_with(&s, "", Some(&a), &ctx()).unwrap();
+        assert!(heard.auditioning);
+        assert_eq!((heard.tilt.bass_db, heard.target), (4.0, &a.track));
+        // another track hears the saved sound (the try ends)
+        assert!(!a.applies_to(&other_track()));
+        let heard = resolve_taste_with(&s, "", Some(&a), &other_track()).unwrap();
+        assert!(!heard.auditioning && heard.rule.id == "s1");
+        // nothing to try on without a track
+        let nothing = NowPlayingContext { genres: vec!["Jazz".into()], ..Default::default() };
+        assert!(TasteAudition::new(rule(genre("Jazz"), 1.0), &nothing).is_none());
+    }
+
+    #[test]
+    fn target_search_ranks_dedupes_and_marks_taken_music() {
+        let hit = |scope: TasteScope, source| TargetHit { scope, subtitle: String::new(), source, in_sound: None };
+        let artist = |name: &str| TasteScope::Artist { id: String::new(), name: name.into() };
+        let tidal_artist = |id: &str, name: &str| TasteScope::Artist { id: id.into(), name: name.into() };
+        let track = |name: &str| TasteScope::Track { id: format!("id-{name}"), name: name.into() };
+        let hits = vec![
+            hit(TasteScope::Album { id: "1".into(), name: "Redan Days".into() }, TargetSource::Tidal),
+            hit(tidal_artist("9", "Steely Dan"), TargetSource::Tidal),
+            hit(artist("Steely Dan"), TargetSource::Library),
+            hit(artist("Dan Fogelberg"), TargetSource::Tidal),
+            hit(track("Dan"), TargetSource::Tidal),
+            hit(artist("Zebra"), TargetSource::Tidal),
+        ];
+        let mut taste = TasteSettings::default();
+        sound(&mut taste, "s1", vec![artist("Steely Dan")], &["WH"], 1.0);
+        let ranked = rank_targets("  DAN ", hits.clone(), &taste, Some("WH"), 10);
+        let names: Vec<&str> = ranked.iter().map(|h| h.scope.name()).collect();
+        // exact, prefix, word prefix, contains; Zebra is out and the duplicate artist is the library's
+        assert_eq!(names, ["Dan", "Dan Fogelberg", "Steely Dan", "Redan Days"]);
+        assert_eq!(ranked[2].source, TargetSource::Library);
+        assert_eq!(ranked[2].in_sound.as_deref(), Some("s1"));
+        assert!(ranked.iter().filter(|h| h.in_sound.is_some()).count() == 1);
+        // on another output nothing covers it
+        let ranked = rank_targets("dan", hits.clone(), &taste, Some("speakers"), 10);
+        assert!(ranked.iter().all(|h| h.in_sound.is_none()));
+        assert_eq!(rank_targets("dan", hits.clone(), &taste, None, 2).len(), 2);
+        assert!(rank_targets("   ", hits, &taste, None, 10).is_empty());
+
+        // same match: artist, song, album, playlist, genre, then library before Tidal, then name
+        let kinds = vec![
+            hit(genre("Abstract"), TargetSource::Library),
+            hit(TasteScope::Playlist { id: "p".into(), name: "Abd".into() }, TargetSource::Tidal),
+            hit(TasteScope::Album { id: "a".into(), name: "Abc".into() }, TargetSource::Tidal),
+            hit(track("Abbey"), TargetSource::Tidal),
+            hit(tidal_artist("2", "Abba"), TargetSource::Tidal),
+            hit(artist("Abacus"), TargetSource::Library),
+        ];
+        let ranked = rank_targets("ab", kinds, &TasteSettings::default(), None, 10);
+        let order: Vec<&str> = ranked.iter().map(|h| h.scope.name()).collect();
+        assert_eq!(order, ["Abacus", "Abba", "Abbey", "Abc", "Abd", "Abstract"]);
+    }
+
+    #[test]
+    fn apply_merges_by_id_and_keeps_the_rest() {
+        let mut s = TasteSettings::default();
+        let jazz = s.upsert(rule(genre("Jazz"), 1.0)).rule;
+        let rock = s.upsert(rule(genre("Rock"), 2.0)).rule;
+        // the Rock sound edited (same id) replaces it; a new one is added; Jazz goes
+        let mut edited = rock.clone();
+        edited.tilt = bass(4.0);
+        let mut change = TasteChange::upserting(edited);
+        change.push_upsert(rule(genre("Pop"), 3.0));
         change.push_remove(jazz.id.clone());
         s.apply(&change);
         assert_eq!(s.rules.len(), 2);
-        let stored = s.rule_for(&TasteScope::Genre { name: "Rock".into() }).unwrap();
+        let stored = s.sound_covering(&genre("Rock"), None).unwrap();
         assert_eq!((stored.id.as_str(), stored.tilt.bass_db), (rock.id.as_str(), 4.0));
-        assert!(s.rule_for(&TasteScope::Genre { name: "Jazz".into() }).is_none());
-        // an empty change changes nothing; the first rule turns the layers on; the switch is explicit
+        assert!(s.sound_covering(&genre("Jazz"), None).is_none());
+        // an upsert is matched by id only: a copy with a new id is another sound
+        let mut change = TasteChange::upserting(rule(genre("Rock"), 1.0));
+        change.push_upsert(rule(genre("Rock"), 2.0));
+        assert_eq!(change.upsert.len(), 2);
+        // an empty change changes nothing; the first rule turns the old switch on; the switch is explicit
         let before = s.clone();
         s.apply(&TasteChange::default());
         assert_eq!(s, before);
         assert!(TasteChange::default().is_empty() && !change.is_empty());
         let mut fresh = TasteSettings::default();
-        fresh.apply(&TasteChange::upserting(rule(TasteScope::Genre { name: "Rock".into() }, 1.0)));
+        fresh.apply(&TasteChange::upserting(rule(genre("Rock"), 1.0)));
         assert!(fresh.enabled);
         fresh.apply(&TasteChange { enabled: Some(false), ..Default::default() });
         assert!(!fresh.enabled && fresh.rules.len() == 1);
         // recording keeps a change coherent: a later removal cancels an upsert, a later upsert cancels a removal
-        let mut c = TasteChange::upserting(rule(TasteScope::Genre { name: "Rock".into() }, 1.0));
+        let mut c = TasteChange::upserting(rule(genre("Rock"), 1.0));
         let id = c.upsert[0].id.clone();
         c.push_remove(id.clone());
         assert!(c.upsert.is_empty() && c.remove == [id.clone()]);
-        let mut back = rule(TasteScope::Genre { name: "Rock".into() }, 2.0);
+        let mut back = rule(genre("Rock"), 2.0);
         back.id = id;
         c.push_upsert(back);
         assert!(c.remove.is_empty() && c.upsert.len() == 1);
@@ -1109,6 +1829,20 @@ mod tests {
         let json = serde_json::to_value(TasteChange::removing("x")).unwrap();
         assert_eq!(json, serde_json::json!({"upsert": [], "remove": ["x"], "enabled": null}));
         assert!(serde_json::from_str::<TasteChange>("{}").unwrap().is_empty());
+    }
+
+    #[test]
+    fn clamped_stamps_the_version_and_cleans_sounds() {
+        let mut s = TasteSettings::default();
+        let mut r = rule(genre("Rock"), 40.0);
+        r.id.clear();
+        r.outputs = vec![" a ".into(), "a".into()];
+        s.rules.push(r);
+        let c = s.clamped();
+        assert_eq!(c.version, TASTE_VERSION);
+        assert!(!c.rules[0].id.is_empty());
+        assert_eq!((c.rules[0].tilt.bass_db, c.rules[0].outputs.clone()), (MAX_TILT_DB, vec!["a".to_owned()]));
+        assert!(c.without_sounds().rules.is_empty());
     }
 
     #[test]
@@ -1147,11 +1881,13 @@ mod tests {
 
     #[test]
     fn curves_load_old_rules_and_round_trip() {
-        // a rule from before curves: no bands, no explanation, same JSON back
+        // a rule from before curves: no bands, no explanation
         let old = r#"{"id":"r1","scope":{"kind":"genre","name":"Pop"},"tilt":{"bassDb":2.0,"trebleDb":0.0,"clarityDb":null},"label":"x","createdBy":"ai","enabled":true}"#;
         let r: TasteRule = serde_json::from_str(old).unwrap();
         assert!(r.bands.is_empty() && r.explanation.is_empty());
-        assert_eq!(serde_json::to_value(&r).unwrap(), serde_json::from_str::<serde_json::Value>(old).unwrap());
+        let json = serde_json::to_value(&r).unwrap();
+        assert!(json.get("bands").is_none() && json.get("explanation").is_none());
+        assert_eq!(serde_json::from_value::<TasteRule>(json).unwrap(), r);
         // a curve: the band's own fields plus its note; bad bands are dropped
         let r: TasteRule = serde_json::from_str(
             r#"{"id":"r2","scope":{"kind":"artist","id":"","name":"David Guetta"},"explanation":"Punch",
@@ -1253,6 +1989,6 @@ mod tests {
         assert!(!genre_matches("", ""));
         let scopes = ctx().scopes();
         let kinds: Vec<&str> = scopes.iter().map(TasteScope::kind).collect();
-        assert_eq!(kinds, ["track", "album", "playlist", "artist", "genre"]);
+        assert_eq!(kinds, ["track", "album", "artist", "playlist", "genre"]);
     }
 }

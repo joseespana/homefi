@@ -1718,3 +1718,14 @@
   --switch-on: #7ab232;
   --switch-off: #d5d9de;
 }
+
+/* Sound: the AI tag and the amber note keep 4.5:1 on the light skins' own paper */
+:root[data-skin="luna"],
+:root[data-skin="aluminum"],
+:root[data-skin="web2000"] {
+  --ai-tag-bg: rgb(109 40 217 / 0.12);
+  --ai-tag-text: #5b21b6;
+  --warn: #92400e;
+  --warn-bg: rgb(217 119 6 / 0.12);
+  --warn-border: rgb(180 83 9 / 0.45);
+}

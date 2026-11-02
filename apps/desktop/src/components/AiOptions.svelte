@@ -150,7 +150,7 @@
   });
 </script>
 
-<SettingsIntro>The equalizer assistant can chat with an AI you already pay for: Claude, ChatGPT, Gemini and others, or a model running on this computer with Ollama. Without one, “Set up my sound” asks a few guided questions instead.</SettingsIntro>
+<SettingsIntro>The sound assistant can chat with an AI you already pay for: Claude, ChatGPT, Gemini and others, or a model running on this computer with Ollama. Without one, “Set up my sound” asks a few guided questions instead.</SettingsIntro>
 
 <SettingsGroup title="Provider" span={2}>
   <SettingRow label="Provider" hint="Which AI the assistant talks to" stack="always">

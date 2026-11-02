@@ -263,7 +263,7 @@ impl GuidedEq {
                 match self.state.offer.take().filter(|_| is_yes(text)) {
                     Some(rule) => {
                         let label = rule.label.clone();
-                        let stored = self.state.context.taste.upsert(rule);
+                        let stored = self.state.context.taste.upsert(rule).rule;
                         AssistantTurn {
                             text: self.say(
                                 &format!("Done: “{label}”. You'll find it in Taste rules, to change or remove it."),
@@ -307,7 +307,7 @@ impl GuidedEq {
     fn offer_taste(&mut self) -> Option<AssistantTurn> {
         let genre = self.state.context.top_genre()?.to_owned();
         let scope = TasteScope::Genre { name: genre.clone() };
-        if self.state.context.taste.rule_for(&scope).is_some() {
+        if self.state.context.taste.sound_covering(&scope, None).is_some() {
             return None;
         }
         let es = self.es();
@@ -315,7 +315,7 @@ impl GuidedEq {
         let tilt = safe_tilt(self.at_intensity(tilt), self.state.context.on_small_speaker());
         let label = super::reactions::describe(&scope, tilt, es);
         let what = if es { es_what } else { en_what };
-        self.state.offer = Some(TasteRule::new(scope, tilt, label, TasteCreator::Guided));
+        self.state.offer = Some(TasteRule::for_target(scope, tilt, label, TasteCreator::Guided));
         self.state.step = GuidedStep::TasteOffer;
         Some(AssistantTurn {
             text: self.say(

@@ -320,7 +320,7 @@ mod tests {
         let mut eq = EqSettings { enabled: true, ..Default::default() };
         eq.per_output.insert("dac".into(), peak(60.0, 8.0, 0.8));
         let mut taste = TasteSettings::default();
-        taste.upsert(TasteRule::new(
+        taste.upsert(TasteRule::for_target(
             TasteScope::Genre { name: "Dub".into() },
             Tilt { bass_db: 6.0, treble_db: 4.0, clarity_db: Some(3.0) },
             "",
@@ -334,7 +334,7 @@ mod tests {
             super::super::ReplayGain { track_gain_db: Some(9.0), track_peak: Some(peak_amp), ..Default::default() };
         let gain = loud.gain_db(&rg, false);
         assert!(gain > 5.9 && gain <= 6.03, "{gain}");
-        let plan = sound_plan(&eq, &taste, "dac", &ctx, gain, RATE);
+        let plan = sound_plan(&eq, &taste, None, "dac", &ctx, gain, RATE);
         let mut eq = Equalizer::with_design(plan.design, RATE, 1);
         for f in [30.0, 60.0, 120.0, 1000.0, 3000.0, 12_000.0, 18_000.0] {
             let mut out = sine(f, RATE as usize / 2, 1, peak_amp);
@@ -358,7 +358,7 @@ mod tests {
             (0..8).map(|i| TasteBand::new(EqBandKind::Peak, 50.0 * 2f32.powi(i), 6.0, 0.8)).collect();
         let mut taste = TasteSettings::default();
         taste.upsert(
-            TasteRule::new(
+            TasteRule::for_target(
                 TasteScope::Genre { name: "Dub".into() },
                 Tilt { bass_db: 6.0, treble_db: 6.0, clarity_db: Some(6.0) },
                 "",
@@ -367,7 +367,7 @@ mod tests {
             .with_bands(curve),
         );
         let ctx = NowPlayingContext { genres: vec!["Dub".into()], ..Default::default() };
-        let plan = sound_plan(&eq, &taste, "dac", &ctx, 0.0, RATE);
+        let plan = sound_plan(&eq, &taste, None, "dac", &ctx, 0.0, RATE);
         assert!(plan.design.stages().len() > super::super::MAX_BANDS);
         let mut eq = Equalizer::with_design(plan.design, RATE, 1);
         for f in [30.0, 60.0, 120.0, 250.0, 500.0, 1000.0, 3000.0, 6400.0, 12_000.0] {

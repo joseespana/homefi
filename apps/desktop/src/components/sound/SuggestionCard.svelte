@@ -1,54 +1,62 @@
 <script lang="ts">
-  // A proactive suggestion: one taste layer for what you listen to most
-  // (the AI's words when set up, else the guided offer). Tapping an answer
-  // goes on in the assistant; nothing changes before a yes.
+  // A proactive suggestion: one sound for what you listen to most (the AI's
+  // words when set up, else the guided offer). The card only appears once the
+  // suggestion is ready, and goes away if it takes longer than WAIT_MS.
+  // Tapping an answer goes on in the assistant; nothing changes before a yes.
   import { onMount } from "svelte";
   import { api, type AssistantTurn } from "../../lib/api";
+  import { assistant } from "../../lib/assistant.svelte";
   import { uiLanguage } from "../../lib/eq.svelte";
   import { rise } from "../../lib/motion";
   import { sound } from "../../lib/sound.svelte";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
 
-  let turn = $state<AssistantTurn | null>(null);
-  let failed = $state(false);
-  let hidden = $state(sessionStorage.getItem("homefi.suggestion.hidden") === "1");
+  /** How long a suggestion may take before the card gives up. */
+  const WAIT_MS = 25_000;
+  const HIDDEN_KEY = "homefi.suggestion.hidden";
+
+  let turn = $state.raw<AssistantTurn | null>(null);
+  let hidden = $state(sessionStorage.getItem(HIDDEN_KEY) === "1");
 
   onMount(() => {
     if (hidden || !sound.ui.suggestions) return;
+    let alive = true;
+    const giveUp = setTimeout(() => (alive = false), WAIT_MS);
     api
       .tasteSuggest(uiLanguage())
-      .then((t) => (turn = t))
-      .catch(() => (failed = true));
+      .then((t) => alive && (turn = t))
+      .catch(() => (alive = false))
+      .finally(() => clearTimeout(giveUp));
+    return () => {
+      alive = false;
+      clearTimeout(giveUp);
+    };
   });
 
   function answer(reply: string) {
     if (!turn) return;
-    sound.handoff = { turn, reply };
+    assistant.resume(turn, reply);
     app.view = { name: "assistant" };
   }
   function hide() {
     hidden = true;
-    sessionStorage.setItem("homefi.suggestion.hidden", "1");
+    sessionStorage.setItem(HIDDEN_KEY, "1");
   }
 </script>
 
-{#if sound.ui.suggestions && !hidden && !failed}
+{#if sound.ui.suggestions && !hidden && turn}
   <section class="card" in:rise aria-live="polite">
     <span class="mark" aria-hidden="true"><Icon name="ai" size={16} /></span>
     <div class="body">
       <span class="cap">Suggestion</span>
-      {#if turn}
-        <p>{turn.text}</p>
-        {#if !turn.done && turn.quick_replies.length}
-          <div class="replies">
-            {#each turn.quick_replies as q, i (q)}
-              <button class="btn {i === 0 ? 'primary' : 'tonal'} small" onclick={() => answer(q)}>{q}</button>
-            {/each}
-          </div>
-        {/if}
-      {:else}
-        <p class="loading"><i></i><i></i><i></i></p>
+      <p>{turn.text}</p>
+      {#if !turn.done && turn.quick_replies.length}
+        <div class="replies">
+          {#each turn.quick_replies as q, i (q)}
+            <button class="btn {i === 0 ? 'primary' : 'tonal'} small" onclick={() => answer(q)}>{q}</button>
+          {/each}
+        </div>
       {/if}
     </div>
     <button class="icon-btn mini" title="Not now" aria-label="Hide the suggestion" onclick={hide}><Icon name="x" size={14} /></button>
@@ -106,29 +114,5 @@
   .icon-btn.mini {
     width: 26px;
     height: 26px;
-  }
-  .loading {
-    display: flex;
-    gap: 4px;
-    height: 18px;
-    align-items: center;
-  }
-  .loading i {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--faint);
-    animation: blink 1.2s infinite;
-  }
-  .loading i:nth-child(2) {
-    animation-delay: 0.2s;
-  }
-  .loading i:nth-child(3) {
-    animation-delay: 0.4s;
-  }
-  @keyframes blink {
-    50% {
-      opacity: 0.3;
-    }
   }
 </style>

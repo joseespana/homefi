@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Ecualizador -->
-    <string name="eq_title">Ecualizador</string>
-    <string name="eq_on">Ecualizador encendido</string>
+    <string name="eq_title">Sonido</string>
+    <string name="eq_on">Sonido activado</string>
     <string name="eq_output">Salida</string>
     <string name="eq_output_default">Todas las salidas</string>
     <string name="eq_output_now">Suena aquí</string>
@@ -14,7 +14,7 @@
     <string name="eq_curve_hint">Arrastra un punto: a los lados cambia la frecuencia, arriba y abajo la ganancia.</string>
     <string name="eq_empty">Sin bandas: el sonido pasa intacto.</string>
     <string name="eq_not_bitperfect">EQ · no bit-perfect</string>
-    <string name="eq_not_bitperfect_note">Mientras el ecualizador trabaja, la reproducción no es bit-perfect. Apagado o plano, las muestras pasan intactas.</string>
+    <string name="eq_not_bitperfect_note">Mientras Sonido trabaja, la reproducción no es bit-perfect. Apagado o plano, las muestras pasan intactas.</string>
     <string name="eq_off_note">Apagado: la reproducción sigue siendo bit-perfect.</string>
     <string name="eq_presets">Preajustes</string>
     <string name="eq_flat">Plano</string>
@@ -57,7 +57,7 @@
     <string name="eq_search">Buscar</string>
     <string name="eq_assistant">Configurar mi sonido</string>
     <string name="eq_assistant_hint">Responde unas preguntas y obtén un perfil hecho para ti.</string>
-    <string name="eq_open">Abrir el ecualizador</string>
+    <string name="eq_open">Abrir Sonido</string>
     <string name="eq_summary_on">Encendido · %1$s</string>
     <string name="eq_summary_off">Apagado · bit-perfect</string>
 

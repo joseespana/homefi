@@ -10,6 +10,7 @@
     { view: "songs", label: "Songs", icon: "music" },
     { view: "artists", label: "Artists", icon: "user" },
     { view: "playlists", label: "Playlists", icon: "queue" },
+    { view: "sound", label: "Sound", icon: "eq" },
     { view: "tidal", label: "My Tidal", icon: "heart" },
     { view: "search", label: "Search Tidal", icon: "search" },
     { view: "downloads", label: "Downloads", icon: "download" },

@@ -1,15 +1,20 @@
-// Taste layers, loudness and "How does it sound?": the reactions (with a toast
-// and Undo), the "Sound for this…" dialog, the handoff of a suggestion card to
-// the assistant and the words the screens use for rules.
+// Sounds, loudness and "How does it sound?": what plays now, the moves between
+// sounds (with a toast and Undo), Try / Keep, the reactions and the words the
+// screens use for sounds. The rules themselves belong to the backend: this
+// store only asks for changes and refreshes from the `settings` event.
 import {
   api,
   errorText,
-  type AssistantTurn,
+  type EqProfile,
   type LoudnessMode,
   type LoudnessSettings,
   type NowSound,
+  type PlayerState,
+  type SavedSound,
   type SoundReaction,
   type SoundUiSettings,
+  type TargetHit,
+  type TargetMove,
   type TasteBand,
   type TasteCreator,
   type TasteIntensity,
@@ -22,9 +27,9 @@ import {
 import { uiLanguage } from "./eq.svelte";
 import { app } from "./state.svelte";
 
-export const SOUND_UI_DEFAULTS: SoundUiSettings = { react_deck: true, react_room: true, layer_chip: true, suggestions: true, taste_editor: "auto" };
+export const SOUND_UI_DEFAULTS: SoundUiSettings = { react_deck: true, react_room: true, layer_chip: true, suggestions: true, assistant_deck: true, taste_editor: "auto" };
 export const LOUDNESS_DEFAULTS: LoudnessSettings = { mode: "off", targetLufs: -14, preventClipping: true };
-export const TASTE_DEFAULTS: TasteSettings = { enabled: false, rules: [], intensity: "balanced" };
+export const TASTE_DEFAULTS: TasteSettings = { enabled: false, rules: [], intensity: "balanced", version: 1 };
 /** The size of the steps the assistant and reactions take (homefi-core `TasteIntensity`). */
 export const INTENSITIES: readonly { id: TasteIntensity; label: string; hint: string }[] = [
   { id: "subtle", label: "Subtle", hint: "small, 1.5–3 dB" },
@@ -46,13 +51,22 @@ export const REACTIONS: { id: SoundReaction; label: string; hint: string }[] = [
   { id: "perfect", label: "Sounds perfect", hint: "Keep it like this" },
 ];
 
-export const SCOPE_KINDS: { id: TasteScopeKind; label: string; icon: string }[] = [
-  { id: "track", label: "Track", icon: "music" },
-  { id: "album", label: "Album", icon: "disc" },
-  { id: "playlist", label: "Playlist", icon: "queue" },
-  { id: "artist", label: "Artist", icon: "user" },
-  { id: "genre", label: "Genre", icon: "layers" },
+/** Most specific first, like the backend's precedence (song > album > artist > playlist > genre). */
+export const SCOPE_KINDS: { id: TasteScopeKind; label: string; plural: string; badge: string; icon: string }[] = [
+  { id: "track", label: "Song", plural: "Songs", badge: "SO", icon: "music" },
+  { id: "album", label: "Album", plural: "Albums", badge: "AL", icon: "disc" },
+  { id: "artist", label: "Artist", plural: "Artists", badge: "AR", icon: "user" },
+  { id: "playlist", label: "Playlist", plural: "Playlists", badge: "PL", icon: "queue" },
+  { id: "genre", label: "Genre", plural: "Genres", badge: "GE", icon: "layers" },
 ];
+/** The order a sound lists its targets in (artists first: what most sounds are about). */
+const SUMMARY_ORDER: TasteScopeKind[] = ["artist", "album", "playlist", "track", "genre"];
+/** Targets named in a sound's one-line summary before "+N". */
+const SUMMARY_NAMES = 2;
+/** How long "moves from…" notes keep their Undo (s). */
+export const UNDO_SECONDS = 8;
+/** Why a Try can't start, as the note says it. */
+const TRY_REFUSED = { off: "Turn Sound on to try it", idle: "Play something to try it" } as const;
 
 export const LOUDNESS_MODES: { id: LoudnessMode; label: string; hint: string }[] = [
   { id: "off", label: "Off", hint: "Bit-perfect: every song as it was mastered" },
@@ -73,10 +87,6 @@ export function scopePhrase(s: TasteScope): string {
 /** "this album", "Electronic". */
 export function scopeShort(s: TasteScope): string {
   return s.kind === "genre" ? s.name : `this ${s.kind}`;
-}
-
-export function creatorLabel(c: TasteCreator): string {
-  return { manual: "Made by you", ai: "Made with AI", guided: "Guided setup", reaction: "From a reaction" }[c] ?? "Made by you";
 }
 
 /** `+2 dB bass · −1 dB treble`. */
@@ -124,39 +134,94 @@ export function ruleNeutral(r: { tilt: Tilt; bands?: TasteBand[] }): boolean {
   return tiltWords(r.tilt) === "No change" && !(r.bands ?? []).some(audible);
 }
 
-/** A short default label for a manual rule. */
-export function defaultLabel(scope: TasteScope, t: Tilt): string {
-  const c = t.clarityDb ?? 0;
-  const top = [
-    [Math.abs(t.bassDb), t.bassDb >= 0 ? "More bass" : "Less bass"],
-    [Math.abs(t.trebleDb), t.trebleDb >= 0 ? "Brighter" : "Softer highs"],
-    [Math.abs(c), c >= 0 ? "Clearer vocals" : "Smoother mids"],
-  ].sort((a, b) => (b[0] as number) - (a[0] as number))[0][1];
-  return `${top} · ${scope.name}`;
-}
+const kindInfo = (kind: TasteScopeKind) => SCOPE_KINDS.find((k) => k.id === kind) ?? SCOPE_KINDS[SCOPE_KINDS.length - 1];
+export const kindLabel = (kind: TasteScopeKind) => kindInfo(kind).label;
+export const kindBadge = (kind: TasteScopeKind) => kindInfo(kind).badge;
+/** Where a kind goes in precedence order (0 = most specific). */
+export const kindRank = (kind: TasteScopeKind) => SCOPE_KINDS.findIndex((k) => k.id === kind);
 
-export const sameScope = (a: TasteScope, b: TasteScope) => {
+/** The same target (ids when both have one, else names), for showing what a sound covers. The backend decides what really matches. */
+export function sameScope(a: TasteScope, b: TasteScope): boolean {
   if (a.kind !== b.kind) return false;
   if (a.kind !== "genre" && b.kind !== "genre" && a.id && b.id) return a.id === b.id;
   return a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
-};
+}
 
-const newId = () => `t${Date.now().toString(16)}${Math.floor(Math.random() * 4096).toString(16)}`;
-const copy = <T>(v: T): T => JSON.parse(JSON.stringify(v));
+export const holds = (rule: TasteRule, scope: TasteScope) => rule.targets.some((t) => sameScope(t.scope, scope));
+
+/** Two sounds can play on the same output (an empty list means every output). */
+export function sharesOutput(a: TasteRule, b: TasteRule): boolean {
+  const x = a.outputs ?? [];
+  const y = b.outputs ?? [];
+  return !x.length || !y.length || x.some((o) => y.includes(o));
+}
+
+/** Plays on `output` (or on every output). */
+export const playsOn = (rule: TasteRule, output: string | null) => !rule.outputs?.length || (!!output && rule.outputs.includes(output));
+
+/** The targets of a sound as its row shows them, main kind first. */
+function summaryTargets(rule: TasteRule): TasteScope[] {
+  return rule.targets.map((t) => t.scope).sort((a, b) => SUMMARY_ORDER.indexOf(a.kind) - SUMMARY_ORDER.indexOf(b.kind));
+}
+
+/** The kind that stands for a sound in lists (badge). */
+export function mainKind(rule: TasteRule): TasteScopeKind | null {
+  return summaryTargets(rule)[0]?.kind ?? null;
+}
+
+/** "Eagles, Fleetwood Mac +3". */
+export function targetsSummary(rule: TasteRule): string {
+  const all = summaryTargets(rule);
+  if (!all.length) return "Applies to nothing yet";
+  const names = all.slice(0, SUMMARY_NAMES).map((s) => s.name || "Untitled");
+  return all.length > SUMMARY_NAMES ? `${names.join(", ")} +${all.length - SUMMARY_NAMES}` : names.join(", ");
+}
+
+/** "All outputs", "WH-1000XM5 only", "2 outputs". */
+export function outputsLabel(rule: TasteRule): string {
+  const o = rule.outputs ?? [];
+  return !o.length ? "All outputs" : o.length === 1 ? `${o[0]} only` : `${o.length} outputs`;
+}
+
+/** What the deck, the signal chain and the output chip say plays: "HD 650 + Warm and airy · Eagles". */
+export function layersWords(p: Pick<PlayerState, "eq_profile" | "taste_label" | "taste_target"> | null | undefined): string | null {
+  if (!p) return null;
+  const sound = p.taste_label ? (p.taste_target?.name ? `${p.taste_label} · ${p.taste_target.name}` : p.taste_label) : null;
+  return [p.eq_profile, sound].filter(Boolean).join(" + ") || null;
+}
+
+/** Who measured a correction ("oratory1990") or what it is called. */
+export function correctionName(p: EqProfile): string {
+  return p.source.kind === "autoEq" ? p.source.source : p.name;
+}
+
+/** A rule that changes nothing, to start a new sound from. */
+export function neutralRule(label: string, extra: Partial<TasteRule> = {}): TasteRule {
+  return { id: newId(), label, tilt: { bassDb: 0, trebleDb: 0, clarityDb: null }, bands: [], createdBy: "manual", enabled: true, targets: [], ...extra };
+}
+
+export const newTarget = (scope: TasteScope, addedBy: TasteCreator = "manual") => ({ scope, addedMs: Date.now(), addedBy });
+
+const newId = () => `s${Date.now().toString(16)}${Math.floor(Math.random() * 65_536).toString(16)}`;
 
 class SoundStore {
   /** The reactions popover is open (in the deck or the room). */
   reacting = $state<"deck" | "room" | null>(null);
   busy = $state<SoundReaction | null>(null);
-  now = $state<NowSound | null>(null);
-  /** "Sound for this…" dialog. */
-  forScope = $state<{ scope: TasteScope; label: string } | null>(null);
-  /** A suggestion card's turn and the answer tapped, for the assistant to go on with. */
-  handoff = $state<{ turn: AssistantTurn; reply: string | null } | null>(null);
-  /** Notes to start the assistant with ("Sound for this album → Ask the AI"). */
-  assistantNotes = $state<string | null>(null);
-  /** The rule "Ask the AI to refine" opened the assistant for. */
-  assistantFocus = $state<string | null>(null);
+  /** The sound playing now; replaced wholesale. */
+  now = $state.raw<NowSound | null>(null);
+  /** A proposal being tried (the TryBar's label while `now` catches up). */
+  trying = $state.raw<TasteRule | null>(null);
+  /** The Ask-the-AI panel on the Sound screen is open, and what to put in its field. */
+  askOpen = $state(false);
+  askSeed = $state<string | null>(null);
+  /** "Only on this output" for the sound a Keep or "New sound from this song" creates. */
+  onlyHere = $state(false);
+  /** "Sound ▸" menu anchored at a point (the album / playlist buttons). */
+  menu = $state<{ scope: TasteScope; label: string; x: number; y: number } | null>(null);
+  /** Output devices by name (for the output chips); loaded on demand. */
+  devices = $state.raw<string[]>([]);
+  private nowSeq = 0;
 
   get ui(): SoundUiSettings {
     return { ...SOUND_UI_DEFAULTS, ...(app.settings?.sound_ui ?? {}) };
@@ -167,12 +232,55 @@ class SoundStore {
   get loudness(): LoudnessSettings {
     return { ...LOUDNESS_DEFAULTS, ...(app.settings?.loudness ?? {}) };
   }
+  get rules(): TasteRule[] {
+    return this.taste.rules;
+  }
+  /** The master switch: off is bit-perfect. */
+  get on(): boolean {
+    return app.settings?.eq?.enabled ?? false;
+  }
+  async loadDevices() {
+    try {
+      this.devices = [...new Set((await api.outputDevices()).map((d) => d.name))];
+    } catch {
+      // the chips fall back to the outputs the sounds and profiles already name
+    }
+  }
+  /** Outputs to choose from: devices, the one playing, those with a profile and those some sound names. */
+  outputChoices(): string[] {
+    const named = this.rules.flatMap((r) => r.outputs ?? []);
+    return [...new Set([...(this.output ? [this.output] : []), ...this.devices, ...Object.keys(app.settings?.eq?.perOutput ?? {}), ...named])];
+  }
+  ruleById(id: string | null | undefined): TasteRule | null {
+    return id ? (this.rules.find((r) => r.id === id) ?? null) : null;
+  }
+  /** The output the player is on (what "this output" means). */
+  get output(): string | null {
+    const p = app.player;
+    return this.now?.output ?? p?.stream?.device ?? p?.preferred_device ?? null;
+  }
+
+  /** The correction an output plays with (its own profile, else the default one), or null. */
+  profileFor(output: string | null): EqProfile | null {
+    const eq = app.settings?.eq;
+    return (output && eq?.perOutput?.[output]) || eq?.defaultProfile || null;
+  }
+
+  /** The sound that holds `scope` on the current output, if any. */
+  holder(scope: TasteScope): TasteRule | null {
+    const out = this.output;
+    return this.rules.find((r) => holds(r, scope) && playsOn(r, out)) ?? this.rules.find((r) => holds(r, scope)) ?? null;
+  }
 
   async refreshNow() {
+    const my = ++this.nowSeq;
     try {
-      this.now = await api.soundNow();
+      const n = await api.soundNow();
+      if (my !== this.nowSeq) return;
+      this.now = n;
+      if (!n.auditioning) this.trying = null;
     } catch {
-      this.now = null;
+      if (my === this.nowSeq) this.now = null;
     }
   }
 
@@ -182,14 +290,14 @@ class SoundStore {
   }
 
   /** One tap: the rule is saved and applied by the backend; a toast says what changed, with Undo. */
-  async react(reaction: SoundReaction, scope: TasteScope | null = null) {
+  async react(reaction: SoundReaction, scope: TasteScope | null = null, language: string = uiLanguage()) {
     if (this.busy) return;
     this.busy = reaction;
     try {
-      const r = await api.soundReact(reaction, scope, uiLanguage());
+      const r = await api.soundReact(reaction, scope, language);
       this.reacting = null;
       const undo = r.undoToken ? { label: "Undo", run: () => this.undo(r.undoToken) } : undefined;
-      app.note(r.message, r.undoToken ? "success" : "info", "sound-react", { seconds: undo ? 8 : 4, action: undo });
+      app.note(r.message, r.undoToken ? "success" : "info", "sound-react", { seconds: undo ? UNDO_SECONDS : 4, action: undo });
       this.refreshNow();
     } catch (e) {
       app.note(errorText(e), "error", "sound-react");
@@ -217,6 +325,14 @@ class SoundStore {
     }
   }
 
+  async saveUi(patch: Partial<SoundUiSettings>) {
+    try {
+      await app.saveSettings({ sound_ui: { ...this.ui, ...patch } });
+    } catch (e) {
+      app.notify(errorText(e), true);
+    }
+  }
+
   async saveLoudness(next: LoudnessSettings) {
     try {
       const saved = await api.loudnessSet(next);
@@ -226,56 +342,163 @@ class SoundStore {
     }
   }
 
-  /** Adds or replaces the rule for `scope` (the first rule turns taste layers on). */
-  async setRule(scope: TasteScope, tilt: Tilt, label?: string, createdBy: TasteCreator = "manual", bands?: TasteBand[]) {
-    const t = copy(this.taste);
-    const at = t.rules.findIndex((r) => sameScope(r.scope, scope));
-    const old = at >= 0 ? t.rules[at] : null;
-    const rule: TasteRule = {
-      ...(old ?? {}),
-      id: old?.id ?? newId(),
-      scope,
-      tilt,
-      bands: bands ?? old?.bands ?? [],
-      label: label?.trim() || defaultLabel(scope, tilt),
-      createdBy: old?.createdBy ?? createdBy,
-      enabled: true,
-    };
-    if (!t.rules.length) t.enabled = true;
-    if (at >= 0) t.rules[at] = rule;
-    else t.rules.push(rule);
-    await this.saveTaste(t);
+  // ------------------------------------------------------------ moves between sounds
+
+  /** "Korn moves from “System Of A Down” to “Lasgo”", with Undo for a few seconds. */
+  private announce(moves: TargetMove[], to: TasteRule | null, scope: TasteScope | null, added: string) {
+    const undo = moves.length ? { label: "Undo", run: () => this.undoMoves(moves) } : scope && to ? { label: "Undo", run: () => this.unassign(to.id, scope, true) } : undefined;
+    let text = added;
+    if (moves.length) {
+      const first = moves[0];
+      const from = this.ruleById(first.from)?.label ?? "another sound";
+      text = moves.length === 1 ? `${first.target.name || "It"} moves from “${from}” to “${to?.label ?? "this sound"}”` : `${moves.length} items move to “${to?.label ?? "this sound"}”`;
+    }
+    app.note(text, "success", "sound-moves", { seconds: UNDO_SECONDS, action: undo });
   }
 
-  async patchRule(id: string, patch: Partial<TasteRule>) {
-    const t = copy(this.taste);
-    t.rules = t.rules.map((r) => (r.id === id ? { ...r, ...patch } : r));
-    await this.saveTaste(t);
+  async assign(soundId: string, scope: TasteScope) {
+    try {
+      const moves = await api.tasteAssign(soundId, scope);
+      const to = this.ruleById(soundId);
+      this.announce(moves, to, scope, `Added ${scope.name || "it"} to “${to?.label ?? "the sound"}”`);
+      this.refreshNow();
+    } catch (e) {
+      app.note(errorText(e), "error", "sound-moves");
+    }
   }
 
-  async removeRule(id: string) {
-    const t = copy(this.taste);
-    t.rules = t.rules.filter((r) => r.id !== id);
-    await this.saveTaste(t);
+  async unassign(soundId: string, scope: TasteScope, quiet = false) {
+    const from = this.ruleById(soundId);
+    try {
+      await api.tasteUnassign(soundId, scope);
+      if (!quiet) app.note(`${scope.name || "It"} left “${from?.label ?? "the sound"}”`, "success", "sound-moves", { seconds: UNDO_SECONDS, action: { label: "Undo", run: () => this.assign(soundId, scope) } });
+      this.refreshNow();
+    } catch (e) {
+      app.note(errorText(e), "error", "sound-moves");
+    }
   }
 
-  ruleFor(scope: TasteScope): TasteRule | null {
-    return this.taste.rules.find((r) => sameScope(r.scope, scope)) ?? null;
+  async undoMoves(moves: TargetMove[]) {
+    try {
+      await api.tasteUndoMoves(moves);
+      app.note("Back to how it was", "info", "sound-moves");
+      this.refreshNow();
+    } catch (e) {
+      app.note(errorText(e), "error", "sound-moves");
+    }
   }
 
-  /** Opens the assistant about one scope. */
-  askAi(scope: TasteScope) {
-    this.forScope = null;
-    this.assistantNotes = `I'd like a taste layer for ${scopePhrase(scope)}.`;
-    app.view = { name: "assistant" };
+  async setOutputs(soundId: string, outputs: string[]) {
+    try {
+      const moves = await api.tasteSetOutputs(soundId, outputs);
+      if (moves.length) this.announce(moves, this.ruleById(soundId), null, "");
+      this.refreshNow();
+    } catch (e) {
+      app.note(errorText(e), "error", "sound-moves");
+    }
   }
 
-  /** "Ask the AI to refine": the assistant starts from this rule's curve (save the edits first). */
-  refine(rule: TasteRule) {
-    this.forScope = null;
-    this.assistantFocus = rule.id;
-    this.assistantNotes = `Refine “${rule.label}” (${ruleWords(rule)}).`;
-    app.view = { name: "assistant" };
+  /** New, rename, curve edits. Returns what the backend saved (null when it failed). */
+  async save(rule: TasteRule, quiet = false): Promise<SavedSound | null> {
+    try {
+      const saved = await api.tasteSave(JSON.parse(JSON.stringify(rule)));
+      if (saved.moves.length && !quiet) this.announce(saved.moves, saved.rule, null, "");
+      this.refreshNow();
+      return saved;
+    } catch (e) {
+      app.note(errorText(e), "error", "sound-moves");
+      return null;
+    }
+  }
+
+  /** "+ New": a neutral sound to shape in Edit sound. */
+  newSound(label = "New sound", extra: Partial<TasteRule> = {}): Promise<SavedSound | null> {
+    return this.save(neutralRule(label, extra));
+  }
+
+  /** A new sound for the song / album playing (its first target), optionally only on this output. */
+  newSoundFor(scope: TasteScope, onlyOn: string | null): Promise<SavedSound | null> {
+    return this.newSound(scope.name || "New sound", { targets: [newTarget(scope)], ...(onlyOn ? { outputs: [onlyOn] } : {}) });
+  }
+
+  async remove(rule: TasteRule): Promise<boolean> {
+    const ok = await app.confirm({ title: `Delete “${rule.label}”?`, text: "Its music goes back to the output's own sound.", confirmLabel: "Delete sound", danger: true });
+    if (!ok) return false;
+    try {
+      await api.tasteRemove(rule.id);
+      this.refreshNow();
+      return true;
+    } catch (e) {
+      app.note(errorText(e), "error", "sound-moves");
+      return false;
+    }
+  }
+
+  // ------------------------------------------------------------ Try / Keep
+
+  /** Plays `rule` on this song at once, nothing saved. */
+  async tryNow(rule: TasteRule): Promise<boolean> {
+    try {
+      const ok = await api.tasteAudition(JSON.parse(JSON.stringify(rule)));
+      if (!ok) {
+        app.note(this.on ? TRY_REFUSED.idle : TRY_REFUSED.off, "info", "sound-try");
+        return false;
+      }
+      this.trying = rule;
+      this.refreshNow();
+      return true;
+    } catch (e) {
+      app.note(errorText(e), "error", "sound-try");
+      return false;
+    }
+  }
+
+  async stopTrying() {
+    this.trying = null;
+    try {
+      await api.tasteAudition(null);
+    } catch (e) {
+      app.note(errorText(e), "error", "sound-try");
+    }
+    this.refreshNow();
+  }
+
+  /** The scopes "Keep" offers for the sound being tried: the kind it was made for first, then the others (never a genre). */
+  keepScopes(rule: TasteRule | null): { primary: TasteScope | null; others: TasteScope[] } {
+    const scopes = (this.now?.scopes ?? []).filter((s) => s.kind !== "genre");
+    const want = rule?.targets[0]?.scope.kind ?? "artist";
+    const primary = scopes.find((s) => s.kind === want) ?? scopes.find((s) => s.kind === "artist") ?? scopes[0] ?? null;
+    return { primary, others: scopes.filter((s) => s !== primary) };
+  }
+
+  async keep(rule: TasteRule, scope: TasteScope, onlyOn: string | null = null) {
+    try {
+      const saved = await api.tasteKeep(JSON.parse(JSON.stringify(rule)), scope, onlyOn);
+      this.trying = null;
+      this.announce(saved.moves, saved.rule, scope, `Saved “${saved.rule.label}” for ${scope.name || `this ${scope.kind}`}`);
+      this.refreshNow();
+    } catch (e) {
+      app.note(errorText(e), "error", "sound-try");
+    }
+  }
+
+  searchTargets(query: string): Promise<TargetHit[]> {
+    return api.soundSearchTargets(query);
+  }
+
+  // ------------------------------------------------------------ the Ask-the-AI panel and the Sound ▸ menu
+
+  /** Opens Sound with the AI panel ready ("a sound for Steely Dan"). */
+  openAsk(seed: string | null = null) {
+    if (app.view.name !== "sound") app.view = { name: "sound" };
+    this.askSeed = seed;
+    this.askOpen = true;
+  }
+
+  openMenu(e: MouseEvent, scope: TasteScope, label: string) {
+    e.preventDefault();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    this.menu = { scope, label, x: e.type === "contextmenu" ? e.clientX : r.left, y: e.type === "contextmenu" ? e.clientY : r.bottom + 6 };
   }
 }
 

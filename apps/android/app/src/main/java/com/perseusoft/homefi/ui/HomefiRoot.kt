@@ -2,7 +2,10 @@ package com.perseusoft.homefi.ui
 
 import com.perseusoft.homefi.player.EqPanel
 import com.perseusoft.homefi.ui.eq.AssistantScreen
-import com.perseusoft.homefi.ui.eq.EqualizerScreen
+import com.perseusoft.homefi.ui.eq.OutputCurveEditor
+import com.perseusoft.homefi.ui.eq.AssistantSheet
+import com.perseusoft.homefi.ui.sound.SoundMenu
+import com.perseusoft.homefi.ui.sound.SoundScreen
 
 import com.perseusoft.homefi.ui.haptics
 import android.Manifest
@@ -90,7 +93,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.key
 import com.perseusoft.homefi.ui.sound.HowSoundsSheet
-import com.perseusoft.homefi.ui.sound.SoundForDialog
 import com.perseusoft.homefi.ui.sound.SoundNotices
 
 enum class Tab(val label: Int, val icon: ImageVector) {
@@ -288,22 +290,23 @@ fun HomefiRoot(destinations: Flow<Destination>) {
             exit = motion.panelExit(),
         ) {
             // the last panel stays drawn while it slides away
-            var shown by remember { mutableStateOf(eqPanel ?: EqPanel.EQUALIZER) }
+            var shown by remember { mutableStateOf(eqPanel ?: EqPanel.SOUND) }
             LaunchedEffect(eqPanel) { eqPanel?.let { shown = it } }
             Box(Modifier.fillMaxSize().clickable(enabled = false) {}) {
                 AnimatedContent(
                     targetState = shown,
-                    transitionSpec = { motion.screens(forward = targetState == EqPanel.ASSISTANT) },
+                    transitionSpec = { motion.screens(forward = targetState != EqPanel.SOUND) },
                     label = "eq-panel",
                 ) { panel ->
                     when (panel) {
-                        EqPanel.EQUALIZER -> EqualizerScreen(
-                            onClose = app.equalizer::close,
+                        EqPanel.SOUND -> SoundScreen(onClose = app.equalizer::close)
+                        EqPanel.OUTPUT_CURVE -> OutputCurveEditor(
+                            onClose = app.equalizer::back,
                             onAssistant = { app.equalizer.open(EqPanel.ASSISTANT) },
                         )
                         EqPanel.ASSISTANT -> AssistantScreen(
                             onClose = app.equalizer::back,
-                            onEqualizer = { app.equalizer.open(EqPanel.EQUALIZER) },
+                            onEqualizer = { app.equalizer.open(EqPanel.OUTPUT_CURVE) },
                         )
                     }
                 }
@@ -313,8 +316,11 @@ fun HomefiRoot(destinations: Flow<Destination>) {
         // "How does it sound?" and "Sound for this…", from the player or any list
         val howOpen by app.sound.howOpen.collectAsStateWithLifecycle()
         if (howOpen) HowSoundsSheet(onDismiss = { app.sound.openHow(false) })
-        val soundFor by app.sound.soundFor.collectAsStateWithLifecycle()
-        soundFor?.let { req -> key(req) { SoundForDialog(req.scope, onDismiss = { app.sound.soundFor(null) }) } }
+        val soundMenu by app.sound.soundMenu.collectAsStateWithLifecycle()
+        soundMenu?.let { req -> key(req) { SoundMenu(req.scope, onDismiss = { app.sound.openMenu(null) }) } }
+        // "Ask the AI": a sheet over whatever is open
+        val assistantOpen by app.sound.assistantOpen.collectAsStateWithLifecycle()
+        if (assistantOpen) AssistantSheet(onDismiss = { app.sound.openAssistant(false) })
         // what a reaction changed, with Undo, over everything (the player included)
         val soundSnackbar = remember { SnackbarHostState() }
         SoundNotices(soundSnackbar)
