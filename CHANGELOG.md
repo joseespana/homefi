@@ -7,6 +7,8 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-11-04
+
 ### Added
 - Playlists: "Make a playlist with AI", on desktop and Android. A simple chat asks what kind of
   playlist you want today; say anything ("I'm feeling down, 90s music in English", "happy and
@@ -75,7 +77,6 @@ the core library and the Android app.
 
 ## [1.5.1] - 2026-11-02
 
-
 One Sound screen instead of the equalizer and its taste rules, built around what is playing now, on
 desktop and Android.
 
@@ -117,7 +118,6 @@ desktop and Android.
   none, through a patched copy of cpal 0.16 (`third_party/cpal`, see its `HOMEFI.md`).
 
 ## [1.4.0] - 2026-10-30
-
 
 A bolder, more reliable AI sound assistant, Settings redesigned to fit any window or phone, and
 HomeFito takes requests: pick its dance while the music plays. Desktop and Android installs from
