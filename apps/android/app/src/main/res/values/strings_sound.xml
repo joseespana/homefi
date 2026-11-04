@@ -77,12 +77,11 @@
     <string name="sound_suggestion_hide">Not now</string>
     <string name="sound_settings_react_button">“How does it sound?” button in the player</string>
     <string name="sound_settings_react_button_hint">It stays in the player’s menu either way.</string>
-    <string name="sound_settings_layer_chip">Name the layers in the signal badge</string>
-    <string name="sound_settings_layer_chip_hint">“EQ · HD 650 + Electronic” instead of “EQ · not bit-perfect”.</string>
+    <string name="sound_settings_layer_chip">Name the sound under the song</string>
+    <string name="sound_settings_layer_chip_hint">“Warm and airy” instead of “Sound”</string>
     <string name="sound_settings_suggestions">Suggestions in the taste rules</string>
     <string name="sound_settings_suggestions_hint">Uses your AI key once per app session at most; without one, the guided questions suggest.</string>
     <string name="sound_summary_rules">%1$d sounds</string>
-    <string name="eq_badge_layers">EQ · %1$s</string>
     <!-- AI settings: the research's ranking -->
     <string name="ai_badge_recommended">Recommended</string>
     <string name="ai_badge_cheapest">Cheapest</string>
@@ -111,7 +110,7 @@
     <string name="taste_editor_setting">A rule\'s editor opens in</string>
     <string name="taste_editor_auto">Auto</string>
     <string name="taste_editor_setting_hint">Simple: bass, treble and clarity sliders. Advanced: the full curve with bands. Auto: the curve when the rule has bands.</string>
-    <string name="signal_taste_bands">Taste bands</string>
+    <string name="signal_taste_bands">Bands</string>
     <string name="signal_taste_bands_value">%1$d of %2$d on</string>
     <string name="intensity_title">Change intensity</string>
     <string name="intensity_subtle">Subtle</string>
@@ -188,10 +187,23 @@
     <string name="sound_edit_output">Edit the output’s curve</string>
     <string name="sound_output_curve_title">Output curve</string>
     <string name="sound_settings_title">Sound settings</string>
-    <string name="sound_settings_assistant_button">“Ask the AI” button in the player</string>
     <string name="sound_settings_tilt_sliders">Tilt sliders in Edit curve</string>
     <string name="sound_proposal_title">The AI proposes a sound</string>
     <string name="sound_kept_as">Kept as “%1$s”.</string>
     <string name="sound_menu_item">Sound ▸</string>
     <string name="sound_no_targets">No targets yet</string>
+    <string name="sound_button">Sound</string>
+    <string name="sound_button_hint">Ask the AI</string>
+    <string name="sound_button_state_off">Sound off, bit-perfect</string>
+    <string name="sound_button_state_flat">Sound on, flat for this output</string>
+    <string name="sound_button_state_on">Sound on: %1$s. Not bit-perfect</string>
+    <string name="sound_button_state_trying">Trying: %1$s</string>
+    <string name="sound_badge_plain">Sound</string>
+    <string name="sound_badge_full_cd">Sound on: %1$s. Not bit-perfect</string>
+    <string name="sound_settings_sound_button">Sound button in the player</string>
+    <string name="sound_settings_sound_button_hint">Tap opens Sound; long-press asks the AI</string>
+    <string name="player_buttons_title">Player buttons</string>
+    <string name="player_buttons_top">Top bar</string>
+    <string name="player_buttons_bottom">Below the title</string>
+    <string name="player_buttons_hint">Where the Sound button sits</string>
 </resources>

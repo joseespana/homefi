@@ -1,0 +1,68 @@
+{
+ "id": "msg_2",
+ "type": "message",
+ "role": "assistant",
+ "model": "claude-x",
+ "stop_reason": "tool_use",
+ "content": [
+  {
+   "type": "tool_use",
+   "id": "toolu_1",
+   "name": "submit_shows",
+   "input": {
+    "shows": [
+     {
+      "date": "2026-10-24",
+      "venue": "Arena CDMX",
+      "city": "Mexico City",
+      "country": "MX",
+      "tour": "2026 Tour",
+      "url": "https://www.example.com/korn-2026-10-24",
+      "songs": [
+       {
+        "name": "Intro",
+        "original_artist": null,
+        "tape": true,
+        "encore": false
+       },
+       {
+        "name": "Blind",
+        "original_artist": null,
+        "tape": false,
+        "encore": false
+       },
+       {
+        "name": "Got the Life",
+        "original_artist": null,
+        "tape": false,
+        "encore": false
+       },
+       {
+        "name": "Falling Away From Me",
+        "original_artist": null,
+        "tape": false,
+        "encore": false
+       },
+       {
+        "name": "Freak On A Leash",
+        "original_artist": null,
+        "tape": false,
+        "encore": false
+       },
+       {
+        "name": "Wicked Game",
+        "original_artist": "Chris Isaak",
+        "tape": false,
+        "encore": true
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "usage": {
+  "input_tokens": 10,
+  "output_tokens": 10
+ }
+}

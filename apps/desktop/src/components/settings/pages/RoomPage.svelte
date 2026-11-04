@@ -14,6 +14,10 @@
   const m = useSettings();
 
   const layout = $derived(layoutOf(settings.room.layout));
+  const PLAYER_BUTTONS = [
+    { id: "top", label: "Top bar" },
+    { id: "bottom", label: "Bottom bar" },
+  ] as const;
   const SHADES = [
     { id: "auto", label: "Auto" },
     { id: "strong", label: "Strong" },
@@ -49,6 +53,13 @@
     checked={settings.room.layout_everywhere ?? true}
     onchange={(on) => m.saveRoom({ layout_everywhere: on })}
   />
+  <SegmentedRow
+    label="Player buttons"
+    hint="Lyrics, queue and mini player. Top bar frees room in the player bar"
+    options={PLAYER_BUTTONS}
+    value={settings.room.player_buttons ?? "top"}
+    onchange={(id) => m.saveRoom({ player_buttons: id })}
+  />
   {#if layout === "immersive"}
     <SegmentedRow label="Shade under the title" hint="So the title reads on any album. Auto makes it darker on light covers." options={SHADES} value={settings.room.immersive_shade ?? "auto"} onchange={(id) => m.saveRoom({ immersive_shade: id })} />
   {/if}
@@ -70,4 +81,9 @@
   {#each SHOWN as s (s.key)}
     <SwitchRow label={s.label} checked={settings.room[s.key]} onchange={(on) => m.saveRoom({ [s.key]: on })} />
   {/each}
+</SettingsGroup>
+
+<SettingsGroup title="Mini player" description="The small always-on-top window. Both can also be switched from its own buttons.">
+  <SwitchRow label="Lyrics" hint="Karaoke in the mini player: the line being sung, big, and the next one under it" checked={settings.mini?.lyrics ?? false} onchange={(on) => m.save({ mini: { ...settings.mini, lyrics: on } })} />
+  <SwitchRow label="HomeFito dances" hint="The mascot beside the player, dancing to the music" checked={settings.mini?.mascot ?? false} onchange={(on) => m.save({ mini: { ...settings.mini, mascot: on } })} />
 </SettingsGroup>

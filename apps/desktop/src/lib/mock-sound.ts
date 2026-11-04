@@ -83,7 +83,7 @@ let taste: TasteSettings = url.has("taste")
     }
   : { enabled: false, rules: [], intensity: "balanced", version: 1 };
 let loudness: LoudnessSettings = { mode: url.has("loudness") ? "auto" : "off", targetLufs: -14, preventClipping: true };
-let soundUi: SoundUiSettings = { react_deck: true, react_room: true, layer_chip: true, suggestions: !url.has("nosuggest"), assistant_deck: true };
+let soundUi: SoundUiSettings = { react_deck: true, react_room: true, layer_chip: true, suggestions: !url.has("nosuggest") };
 /** What undoes a reaction: the opposite taste change (merged on top of the rules as they are by then) and the loudness before. */
 const undo = new Map<string, { inverse: TasteChange; loudness: LoudnessSettings }>();
 let suggesting: "Electronic" | "Jazz" | null = null;

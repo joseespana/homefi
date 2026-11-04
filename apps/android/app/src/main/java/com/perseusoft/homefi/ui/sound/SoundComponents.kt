@@ -1,6 +1,24 @@
 package com.perseusoft.homefi.ui.sound
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextOverflow
+import com.perseusoft.homefi.player.NowSound
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -217,9 +235,15 @@ fun TiltSliders(tilt: Tilt, inset: androidx.compose.ui.unit.Dp = 16.dp, onChange
     }
 }
 
+/** The sound's name for the tag and the Sound button: the rule's, else the equalizer profile's, else null (only loudness works). */
+@Composable
+private fun soundName(now: NowSound): String? =
+    now.rule?.label?.ifBlank { null }
+        ?: now.eqProfile?.let { it.ifBlank { stringResource(R.string.eq_custom) } }
+
 /**
- * The signal badge while anything works on what this phone plays: "EQ · HD 650 + Electronic
- * · −3.2 dB" (or "EQ · not bit-perfect" with the layer names off). A tap opens the equalizer.
+ * The sound tag while anything works on what this phone plays: the sound's name ("Warm and
+ * airy", or just "Sound" with the name off) and, apart, the loudness gain. A tap opens Sound.
  */
 @Composable
 fun SoundBadge(heardHere: Boolean, modifier: Modifier = Modifier) {
@@ -227,38 +251,93 @@ fun SoundBadge(heardHere: Boolean, modifier: Modifier = Modifier) {
     val now by app.sound.now.collectAsStateWithLifecycle()
     val settings by app.settings.settings.collectAsStateWithLifecycle()
     if (!now.active || !heardHere) return
-    val text = if (settings.soundLayerChip) {
-        val layers = listOfNotNull(
-            now.eqProfile?.ifBlank { stringResource(R.string.eq_custom) },
-            now.target?.name()?.ifBlank { null },
-        ).joinToString(" + ")
-        val gain = now.loudnessDb.takeIf { kotlin.math.abs(it) >= 0.05f }?.let { stringResource(R.string.eq_db, formatDb(it)) }
-        val parts = listOf(layers, gain.orEmpty()).filter(String::isNotEmpty).joinToString(" · ")
-        if (parts.isEmpty()) stringResource(R.string.eq_not_bitperfect) else stringResource(R.string.eq_badge_layers, parts)
-    } else {
-        stringResource(R.string.eq_not_bitperfect)
+    val name = soundName(now)
+    val shown = name?.takeIf { settings.soundLayerChip } ?: stringResource(R.string.sound_badge_plain)
+    val description = name?.let { stringResource(R.string.sound_badge_full_cd, it) } ?: stringResource(R.string.eq_not_bitperfect)
+    val gain = now.loudnessDb.takeIf { kotlin.math.abs(it) >= 0.05f }?.let { stringResource(R.string.eq_db, formatDb(it)) }
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            Modifier
+                .widthIn(max = SOUND_TAG_MAX_WIDTH)
+                .minimumInteractiveComponentSize()
+                .clip(RoundedCornerShape(50))
+                .clickable(onClickLabel = stringResource(R.string.sound_title)) { app.equalizer.open(EqPanel.SOUND) }
+                .semantics { contentDescription = description }
+                .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(50))
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Rounded.GraphicEq, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            Spacer(Modifier.width(4.dp))
+            Text(
+                shown,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        gain?.let { QualityBadge(it) }
     }
-    QualityBadge(
-        text,
-        modifier
-            .clip(RoundedCornerShape(50))
-            .clickable {
-                app.equalizer.open(EqPanel.SOUND)
-            },
-    )
 }
 
-/** The player's visible "Ask the AI" button (hidden by its setting or for a hub's song). */
+/**
+ * The player's one Sound control: tap opens Sound, long-press asks the AI. Its colour tells
+ * the state (off, flat, processing with a dot, trying with a ring). Hidden by its setting or
+ * for a hub's song.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun AskAiButton(remote: Boolean, size: androidx.compose.ui.unit.Dp = 32.dp) {
+fun SoundButton(remote: Boolean) {
     val app = LocalContext.current.homefi
     val settings by app.settings.settings.collectAsStateWithLifecycle()
-    if (!settings.soundAssistantButton || remote) return
+    if (!settings.soundButton || remote) return
+    val eq by app.equalizer.settings.collectAsStateWithLifecycle()
+    val now by app.sound.now.collectAsStateWithLifecycle()
     val haptics = haptics()
-    IconButton(onClick = { haptics.press(); app.sound.askAssistantWith(null) }, modifier = Modifier.size(size)) {
-        Icon(com.perseusoft.homefi.ui.AiIcon, stringResource(R.string.sound_ask_ai), Modifier.size(size * 0.62f), tint = MaterialTheme.colorScheme.primary)
+    val processing = eq.enabled && now.active
+    val tint = when {
+        !eq.enabled -> MaterialTheme.colorScheme.onSurfaceVariant
+        processing -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    val state = when {
+        !eq.enabled -> stringResource(R.string.sound_button_state_off)
+        now.auditioning -> stringResource(R.string.sound_button_state_trying, soundName(now) ?: stringResource(R.string.sound_badge_plain))
+        processing -> soundName(now)?.let { stringResource(R.string.sound_button_state_on, it) } ?: stringResource(R.string.eq_not_bitperfect)
+        else -> stringResource(R.string.sound_button_state_flat)
+    }
+    val label = stringResource(R.string.sound_button)
+    Box(
+        Modifier
+            .size(SOUND_BUTTON_TARGET)
+            .clip(CircleShape)
+            .combinedClickable(
+                onClickLabel = label,
+                onClick = { haptics.press(); app.equalizer.open(EqPanel.SOUND) },
+                onLongClickLabel = stringResource(R.string.sound_button_hint),
+                onLongClick = { haptics.longPress(); app.sound.askAssistantWith(null) },
+            )
+            .semantics { contentDescription = label; stateDescription = state },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.Rounded.GraphicEq, null, Modifier.size(24.dp), tint = tint)
+        if (processing) {
+            val dot = Modifier.align(Alignment.TopEnd).padding(top = 10.dp, end = 10.dp).size(SOUND_DOT)
+            Box(
+                if (now.auditioning) {
+                    dot.border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                } else {
+                    dot.background(MaterialTheme.colorScheme.primary, CircleShape)
+                },
+            )
+        }
     }
 }
+
+private val SOUND_BUTTON_TARGET = 48.dp
+private val SOUND_DOT = 6.dp
+private val SOUND_TAG_MAX_WIDTH = 140.dp
 
 /** The player's visible "How does it sound?" button (hidden by its setting or for a hub's song). */
 @Composable

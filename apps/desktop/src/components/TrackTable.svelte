@@ -20,7 +20,7 @@
   const win = new Windowed(52);
 
   function queueMenu(e: MouseEvent, track: Track) {
-    app.openQueueMenu(e, track.title, (next) => app.queueFiles([track.path], track.title, next), { kind: "track", id: track.path, name: track.title });
+    app.openQueueMenu(e, track.title, (next) => app.queueFiles([track.path], track.title, next), { kind: "track", id: track.path, name: track.title }, { title: track.title, artist: track.artist, album: track.album || undefined, year: track.year ?? undefined, genre: track.genre || undefined });
   }
 
   // dev screenshot hook: ?soundmenu opens the queue menu (with "Sound ▸") on the first row

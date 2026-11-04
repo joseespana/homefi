@@ -6,6 +6,7 @@
   import { untrack } from "svelte";
   import type { LyricsMode, RoomSettings } from "../lib/api";
   import { creditOf, karaokeAt, lineAt, lyrics } from "../lib/lyrics.svelte";
+  import { useSongClock } from "../lib/songClock.svelte";
   import { useSource } from "../lib/source.svelte";
   import { app } from "../lib/state.svelte";
   import Cover from "./Cover.svelte";
@@ -37,29 +38,9 @@
   const canSeek = $derived(synced && src.can.seek);
 
   // ------------------------------------------------ position, smooth between player updates
-  let base = { pos: 0, at: 0 };
-  let now = $state(0);
-  $effect(() => {
-    const reported = src.player?.position_ms ?? 0;
-    const t = performance.now();
-    const predicted = base.pos + (t - base.at);
-    // a report a little behind what we already show would make the fill jump back
-    if (playing && reported <= predicted && predicted - reported < 400) return;
-    base = { pos: reported, at: t };
-    now = reported;
-  });
-  $effect(() => {
-    if (!playing) return;
-    let raf = 0;
-    const step = () => {
-      now = base.pos + (performance.now() - base.at);
-      raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  });
+  const clock = useSongClock(() => src.player);
   // positive offset: the lyrics come later (the sound reaches the ears late over Bluetooth)
-  const pos = $derived(now - offset);
+  const pos = $derived(clock.now - offset);
   const index = $derived(synced && data ? lineAt(data.lines, pos) : -1);
   const frame = $derived(karaoke && data ? karaokeAt(data.lines, pos) : null);
 

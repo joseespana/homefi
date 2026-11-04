@@ -16,6 +16,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 
+mod changelog;
+pub use changelog::{
+    inline_spans, latest_notes, parse_changelog, whats_new, NoteLine, NoteSection, NoteSpan, ReleaseNotes,
+    WhatsNewPlan, CHANGELOG, MAX_WHATS_NEW_VERSIONS,
+};
+
 /// `owner/name` of the repository the releases come from.
 pub const REPO: &str = "joseespana/homefi";
 /// GitHub's REST API.

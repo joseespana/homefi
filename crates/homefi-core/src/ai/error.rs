@@ -33,6 +33,8 @@ pub enum AiErrorKind {
     Timeout,
     /// An answer we couldn't read.
     BadAnswer,
+    /// Web search was asked for from a provider that can't do it.
+    NoWebSearch,
 }
 
 /// An AI call that failed. `Display` is the technical text for logs;
@@ -170,6 +172,12 @@ impl AiError {
                 format!("{p} sent something unexpected. Try again or pick another model."),
                 format!("{p} respondió algo inesperado. Vuelve a intentarlo o elige otro modelo."),
             ),
+            AiErrorKind::NoWebSearch => (
+                format!("{p} can't search the web. Pick Claude, Gemini, OpenAI, xAI or OpenRouter in Settings → AI."),
+                format!(
+                    "{p} no puede buscar en la web. Elige Claude, Gemini, OpenAI, xAI u OpenRouter en Ajustes → IA."
+                ),
+            ),
         };
         if es {
             sp
@@ -255,5 +263,18 @@ mod tests {
         assert!(!e.humane_in(Lang::En).contains("401"));
         let local = AiError::new(&cfg(AiProvider::Ollama), AiErrorKind::Offline, "connection refused");
         assert!(local.humane_in(Lang::En).contains("running"));
+    }
+
+    #[test]
+    fn no_web_search_names_the_providers_that_can() {
+        let e = AiError::new(&AiConfig::new(AiProvider::Mistral, "m", None), AiErrorKind::NoWebSearch, "no web search");
+        assert_eq!(
+            e.humane_in(Lang::En),
+            "Mistral can't search the web. Pick Claude, Gemini, OpenAI, xAI or OpenRouter in Settings → AI."
+        );
+        assert_eq!(
+            e.humane_in(Lang::Es),
+            "Mistral no puede buscar en la web. Elige Claude, Gemini, OpenAI, xAI u OpenRouter en Ajustes → IA."
+        );
     }
 }

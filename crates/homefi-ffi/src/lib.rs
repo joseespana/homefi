@@ -23,6 +23,8 @@ uniffi::setup_scaffolding!();
 
 mod ai;
 mod eq;
+mod party;
+mod playlists;
 mod runtime;
 mod share;
 mod update;
@@ -162,6 +164,9 @@ pub struct LibraryTrack {
     pub lossless: bool,
     /// `FLAC · 24-bit / 96 kHz`, `MP3 · 320 kbps`, ...
     pub quality: String,
+    /// Links the file to Tidal and to HomeFi playlists.
+    #[uniffi(default = None)]
+    pub isrc: Option<String>,
 }
 
 impl From<library::TrackInfo> for LibraryTrack {
@@ -184,6 +189,7 @@ impl From<library::TrackInfo> for LibraryTrack {
             channels: t.channels,
             bitrate_kbps: t.bitrate_kbps,
             lossless: t.lossless,
+            isrc: t.isrc,
         }
     }
 }

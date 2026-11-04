@@ -1,0 +1,29 @@
+{
+ "id": "msg_1",
+ "type": "message",
+ "role": "assistant",
+ "model": "claude-x",
+ "stop_reason": "tool_use",
+ "content": [
+  {
+   "type": "text",
+   "text": "Any artists everyone loves?"
+  },
+  {
+   "type": "tool_use",
+   "id": "toolu_1",
+   "name": "suggest_replies",
+   "input": {
+    "options": [
+     "Bad Bunny",
+     "80s pop",
+     "No idea"
+    ]
+   }
+  }
+ ],
+ "usage": {
+  "input_tokens": 10,
+  "output_tokens": 10
+ }
+}

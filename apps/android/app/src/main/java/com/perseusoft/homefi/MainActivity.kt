@@ -1,6 +1,7 @@
 package com.perseusoft.homefi
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
@@ -37,9 +38,22 @@ import com.perseusoft.homefi.ui.LocalHaptics
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import com.perseusoft.homefi.player.PictureInPicture
+import com.perseusoft.homefi.player.PipSpec
+import com.perseusoft.homefi.ui.player.PipPlayer
+import com.perseusoft.homefi.ui.player.PipSourceRect
+import kotlinx.coroutines.flow.combine
 
 class MainActivity : ComponentActivity() {
     private val destinations = Channel<Destination>(Channel.BUFFERED)
+    private val pip by lazy { PictureInPicture(this, homefi.player) }
+    private var inPip by mutableStateOf(false)
+    private var pipSpec: PipSpec? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,11 +89,56 @@ class MainActivity : ComponentActivity() {
                 val view = LocalView.current
                 val haptics = remember(view) { Haptics(view) { hapticsOn } }
                 CompositionLocalProvider(LocalHaptics provides haptics) {
-                    ProvideMotion(settings.motion, layout) { HomefiRoot(destinations.receiveAsFlow()) }
+                    ProvideMotion(settings.motion, layout) {
+                        // the app stays composed underneath, so its place is where it was when the window grows back
+                        Box {
+                            HomefiRoot(destinations.receiveAsFlow())
+                            if (inPip) PipPlayer()
+                        }
+                    }
                 }
             }
         }
         if (savedInstanceState == null) handleIntent(intent)
+        keepPipParamsCurrent()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        pip.start()
+    }
+
+    override fun onStop() {
+        pip.stop()
+        super.onStop()
+    }
+
+    /** Android 8-11 float the player from here; 12+ do it by themselves (auto-enter in the params). */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        pipSpec?.let(pip::enterIfArmed)
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        inPip = isInPictureInPictureMode
+    }
+
+    /** Re-hands the system the window's parameters whenever one of its inputs changes. */
+    private fun keepPipParamsCurrent() {
+        if (!pip.supported) return
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.CREATED) {
+                combine(homefi.settings.settings, homefi.player.state, PipSourceRect.bounds) { settings, state, rect ->
+                    PipSpec.of(settings, state, rect)
+                }
+                    .distinctUntilChanged()
+                    .collect { spec ->
+                        pipSpec = spec
+                        pip.update(spec)
+                    }
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

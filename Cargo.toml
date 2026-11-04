@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/homefi-core", "crates/homefi-player", "crates/homefi-cli", "crates/homefi-ffi", "apps/desktop/src-tauri", "xtask"]
-default-members = ["crates/homefi-core", "crates/homefi-player", "crates/homefi-cli"]
+members = ["crates/homefi-core", "crates/homefi-player", "crates/homefi-disc", "crates/homefi-cli", "crates/homefi-ffi", "apps/desktop/src-tauri", "xtask"]
+default-members = ["crates/homefi-core", "crates/homefi-player", "crates/homefi-disc", "crates/homefi-cli"]
 exclude = ["third_party"]
 
 [workspace.package]
@@ -17,6 +17,7 @@ repository = "https://github.com/joseespana/homefi"
 [workspace.dependencies]
 homefi-core = { path = "crates/homefi-core" }
 homefi-player = { path = "crates/homefi-player" }
+homefi-disc = { path = "crates/homefi-disc" }
 
 anyhow = "1"
 # Shared-control hub server (HTTP/1 + WebSocket, no TLS: it only serves the local network).
@@ -28,7 +29,10 @@ clap = { version = "4.5", features = ["derive", "env", "wrap_help"] }
 console = "0.15"
 dirs = "6"
 futures = "0.3"
+# Pure-Rust FLAC encoder for disc rips (Apache-2.0). `par` off: encoding stays on one thread.
+flacenc = { version = "0.5.1", default-features = false }
 indicatif = "0.17"
+libc = "0.2"
 lofty = "0.22"
 open = "5"
 regex = "1"
@@ -39,6 +43,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 roxmltree = "0.20"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha1 = "0.10"
 sha2 = "0.10"
 symphonia = { version = "0.5", features = ["all"] }
 tempfile = "3"
@@ -54,6 +59,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 unicode-normalization = "0.1"
 url = "2"
 uniffi = "0.29"
+# Raw drive access for homefi-disc on Windows (SPTI / IOCTL_STORAGE_*).
+windows-sys = "0.61"
 
 # cpal 0.16 with the device's speaker positions on Windows output streams
 # (see third_party/cpal/HOMEFI.md); drop it once cpal sends them itself.

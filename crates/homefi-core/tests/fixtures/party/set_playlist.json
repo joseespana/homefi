@@ -1,0 +1,39 @@
+{
+ "id": "msg_2",
+ "type": "message",
+ "role": "assistant",
+ "model": "claude-x",
+ "stop_reason": "tool_use",
+ "content": [
+  {
+   "type": "text",
+   "text": "Sad songs from the 90s in English. Want it calmer or more rock?"
+  },
+  {
+   "type": "tool_use",
+   "id": "toolu_2",
+   "name": "suggest_replies",
+   "input": {
+    "options": [
+     "Calmer",
+     "More rock"
+    ]
+   }
+  },
+  {
+   "type": "tool_use",
+   "id": "toolu_3",
+   "name": "set_playlist",
+   "input": {
+    "title": "Sad 90s in English",
+    "minutes": 28,
+    "allow_explicit": true,
+    "energy": "steady"
+   }
+  }
+ ],
+ "usage": {
+  "input_tokens": 10,
+  "output_tokens": 10
+ }
+}

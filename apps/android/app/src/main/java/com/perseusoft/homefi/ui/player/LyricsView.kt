@@ -670,6 +670,41 @@ private fun KaraokeLyrics(lyrics: Lyrics, time: State<Long>, palette: LyricsPale
 }
 
 /**
+ * The karaoke lines for the picture-in-picture window: the line being sung (filling with the
+ * accent as it goes) and the next one, no controls, no mascot. Same timing and sweep as
+ * [KaraokeLyrics].
+ */
+@Composable
+internal fun PipLyrics(lyrics: Lyrics, state: PlayerUiState, palette: LyricsPalette, offsetMs: Int) {
+    val time = rememberLyricsTime(state, offsetMs)
+    val slot by remember(lyrics) { derivedStateOf { slotAt(lyrics, time.value) } }
+    val big = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp, lineHeight = 21.sp, fontWeight = FontWeight.Bold)
+    val small = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 15.sp)
+    Column(
+        Modifier.fillMaxSize().padding(horizontal = 10.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        if (slot.line >= 0) {
+            SungLine(lyrics.lines[slot.line].text, big, palette) { progressOf(lyrics, slot.line, time.value) }
+        } else {
+            Text(stringResource(R.string.lyrics_gap), style = big, color = palette.fill, textAlign = TextAlign.Center)
+        }
+        if (slot.next >= 0 && slot.next != slot.line) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                lyrics.lines[slot.next].text,
+                style = small,
+                color = palette.dim,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/**
  * [text] in the dim colour, then again in the accent up to [progress] — across the wrapped
  * lines one after the other, with a soft leading edge. Drawn, not recomposed, every frame.
  */

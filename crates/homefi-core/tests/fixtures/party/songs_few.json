@@ -1,0 +1,42 @@
+{
+ "id": "msg_1",
+ "type": "message",
+ "role": "assistant",
+ "model": "claude-x",
+ "stop_reason": "tool_use",
+ "content": [
+  {
+   "type": "tool_use",
+   "id": "toolu_1",
+   "name": "propose_songs",
+   "input": {
+    "songs": [
+     {
+      "title": "Song 0",
+      "artist": "Bad Bunny",
+      "energy": 3
+     },
+     {
+      "title": "Song 1",
+      "artist": "Daddy Yankee",
+      "energy": 3
+     },
+     {
+      "title": "Song 2",
+      "artist": "Shakira",
+      "energy": 3
+     },
+     {
+      "title": "Song 3",
+      "artist": "ABBA",
+      "energy": 3
+     }
+    ]
+   }
+  }
+ ],
+ "usage": {
+  "input_tokens": 10,
+  "output_tokens": 10
+ }
+}

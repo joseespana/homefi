@@ -7,6 +7,72 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Added
+- Playlists: "Make a playlist with AI", on desktop and Android. A simple chat asks what kind of
+  playlist you want today; say anything ("I'm feeling down, 90s music in English", "happy and
+  upbeat, 30 minutes") and your own AI suggests directions, then builds it. Every song is checked
+  against your library and TIDAL, and you can keep chatting to change it. Settings → Playlists → AI
+  playlists sets the default length, energy and explicit lyrics.
+- "Playlist like this": from the song playing or any song's menu, start that chat with the song
+  (its artist, year and genre) so your AI makes a playlist with the same style, era and mood,
+  starting with it. It can be hidden in Settings → Playlists → AI playlists.
+- Discs, on desktop: rip audio CDs to your library. HomeFi asks what the disc is (artist, album,
+  year, genre, cover, and whether to name the songs; blanks become "Disc 1", "Track 01"…), fills
+  it in from the disc's CD-Text when it has one, and rips in secure mode (re-reads until the reads
+  agree) or fast mode to FLAC (verified by decoding it back), WAV, or ALAC / MP3 / AAC / Opus with
+  ffmpeg. Files are tagged and named like downloads. Looking discs up on MusicBrainz is an option,
+  off by default. Copy-protected DVDs and Blu-rays are recognized and left alone: HomeFi doesn't
+  bypass copy protection. Settings → Discs.
+- Homefito's mosh mode, on desktop and Android: long hair with real physics, headbanging locked to
+  the song's kick drum, horns, air guitar and fist pumps that change with the bars, a windmill when
+  the song drops, a calm nod in quiet parts. Settings → Mascot: hair (auto / long / short), follow
+  the beat, and headbang strength (gentle / normal / wild). "Mosh" can be pinned in the dance list.
+- Mini player: karaoke lyrics and Homefito dancing, each with its own button (Settings → Listening
+  room → Mini player). Android gets picture-in-picture with the same lyrics and Homefito options,
+  and previous / play / next.
+- Playlists: "Get ready for a concert", on desktop and Android. Type an artist and HomeFi asks your
+  own AI (Claude, OpenAI, Gemini, Grok or OpenRouter) to search the web for the setlists of their
+  latest shows, then builds the tour set in show order: each song is tagged Always, Usually,
+  Sometimes or Encore, checked against your library and TIDAL (studio versions first, live ones
+  when that's all there is), and comes with the links it was found in. When your AI can't search
+  the web, or finds nothing, you get TIDAL's most played songs by the artist, clearly labeled as
+  not the real setlist. Play it, shuffle it, queue it or save it.
+- Playlists made by HomeFi are saved in HomeFi only (JSON in `~/.homefi/playlists`), never in your
+  TIDAL account, and Sounds apply to them like to any playlist. Deleting one moves it to the Trash
+  on desktop; on Android it can be undone.
+- Settings → Playlists: how many recent shows to consider, the Always / Usually / Sometimes /
+  Encore thresholds, the AI's search budget, preferring downloaded songs, skipping recorded intros,
+  covers under the original artist, showing sources and the "Made by HomeFi" section.
+- AI: web search through the provider you already set up, with Google's search suggestions shown
+  for Gemini, as Google requires.
+- Playlists: "Make a party playlist", on desktop and Android. Tap who's coming, their ages, the
+  vibe, how long it lasts, the energy and whether explicit lyrics are fine, then have an optional
+  short chat with your own AI. HomeFi checks every song against your library and TIDAL the same way
+  as concert mode, so songs the AI makes up are left out. Preview it, play it and save it. Needs an
+  AI set up, nothing else.
+- Settings → Playlists → Party playlists: the default length, energy and explicit lyrics, and how
+  many songs one artist can have.
+- What's new: after an update, desktop and Android show once what changed since the version you
+  last ran, read from this changelog inside the app, so it works offline. Settings → About shows it
+  again, or turns it off.
+
+### Changed
+- Party and AI playlists talk in chat bubbles, with a typing indicator and quick replies under the
+  last answer.
+- Desktop: one Sound button in the player bar (the AI button is gone; the A key and the button's
+  right-click menu still ask the AI), lyrics, queue and mini player move to a bar above the content
+  (Settings → Listening room → Player buttons puts them back below), and the tag under the song now
+  shows only the sound's name in a calm tone, with the full sentence on hover. On Android the same
+  setting puts the Sound button in the top bar (long-press asks the AI).
+- Search: the Top hit row spans the page so its title and quality badge are readable; quality
+  badges never get cut.
+- Desktop: the Settings header is a solid surface instead of a blur, lined up with the top bar.
+
+### Fixed
+- The signal chain names the equalizer after the sound playing ("Warm and airy") instead of the
+  output's curve ("Flat"), and its card says who the sound is for. The output's curve only shows
+  beside it when it actually changes something. Same on Android.
+
 ## [1.5.1] - 2026-11-02
 
 

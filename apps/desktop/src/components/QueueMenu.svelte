@@ -18,6 +18,13 @@
     close();
     m.run(next);
   }
+
+  // reads the seed before closing: closing drops the menu
+  function like() {
+    const seed = menu.like;
+    close();
+    if (seed) app.playlistLike(seed);
+  }
 </script>
 
 <svelte:window onkeydown={(e) => e.key === "Escape" && close()} />
@@ -27,6 +34,9 @@
   <div class="head ellipsis">{menu.label}</div>
   <button class="row" onclick={() => run(true)} role="menuitem"><Icon name="next" size={16} /> Play next</button>
   <button class="row" onclick={() => run(false)} role="menuitem"><Icon name="queue" size={16} /> Add to queue</button>
+  {#if menu.like}
+    <button class="row" onclick={like} role="menuitem"><Icon name="ai" size={16} /> Playlist like this</button>
+  {/if}
   {#if menu.sound}
     {@const s = menu.sound}
     <div class="sep"></div>

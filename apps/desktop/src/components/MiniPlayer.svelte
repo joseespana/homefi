@@ -4,12 +4,24 @@
   // change there (the "settings" event reaches every window).
   import { api, coverUrl, formatTime } from "../lib/api";
   import { skinOf } from "../lib/layouts";
+  import { roomMood } from "../lib/mascotPlace.svelte";
   import { applyPalette, BRAND, paletteOf } from "../lib/palette";
   import { share } from "../lib/share.svelte";
   import { shownSource as src } from "../lib/source.svelte";
   import { app, applyTheme } from "../lib/state.svelte";
+  import { visual } from "../lib/visual.svelte";
+  import type { Specials, Temper } from "../lib/dance";
   import Cover from "./Cover.svelte";
   import Icon from "./Icon.svelte";
+  import Mascot from "./Mascot.svelte";
+  import MiniLyrics from "./MiniLyrics.svelte";
+
+  /** The bar's size (logical px) and what lyrics and the mascot add to it. */
+  const BAR_W = 380;
+  const BAR_H = 120;
+  const LYRICS_H = 76;
+  const MASCOT_W = 104;
+  const MASCOT_SIZE = 96;
 
   $effect(() => {
     // only what this window shows, then it appears (see `mini_ready`)
@@ -35,6 +47,32 @@
   const path = $derived(track?.path ?? null);
   const fraction = $derived(duration ? Math.min(1, (p?.position_ms ?? 0) / duration) : 0);
   // the record turns in Vinyl; the era skins have square or small covers
+  const lyricsOn = $derived(app.settings?.mini.lyrics ?? false);
+  const mascotOn = $derived(app.settings?.mini.mascot ?? false);
+  const room = $derived(app.settings?.room);
+
+  function toggle(which: "lyrics" | "mascot") {
+    if (app.settings) app.saveSettings({ mini: { ...app.settings.mini, [which]: !app.settings.mini[which] } });
+  }
+
+  // the window follows what it shows, keeping its corner
+  $effect(() => {
+    if (!app.settings) return;
+    api.miniResize(BAR_W + (mascotOn ? MASCOT_W : 0), BAR_H + (lyricsOn ? LYRICS_H : 0)).catch(() => {});
+  });
+
+  // the dance needs the audio analysis (tempo, loudness): the same loop as the main window,
+  // fed by the engine; it runs only while the mascot has something to dance to
+  $effect(() => {
+    if (mascotOn && playing) visual.start();
+    else visual.stop();
+  });
+  $effect(() => {
+    path;
+    visual.reset();
+  });
+  let mascot = $state<Mascot>();
+
   const radius = $derived(skin === "vinyl" ? 999 : skin === "retro_amp" ? 0 : skin === "luna" || skin === "aluminum" ? 4 : 10);
   const coverSize = $derived(skin === "retro_amp" ? 76 : 88);
 
@@ -61,8 +99,10 @@
 
 <svelte:window onkeydown={onKey} />
 
-<div class="mini skin-{skin}" class:playing data-tauri-drag-region>
+<div class="mini skin-{skin}" class:playing class:lyrics={lyricsOn} data-tauri-drag-region>
   {#if path}<div class="bg" style:background-image="url('{coverUrl(path)}')"></div>{/if}
+  <div class="stack" data-tauri-drag-region>
+  <div class="row" data-tauri-drag-region>
   <div class="cover" data-tauri-drag-region>
     <Cover {path} size={coverSize} {radius} />
     {#if skin === "vinyl"}<span class="hole"></span>{/if}
@@ -73,6 +113,12 @@
         <div class="title ellipsis" data-tauri-drag-region>{track?.title ?? "Nothing playing"}</div>
         <div class="artist ellipsis" data-tauri-drag-region>{track ? `${track.artist} · ${src.remote ? src.label : track.quality}` : "HomeFi"}</div>
       </div>
+      <button class="icon-btn small" class:on={lyricsOn} title="Lyrics" aria-label="Lyrics" aria-pressed={lyricsOn} onclick={() => toggle("lyrics")}>
+        <Icon name="lyrics" size={14} />
+      </button>
+      <button class="icon-btn small" class:on={mascotOn} title="HomeFito" aria-label="HomeFito" aria-pressed={mascotOn} onclick={() => toggle("mascot")}>
+        <Icon name="smile" size={14} />
+      </button>
       <button class="icon-btn small" title="Back to HomeFi" aria-label="Back to the full window" onclick={() => api.miniPlayer(false)}>
         <Icon name="expand" size={14} />
       </button>
@@ -99,6 +145,30 @@
       <span style:width="{fraction * 100}%"></span>
     </button>
   </div>
+  </div>
+  {#if lyricsOn}<MiniLyrics />{/if}
+  </div>
+  {#if mascotOn}
+    <div class="dancer" data-tauri-drag-region>
+      <button type="button" class="host" title="Click: dance" aria-label="HomeFito" onclick={() => mascot?.poke()}>
+        <Mascot
+          bind:this={mascot}
+          {playing}
+          singing={lyricsOn}
+          size={MASCOT_SIZE}
+          mood={roomMood()}
+          energy={visual.energy}
+          kick={visual.kick}
+          bpm={visual.bpm}
+          dance={room?.mascot_dance ?? "auto"}
+          specials={(room?.mascot_specials ?? "sometimes") as Specials}
+          limbs={room?.mascot_limbs ?? "white"}
+          turns={room?.mascot_turns ?? "all"}
+          temper={(room?.mascot_temper ?? "normal") as Temper}
+        />
+      </button>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -119,7 +189,7 @@
     position: relative;
     height: 100vh;
     display: flex;
-    gap: 14px;
+    gap: 8px;
     align-items: center;
     padding: 0 14px;
     overflow: hidden;
@@ -136,6 +206,37 @@
     filter: blur(40px) saturate(1.4);
     opacity: 0.35;
     pointer-events: none;
+  }
+  /* the bar, with the lyrics under it; the dancer stands beside both */
+  .stack {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .row {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    height: 120px;
+    flex: none;
+  }
+  .lyrics .stack {
+    justify-content: flex-start;
+  }
+  .dancer {
+    position: relative;
+    flex: none;
+    display: grid;
+    place-items: center;
+  }
+  .host {
+    padding: 0;
+    cursor: pointer;
+    color: inherit;
   }
   .cover,
   .body {
@@ -203,6 +304,10 @@
     width: 26px;
     height: 26px;
     color: var(--m-muted);
+  }
+  /* a toggle that is on */
+  .small.on {
+    color: var(--room-accent);
   }
   .bar {
     height: 4px;
@@ -308,9 +413,11 @@
     --m-groove: #000;
     --m-fill: #00e000;
     padding: 0 10px;
-    gap: 10px;
     font-family: var(--font-mono);
     box-shadow: inset 1px 1px 0 #5c5c7a, inset -1px -1px 0 #050508;
+  }
+  .skin-retro_amp .row {
+    gap: 10px;
   }
   .skin-retro_amp .bg {
     display: none;
@@ -349,6 +456,9 @@
   .skin-retro_amp .small {
     border-radius: 0;
     color: #a8a8c0;
+  }
+  .skin-retro_amp .small.on {
+    color: #00e000;
   }
   .skin-retro_amp .bar {
     height: 8px;

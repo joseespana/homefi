@@ -3,13 +3,16 @@
 
 mod ai;
 mod commands;
+mod disc;
 mod eq;
 mod media;
+mod playlists;
 mod settings;
 mod share;
 mod sound;
 mod stream;
 mod updater;
+mod whats_new;
 
 use std::sync::{Arc, Mutex};
 
@@ -89,6 +92,7 @@ fn main() {
         commands::player_move,
         commands::mini_player,
         commands::mini_ready,
+        commands::mini_resize,
         commands::player_toggle,
         commands::player_next,
         commands::player_previous,
@@ -146,6 +150,30 @@ fn main() {
         ai::eq_assistant_start,
         ai::eq_assistant_reply,
         ai::eq_assistant_close,
+        playlists::concert_sources,
+        playlists::concert_build,
+        playlists::concert_rearrange,
+        playlists::concert_cancel,
+        playlists::home_playlists,
+        playlists::home_playlist_save,
+        playlists::home_playlist_delete,
+        playlists::party_default_brief,
+        playlists::chat_default_brief,
+        playlists::party_open,
+        playlists::chat_open,
+        playlists::chat_song_wish,
+        playlists::party_set_brief,
+        playlists::party_start,
+        playlists::party_reply,
+        playlists::party_build,
+        playlists::party_cancel,
+        playlists::party_close,
+        disc::disc_drives,
+        disc::disc_open,
+        disc::disc_identify,
+        disc::disc_rip,
+        disc::disc_cancel,
+        disc::disc_eject,
         share::share_status,
         share::share_start,
         share::share_stop,
@@ -165,6 +193,8 @@ fn main() {
         updater::update_download,
         updater::update_restart,
         updater::update_dismiss,
+        whats_new::whats_new_check,
+        whats_new::whats_new_latest,
     ]);
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -199,6 +229,8 @@ fn main() {
             let config = Config::load(&app_dir.join(paths::CONFIG_FILENAME)).unwrap_or_default();
             let session = Session::new(app_dir.clone(), config);
             let settings_path = app_dir.join("desktop.json");
+            // before `load`: an existing file means an update (or an older HomeFi's run)
+            let upgraded = settings_path.is_file();
             let settings = DesktopSettings::load(&settings_path);
 
             // The engine thread only hands its snapshot over (it must never wait
@@ -229,6 +261,8 @@ fn main() {
             player.set_eq(settings.eq.clone());
             app.manage(homefi_core::dsp::autoeq::AutoEq::new(app_dir.join(eq::AUTOEQ_CACHE)));
             app.manage(ai::Ai::new(&app_dir));
+            app.manage(playlists::Playlists::new(&app_dir));
+            app.manage(disc::Disc::new());
 
             let (jobs_tx, jobs_rx) = tokio::sync::mpsc::unbounded_channel();
             app.manage(AppState {
@@ -251,6 +285,7 @@ fn main() {
             // the first check runs ffmpeg once: not on the UI's first call
             std::thread::spawn(homefi_core::ffmpeg::is_available);
 
+            app.manage(whats_new::WhatsNew::new(upgraded));
             app.manage(sound::Sound::default());
             sound::init(app.handle());
             app.manage(share::Share::default());
@@ -258,6 +293,7 @@ fn main() {
             share::init(app.handle());
             app.manage(updater::Updates::new(&app_dir, app.package_info().version.to_string()));
             tauri::async_runtime::spawn(updater::run(app.handle().clone()));
+            tauri::async_runtime::spawn(disc::watch(app.handle().clone()));
 
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(commands::download_worker(handle.clone(), jobs_rx));

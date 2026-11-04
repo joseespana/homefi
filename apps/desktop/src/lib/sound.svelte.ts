@@ -27,7 +27,7 @@ import {
 import { uiLanguage } from "./eq.svelte";
 import { app } from "./state.svelte";
 
-export const SOUND_UI_DEFAULTS: SoundUiSettings = { react_deck: true, react_room: true, layer_chip: true, suggestions: true, assistant_deck: true, taste_editor: "auto" };
+export const SOUND_UI_DEFAULTS: SoundUiSettings = { react_deck: true, react_room: true, layer_chip: true, suggestions: true, taste_editor: "auto" };
 export const LOUDNESS_DEFAULTS: LoudnessSettings = { mode: "off", targetLufs: -14, preventClipping: true };
 export const TASTE_DEFAULTS: TasteSettings = { enabled: false, rules: [], intensity: "balanced", version: 1 };
 /** The size of the steps the assistant and reactions take (homefi-core `TasteIntensity`). */
@@ -183,11 +183,25 @@ export function outputsLabel(rule: TasteRule): string {
   return !o.length ? "All outputs" : o.length === 1 ? `${o[0]} only` : `${o.length} outputs`;
 }
 
-/** What the deck, the signal chain and the output chip say plays: "HD 650 + Warm and airy · Eagles". */
-export function layersWords(p: Pick<PlayerState, "eq_profile" | "taste_label" | "taste_target"> | null | undefined): string | null {
+/** Whether the output's own curve changes anything on the device playing now (a flat one doesn't). */
+export function outputCurveOn(p: Pick<PlayerState, "eq_profile" | "stream"> | null | undefined): boolean {
+  const eq = app.settings?.eq;
+  if (!p?.eq_profile || !eq || !p.stream) return false;
+  const profile = eq.perOutput[p.stream.device] ?? eq.defaultProfile ?? null;
+  return !!profile?.bands.some((b) => b.enabled);
+}
+
+/** What the deck and Settings say plays: the sound first, "Warm and airy · Eagles + HD 650";
+ *  the output's curve only when it changes something. */
+export function layersWords(p: Pick<PlayerState, "eq_profile" | "taste_label" | "taste_target" | "stream"> | null | undefined): string | null {
   if (!p) return null;
   const sound = p.taste_label ? (p.taste_target?.name ? `${p.taste_label} · ${p.taste_target.name}` : p.taste_label) : null;
-  return [p.eq_profile, sound].filter(Boolean).join(" + ") || null;
+  return [sound, sound && !outputCurveOn(p) ? null : p.eq_profile].filter(Boolean).join(" + ") || null;
+}
+
+/** Just the name of the sound playing ("Warm and airy"), for the small tag under the song. */
+export function soundName(p: Pick<PlayerState, "eq_profile" | "taste_label"> | null | undefined): string {
+  return p?.taste_label || p?.eq_profile || "Custom";
 }
 
 /** Who measured a correction ("oratory1990") or what it is called. */

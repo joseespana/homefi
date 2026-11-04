@@ -193,4 +193,5 @@ dependencies {
     implementation(libs.media3.ffmpeg)
     implementation(variantOf(libs.jna) { artifactType("aar") })
     debugImplementation(libs.androidx.compose.ui.tooling)
+    testImplementation(libs.junit)
 }

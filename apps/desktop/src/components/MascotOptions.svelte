@@ -27,6 +27,16 @@
     { id: "normal", label: "Normal", hint: "6 quick clicks" },
     { id: "short", label: "Short-tempered", hint: "4 quick clicks" },
   ] as const;
+  const hairs = [
+    { id: "auto", label: "Auto", hint: "Long in mosh mode, none otherwise" },
+    { id: "long", label: "Long", hint: "Long hair in every style" },
+    { id: "short", label: "Short", hint: "No hair, as before" },
+  ] as const;
+  const bangs = [
+    { id: "gentle", label: "Gentle", hint: "Small nods, no windmill" },
+    { id: "normal", label: "Normal", hint: "Headbangs and a windmill on the drops" },
+    { id: "wild", label: "Wild", hint: "Bigger everything" },
+  ] as const;
   const holds = [
     { id: "menu", label: "Shows its actions", hint: "Pick a famous dance, wave, switch style or send it back" },
     { id: "style", label: "Switches its style", hint: "Auto, then each style in turn" },
@@ -63,6 +73,25 @@
       <button class:on={room.mascot_dance === d.id} onclick={() => set({ mascot_dance: d.id })} title={d.hint}>{d.label}</button>
     {/each}
   </div>
+
+  <div class="sub">Hair</div>
+  <div class="chips">
+    {#each hairs as h}
+      <button class:on={(room.mascot_hair ?? "auto") === h.id} onclick={() => set({ mascot_hair: h.id })} title={h.hint}>{h.label}</button>
+    {/each}
+  </div>
+
+  <div class="sub">Headbang strength</div>
+  <div class="chips">
+    {#each bangs as b}
+      <button class:on={(room.mascot_headbang ?? "normal") === b.id} onclick={() => set({ mascot_headbang: b.id })} title={b.hint}>{b.label}</button>
+    {/each}
+  </div>
+
+  <label class="row" title="Dance on the real beat of the song; off keeps a steady free tempo">
+    <span>Follow the beat</span>
+    <input type="checkbox" checked={room.mascot_follow_beat ?? true} onchange={(e) => set({ mascot_follow_beat: e.currentTarget.checked })} />
+  </label>
 
   <div class="sub">Turn sideways</div>
   <div class="chips">

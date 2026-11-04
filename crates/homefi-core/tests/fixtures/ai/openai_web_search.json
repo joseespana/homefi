@@ -1,0 +1,15 @@
+{
+  "id": "resp_1", "object": "response", "status": "completed",
+  "output": [
+    {"type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "encr"},
+    {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "search", "query": "Example Band setlist", "sources": [
+      {"type": "url", "url": "https://news.example.org/band-review"},
+      {"type": "url", "url": "https://www.example.com/band-2026-10-24", "title": "Example Band live in Mexico City"}
+    ]}},
+    {"type": "message", "id": "msg_1", "role": "assistant", "content": [
+      {"type": "output_text", "text": "The band opened with Blind.", "annotations": [
+        {"type": "url_citation", "start_index": 0, "end_index": 10, "url": "https://www.example.com/band-2026-10-24", "title": "Example Band live in Mexico City"}
+      ]}
+    ]}
+  ]
+}

@@ -77,12 +77,11 @@
     <string name="sound_suggestion_hide">Ahora no</string>
     <string name="sound_settings_react_button">Botón “¿Cómo suena?” en el reproductor</string>
     <string name="sound_settings_react_button_hint">De todos modos queda en el menú del reproductor.</string>
-    <string name="sound_settings_layer_chip">Nombrar las capas en la insignia de señal</string>
-    <string name="sound_settings_layer_chip_hint">“EQ · HD 650 + Electrónica” en vez de “EQ · no bit-perfect”.</string>
+    <string name="sound_settings_layer_chip">Nombrar el sonido bajo la canción</string>
+    <string name="sound_settings_layer_chip_hint">«Cálido y aireado» en vez de «Sonido»</string>
     <string name="sound_settings_suggestions">Sugerencias en las reglas de gusto</string>
     <string name="sound_settings_suggestions_hint">Usa tu llave de IA una vez por sesión como mucho; sin llave sugieren las preguntas guiadas.</string>
     <string name="sound_summary_rules">%1$d sonidos</string>
-    <string name="eq_badge_layers">EQ · %1$s</string>
     <!-- AI settings: the research's ranking -->
     <string name="ai_badge_recommended">Recomendado</string>
     <string name="ai_badge_cheapest">Más económico</string>
@@ -111,7 +110,7 @@
     <string name="taste_editor_setting">El editor de una regla abre en</string>
     <string name="taste_editor_auto">Auto</string>
     <string name="taste_editor_setting_hint">Simple: deslizadores de bajo, agudos y claridad. Avanzado: la curva completa con bandas. Auto: la curva cuando la regla tiene bandas.</string>
-    <string name="signal_taste_bands">Bandas de gusto</string>
+    <string name="signal_taste_bands">Bandas</string>
     <string name="signal_taste_bands_value">%1$d de %2$d activas</string>
     <string name="intensity_title">Intensidad de los cambios</string>
     <string name="intensity_subtle">Sutil</string>
@@ -189,9 +188,22 @@
     <string name="sound_edit_output">Editar la curva de la salida</string>
     <string name="sound_output_curve_title">Curva de la salida</string>
     <string name="sound_settings_title">Ajustes de sonido</string>
-    <string name="sound_settings_assistant_button">Botón «Preguntar a la IA» en el reproductor</string>
     <string name="sound_settings_tilt_sliders">Graves, agudos y claridad en Editar curva</string>
     <string name="sound_proposal_title">La IA propone un sonido</string>
     <string name="sound_kept_as">Guardado como «%1$s».</string>
     <string name="sound_menu_item">Sonido ▸</string>
+    <string name="sound_button">Sonido</string>
+    <string name="sound_button_hint">Preguntar a la IA</string>
+    <string name="sound_button_state_off">Sonido apagado, bit-perfect</string>
+    <string name="sound_button_state_flat">Sonido activo, plano para esta salida</string>
+    <string name="sound_button_state_on">Sonido activo: %1$s. No es bit-perfect</string>
+    <string name="sound_button_state_trying">Probando: %1$s</string>
+    <string name="sound_badge_plain">Sonido</string>
+    <string name="sound_badge_full_cd">Sonido activo: %1$s. No es bit-perfect</string>
+    <string name="sound_settings_sound_button">Botón «Sonido» en el reproductor</string>
+    <string name="sound_settings_sound_button_hint">Tocar abre Sonido; mantener pulsado pregunta a la IA</string>
+    <string name="player_buttons_title">Botones del reproductor</string>
+    <string name="player_buttons_top">Barra superior</string>
+    <string name="player_buttons_bottom">Bajo el título</string>
+    <string name="player_buttons_hint">Dónde va el botón Sonido</string>
 </resources>

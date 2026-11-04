@@ -161,8 +161,9 @@ internal fun SoundSettings() {
         ) { v -> app.settings.update { it.copy(soundSuggestions = v) } }
         RowDivider()
         SwitchRow(
-            stringResource(R.string.sound_settings_assistant_button), appSettings.soundAssistantButton,
-        ) { v -> app.settings.update { it.copy(soundAssistantButton = v) } }
+            stringResource(R.string.sound_settings_sound_button), appSettings.soundButton,
+            hint = stringResource(R.string.sound_settings_sound_button_hint),
+        ) { v -> app.settings.update { it.copy(soundButton = v) } }
         RowDivider()
         SwitchRow(
             stringResource(R.string.sound_settings_tilt_sliders), appSettings.soundTiltSliders,

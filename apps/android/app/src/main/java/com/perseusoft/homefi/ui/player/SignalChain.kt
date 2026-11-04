@@ -700,13 +700,15 @@ private fun chainNodes(f: ChainFacts): List<Node> {
         val caption = stringResource(R.string.signal_stage_eq)
         val profile = f.eqName?.let { it.ifBlank { stringResource(R.string.eq_custom) } }
         val taste = f.rule?.let { r -> r.label.ifBlank { r.targets.firstOrNull()?.scope?.name().orEmpty() }.ifBlank { null } }
-        val text = profile ?: taste ?: stringResource(R.string.eq_custom)
-        val extra = taste.takeIf { profile != null }
+        // named after the sound chosen for this music; the output's curve only joins it when it changes something
+        val outputCurveOn = f.eqProfile?.bands?.any { it.enabled } == true
+        val text = taste ?: profile ?: stringResource(R.string.eq_custom)
+        val extra = profile?.takeIf { taste != null && outputCurveOn }?.let { "+ $it" }
         nodes += Node(
             Stage.EQ,
-            if (profile == null && taste != null) Icons.Rounded.Tune else Icons.Rounded.GraphicEq,
+            if (taste != null) Icons.Rounded.Tune else Icons.Rounded.GraphicEq,
             caption, chip = null, text = text, extra = extra,
-            description = stringResource(R.string.signal_cd_stage, caption, listOfNotNull(profile, taste).ifEmpty { listOf(text) }.joinToString(" + ")),
+            description = stringResource(R.string.signal_cd_stage, caption, listOfNotNull(taste, profile?.takeIf { taste == null || outputCurveOn }).ifEmpty { listOf(text) }.joinToString(" + ")),
             processes = true,
         )
     }
@@ -823,8 +825,18 @@ private fun LoudnessDetails(f: ChainFacts) {
 private fun EqDetails(f: ChainFacts, onOpen: () -> Unit) {
     SheetTitle(Icons.Rounded.GraphicEq, stringResource(R.string.signal_stage_eq), AmberIn())
     val p = f.eqProfile
-    if (f.eqName != null) {
-        Fact(R.string.signal_profile, f.eqName.ifBlank { stringResource(R.string.eq_custom) })
+    val r = f.rule
+    // the sound chosen for this music leads; the output's own curve follows only when it plays
+    if (r != null) {
+        Fact(R.string.signal_taste, listOf(r.label.ifBlank { r.targets.firstOrNull()?.scope?.name().orEmpty() }, LocalContext.current.homefi.sound.ruleWords(r)).joinToString(" · "))
+        if (r.bands.isNotEmpty()) Fact(R.string.signal_taste_bands, stringResource(R.string.signal_taste_bands_value, r.bands.count { it.band.enabled }, r.bands.size))
+        Fact(R.string.signal_profile_source, r.createdBy.label())
+    }
+    val curveOn = p?.bands?.any { it.enabled } == true
+    if (r != null && !curveOn) {
+        Fact(R.string.signal_output_curve, stringResource(R.string.signal_output_curve_none))
+    } else if (f.eqName != null) {
+        Fact(if (r != null) R.string.signal_output_curve else R.string.signal_profile, f.eqName.ifBlank { stringResource(R.string.eq_custom) })
         if (p != null) {
             Fact(R.string.signal_profile_source, p.sourceLabel() ?: stringResource(R.string.eq_source_manual))
             EqCurve(p, Modifier.fillMaxWidth().height(110.dp).padding(vertical = 6.dp), showPoints = false)
@@ -832,14 +844,6 @@ private fun EqDetails(f: ChainFacts, onOpen: () -> Unit) {
             Fact(R.string.eq_preamp, if (f.autoPreamp) stringResource(R.string.signal_preamp_auto, preamp) else preamp)
             Fact(R.string.signal_bands, "${p.bands.count { it.enabled }}")
         }
-    }
-    val r = f.rule
-    if (r != null) {
-        Fact(R.string.signal_taste, listOf(r.label.ifBlank { r.targets.firstOrNull()?.scope?.name().orEmpty() }, LocalContext.current.homefi.sound.ruleWords(r)).joinToString(" · "))
-        if (r.bands.isNotEmpty()) Fact(R.string.signal_taste_bands, stringResource(R.string.signal_taste_bands_value, r.bands.count { it.band.enabled }, r.bands.size))
-        Fact(R.string.signal_profile_source, r.createdBy.label())
-    } else {
-        Fact(R.string.signal_taste, stringResource(R.string.signal_taste_none))
     }
     Spacer(Modifier.height(8.dp))
     FilledTonalButton(onClick = onOpen, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.eq_open)) }

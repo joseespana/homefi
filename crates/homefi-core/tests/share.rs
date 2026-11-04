@@ -445,6 +445,7 @@ async fn party_mode_serves_the_song_and_shares_the_clock() {
 
     hub.set_streaming(true);
     let s = state_where(&mut rx, |s| s.audio.is_some()).await;
+    let since = std::time::Instant::now();
     let audio = s.audio.clone().unwrap();
     assert_eq!(audio.queue_id, s.now_playing.as_ref().unwrap().queue_id);
     assert_eq!((audio.mime.as_str(), audio.size), ("audio/flac", 10_000));
@@ -470,9 +471,11 @@ async fn party_mode_serves_the_song_and_shares_the_clock() {
     let gap = ana.hub_now_ms().unwrap() as i64 - hub.now_ms() as i64;
     assert!(gap.abs() < 30, "clock off by {gap} ms");
     // and it says where the song is now: 1 s in, plus the time since then
+    // (bounded by the time that really passed, so a busy machine can't fail it)
     tokio::time::sleep(Duration::from_millis(200)).await;
     let at = ana.expected_position_ms(&s);
-    assert!((1_150..1_600).contains(&at), "{at}");
+    let passed = since.elapsed().as_millis() as u64;
+    assert!((1_150..=1_000 + passed + 100).contains(&at), "{at} after {passed} ms");
 
     // a new song without a file stops the stream
     hub.set_now_playing(None, Some(track("Next one")), 0, true);

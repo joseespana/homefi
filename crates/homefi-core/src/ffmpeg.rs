@@ -152,33 +152,45 @@ pub async fn extract_flac(source: &Path) -> Result<PathBuf> {
     Ok(target)
 }
 
+/// Transcodes the first audio stream of `source` with the given ffmpeg codec arguments into a
+/// sibling file with extension `ext`, and removes the source. The output is written under a
+/// temporary name and renamed, so a failed run never leaves a half file under the final name.
+/// `-ac 2`-style options belong in `codec_args`.
+pub async fn transcode(source: &Path, codec_args: &[&str], ext: &str) -> Result<PathBuf> {
+    let target = with_suffix(source, ext);
+    let tmp = with_suffix(source, &format!("tmp.{ext}"));
+
+    let mut args: Vec<&std::ffi::OsStr> =
+        vec!["-i".as_ref(), source.as_os_str(), "-map".as_ref(), "0:a:0".as_ref(), "-vn".as_ref()];
+    args.extend(codec_args.iter().map(|s| std::ffi::OsStr::new(*s)));
+    args.push(tmp.as_os_str());
+
+    if let Err(e) = ffmpeg(&args).await {
+        let _ = tokio::fs::remove_file(&tmp).await;
+        return Err(e);
+    }
+    tokio::fs::rename(&tmp, &target).await?;
+    if source != target {
+        tokio::fs::remove_file(source).await?;
+    }
+    Ok(target)
+}
+
 /// Transcodes `source` into `format` and removes the source.
 pub async fn convert_audio(source: &Path, format: AudioFormat) -> Result<PathBuf> {
     let Some(ext) = format.extension() else {
         return Ok(source.to_path_buf());
     };
-    let target = with_suffix(source, ext);
     if source.extension().is_some_and(|e| e.eq_ignore_ascii_case(ext)) {
         return Ok(source.to_path_buf());
     }
-
-    let tmp = with_suffix(source, &format!("tmp.{ext}"));
     let codec: &[&str] = match format {
         AudioFormat::Flac => &["-c:a", "flac"],
         // -ac 2 downmixes multichannel (Dolby Atmos) sources
         AudioFormat::Mp3 => &["-c:a", "libmp3lame", "-b:a", "320k", "-ac", "2"],
         AudioFormat::Original => unreachable!(),
     };
-
-    let mut args: Vec<&std::ffi::OsStr> =
-        vec!["-i".as_ref(), source.as_os_str(), "-map".as_ref(), "0:a:0".as_ref(), "-vn".as_ref()];
-    args.extend(codec.iter().map(|s| std::ffi::OsStr::new(*s)));
-    args.push(tmp.as_os_str());
-
-    ffmpeg(&args).await?;
-    tokio::fs::rename(&tmp, &target).await?;
-    tokio::fs::remove_file(source).await?;
-    Ok(target)
+    transcode(source, codec, ext).await
 }
 
 #[cfg(test)]

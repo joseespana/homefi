@@ -682,7 +682,7 @@ private fun SoundSettingsSection() {
         Text(stringResource(R.string.sound_loudness), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
         LoudnessControls(loudness) { app.sound.setLoudness(it) }
         SwitchRow(stringResource(R.string.sound_settings_suggestions), settings.soundSuggestions, hint = stringResource(R.string.sound_settings_suggestions_hint)) { v -> app.settings.update { it.copy(soundSuggestions = v) } }
-        SwitchRow(stringResource(R.string.sound_settings_assistant_button), settings.soundAssistantButton) { v -> app.settings.update { it.copy(soundAssistantButton = v) } }
+        SwitchRow(stringResource(R.string.sound_settings_sound_button), settings.soundButton, hint = stringResource(R.string.sound_settings_sound_button_hint)) { v -> app.settings.update { it.copy(soundButton = v) } }
         SwitchRow(stringResource(R.string.sound_settings_tilt_sliders), settings.soundTiltSliders) { v -> app.settings.update { it.copy(soundTiltSliders = v) } }
     }
 }

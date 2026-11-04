@@ -101,6 +101,9 @@ pub struct AiProviderInfo {
     /// (or the one given to [`ai_providers_in`]).
     #[uniffi(default = "")]
     pub hint: String,
+    /// Can search the web from its API (needed by the concert playlists).
+    #[uniffi(default = false)]
+    pub web_search: bool,
 }
 
 /// Why a provider stands out in the list.
@@ -154,7 +157,7 @@ pub struct AiConfig {
     pub base_url: Option<String>,
 }
 
-fn core_config(config: AiConfig, api_key: Option<String>) -> ai::AiConfig {
+pub(crate) fn core_config(config: AiConfig, api_key: Option<String>) -> ai::AiConfig {
     ai::AiConfig {
         provider: config.provider.into(),
         model: config.model,
@@ -221,6 +224,7 @@ fn providers_in(lang: homefi_core::humane::Lang) -> Vec<AiProviderInfo> {
                 rank: info.rank,
                 badge: info.badge.map(Into::into),
                 hint: info.hint,
+                web_search: info.web_search,
             }
         })
         .collect()

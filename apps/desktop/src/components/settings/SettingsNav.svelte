@@ -52,9 +52,9 @@
 <style>
   nav {
     position: sticky;
-    top: var(--set-drag-h);
+    top: var(--topbar-h, var(--set-drag-h));
     align-self: start;
-    max-height: calc(100vh - var(--set-drag-h) - var(--set-deck-h));
+    max-height: calc(100vh - var(--topbar-h, var(--set-drag-h)) - var(--set-deck-h));
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: var(--set-nav-pad);

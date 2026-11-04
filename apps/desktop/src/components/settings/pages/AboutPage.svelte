@@ -3,6 +3,7 @@
   import { app } from "../../../lib/state.svelte";
   import { TERMS_TEXT, TERMS_VERSION } from "../../../lib/terms";
   import { manualReasonText, updates } from "../../../lib/update.svelte";
+  import { whatsNew } from "../../../lib/whatsNew.svelte";
   import Icon from "../../Icon.svelte";
   import { useSettings } from "../model.svelte";
   import ActionRow from "../ActionRow.svelte";
@@ -15,7 +16,7 @@
   let { settings }: { settings: Settings } = $props();
   const m = useSettings();
 
-  const UPDATE_DEFAULTS: UpdateSettings = { auto_check: true, prereleases: false, install: "ask" };
+  const UPDATE_DEFAULTS: UpdateSettings = { auto_check: true, prereleases: false, install: "ask", whats_new: true };
   const updateSettings = $derived<UpdateSettings>({ ...UPDATE_DEFAULTS, ...(settings.updates ?? {}) });
   const saveUpdates = (patch: Partial<UpdateSettings>) => m.save({ updates: { ...updateSettings, ...patch } });
   const INSTALLS = [
@@ -83,6 +84,10 @@
     value={updateSettings.install}
     onchange={(id) => saveUpdates({ install: id })}
   />
+  <ActionRow label="What's new in HomeFi {app.info?.version}" hint="The notes of the version you're running">
+    <button type="button" class="btn tonal" onclick={() => whatsNew.showLatest()}>Show</button>
+  </ActionRow>
+  <SwitchRow label="Show what's new after an update" hint="Once per version, the first time HomeFi opens after updating" checked={updateSettings.whats_new} onchange={(on) => saveUpdates({ whats_new: on })} />
 </SettingsGroup>
 
 <SettingsGroup title="Personal use">

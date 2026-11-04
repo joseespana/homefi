@@ -14,6 +14,7 @@
   const local = $derived(app.currentIsLocal);
   const dl = $derived(id ? app.trackDownloads[id] : undefined);
   const fav = $derived(!!id && app.isFavorite("track", id));
+  const like = $derived(track ? app.songLike({ title: track.title, artist: track.artist, album: track.album || undefined, year: track.year ?? undefined, genre: track.genre || undefined }) : undefined);
   const ring = 2 * Math.PI * 9;
 
   // local files don't know their Tidal id: find it from the ISRC once
@@ -62,6 +63,12 @@
       </button>
       <button class="act" title="Add to playlist" aria-label="Add to playlist" onclick={(e) => app.pickPlaylist(e, [id!])}>
         <Icon name="plus" size={16} />
+      </button>
+    {/if}
+
+    {#if like && !compact}
+      <button class="act" title="Make an AI playlist like this song" onclick={() => app.playlistLike(like)}>
+        <Icon name="ai" size={16} />Playlist like this
       </button>
     {/if}
   </div>

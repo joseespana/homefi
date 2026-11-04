@@ -46,6 +46,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.lazy.itemsIndexed
 import com.perseusoft.homefi.data.Motion
+import com.perseusoft.homefi.data.PlayerButtons
 import com.perseusoft.homefi.ui.theme.ListEntrance
 import com.perseusoft.homefi.ui.theme.LocalMotion
 import com.perseusoft.homefi.ui.theme.itemMotion
@@ -69,6 +70,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Download
@@ -150,6 +152,8 @@ import androidx.compose.foundation.layout.Spacer
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.share.net.ShareNetworkMode
 import com.perseusoft.homefi.ui.player.DanceId
+import com.perseusoft.homefi.ui.player.HairStyle
+import com.perseusoft.homefi.ui.player.Headbang
 import com.perseusoft.homefi.ui.player.Mood
 import com.perseusoft.homefi.ui.player.ProgressTrack
 import com.perseusoft.homefi.ui.player.Specials
@@ -232,6 +236,19 @@ private enum class SettingsPage(val title: Int, val icon: ImageVector, val secti
             R.string.crossfade_album_runs, R.string.crossfade_manual, R.string.crossfade_low_power,
         ),
     ),
+    PLAYLISTS(
+        R.string.pl_settings_title,
+        Icons.AutoMirrored.Rounded.QueueMusic,
+        SettingsSection.SOUND,
+        listOf(
+            R.string.pl_set_concert, R.string.pl_shows, R.string.pl_set_always, R.string.pl_set_usually, R.string.pl_set_sometimes,
+            R.string.pl_set_encore, R.string.pl_set_budget, R.string.pl_set_prefer_library, R.string.pl_set_skip_tape,
+            R.string.pl_set_covers, R.string.pl_set_show_sources, R.string.pl_set_home_section,
+            R.string.pl_set_party, R.string.pl_set_party_minutes, R.string.pl_set_party_curve,
+            R.string.pl_set_party_explicit, R.string.pl_set_party_per_artist,
+            R.string.pl_set_chat, R.string.pl_set_chat_explicit, R.string.pl_set_chat_from_song, R.string.pl_set_chat_from_song_keywords,
+        ),
+    ),
     AI(
         R.string.settings_ai,
         AiIcon,
@@ -287,6 +304,7 @@ private enum class SettingsPage(val title: Int, val icon: ImageVector, val secti
         listOf(
             R.string.update_title, R.string.update_check_now, R.string.update_auto, R.string.update_prereleases,
             R.string.update_keywords, R.string.tidal_terms_title, R.string.tidal_terms,
+            R.string.whats_new_setting, R.string.whats_new_open,
         ),
     ),
 }
@@ -350,6 +368,7 @@ fun SettingsScreen(loggedIn: Boolean, onLogin: () -> Unit, onLoggedOut: () -> Un
                 stringResource(R.string.lyrics_summary, stringResource(settings.lyricsMode.label()), stringResource(settings.lyricsSize.label()))
             SettingsPage.SOUND -> soundSummary()
             SettingsPage.PLAYBACK -> playbackSummary()
+            SettingsPage.PLAYLISTS -> playlistsSummary()
             SettingsPage.AI -> aiSummary(settings.ai)
             SettingsPage.SHARING ->
                 "${stringResource(settings.share.network.label())} · ${app.share.sessionName(settings.share)}"
@@ -430,6 +449,7 @@ private fun PageBody(
         SettingsPage.LYRICS -> LyricsSettings()
         SettingsPage.SOUND -> SoundSettings()
         SettingsPage.PLAYBACK -> PlaybackSettings()
+        SettingsPage.PLAYLISTS -> PlaylistsSettings()
         SettingsPage.AI -> AiSettingsSection()
         SettingsPage.SHARING -> ShareSettingsSection()
         SettingsPage.ABOUT -> AboutSettings()
@@ -910,6 +930,7 @@ private fun AboutSettings() {
         SettingRow(label = "HomeFi ${BuildConfig.VERSION_NAME} · core ${coreVersion()}")
     }
     UpdateSettingsSection()
+    WhatsNewSettings()
     SettingsGroup(title = stringResource(R.string.tidal_terms_title)) {
         Text(
             stringResource(R.string.tidal_terms),
@@ -926,6 +947,37 @@ private fun AboutSettings() {
                 stringResource(R.string.tidal_terms_not_accepted)
             },
         )
+    }
+}
+
+/** Settings → About → What's new: on every build (the updater section is off for some). */
+@Composable
+private fun WhatsNewSettings() {
+    val app = LocalContext.current.homefi
+    val settings by app.settings.settings.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    val haptics = haptics()
+    var shown by remember { mutableStateOf<List<com.perseusoft.homefi.core.ReleaseNotes>?>(null) }
+    shown?.let { notes -> com.perseusoft.homefi.ui.ReleaseNotesDialog(notes, onDismiss = { shown = null }) }
+    SettingsGroup(title = stringResource(R.string.update_whats_new)) {
+        SettingRow(
+            label = stringResource(R.string.whats_new_open, BuildConfig.VERSION_NAME),
+            hint = stringResource(R.string.whats_new_open_hint),
+            trailing = {
+                androidx.compose.material3.FilledTonalButton(
+                    onClick = {
+                        haptics.press()
+                        scope.launch { shown = listOfNotNull(app.whatsNew.latest()) }
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text(stringResource(R.string.whats_new_show)) }
+            },
+        )
+        RowDivider()
+        SwitchRow(
+            stringResource(R.string.whats_new_setting), settings.whatsNew,
+            hint = stringResource(R.string.whats_new_setting_hint),
+        ) { v -> app.settings.update { it.copy(whatsNew = v) } }
     }
 }
 
@@ -1002,6 +1054,13 @@ private fun PlayerSettings() {
             stringResource(R.string.layout_title), PlayerLayout.entries, settings.playerLayout,
             label = { stringResource(it.labelRes()) },
             onSelect = { l -> app.settings.update { it.copy(playerLayout = l) } },
+        )
+        RowDivider()
+        SegmentedRow(
+            stringResource(R.string.player_buttons_title), PlayerButtons.entries, settings.playerButtons,
+            label = { stringResource(if (it == PlayerButtons.TOP) R.string.player_buttons_top else R.string.player_buttons_bottom) },
+            onSelect = { b -> app.settings.update { it.copy(playerButtons = b) } },
+            hint = stringResource(R.string.player_buttons_hint),
         )
         RowDivider()
         SwitchRow(
@@ -1093,6 +1152,13 @@ private fun MascotSettings() {
             label = { stringResource(it.labelRes()) },
             onSelect = { l -> app.settings.update { it.copy(mascotLimbs = l) } },
         )
+        RowDivider()
+        SegmentedRow(
+            stringResource(R.string.mascot_hair), HairStyle.entries, settings.mascotHair,
+            label = { stringResource(it.labelRes()) },
+            onSelect = { h -> app.settings.update { it.copy(mascotHair = h) } },
+            hint = stringResource(R.string.mascot_hair_hint),
+        )
     }
     SettingsGroup(title = stringResource(R.string.settings_mascot_moves)) {
         SegmentedRow(
@@ -1115,6 +1181,17 @@ private fun MascotSettings() {
             stringResource(R.string.mascot_turns), Turns.entries, settings.mascotTurns,
             label = { stringResource(it.labelRes()) },
             onSelect = { t -> app.settings.update { it.copy(mascotTurns = t) } },
+        )
+        RowDivider()
+        SwitchRow(stringResource(R.string.mascot_follow_beat), settings.mascotFollowBeat, hint = stringResource(R.string.mascot_follow_beat_hint)) { v ->
+            app.settings.update { it.copy(mascotFollowBeat = v) }
+        }
+        RowDivider()
+        SegmentedRow(
+            stringResource(R.string.mascot_headbang), Headbang.entries, settings.mascotHeadbang,
+            label = { stringResource(it.labelRes()) },
+            onSelect = { h -> app.settings.update { it.copy(mascotHeadbang = h) } },
+            hint = stringResource(R.string.mascot_headbang_hint),
         )
     }
     SettingsGroup(title = stringResource(R.string.mascot_temper)) {
@@ -1199,6 +1276,26 @@ private fun LyricsSettings() {
             stringResource(R.string.lyrics_mascot), settings.lyricsMascot,
             hint = stringResource(R.string.lyrics_mascot_hint),
         ) { v -> app.settings.update { it.copy(lyricsMascot = v) } }
+    }
+    SettingsGroup {
+        SwitchRow(
+            stringResource(R.string.pip_enabled), settings.pipEnabled,
+            hint = stringResource(R.string.pip_enabled_hint),
+        ) { v -> app.settings.update { it.copy(pipEnabled = v) } }
+        Reveal(settings.pipEnabled) {
+            Column {
+                RowDivider()
+                SwitchRow(
+                    stringResource(R.string.pip_lyrics), settings.pipLyrics,
+                    hint = stringResource(R.string.pip_lyrics_hint),
+                ) { v -> app.settings.update { it.copy(pipLyrics = v) } }
+                RowDivider()
+                SwitchRow(
+                    stringResource(R.string.pip_mascot), settings.pipMascot,
+                    hint = stringResource(R.string.pip_mascot_hint),
+                ) { v -> app.settings.update { it.copy(pipMascot = v) } }
+            }
+        }
     }
 }
 
@@ -1532,6 +1629,18 @@ private fun Turns.labelRes(): Int = when (this) {
     Turns.OFF -> R.string.turns_off
     Turns.DANCES -> R.string.turns_dances
     Turns.ALL -> R.string.turns_all
+}
+
+private fun HairStyle.labelRes(): Int = when (this) {
+    HairStyle.AUTO -> R.string.hair_auto
+    HairStyle.LONG -> R.string.hair_long
+    HairStyle.SHORT -> R.string.hair_short
+}
+
+private fun Headbang.labelRes(): Int = when (this) {
+    Headbang.GENTLE -> R.string.headbang_gentle
+    Headbang.NORMAL -> R.string.headbang_normal
+    Headbang.WILD -> R.string.headbang_wild
 }
 
 private fun Temper.labelRes(): Int = when (this) {

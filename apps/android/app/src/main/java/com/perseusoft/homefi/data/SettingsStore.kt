@@ -13,6 +13,11 @@ import com.perseusoft.homefi.core.eqSettingsFromJson
 import com.perseusoft.homefi.core.eqSettingsToJson
 import com.perseusoft.homefi.core.LoudnessSettings
 import com.perseusoft.homefi.core.CrossfadeSettings
+import com.perseusoft.homefi.core.PlaylistSettings
+import com.perseusoft.homefi.core.playlistDefaultSettings
+import com.perseusoft.homefi.core.playlistSettingsClamped
+import com.perseusoft.homefi.core.playlistSettingsFromJson
+import com.perseusoft.homefi.core.playlistSettingsToJson
 import com.perseusoft.homefi.core.crossfadeDefaultSettings
 import com.perseusoft.homefi.core.crossfadeSettingsFromJson
 import com.perseusoft.homefi.core.crossfadeSettingsToJson
@@ -33,6 +38,8 @@ import com.perseusoft.homefi.core.ShareQueueOrder
 import com.perseusoft.homefi.core.ShareSkipMode
 import com.perseusoft.homefi.share.net.ShareNetworkMode
 import com.perseusoft.homefi.ui.player.DanceId
+import com.perseusoft.homefi.ui.player.HairStyle
+import com.perseusoft.homefi.ui.player.Headbang
 import com.perseusoft.homefi.ui.player.Mood
 import com.perseusoft.homefi.ui.player.Specials
 import com.perseusoft.homefi.ui.player.Temper
@@ -75,6 +82,16 @@ enum class SignalStyle(val key: String) {
 
     companion object {
         fun of(key: String?): SignalStyle = entries.firstOrNull { it.key == key } ?: COMPACT
+    }
+}
+
+/** Where the Sound button sits in the player: the top bar, or inline below the title. Keys match desktop `room.player_buttons`. */
+enum class PlayerButtons(val key: String) {
+    TOP("top"),
+    BOTTOM("bottom");
+
+    companion object {
+        fun of(key: String?): PlayerButtons = entries.firstOrNull { it.key == key } ?: TOP
     }
 }
 
@@ -210,6 +227,11 @@ data class AppSettings(
     val mascotSpecials: Specials = Specials.SOMETIMES,
     val mascotLimbs: MascotLimbs = MascotLimbs.WHITE,
     val mascotTurns: Turns = Turns.ALL,
+    /** Long hair: only in mosh mode (auto), always, or none. */
+    val mascotHair: HairStyle = HairStyle.AUTO,
+    /** Lock the dance to the beat the app hears; off keeps the free tempo. */
+    val mascotFollowBeat: Boolean = true,
+    val mascotHeadbang: Headbang = Headbang.NORMAL,
     /** What a long-press on the mascot does. */
     val mascotHold: MascotHold = MascotHold.MENU,
     /** A dances button next to the mascot in the player. */
@@ -236,19 +258,27 @@ data class AppSettings(
     val lyricsMascot: Boolean = true,
     /** Lyrics timing, −2000..2000 ms; positive shows them later (Bluetooth delay). */
     val lyricsOffsetMs: Int = 0,
+    /** Leaving the app while music plays shrinks it into a picture-in-picture player. */
+    val pipEnabled: Boolean = true,
+    /** The picture-in-picture player shows the synced lyrics (karaoke) when the song has them. */
+    val pipLyrics: Boolean = false,
+    /** The picture-in-picture player shows HomeFito dancing. */
+    val pipMascot: Boolean = false,
     val share: ShareSettings = ShareSettings(),
     val ai: AiSettings = AiSettings(),
     /** "How does it sound?" button in the player (it stays in the player's menu either way). */
     val soundReactButton: Boolean = true,
-    /** The signal badge names the active layers ("EQ · HD 650 + Electronic") instead of "not bit-perfect". */
+    /** The signal badge names the active layers ("Warm and airy") instead of "Sound". */
     val soundLayerChip: Boolean = true,
     /** The player shows the signal chain (source → processing → output) instead of the badges. */
     val signalChain: Boolean = true,
     val signalStyle: SignalStyle = SignalStyle.COMPACT,
     /** The chain's links flow while playing (motion settings still win). */
     val signalAnimate: Boolean = true,
-    /** "Ask the AI" button in the player (it stays in the player's menu either way). */
-    val soundAssistantButton: Boolean = true,
+    /** The one Sound button in the player: tap opens Sound, long-press asks the AI (both stay in the player's menu). */
+    val soundButton: Boolean = true,
+    /** Where the Sound button sits (desktop: `room.player_buttons`). */
+    val playerButtons: PlayerButtons = PlayerButtons.TOP,
     /** Bass / treble / clarity sliders inside Edit curve (desktop: `eq_ui.taste_sliders`). */
     val soundTiltSliders: Boolean = true,
     /** A taste suggestion card in the equalizer's taste rules. */
@@ -263,6 +293,10 @@ data class AppSettings(
     val updateAutoCheck: Boolean = true,
     /** Offer beta versions too (GitHub pre-releases). */
     val updatePrereleases: Boolean = false,
+    /** Show the CHANGELOG notes once per version, the first time HomeFi opens after updating. */
+    val whatsNew: Boolean = true,
+    /** Last version that ran (written by [WhatsNew]); null = never recorded. */
+    val lastSeenVersion: String? = null,
 ) {
     /** How the core groups album lists (the same preferences as the desktop's). */
     val albumVersions: AlbumVersionPrefs
@@ -279,6 +313,9 @@ const val TIDAL_TERMS_VERSION = 1
 /** Lyrics timing limits; moved in [LYRICS_OFFSET_STEP] steps. */
 val LYRICS_OFFSET_RANGE = -2000..2000
 const val LYRICS_OFFSET_STEP = 100
+
+/** SharedPreferences key of the playlist settings JSON (shared shape with the desktop). */
+private const val PLAYLIST_SETTINGS_KEY = "playlist_settings"
 
 class SettingsStore(context: Context) {
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
@@ -332,6 +369,13 @@ class SettingsStore(context: Context) {
         mascotTurns = prefs.getString("mascot_turns", null)
             ?.let { runCatching { Turns.valueOf(it) }.getOrNull() }
             ?: Turns.ALL,
+        mascotHair = prefs.getString("mascot_hair", null)
+            ?.let { runCatching { HairStyle.valueOf(it) }.getOrNull() }
+            ?: HairStyle.AUTO,
+        mascotFollowBeat = prefs.getBoolean("mascot_follow_beat", true),
+        mascotHeadbang = prefs.getString("mascot_headbang", null)
+            ?.let { runCatching { Headbang.valueOf(it) }.getOrNull() }
+            ?: Headbang.NORMAL,
         mascotHold = prefs.getString("mascot_hold", null)
             ?.let { runCatching { MascotHold.valueOf(it) }.getOrNull() }
             // before the menu it was an on/off switch for "next style"
@@ -351,6 +395,9 @@ class SettingsStore(context: Context) {
         lyricsAutoOpen = prefs.getBoolean("lyrics_auto_open", false),
         lyricsMascot = prefs.getBoolean("lyrics_mascot", true),
         lyricsOffsetMs = prefs.getInt("lyrics_offset_ms", 0).coerceIn(LYRICS_OFFSET_RANGE),
+        pipEnabled = prefs.getBoolean("pip_enabled", true),
+        pipLyrics = prefs.getBoolean("pip_lyrics", false),
+        pipMascot = prefs.getBoolean("pip_mascot", false),
         share = loadShare(),
         ai = AiSettings(
             provider = prefs.getString("ai_provider", "").orEmpty(),
@@ -359,7 +406,13 @@ class SettingsStore(context: Context) {
         ),
         soundReactButton = prefs.getBoolean("sound_react_button", true),
         soundLayerChip = prefs.getBoolean("sound_layer_chip", true),
-        soundAssistantButton = prefs.getBoolean("sound_assistant_button", true),
+        // the retired "Ask the AI" switch carries over until the new one is saved
+        soundButton = if (prefs.contains("sound_button")) {
+            prefs.getBoolean("sound_button", true)
+        } else {
+            prefs.getBoolean("sound_assistant_button", true)
+        },
+        playerButtons = PlayerButtons.of(prefs.getString("player_buttons", null)),
         soundTiltSliders = prefs.getBoolean("sound_tilt_sliders", true),
         signalChain = prefs.getBoolean("signal_chain", true),
         signalStyle = SignalStyle.of(prefs.getString("signal_style", null)),
@@ -370,6 +423,8 @@ class SettingsStore(context: Context) {
         tidalTermsAcceptedAt = prefs.getLong("tidal_terms_accepted_at", 0L),
         updateAutoCheck = prefs.getBoolean("update_auto_check", true),
         updatePrereleases = prefs.getBoolean("update_prereleases", false),
+        whatsNew = prefs.getBoolean("whats_new", true),
+        lastSeenVersion = prefs.getString("last_seen_version", null),
     )
 
     private fun stringMap(key: String): Map<String, String> = runCatching {
@@ -453,6 +508,9 @@ class SettingsStore(context: Context) {
             .putString("mascot_specials", next.mascotSpecials.name)
             .putString("mascot_limbs", next.mascotLimbs.name)
             .putString("mascot_turns", next.mascotTurns.name)
+            .putString("mascot_hair", next.mascotHair.name)
+            .putBoolean("mascot_follow_beat", next.mascotFollowBeat)
+            .putString("mascot_headbang", next.mascotHeadbang.name)
             .putString("mascot_hold", next.mascotHold.name)
             .putBoolean("mascot_dance_button", next.mascotDanceButton)
             .putString("mascot_temper", next.mascotTemper.name)
@@ -464,13 +522,17 @@ class SettingsStore(context: Context) {
             .putBoolean("lyrics_auto_open", next.lyricsAutoOpen)
             .putBoolean("lyrics_mascot", next.lyricsMascot)
             .putInt("lyrics_offset_ms", next.lyricsOffsetMs.coerceIn(LYRICS_OFFSET_RANGE))
+            .putBoolean("pip_enabled", next.pipEnabled)
+            .putBoolean("pip_lyrics", next.pipLyrics)
+            .putBoolean("pip_mascot", next.pipMascot)
             .putShare(next.share)
             .putString("ai_provider", next.ai.provider)
             .putString("ai_models", JSONObject(next.ai.models).toString())
             .putString("ai_base_urls", JSONObject(next.ai.baseUrls).toString())
             .putBoolean("sound_react_button", next.soundReactButton)
             .putBoolean("sound_layer_chip", next.soundLayerChip)
-            .putBoolean("sound_assistant_button", next.soundAssistantButton)
+            .putBoolean("sound_button", next.soundButton)
+            .putString("player_buttons", next.playerButtons.key)
             .putBoolean("sound_tilt_sliders", next.soundTiltSliders)
             .putBoolean("signal_chain", next.signalChain)
             .putString("signal_style", next.signalStyle.key)
@@ -481,6 +543,8 @@ class SettingsStore(context: Context) {
             .putLong("tidal_terms_accepted_at", next.tidalTermsAcceptedAt)
             .putBoolean("update_auto_check", next.updateAutoCheck)
             .putBoolean("update_prereleases", next.updatePrereleases)
+            .putBoolean("whats_new", next.whatsNew)
+            .putString("last_seen_version", next.lastSeenVersion)
             .apply()
         _settings.value = next
     }
@@ -606,6 +670,22 @@ class SettingsStore(context: Context) {
     fun setCrossfade(crossfade: CrossfadeSettings) {
         _crossfade.value = crossfade
         prefs.edit().putString("crossfade_settings", crossfadeSettingsToJson(crossfade)).apply()
+    }
+
+    // ------------------------------------------------------------ playlists
+
+    private val _playlists = MutableStateFlow(
+        prefs.getString(PLAYLIST_SETTINGS_KEY, null)?.let { runCatching { playlistSettingsFromJson(it) }.getOrNull() }
+            ?: playlistDefaultSettings(),
+    )
+    /** "Get ready for a concert" and the playlists screen; the desktop's `playlists` JSON. */
+    val playlists: StateFlow<PlaylistSettings> = _playlists.asStateFlow()
+
+    /** Stores the core's clamped version of [value] (the ranges and the threshold order live in the core). */
+    fun setPlaylists(value: PlaylistSettings) {
+        val clamped = runCatching { playlistSettingsClamped(value) }.getOrDefault(value)
+        _playlists.value = clamped
+        runCatching { playlistSettingsToJson(clamped) }.onSuccess { prefs.edit().putString(PLAYLIST_SETTINGS_KEY, it).apply() }
     }
 
     /** Shortcut for the share section. */

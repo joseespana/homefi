@@ -1305,6 +1305,21 @@ pub async fn mini_player<R: Runtime>(app: AppHandle<R>, open: bool) -> CmdResult
     Ok(())
 }
 
+/// The mini player grows or shrinks to `width` x `height` (logical pixels) for its lyrics and
+/// mascot, keeping its bottom-right corner where it was so it never leaves the screen's edge.
+#[tauri::command]
+pub async fn mini_resize<R: Runtime>(app: AppHandle<R>, width: f64, height: f64) -> CmdResult<()> {
+    let Some(mini) = app.get_webview_window(MINI) else { return Ok(()) };
+    // sane bounds: a bad call can't make a giant or an invisible window
+    let (width, height) = (width.clamp(240.0, 900.0), height.clamp(80.0, 600.0));
+    let scale = mini.scale_factor().map_err(err)?;
+    let old = mini.inner_size().map_err(err)?.to_logical::<f64>(scale);
+    let at = mini.outer_position().map_err(err)?.to_logical::<f64>(scale);
+    mini.set_size(tauri::LogicalSize::new(width, height)).map_err(err)?;
+    let _ = mini.set_position(tauri::LogicalPosition::new(at.x + old.width - width, at.y + old.height - height));
+    Ok(())
+}
+
 /// The mini player's page has drawn: show it, and only then tuck the main window away.
 #[tauri::command]
 pub async fn mini_ready<R: Runtime>(app: AppHandle<R>) -> CmdResult<()> {
@@ -1445,7 +1460,10 @@ pub async fn set_settings(app: AppHandle, settings: DesktopSettings) -> CmdResul
     // `version` is stamped, so a UI that drops it can't re-run the 1.5.0 migration
     let saved = state.save_settings(|s| {
         *s = settings;
+        s.keep_backend_owned(&before);
         s.taste = s.taste.clamped();
+        s.playlists = s.playlists.clamped();
+        s.disc = s.disc.clone().sanitized();
     })?;
     crate::share::on_settings(&app, &before, &saved);
     if before.eq != saved.eq {

@@ -75,6 +75,8 @@ import com.perseusoft.homefi.data.MascotHold
 import com.perseusoft.homefi.data.MascotLimbs
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.player.AudioTap
+import com.perseusoft.homefi.ui.theme.LocalMotion
+import com.perseusoft.homefi.data.Motion
 import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.abs
@@ -98,9 +100,9 @@ private const val VIEW_W = 1000f
 private const val VIEW_H = 900f
 
 /** Feet on the ground: the body turns and squashes around this point. */
-private val FEET = Offset(512f, 896f)
-private val TILT_PIVOT = Offset(512f, 560f)
-private const val TILT = -6f
+internal val FEET = Offset(512f, 896f)
+internal val TILT_PIVOT = Offset(512f, 560f)
+internal const val TILT = -6f
 
 // limbs (keep in sync with the desktop)
 private val SHOULDER_L = Offset(268f, 730f)
@@ -381,6 +383,10 @@ fun MascotView(modifier: Modifier = Modifier, singing: Boolean = false, danceBut
     val specials by rememberUpdatedState(settings.mascotSpecials)
     val pinned by rememberUpdatedState(settings.mascotDance)
     val turns by rememberUpdatedState(settings.mascotTurns)
+    val reduceMotion = LocalMotion.current.level != Motion.FULL
+    val beatOptions by rememberUpdatedState(BeatOptions(settings.mascotFollowBeat, settings.mascotHeadbang, reduceMotion))
+    val hairOn by rememberUpdatedState(settings.mascotHair == HairStyle.LONG || (settings.mascotHair == HairStyle.AUTO && mood == Mood.MOSH))
+    val hair = remember { HairRig() }
     val temper by rememberUpdatedState(settings.mascotTemper)
     val hold by rememberUpdatedState(settings.mascotHold)
     val sing by rememberUpdatedState(singing)
@@ -418,12 +424,14 @@ fun MascotView(modifier: Modifier = Modifier, singing: Boolean = false, danceBut
             withFrameNanos { now ->
                 val dt = if (last == 0L) 0.0 else ((now - last) / 1e9).coerceIn(0.0, 0.1)
                 last = now
-                frame.pose = choreo.step(dt, playing, AudioTap.listening.value.bpm.toDouble(), AudioTap.energy.toDouble(), moodNow, specials, pinned, turns)
+                val sound = AudioTap.listening.value
+                frame.pose = choreo.step(dt, playing, sound.bpm.toDouble(), AudioTap.energy.toDouble(), moodNow, specials, pinned, turns, sound, beatOptions)
                 frame.seconds = now / 1e9
                 frame.anger = tantrum.at(frame.seconds)
                 if (frame.anger >= 0) frame.pose = angryPose(frame.anger)
                 // karaoke: the right hand holds the microphone up to the mouth
                 else if (sing && playing) frame.pose = frame.pose.copy(armR = -110.0, turn = 0.0, flip = false, guitar = 0.0)
+                if (hairOn) hair.update(dt, frame.pose) else hair.reset()
                 tick.longValue = now
             }
         }
@@ -511,7 +519,8 @@ fun MascotView(modifier: Modifier = Modifier, singing: Boolean = false, danceBut
                     translate(-VIEW_X, -VIEW_Y)
                 }) {
                     drawMascot(frame.pose, mood, player.isPlaying, limbs, accent, muted, ground, frame.seconds, choreo.beat, frame.anger,
-                        if (singing && player.isPlaying && frame.anger < 0) AudioTap.energy else -1f)
+                        if (singing && player.isPlaying && frame.anger < 0) AudioTap.energy else -1f,
+                        if (hairOn) hair else null)
                 }
             }
             styleTag?.let { tag ->
@@ -642,6 +651,7 @@ private fun DrawScope.drawMascot(
     beat: Double,
     anger: Double,
     sing: Float,
+    hair: HairRig?,
 ) {
     val hue = ((t % 1.6) / 1.6 * 360).toFloat()
     val angry = anger >= 0
@@ -694,7 +704,13 @@ private fun DrawScope.drawMascot(
             val cups = turn.cups()
             val band = turn.bandHalves(cups)
             val bandPen = Pen.round(BAND_W * (1 - 0.45f * abs(turn.side)))
+            hair?.draw(this, false, hairBase(mood), hairDark(mood))
             behind.forEach { drawArm(it, fill!!, outline, mic = it === micArm) }
+            // the head nods on its own (and goes round in a windmill) over the body
+            withTransform({
+                translate(p.headX.toFloat(), p.headY.toFloat())
+                rotate(p.head.toFloat(), HEAD_PIVOT)
+            }) {
             // cups and the band half reaching them go behind as soon as they face away
             band.filter { it.second < 0 }.forEach { drawBand(it.first, bandPen, mood, playing, hue, beat) }
             cups.filter { it.depth < 0 }.forEach { drawCup(it, mood) }
@@ -713,7 +729,10 @@ private fun DrawScope.drawMascot(
                         when {
                             angry -> drawFuriousFace()
                             sing >= 0 -> drawSingingFace(sing)
-                            else -> drawFace(mood, playing, t)
+                            else -> {
+                                drawFace(mood, playing, t)
+                                if (playing && mood == Mood.MOSH && p.lids > 0.02) drawLids(p.lids.toFloat())
+                            }
                         }
                         drawPath(Art.cheeks, Ink.cheek, alpha = if (playing && mood == Mood.CUTE) 0.9f else 0.6f)
                         drawFaceDecor(mood)
@@ -737,6 +756,8 @@ private fun DrawScope.drawMascot(
                     }) { drawPath(Art.vein, Ink.darkRed, style = Pen.w12) }
                 }
             }
+            }
+            hair?.draw(this, true, hairBase(mood), hairDark(mood))
             // in front of the body, behind the hands
             if (g > 0) drawGuitar(guitar, min(1f, g * 2))
             // arms in front, so raised arms don't hide behind the headphones
@@ -759,6 +780,37 @@ private fun DrawScope.drawSteam(anger: Double) {
             drawCircle(Ink.navy, r, Offset(x, y), alpha = alpha * 0.18f, style = Pen.w5)
         }
     }
+}
+
+/** Eyelids coming down over the mosh face's eyes: [down] 0 open .. 1 shut. */
+private fun DrawScope.drawLids(down: Float) {
+    val h = 2 * EYE_R * 0.7f * down.coerceIn(0f, 1f)
+    val top = LY + 8 - EYE_R * 0.7f
+    drawRect(Ink.white, Offset(LX - EYE_R, top), Size(2 * EYE_R, h))
+    drawRect(Ink.white, Offset(RX - EYE_R, top), Size(2 * EYE_R, h))
+}
+
+/** Hair colour per style, with a darker shade for the strands behind. */
+private fun hairBase(mood: Mood) = when (mood) {
+    Mood.MOSH -> Ink.leather
+    Mood.POGO -> Ink.green
+    Mood.CUTE -> Ink.hotPink
+    Mood.PARTY -> Ink.sky
+    Mood.SALSA -> Ink.red
+    Mood.GROOVE -> Ink.bronze
+    Mood.CHILL -> Ink.silver
+    Mood.BOP -> Ink.brown
+}
+
+private fun hairDark(mood: Mood) = when (mood) {
+    Mood.MOSH -> Ink.shades
+    Mood.POGO -> Ink.darkGreen
+    Mood.CUTE -> Ink.crimson
+    Mood.PARTY -> Ink.beret
+    Mood.SALSA -> Ink.brick
+    Mood.GROOVE -> Ink.brown
+    Mood.CHILL -> Ink.micRing
+    Mood.BOP -> Ink.maroon
 }
 
 private fun DrawScope.drawFuriousFace() {

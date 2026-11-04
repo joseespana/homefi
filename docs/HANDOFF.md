@@ -199,6 +199,109 @@ los visuales. Probado en la Mac con jack a 96 kHz y Bluetooth a 44.1.
 - **Sin probar en vivo**: la búsqueda de Tidal con sesión, el audio del Try y de
   "Escuchar sin" en un dispositivo real, Windows.
 
+### Playlists hechas por HomeFi: modo concierto (escritorio y Android)
+- "Prepararme para un concierto": artista → la IA **del usuario** busca en la web
+  los setlists recientes (`ai/web_search.rs`: Anthropic `web_search`, OpenAI y xAI
+  Responses `web_search`, Gemini `google_search`, OpenRouter `plugins: web`; los demás
+  devuelven `AiErrorKind::NoWebSearch`). Dos fases en `concert/ai_search.rs`: buscar
+  con citas y luego estructurar con `submit_shows`. **Sin setlist.fm ni ningún
+  servicio que nos cueste** (decisión de José, 2026-11-02).
+- Sin IA con búsqueda, o si no encuentra ≥ 2 shows útiles: "Lo más escuchado en
+  Tidal" (`concert/popular.rs`), siempre marcado como "No es el setlist real".
+- `concert/tour.rs::tour_set(shows, &ConcertThresholds)` es puro: Siempre 80 %,
+  Casi siempre 50 %, A veces 25 %, Bis 50 %, todos configurables
+  (`PlaylistSettings.concert_thresholds`, `concert_shows` 3..=15, por defecto 8).
+- `playlist/resolve.rs` comprueba cada canción contra la biblioteca y Tidal
+  (`MIN_CONFIDENCE` 0.6; estudio antes que en vivo, pero una canción que solo existe
+  en vivo se acepta; demo/karaoke/tributo fuera). Así la IA no puede inventar canciones.
+- Listas en JSON (`playlist/store.rs`): `~/.homefi/playlists/<id>.json`, Android
+  `filesDir/homefi/playlists`. Nunca se escribe en la cuenta de Tidal. Al
+  reproducir llevan `SourceContext` de playlist, así que los Sonidos aplican.
+  Borrar en escritorio manda el JSON a la Papelera; en Android, confirmación y Deshacer.
+- Tauri `src-tauri/src/playlists.rs`: `concert_sources`, `concert_build`,
+  `concert_rearrange`, `concert_cancel`, `home_playlists`, `home_playlist_save`,
+  `home_playlist_delete`. FFI `homefi-ffi/src/playlists.rs` (`concertBuild`, ...).
+- El widget de Gemini va en un iframe sandbox (`public/search-widget-frame.js`) en
+  escritorio y en un WebView cerrado (`ui/playlists/SearchSuggestions.kt`) en Android.
+- **Sin probar en vivo**: respuestas reales de cada IA con búsqueda, Tidal con sesión,
+  el widget real de Gemini y el CSP de Tauri con `srcdoc`.
+
+### Playlists hechas por HomeFi: modo fiesta (escritorio y Android)
+- "Armar una playlist para una fiesta": **solo con IA** (sin IA, la pantalla muestra
+  el texto de "necesita IA" y el botón para configurarla). Preguntas con taps
+  (`party/mod.rs::PartyBrief`: invitados, edades, ambiente, duración 30..=480 min en
+  pasos de 15, curva de energía, letras explícitas) y luego un chat corto opcional
+  con la IA del usuario (`party/session.rs::PartySession`, máximo 6 turnos).
+- La IA propone canciones con la herramienta `propose_songs`, **sin búsqueda web**.
+  Cada canción pasa por el mismo `playlist/resolve.rs` del modo concierto, así que
+  las inventadas quedan fuera. Si falta duración, hasta 2 rondas de relleno.
+- `party/arrange.rs`: tope por artista (`cap_per_artist`, 1..=10, por defecto 3),
+  recorte a la duración y la curva (`Arc` por defecto: calienta, pico hacia los dos
+  tercios y baja; `Rising`; `Steady` = orden de la IA).
+- Ajustes → Playlists → Playlists de fiesta: `PlaylistSettings.party_minutes` (120),
+  `party_curve` (arc), `party_allow_explicit` (true), `party_max_per_artist` (3).
+- Tauri `playlists.rs`: `party_default_brief`, `party_open`, `party_set_brief`,
+  `party_start`, `party_reply`, `party_build`, `party_cancel`, `party_close`.
+  FFI `homefi-ffi/src/party.rs` (`PartySession`, `partyBuild`, `partyDefaultBrief`).
+- **Sin probar en vivo**: respuestas reales de cada IA para la fiesta y Tidal con sesión.
+
+### Playlists hechas por HomeFi: playlist con IA por chat (escritorio y Android)
+- "Crear una playlist con IA", el botón principal de Playlists: un chat simple que
+  abre con "¿Qué tipo de playlist quieres hoy?" (texto fijo de `party/words.rs`, sin
+  llamar a la IA) y el usuario pide lo que quiera ("estoy triste, 90s en inglés").
+- Reutiliza todo el modo fiesta: `PartySession` guarda `Brief { Party, Chat }`;
+  `party/chat.rs::ChatBrief { wish, title, minutes, curve, allow_explicit }`. La IA
+  ajusta el brief con la herramienta `set_playlist` (solo en modo chat) y propone con
+  `propose_songs`; mismo resolver, relleno, tope por artista y curva. 12 turnos.
+- Se guarda como `PlaylistOrigin::Chat` (insignia "Chat"); "Seguir el chat" reabre
+  con el brief guardado (el historial no se guarda).
+- Ajustes → Playlists → Playlists con IA: `chat_minutes` (60), `chat_curve` (steady),
+  `chat_allow_explicit` (true); el tope por artista se comparte con la fiesta.
+- Tauri `chat_default_brief`, `chat_open` (más los `party_*`); FFI
+  `PartySession.newChat`, `chatDefaultBrief`.
+- Fiesta y chat comparten la vista de chat con burbujas.
+- "Playlist como esta": desde la canción que suena o el menú de cualquier canción;
+  `party::song_wish(SongSeed, lang)` (Tauri `chat_song_wish`, FFI `chatSongWish`)
+  arma el primer mensaje y la UI lo envía sola. Ajuste `chat_from_song` (true).
+- **Sin probar en vivo**: que cada proveedor llame `set_playlist`.
+
+### Discos: extraer CD de audio (solo escritorio)
+- Crate `crates/homefi-disc` (miembro del workspace, solo escritorio): transportes propios en Rust
+  (macOS ioctls `DKIOCCD*` sobre `/dev/rdiskN`, Linux `SG_IO`, Windows SPTI), lectura segura/rápida
+  con C2 y relecturas, offset por lector (`disc.offsets`), CD-Text, id de MusicBrainz, detección de
+  protección (CSS/CPPM/AACS) **sin leer nada cifrado**. Codificadores: FLAC con `flacenc` +
+  verificación decodificando con symphonia, WAV propio, ALAC/MP3/AAC/Opus con el ffmpeg del usuario
+  (`ffmpeg::transcode`). Etiquetas con `write_track_tags` (ahora también `.wav` y `.opus`).
+- Info del disco: la pide la pantalla (prellenada con CD-Text); blancos → "Disc N",
+  "Unknown artist", "Track 01". MusicBrainz + Cover Art Archive solo si `disc.sources.musicbrainz`
+  (apagado). Sin CTDB/AccurateRip, sin IA, Android fuera (decisiones de José, 2026-11-04).
+- Tauri `disc.rs`: `disc_drives`, `disc_open`, `disc_identify`, `disc_rip` (Channel), `disc_cancel`,
+  `disc_eject`, evento `disc` (vigilante por sondeo). UI `components/disc/*`, `lib/disc.svelte.ts`,
+  Ajustes → Discos. Ejemplo de diagnóstico: `cargo run -p homefi-disc --example probe`.
+- **Sin probar con un lector real** (macOS con el lector USB de José pendiente; Windows/Linux solo
+  con imágenes).
+
+### Homefito: modo mosh, mini reproductor y PiP
+- Seguidor de beat con fase (`apps/desktop/src/lib/beat.ts`, Android `player/BeatFollower.kt`, mismos
+  números y pruebas), pelo con física verlet (`lib/hair.ts`, `ui/player/Hair.kt`), coreografía mosh
+  (`dance.ts::moshPose`, `ui/player/Mosh.kt`). Ajustes `mascot_hair`, `mascot_follow_beat`,
+  `mascot_headbang`. Pruebas: `pnpm test` (node --test) y `testDebugUnitTest`.
+- Mini reproductor de escritorio: letra karaoke y Homefito (`mini.lyrics`, `mini.mascot`,
+  `mini_resize`). Android: PiP (`pipEnabled`, `pipLyrics`, `pipMascot`). Sin probar en pantalla real.
+
+### Novedades tras actualizar (escritorio y Android)
+- `update/changelog.rs` lee `CHANGELOG.md` embebido con `include_str!` (funciona sin
+  red) y arma las notas de las versiones entre `last_seen_version` y la actual
+  (máximo 5). Sin versión vista: solo se muestra si hubo actualización (en escritorio,
+  ya existía `settings.json`), y solo la última versión.
+- Escritorio `whats_new.rs` (`whats_new_check` una vez por arranque, `whats_new_latest`
+  para Ajustes → Acerca de); `set_settings` no deja que la UI cambie `last_seen_version`.
+  Android `data/WhatsNew.kt`. Se apaga en Ajustes → Acerca de (`whats_new`, activo por defecto).
+- Test guardián `the_real_changelog_parses`: si el formato del CHANGELOG se rompe,
+  falla `cargo test`.
+- **Sin probar en vivo**: el camino del actualizador dentro de la app y un 1.5.1 → 1.5.2
+  real en dispositivo y en las instalaciones de macOS/Windows/Linux.
+
 ### Android (`apps/android`)
 - Pestañas: Home (recientes, continuar), biblioteca (incluye .m3u), búsqueda,
   Tidal (colección, páginas de artista/álbum/playlist, streaming con caché 2 GB),

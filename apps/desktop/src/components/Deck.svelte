@@ -10,10 +10,11 @@
   import Knob from "./Knob.svelte";
   import OutputMenu from "./OutputMenu.svelte";
   import NowActions from "./NowActions.svelte";
-  import { lyrics } from "../lib/lyrics.svelte";
   import { pop, swap } from "../lib/motion";
-  import { layersWords, sound } from "../lib/sound.svelte";
+  import { buttonsOnTop } from "../lib/playerButtons.svelte";
+  import { layersWords, soundName, sound } from "../lib/sound.svelte";
   import HowSounds from "./sound/HowSounds.svelte";
+  import PlayerButtons from "./PlayerButtons.svelte";
 
   let { queueOpen = $bindable(false) }: { queueOpen?: boolean } = $props();
 
@@ -28,23 +29,16 @@
   const position = $derived(dragging ?? p?.position_ms ?? 0);
   let outputsOpen = $state(false);
 
-  // narrow windows: a smaller knob, and sharing / lyrics / mini player in a "more" menu
+  // narrow windows: a smaller knob (and, with the buttons in the player bar, a "more" menu)
   let narrow = $state(false);
-  let moreOpen = $state(false);
   $effect(() => {
     const mq = matchMedia("(max-width: 920px)");
-    const update = () => {
-      narrow = mq.matches;
-      if (!narrow) moreOpen = false;
-    };
+    const update = () => (narrow = mq.matches);
     update();
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
   });
-  const lyricsShown = $derived(lyrics.open && (app.view.name === "room" || app.view.name === "guest"));
-  const toggleShare = () => (share.inRoom ? share.open("room") : (share.panelOpen = !share.panelOpen));
-  const toggleLyrics = () => (lyricsShown ? lyrics.setOpen(false) : lyrics.show());
-  const shareTitle = $derived(share.sharing ? "Sharing this music" : share.inRoom ? `In ${share.guest.session_name}` : "Share this music");
+  const buttonsTop = $derived(buttonsOnTop());
 
   let volume = $state(0.8);
   let touched = false;
@@ -64,6 +58,28 @@
   const level = $derived(Math.max(visual.vuLeft, visual.vuRight));
   // "HD 650 + Warm and airy · Eagles": the output's profile and the sound playing
   const layers = $derived(p?.eq_active ? layersWords(p) : null);
+  // the small tag under the song: the sound's name (or just "Sound"), the whole sentence on hover
+  const soundTag = $derived(sound.ui.layer_chip ? soundName(p) : "Sound");
+  const soundTagTitle = $derived(
+    `${p?.auditioning ? "Trying" : "Sound on"}: ${layers ?? "on"}. Playback is not bit-perfect.\nOpen the room to see the signal chain.`,
+  );
+  const showHow = $derived(sound.ui.react_deck && !src.remote);
+  const showSound = $derived(app.settings?.eq_ui?.deck_button ?? true);
+
+  // the one Sound button: what it says depends on the master switch, the output and this song
+  const soundState = $derived(src.remote ? "remote" : p?.eq_active ? (p.auditioning ? "trying" : "on") : app.settings?.eq.enabled ? "flat" : "off");
+  const soundButtonTitle = $derived(
+    {
+      remote: "Sound (this computer)",
+      trying: `Trying: ${soundName(p)}`,
+      on: `Sound: ${layers ?? "on"} (not bit-perfect)`,
+      flat: "Sound: on, flat for this output",
+      off: "Sound: off (bit-perfect)",
+    }[soundState],
+  );
+  const soundOpen = $derived(app.view.name === "sound");
+  let soundMenuOpen = $state(false);
+  const toggleSound = () => (app.view = soundOpen ? { name: "room" } : { name: "sound" });
   const loudness = $derived(Math.abs(p?.loudness_db ?? 0) >= 0.05 ? (p?.loudness_db ?? 0) : null);
 </script>
 
@@ -82,7 +98,7 @@
             <div class="chip">
               <span class="led" class:warn={p.stream.resampled}></span>
               <span class="fmt"><span class="codec">{p.stream.codec.toUpperCase()}&nbsp;</span>{p.stream.bits_per_sample ? `${p.stream.bits_per_sample}/` : ""}{khz(p.stream.source_rate)}{#if p.stream.resampled}&nbsp;→ {khz(p.stream.output_rate)}{/if}</span>
-              {#if p.eq_active}<span class="eq-tag ellipsis" title={`Sound on: ${layers ?? "on"}${p.auditioning ? " (trying)" : ""} (not bit-perfect)`}>{p.auditioning ? "Trying" : "EQ"}{#if sound.ui.layer_chip && layers}<span class="layers">&nbsp;· {layers}</span>{/if}</span>{/if}
+              {#if p.eq_active}<span class="eq-tag sound-tag" class:trying={p.auditioning} title={soundTagTitle}><Icon name="eq" size={10} /><span class="name ellipsis">{p.auditioning ? `Trying · ${soundTag}` : soundTag}</span></span>{/if}
               {#if loudness !== null}<span class="eq-tag loud" title="Loudness normalization: not bit-perfect">{loudness > 0 ? "+" : "−"}{Math.abs(loudness).toFixed(1)} dB</span>{/if}
               {#if p.fading}<span class="eq-tag fade" style:--p={p.fading.progress} title={`Crossfading (${p.fading.seconds.toFixed(1)} s): not bit-perfect until it ends`}>Fade</span>{/if}
             </div>
@@ -143,68 +159,46 @@
         <span class="ellipsis">{outputLabel}</span>
       </button>
       {#if outputsOpen}
-        <button class="scrim" aria-label="Close" onclick={() => (outputsOpen = false)}></button>
+        <button class="deck-scrim" aria-label="Close" onclick={() => (outputsOpen = false)}></button>
         <OutputMenu onclose={() => (outputsOpen = false)} />
       {/if}
     </div>
-    {#if sound.ui.react_deck && !src.remote}
+    {#if buttonsTop && (showHow || showSound)}<i class="sep" aria-hidden="true"></i>{/if}
+    {#if showHow}
       <HowSounds place="deck" look="hw" up />
     {/if}
-    {#if sound.ui.assistant_deck && !src.remote}
-      <button class="hw small" class:active={sound.askOpen && app.view.name === "sound"} title="Ask the AI for a sound (A)" aria-label="Ask the AI" onclick={() => sound.openAsk()}>
-        <Icon name="ai" size={16} />
-      </button>
-    {/if}
-    {#if app.settings?.eq_ui?.deck_button ?? true}
-      <button
-        class="hw small eq-btn"
-        class:on={!src.remote && p?.eq_active}
-        class:active={app.view.name === "sound"}
-        title={p?.eq_active ? `Sound: ${layers ?? "on"} (not bit-perfect)` : app.settings?.eq.enabled ? "Sound: on, flat for this output" : "Sound: off (bit-perfect)"}
-        aria-label="Sound"
-        onclick={() => (app.view = app.view.name === "sound" ? { name: "room" } : { name: "sound" })}
-      >
-        <Icon name="eq" size={16} />
-        {#if !src.remote && p?.eq_active}<span class="eq-dot"></span>{/if}
-      </button>
-    {/if}
-    <Knob value={volume} onchange={setVolume} size={narrow ? 40 : 52} />
-    {#if narrow}
-      <div class="more">
-        <button class="hw small" class:on={moreOpen || share.sharing || share.inRoom || lyricsShown} title="More" aria-label="More" aria-expanded={moreOpen} onclick={() => (moreOpen = !moreOpen)}>
-          <Icon name="more" size={16} />
-          {#if share.sharing && share.hub.guests.length}<span class="count">{share.hub.guests.length}</span>{/if}
+    {#if showSound}
+      <div class="sound-wrap">
+        <button
+          class="hw small snd {soundState}"
+          class:on={soundState === "on" || soundState === "trying"}
+          class:active={soundOpen}
+          title="{soundButtonTitle}\nSound (A: ask the AI)"
+          aria-label="Sound"
+          aria-pressed={soundOpen}
+          aria-haspopup="menu"
+          aria-keyshortcuts="A"
+          onclick={toggleSound}
+          oncontextmenu={(e) => (e.preventDefault(), (soundMenuOpen = true))}
+        >
+          <Icon name="eq" size={16} />
+          {#if soundState === "on" || soundState === "trying"}<span class="snd-dot" class:ring={soundState === "trying"} aria-hidden="true"></span>{/if}
+          <span class="sr-only">{soundState === "off" ? "off" : soundState === "trying" ? "trying" : "on"}</span>
         </button>
-        {#if moreOpen}
-          <button class="scrim" aria-label="Close" onclick={() => (moreOpen = false)}></button>
-          <div class="menu" role="menu" transition:pop={{ origin: "bottom right", y: 8 }}>
-            <button role="menuitem" class:on={share.sharing || share.inRoom} onclick={() => ((moreOpen = false), toggleShare())}>
-              <Icon name="cast" size={16} /> {shareTitle}
-            </button>
-            <button role="menuitem" class:on={lyricsShown} disabled={!track} onclick={() => ((moreOpen = false), toggleLyrics())}>
-              <Icon name="lyrics" size={16} /> Lyrics
-            </button>
-            <button role="menuitem" onclick={() => ((moreOpen = false), api.miniPlayer(true))}>
-              <Icon name="pip" size={16} /> Mini player
-            </button>
+        {#if soundMenuOpen}
+          <button class="deck-scrim" aria-label="Close" onclick={() => (soundMenuOpen = false)}></button>
+          <div class="deck-menu" role="menu" tabindex="-1" onkeydown={(e) => e.key === "Escape" && (soundMenuOpen = false)} transition:pop={{ origin: "bottom right", y: 8 }}>
+            <button role="menuitem" onclick={() => ((soundMenuOpen = false), (app.view = { name: "sound" }))}><Icon name="eq" size={16} /> Open Sound</button>
+            <button role="menuitem" onclick={() => ((soundMenuOpen = false), sound.openAsk())}><Icon name="ai" size={16} /> Ask the AI <kbd>A</kbd></button>
           </div>
         {/if}
       </div>
-    {:else}
-      <button class="hw small" class:on={share.sharing || share.inRoom} title={shareTitle} aria-label="Shared control and party" onclick={toggleShare}>
-        <Icon name="cast" size={16} />
-        {#if share.sharing && share.hub.guests.length}<span class="count">{share.hub.guests.length}</span>{/if}
-      </button>
-      <button class="hw small" class:on={lyricsShown} title="Lyrics" aria-label="Lyrics" disabled={!track} onclick={toggleLyrics}>
-        <Icon name="lyrics" size={16} />
-      </button>
-      <button class="hw small" title="Mini player (always on top)" aria-label="Mini player" onclick={() => api.miniPlayer(true)}>
-        <Icon name="pip" size={16} />
-      </button>
     {/if}
-    <button class="hw small" class:on={queueOpen} title="Queue" aria-label="Queue" onclick={() => (queueOpen = !queueOpen)}>
-      <Icon name="queue" size={16} />
-    </button>
+    {#if buttonsTop && (showHow || showSound)}<i class="sep" aria-hidden="true"></i>{/if}
+    <Knob value={volume} onchange={setVolume} size={narrow ? 40 : 48} />
+    {#if !buttonsTop}
+      <PlayerButtons look="hw" {narrow} bind:queueOpen />
+    {/if}
   </div>
 </footer>
 
@@ -275,20 +269,6 @@
     white-space: nowrap;
     color: var(--accent-text);
   }
-  .count {
-    position: absolute;
-    top: -4px;
-    right: -4px;
-    min-width: 16px;
-    height: 16px;
-    padding: 0 4px;
-    border-radius: min(8px, var(--r-max));
-    background: var(--primary-strong);
-    color: var(--on-primary-strong);
-    font-size: 10px;
-    font-weight: 700;
-    line-height: 16px;
-  }
   .led {
     width: 6px;
     height: 6px;
@@ -296,7 +276,7 @@
     background: var(--ok);
     box-shadow: 0 0 6px var(--ok);
   }
-  /* when the column is short the EQ name gives way first ("EQ · Senn…"),
+  /* when the column is short the sound's name gives way first (down to its icon),
      the format and the loudness keep their text */
   .fmt,
   .eq-tag.loud,
@@ -304,32 +284,71 @@
     flex: none;
   }
   .eq-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     flex: 0 1 auto;
-    min-width: 2.6em;
-    max-width: 200px;
+    min-width: 22px;
+    box-sizing: border-box;
     white-space: nowrap;
-    padding: 0 5px;
-    border-radius: min(4px, var(--r-max));
-    background: color-mix(in srgb, #fbbf24 22%, transparent);
-    color: #d97706;
-    font-weight: 700;
+    padding: 0 7px;
+    border-radius: min(999px, var(--r-max));
+    background: color-mix(in srgb, var(--muted) 16%, transparent);
+    color: var(--muted);
+    font-weight: 600;
   }
-  .eq-btn.active {
+  .eq-tag :global(svg) {
+    flex: none;
+  }
+  .eq-tag.sound-tag {
+    max-width: 130px;
+    background: color-mix(in srgb, var(--accent-text) 14%, transparent);
+    color: var(--accent-text);
+  }
+  .eq-tag.sound-tag.trying {
+    background: transparent;
+    outline: 1px dashed var(--accent-text);
+  }
+  .eq-tag .name {
+    min-width: 0;
+  }
+  .snd.snd.flat {
+    color: var(--text);
+  }
+  .snd.active {
     box-shadow: inset 0 0 0 1px var(--accent-text), 0 2px 0 rgb(0 0 0 / 0.35);
   }
-  .eq-dot {
+  .snd:focus-visible {
+    outline: 2px solid var(--accent-text);
+    outline-offset: 2px;
+  }
+  .snd-dot {
     position: absolute;
     top: 4px;
     right: 4px;
     width: 6px;
     height: 6px;
+    box-sizing: border-box;
     border-radius: 50%;
-    background: #fbbf24;
-    box-shadow: 0 0 6px #fbbf24;
+    background: var(--accent-text);
+    box-shadow: 0 0 0 2px var(--hw-bottom);
+  }
+  .snd-dot.ring {
+    border: 1.5px solid var(--accent-text);
+    background: transparent;
+  }
+  .sound-wrap {
+    position: relative;
+  }
+  /* a thin rule between the groups of the right side */
+  .sep {
+    width: 1px;
+    height: 20px;
+    background: var(--glass-border);
   }
   .led.warn {
-    background: #fbbf24;
-    box-shadow: 0 0 6px #fbbf24;
+    background: var(--warn);
+    box-shadow: 0 0 6px var(--warn);
   }
   .center {
     display: flex;
@@ -342,39 +361,6 @@
     display: flex;
     align-items: center;
     gap: 10px;
-  }
-  /* hardware-like buttons */
-  .hw {
-    width: 40px;
-    height: 40px;
-    display: grid;
-    place-items: center;
-    border-radius: min(12px, var(--r-max));
-    color: var(--text);
-    background: linear-gradient(180deg, var(--hw-top), var(--hw-bottom));
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.12), 0 2px 0 rgb(0 0 0 / 0.35), 0 6px 14px rgb(0 0 0 / 0.25);
-    transition: transform 0.08s, box-shadow 0.08s, color 0.15s;
-  }
-  .hw:active:not(:disabled) {
-    transform: translateY(2px);
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 0 0 rgb(0 0 0 / 0.35);
-  }
-  .hw.small {
-    position: relative;
-    width: 34px;
-    height: 34px;
-    color: var(--muted);
-  }
-  .hw.on {
-    color: var(--accent-text);
-  }
-  .hw.play {
-    width: 54px;
-    height: 54px;
-    border-radius: 50%;
-    color: #fff;
-    background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--room-accent) 90%, white), var(--room-glow));
-    box-shadow: 0 0 24px color-mix(in srgb, var(--room-accent) 45%, transparent), inset 0 1px 0 rgb(255 255 255 / 0.3);
   }
   .seek {
     width: 100%;
@@ -392,7 +378,7 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 12px;
+    gap: 10px;
     min-width: 0;
   }
   /* everything keeps its size; only the output name gets shorter */
@@ -448,58 +434,6 @@
     color: var(--text);
     font-size: 12.5px;
   }
-  .scrim {
-    position: fixed;
-    inset: 0;
-    z-index: 10;
-    cursor: default;
-  }
-  .more {
-    position: relative;
-  }
-  .menu {
-    /* an ordinary surface, whatever colours the skin gives the deck */
-    --text: var(--window-text);
-    --muted: var(--window-muted);
-    --surface: var(--window-surface);
-    --surface-2: var(--window-surface-2);
-    --border: var(--window-border);
-    --accent-text: var(--window-accent-text);
-    color: var(--text);
-    position: absolute;
-    right: 0;
-    bottom: calc(100% + 10px);
-    z-index: 11;
-    display: flex;
-    flex-direction: column;
-    min-width: 210px;
-    padding: 6px;
-    border-radius: min(14px, var(--r-max));
-    background: var(--surface);
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow, 0 12px 32px rgb(0 0 0 / 0.35));
-  }
-  .menu button {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-height: 36px;
-    padding: 0 12px;
-    border-radius: min(9px, var(--r-max));
-    color: var(--text);
-    font-size: 13px;
-    text-align: left;
-    white-space: nowrap;
-  }
-  .menu button:hover:not(:disabled) {
-    background: var(--surface-2);
-  }
-  .menu button.on {
-    color: var(--accent-text);
-  }
-  .menu button:disabled {
-    opacity: 0.45;
-  }
   .out-btn :global(svg) {
     flex: none;
   }
@@ -526,20 +460,17 @@
       display: none;
     }
   }
-  /* a shorter title column: the loudness tag goes first, then the layer
-     names and the codec ("24/96 · EQ") */
+  /* a shorter title column: the loudness tag goes first, then the sound's
+     name (its icon stays) and the codec */
   @media (max-width: 1280px) {
     .eq-tag.loud {
       display: none;
     }
   }
   @media (max-width: 1040px) {
-    .eq-tag .layers,
+    .eq-tag .name,
     .codec {
       display: none;
-    }
-    .eq-tag {
-      min-width: 0;
     }
   }
   @media (max-width: 920px) {

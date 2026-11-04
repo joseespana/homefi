@@ -14,10 +14,12 @@
   import { SettingsModel, provideSettings } from "./settings/model.svelte";
   import { PAGES, isPageId, type PageId } from "./settings/pages";
   import AboutPage from "./settings/pages/AboutPage.svelte";
+  import DiscsPage from "./settings/pages/DiscsPage.svelte";
   import DownloadsPage from "./settings/pages/DownloadsPage.svelte";
   import LibraryPage from "./settings/pages/LibraryPage.svelte";
   import LookPage from "./settings/pages/LookPage.svelte";
   import LyricsPage from "./settings/pages/LyricsPage.svelte";
+  import PlaylistsPage from "./settings/pages/PlaylistsPage.svelte";
   import MascotPage from "./settings/pages/MascotPage.svelte";
   import RoomPage from "./settings/pages/RoomPage.svelte";
   import SharePage from "./settings/pages/SharePage.svelte";
@@ -137,12 +139,16 @@
               <SoundPage {settings} />
             {:else if page === "playback"}
               <PlaybackOptions {settings} save={(patch) => model.save(patch)} />
+            {:else if page === "playlists"}
+              <PlaylistsPage {settings} />
             {:else if page === "ai"}
               <AiOptions {settings} save={(patch) => model.save(patch)} />
             {:else if page === "share"}
               <SharePage {settings} />
             {:else if page === "downloads"}
               <DownloadsPage {settings} />
+            {:else if page === "discs"}
+              <DiscsPage {settings} />
             {:else if page === "library"}
               <LibraryPage {settings} />
             {:else if page === "tidal"}

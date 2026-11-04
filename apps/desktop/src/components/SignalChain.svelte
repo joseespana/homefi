@@ -96,8 +96,10 @@
   const playing = $derived(p?.status === "playing");
   const flowing = $derived(playing && (room?.signal_animate ?? true));
 
-  const eqName = $derived(p?.eq_active ? (p.eq_profile ?? p.taste_label ?? "On") : null);
-  const tasteLabel = $derived(p?.eq_active && p.eq_profile ? (p.taste_label ?? null) : null);
+  // the equalizer stage is named after what you chose for this music (the sound);
+  // the output's own curve only shows up beside it when it actually changes something
+  const soundName = $derived(p?.eq_active && p.taste_label ? p.taste_label.split(" · ")[0] : null);
+  const eqName = $derived(p?.eq_active ? (soundName ?? p.eq_profile ?? "On") : null);
   const gain = $derived(Math.abs(p?.loudness_db ?? 0) >= 0.05 ? (p?.loudness_db ?? 0) : 0);
   const fading = $derived(p?.fading && p.fading.seconds > 0 ? p.fading : null);
   const resampled = $derived(!!stream?.resampled);
@@ -144,6 +146,9 @@
     if (!s || !stream) return null;
     return s.perOutput[stream.device] ?? s.defaultProfile ?? null;
   });
+  const outputCurveOn = $derived(!!p?.eq_profile && !!eqProfile?.bands.some((b) => b.enabled));
+  /** The output curve playing under a sound, or null when there is no sound or the curve is flat. */
+  const underSound = $derived(soundName && outputCurveOn ? p!.eq_profile! : null);
   const rule = $derived(p?.taste_rule ? (sound.ruleById(p.taste_rule) ?? (p.auditioning ? (sound.now?.rule ?? null) : null)) : null);
   const loud = $derived(sound.loudness);
 
@@ -278,7 +283,7 @@
 </script>
 
 {#if stream && detailed}
-  <SignalChainDetailed {stream} eq={eqName} taste={tasteLabel} loudness={gain} />
+  <SignalChainDetailed {stream} eq={eqName} taste={underSound} loudness={gain} />
 {:else if stream}
   <div class="chain sc-{look}" class:flowing class:still={!(room?.signal_animate ?? true)} bind:this={chain} role="group" aria-label="Signal path: {verdictText[verdict]}">
     {#each stages as st, i (st.id)}
@@ -318,9 +323,9 @@
           <span class="ico"><Icon name="gauge" size={13} /></span>
           <span class="txt">{gain > 0 ? "+" : "−"}{Math.abs(gain).toFixed(1)}<small>dB</small></span>
         {:else if st.id === "eq"}
-          <span class="ico"><Icon name="eq" size={13} /></span>
-          <span class="txt name">{eqName}</span>
-          {#if tasteLabel}<span class="chip taste" title={tasteLabel}><Icon name="layers" size={10} />{tasteLabel.split(" · ")[0]}</span>{/if}
+          <span class="ico"><Icon name={soundName ? "layers" : "eq"} size={13} /></span>
+          <span class="txt name" title={eqName}>{eqName}</span>
+          {#if underSound}<span class="chip taste" title="Output curve: {underSound}"><Icon name="eq" size={10} />+ {underSound}</span>{/if}
         {:else if st.id === "fade"}
           <span class="ico">
             <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M3 6c7 0 11 12 18 12" /><path d="M3 18c7 0 11-12 18-12" /></svg>
@@ -387,7 +392,11 @@
           <dt>Clipping</dt><dd>{loud.preventClipping ? "Protected: never boosted past its peak" : "Not limited"}</dd>
         </dl>
       {:else if open === "eq"}
-        <div class="sc-head"><b class="ellipsis">{p?.eq_profile ?? "Sound"}</b>{#if p?.eq_profile && eqProfile}<span class="sub">{sourceLabel(eqProfile)}</span>{/if}</div>
+        {#if soundName}
+          <div class="sc-head"><b class="ellipsis">{rule?.label ?? soundName}</b><span class="sub">{p?.auditioning ? "Trying it on this song" : "Your sound"}</span></div>
+        {:else}
+          <div class="sc-head"><b class="ellipsis">{p?.eq_profile ?? "Sound"}</b>{#if p?.eq_profile && eqProfile}<span class="sub">{sourceLabel(eqProfile)}</span>{/if}</div>
+        {/if}
         {#if curvePath}
           <svg class="curve" viewBox="0 0 268 46" preserveAspectRatio="none" aria-hidden="true">
             <line x1="0" y1="23" x2="268" y2="23" />
@@ -395,17 +404,18 @@
           </svg>
         {/if}
         <dl>
-          {#if p?.eq_profile && eqProfile}
-            <dt>Preamp</dt><dd>{app.settings?.eq.autoPreamp ? "Automatic, from the curve" : formatDb(eqProfile.preampDb)}</dd>
-            <dt>Bands</dt><dd>{eqProfile.bands.filter((b) => b.enabled).length} of {eqProfile.bands.length} on</dd>
-          {/if}
           {#if rule}
-            <dt>Sound</dt><dd>{rule.label}{#if p?.auditioning} (trying){/if}</dd>
             <dt>For</dt><dd>{p?.taste_target ? scopePhrase(p.taste_target) : targetsSummary(rule)}</dd>
             <dt>Curve</dt><dd>{ruleWords(rule)}</dd>
-            {#if rule.bands?.length}<dt>Taste bands</dt><dd>{rule.bands.filter((b) => b.enabled).length} of {rule.bands.length} on · up to {(eqProfile?.bands.length ?? 0) + rule.bands.length + 3} filters in all</dd>{/if}
-          {:else if tasteLabel}
-            <dt>Sound</dt><dd>{tasteLabel}</dd>
+            {#if rule.bands?.length}<dt>Bands</dt><dd>{rule.bands.filter((b) => b.enabled).length} of {rule.bands.length} on</dd>{/if}
+          {/if}
+          {#if p?.eq_profile && eqProfile}
+            {#if !soundName}
+              <dt>Bands</dt><dd>{eqProfile.bands.filter((b) => b.enabled).length} of {eqProfile.bands.length} on</dd>
+            {:else}
+              <dt>Output curve</dt><dd>{outputCurveOn ? `${p.eq_profile}, also playing` : `None on ${deviceShort || "this output"}`}</dd>
+            {/if}
+            {#if !soundName || outputCurveOn}<dt>Preamp</dt><dd>{app.settings?.eq.autoPreamp ? "Automatic, from the curve" : formatDb(eqProfile.preampDb)}</dd>{/if}
           {/if}
           <dt>Processing</dt><dd>64-bit float DSP</dd>
         </dl>

@@ -1,6 +1,7 @@
 // Visualizer data loop: polls the Rust engine (~30 fps) while playing and
 // applies analog-meter ballistics.
 import { api } from "./api";
+import { BeatFollower, OnsetDetector } from "./beat";
 
 export const BANDS = 48;
 
@@ -17,6 +18,8 @@ class VisualLoop {
   energy = $state(0);
   /** Bass hit, for little bounces. */
   kick = $state(false);
+  /** The beat of the music, phase-locked to its hits (the mascot headbangs on it). Not reactive: read it every frame. */
+  readonly follower = new BeatFollower();
   /** Estimated tempo (beats per minute); the mascot dances on it. */
   bpm = $state(120);
   /** Loudness averaged over the whole track so far. */
@@ -28,13 +31,16 @@ class VisualLoop {
   private busy = false;
   private last = 0;
   private bassAvg = 0;
-  private lastKick = 0;
-  private intervals: number[] = [];
+  private lastTrack = 0;
+  private lastFrame = 0;
+  private readonly onsets = new OnsetDetector();
 
   /** Forgets the tempo and energy of the previous track. */
   reset() {
-    this.intervals = [];
-    this.lastKick = 0;
+    this.follower.reset();
+    this.onsets.reset();
+    this.bpm = this.follower.estimate;
+    this.lastTrack = 0;
     this.trackEnergy = 0;
     this.heard = 0;
   }
@@ -42,8 +48,12 @@ class VisualLoop {
   start() {
     if (this.running) return;
     this.running = true;
+    this.lastFrame = 0;
     const tick = (t: number) => {
       if (!this.running) return;
+      // the beat keeps ticking between the hits the engine reports
+      if (this.lastFrame) this.follower.advance(Math.min(0.1, (t - this.lastFrame) / 1000));
+      this.lastFrame = t;
       if (!this.busy && t - this.last > 32) {
         this.last = t;
         this.busy = true;
@@ -91,24 +101,17 @@ class VisualLoop {
     this.bassAvg = this.bassAvg * 0.9 + bass * 0.1;
   }
 
-  /** Tempo and long-term energy, from the kicks seen while playing. */
+  /** Hits, tempo and long-term energy, from what the engine reports while playing. */
   private track(t: number) {
-    this.heard += 0.032;
+    const dt = this.lastTrack ? Math.min(0.1, (t - this.lastTrack) / 1000) : 0.032;
+    this.lastTrack = t;
+    this.heard += dt;
     this.trackEnergy += (this.energy - this.trackEnergy) / Math.min(this.heard / 0.032, 600);
-    if (!this.kick || t - this.lastKick < 250) return;
-    const gap = t - this.lastKick;
-    this.lastKick = t;
-    if (gap > 1500) return;
-    // fold into 80..160 BPM so half/double-time kicks agree
-    let bpm = 60000 / gap;
-    while (bpm < 80) bpm *= 2;
-    while (bpm > 160) bpm /= 2;
-    this.intervals = [...this.intervals.slice(-15), bpm];
-    if (this.intervals.length < 6) return;
-    const sorted = [...this.intervals].sort((a, b) => a - b);
-    const median = Math.round(sorted[sorted.length >> 1]);
+    this.follower.loudness(this.energy, dt);
+    const hit = this.onsets.push(this.spectrum, dt);
+    if (hit > 0) this.follower.onset(hit);
     // only move on real changes, so the animation doesn't stutter
-    if (Math.abs(median - this.bpm) / this.bpm > 0.05) this.bpm = median;
+    if (this.follower.estimate !== this.bpm) this.bpm = this.follower.estimate;
   }
 }
 

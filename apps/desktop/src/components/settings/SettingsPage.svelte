@@ -14,7 +14,7 @@
 
   const model = useSettings();
   let head = $state<HTMLElement>();
-  // the header turns into frosted glass once the page has scrolled under it
+  // the header gets its own surface once the page has scrolled under it
   let scrolled = $state(false);
   $effect(() => {
     if (!head) return;
@@ -48,22 +48,21 @@
 {/key}
 
 <style>
-  /* clear at rest so it melts into the page; frosted glass once rows scroll under it.
+  /* clear at rest so it melts into the page; a near-solid surface once rows scroll under it
+     (no blur: blurred text under the title read as a smudge).
      It reaches up under the window's drag strip (which stays on top and draggable), so
      one surface covers the strip too and nothing peeks over the title. */
   .head {
     position: sticky;
     top: 0;
     z-index: 2;
-    margin-top: calc(-1 * var(--set-drag-h));
-    padding-top: var(--set-drag-h);
+    margin-top: calc(-1 * var(--topbar-h, var(--set-drag-h)));
+    padding-top: var(--topbar-h, var(--set-drag-h));
     border-radius: 0 0 var(--set-card-r) var(--set-card-r);
     transition: background 0.2s, box-shadow 0.2s;
   }
   .head.scrolled {
     background: var(--set-head-bg);
-    -webkit-backdrop-filter: blur(18px) saturate(1.3);
-    backdrop-filter: blur(18px) saturate(1.3);
     box-shadow: 0 10px 20px -16px rgb(0 0 0 / 0.55);
   }
   .inner {

@@ -1,9 +1,11 @@
 package com.perseusoft.homefi.ui.player
 
+import com.perseusoft.homefi.ui.playlists.songSeedAction
+import com.perseusoft.homefi.ui.playlists.toSeed
 import androidx.compose.material3.HorizontalDivider
 import com.perseusoft.homefi.player.EqPanel
 import com.perseusoft.homefi.ui.sound.HowSoundsButton
-import com.perseusoft.homefi.ui.sound.AskAiButton
+import com.perseusoft.homefi.ui.sound.SoundButton
 import com.perseusoft.homefi.ui.sound.SoundBadge
 import androidx.compose.material.icons.rounded.Hearing
 
@@ -22,6 +24,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Lyrics
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.perseusoft.homefi.lyrics.LyricsState
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -131,6 +134,7 @@ import com.perseusoft.homefi.R
 import androidx.compose.ui.graphics.luminance
 import com.perseusoft.homefi.ui.theme.rememberCoverLightness
 import com.perseusoft.homefi.data.ImmersiveShade
+import com.perseusoft.homefi.data.PlayerButtons
 import com.perseusoft.homefi.data.PlayerLayout
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.player.NowPlaying
@@ -252,6 +256,7 @@ fun PlayerContent(
             hasQueue = onQueue != null || state.queue.isNotEmpty(),
             onShare = if (showShare) ({ shareOpen = true }) else null,
             sharing = hub.running,
+            showSound = settings.playerButtons == PlayerButtons.TOP,
             lyricsOpen = lyricsOpen,
             onLyrics = { if (lyricsOpen) closeLyrics() else lyricsOpen = true },
         )
@@ -385,9 +390,11 @@ private fun PlayerActions(
     hasQueue: Boolean,
     onShare: (() -> Unit)?,
     sharing: Boolean,
+    showSound: Boolean,
     lyricsOpen: Boolean,
     onLyrics: () -> Unit,
 ) {
+    if (showSound) SoundButton(remote = playerCapabilities().remoteName != null)
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.Dashboard, stringResource(R.string.layout_title)) }
@@ -424,6 +431,34 @@ private fun PlayerActions(
                         menu = false
                         app.sound.openHow(true)
                     },
+                )
+            }
+            // "Playlist like this" is for the song of this phone's own player
+            val song = app.player.state.value.current
+            val seed = song?.let { current -> songSeedAction { current.toSeed(app.library) } }
+            if (seed != null && playerCapabilities().remoteName == null) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.pl_like_this)) },
+                    leadingIcon = { Icon(com.perseusoft.homefi.ui.AiIcon, null) },
+                    onClick = {
+                        menu = false
+                        seed()
+                    },
+                )
+            }
+            if (playerCapabilities().remoteName == null) {
+                val pip by app.settings.settings.collectAsStateWithLifecycle()
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.pip_lyrics)) },
+                    leadingIcon = { Icon(Icons.Rounded.Lyrics, null) },
+                    trailingIcon = { Switch(checked = pip.pipLyrics, onCheckedChange = null) },
+                    onClick = { app.settings.update { it.copy(pipLyrics = !it.pipLyrics) } },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.pip_mascot)) },
+                    leadingIcon = { Icon(Icons.Rounded.EmojiEmotions, null) },
+                    trailingIcon = { Switch(checked = pip.pipMascot, onCheckedChange = null) },
+                    onClick = { app.settings.update { it.copy(pipMascot = !it.pipMascot) } },
                 )
             }
             HorizontalDivider()
@@ -592,7 +627,8 @@ private fun Stage(slot: TrackSlot, modifier: Modifier) {
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .aspectRatio(1f, matchHeightConstraintsFirst = true)
-                                .sharedCover(s.track?.mediaId),
+                                .sharedCover(s.track?.mediaId)
+                                .pipSourceRect(),
                         )
                     }
                     StageView.SPECTRUM -> SpectrumView()
@@ -638,6 +674,7 @@ private fun Info(slot: TrackSlot, centered: Boolean, modifier: Modifier = Modifi
     val current = slot.track
     val app = LocalContext.current.homefi
     val caps = playerCapabilities()
+    val settings by app.settings.settings.collectAsStateWithLifecycle()
     val align = if (centered) Alignment.CenterHorizontally else Alignment.Start
     var queued by remember(current?.mediaId) { mutableStateOf(false) }
     val compact = LocalPlayerCompact.current
@@ -678,7 +715,7 @@ private fun Info(slot: TrackSlot, centered: Boolean, modifier: Modifier = Modifi
                 current?.quality?.let { QualityBadge(it) }
                 EqBadge(remote = caps.remoteName != null)
             }
-            AskAiButton(remote = caps.remoteName != null || current == null)
+            if (settings.playerButtons == PlayerButtons.BOTTOM) SoundButton(remote = caps.remoteName != null || current == null)
             HowSoundsButton(remote = caps.remoteName != null || current == null)
             if (id != null && caps.canDownload) {
                 // streaming from Tidal: one tap keeps it

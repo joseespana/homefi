@@ -102,7 +102,7 @@ fun formatDuration(ms: Long): String {
 
 /** "Play next / Add to queue" (and "Sound ▸" for a song), opened by a long press on a song or a Queue button. */
 @Composable
-fun QueueMenu(expanded: Boolean, onDismiss: () -> Unit, onSound: (() -> Unit)? = null, onQueue: (next: Boolean) -> Unit) {
+fun QueueMenu(expanded: Boolean, onDismiss: () -> Unit, onSound: (() -> Unit)? = null, onPlaylistLikeThis: (() -> Unit)? = null, onQueue: (next: Boolean) -> Unit) {
     val haptics = haptics()
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         DropdownMenuItem(
@@ -132,6 +132,18 @@ fun QueueMenu(expanded: Boolean, onDismiss: () -> Unit, onSound: (() -> Unit)? =
                     onDismiss()
                     haptics.tick()
                     onSound()
+                },
+            )
+        }
+        // "Playlist like this": opens the AI chat with this song
+        if (onPlaylistLikeThis != null) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.pl_like_this)) },
+                leadingIcon = { Icon(AiIcon, null) },
+                onClick = {
+                    onDismiss()
+                    haptics.tick()
+                    onPlaylistLikeThis()
                 },
             )
         }

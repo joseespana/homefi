@@ -22,9 +22,9 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use unicode_normalization::UnicodeNormalization;
 
 use crate::models::Album;
+use crate::text::{fold as normalize, trailing_bracket};
 
 /// Explicit or clean, when both exist.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -437,37 +437,6 @@ impl Parsed {
     fn reissue(&self) -> bool {
         self.remaster || self.edition() || self.atmos
     }
-}
-
-/// `(head, inner)` of a title ending in `(...)` or `[...]`.
-fn trailing_bracket(t: &str) -> Option<(&str, &str)> {
-    let close = t.chars().last()?;
-    let open = match close {
-        ')' => '(',
-        ']' => '[',
-        _ => return None,
-    };
-    let mut depth = 0;
-    for (i, c) in t.char_indices().rev() {
-        if c == close {
-            depth += 1;
-        } else if c == open {
-            depth -= 1;
-            if depth == 0 {
-                return Some((&t[..i], &t[i + 1..t.len() - 1]));
-            }
-        }
-    }
-    None
-}
-
-/// Lower case, no accents, letters and digits only.
-fn normalize(s: &str) -> String {
-    s.nfkd()
-        .filter(|c| !unicode_normalization::char::is_combining_mark(*c))
-        .flat_map(char::to_lowercase)
-        .filter(|c| c.is_alphanumeric())
-        .collect()
 }
 
 fn release_year(a: &Album) -> Option<i32> {

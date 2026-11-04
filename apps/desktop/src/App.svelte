@@ -5,6 +5,8 @@
   import { visual } from "./lib/visual.svelte";
   import Deck from "./components/Deck.svelte";
   import Downloads from "./components/Downloads.svelte";
+  import DiscView from "./components/disc/DiscView.svelte";
+  import { disc } from "./lib/disc.svelte";
   import Library from "./components/Library.svelte";
   import Login from "./components/Login.svelte";
   import TermsDialog from "./components/TermsDialog.svelte";
@@ -14,10 +16,14 @@
   import MascotHost from "./components/MascotHost.svelte";
   import Folder from "./components/Folder.svelte";
   import Playlists from "./components/Playlists.svelte";
+  import ConcertScreen from "./components/playlists/ConcertScreen.svelte";
+  import ChatPlaylistScreen from "./components/playlists/ChatPlaylistScreen.svelte";
+  import PartyScreen from "./components/playlists/PartyScreen.svelte";
+  import HomePlaylistView from "./components/playlists/HomePlaylistView.svelte";
   import QueueMenu from "./components/QueueMenu.svelte";
   import VersionPicker from "./components/VersionPicker.svelte";
   import Skeleton from "./components/Skeleton.svelte";
-  import { busy } from "./lib/busy.svelte";
+  import TopBar from "./components/TopBar.svelte";
   import MyTidal from "./components/MyTidal.svelte";
   import Search from "./components/Search.svelte";
   import TidalItem from "./components/TidalItem.svelte";
@@ -29,6 +35,7 @@
   import ConfirmDialog from "./components/ConfirmDialog.svelte";
   import SoundMenu from "./components/sound/SoundMenu.svelte";
   import { sound } from "./lib/sound.svelte";
+  import { buttonsOnTop } from "./lib/playerButtons.svelte";
   import Notifications from "./components/Notifications.svelte";
   import UpdateBanner from "./components/UpdateBanner.svelte";
   import { updates } from "./lib/update.svelte";
@@ -41,6 +48,8 @@
   import NearbyBanner from "./components/share/NearbyBanner.svelte";
   import SharePanel from "./components/share/SharePanel.svelte";
   import { applyMotion, page } from "./lib/motion";
+  import { whatsNew } from "./lib/whatsNew.svelte";
+  import WhatsNewDialog from "./components/WhatsNewDialog.svelte";
 
   // dev: ?queue opens the queue panel (screenshots)
   let queueOpen = $state(import.meta.env.DEV && new URLSearchParams(location.search).has("queue"));
@@ -49,10 +58,12 @@
   $effect(() => {
     app.init().then(() => {
       share.init();
+      disc.init();
       updates.init();
       // dev: open a view from the URL, e.g. http://localhost:1420/#albums
       if (import.meta.env.DEV && location.hash.length > 1) app.view = { name: location.hash.slice(1) } as typeof app.view;
       ready = true;
+      whatsNew.checkOnce();
     });
   });
 
@@ -175,12 +186,10 @@
 <!-- room for macOS's window buttons where a skin floats the rail (still drags the window) -->
 <div class="titlebar" data-tauri-drag-region aria-hidden="true"></div>
 
-<div class="shell" class:queue={queueOpen}>
+<div class="shell" class:queue={queueOpen} class:top-buttons={buttonsOnTop()}>
   <Rail />
   <main class:fill>
-    <div class="drag" data-tauri-drag-region>
-      {#if busy.count > 0 || app.scanning}<div class="loadbar" role="progressbar" aria-label="Loading"></div>{/if}
-    </div>
+    <TopBar bind:queueOpen />
     {#key pageKey}
     <div class="content" in:page>
       {#if !ready}
@@ -191,6 +200,14 @@
         <Search />
       {:else if app.view.name === "playlists" || app.view.name === "playlist"}
         <Playlists />
+      {:else if app.view.name === "concert"}
+        <ConcertScreen />
+      {:else if app.view.name === "party"}
+        <PartyScreen />
+      {:else if app.view.name === "chat-playlist"}
+        <ChatPlaylistScreen />
+      {:else if app.view.name === "home-playlist"}
+        <HomePlaylistView />
       {:else if app.view.name === "tidal"}
         <MyTidal />
       {:else if app.view.name === "tidal-item"}
@@ -199,6 +216,8 @@
         <Folder />
       {:else if app.view.name === "downloads"}
         <Downloads />
+      {:else if app.view.name === "disc"}
+        <DiscView />
       {:else if app.view.name === "settings"}
         <Settings />
       {:else if app.view.name === "sound"}
@@ -228,6 +247,7 @@
 {#if offerHere}<NearbyBanner />{/if}
 {#if sound.menu}<SoundMenu scope={sound.menu.scope} label={sound.menu.label} x={sound.menu.x} y={sound.menu.y} onclose={() => (sound.menu = null)} />{/if}
 {#if updates.banner}<UpdateBanner />{/if}
+{#if whatsNew.open && !(app.loginOpen || (app.account && !app.termsAccepted))}<WhatsNewDialog />{/if}
 {#if app.confirmDialog}<ConfirmDialog />{/if}
 <Notifications />
 
@@ -300,11 +320,17 @@
     /* minmax(0, …): tall content (rail, room) scrolls instead of pushing the deck off screen */
     grid-template-rows: minmax(0, 1fr) auto;
     height: 100vh;
+    /* the strip above the content: taller when it holds the player's side buttons */
+    --topbar-h: 34px;
+  }
+  .shell.top-buttons {
+    --topbar-h: 54px;
   }
   .shell.queue {
     grid-template-columns: 76px 1fr 320px;
   }
-  /* narrow window: the queue slides over the content instead of squeezing it */
+  /* narrow window: the queue slides over the content instead of squeezing it
+     (under the top bar, which keeps its Queue button in reach) */
   @media (max-width: 1180px) {
     .shell.queue {
       grid-template-columns: 76px 1fr;
@@ -317,6 +343,9 @@
       z-index: 6;
       box-shadow: -24px 0 48px rgb(0 0 0 / 0.45);
     }
+    .shell.queue.top-buttons :global(.panel.queue-panel) {
+      top: var(--topbar-h);
+    }
   }
   main {
     position: relative;
@@ -325,36 +354,6 @@
   }
   .titlebar {
     display: none;
-  }
-  .drag {
-    position: sticky;
-    top: 0;
-    height: 34px;
-    z-index: 5;
-  }
-  /* indeterminate bar along the top while anything slow is loading */
-  .loadbar {
-    position: absolute;
-    inset: 0 0 auto;
-    height: 2px;
-    overflow: hidden;
-    background: color-mix(in srgb, var(--accent-text) 15%, transparent);
-  }
-  .loadbar::after {
-    content: "";
-    position: absolute;
-    inset: 0 auto 0 0;
-    width: 40%;
-    background: linear-gradient(90deg, transparent, #1d4ed8, #0891b2, #10b981, transparent);
-    animation: loadbar 1.2s ease-in-out infinite;
-  }
-  @keyframes loadbar {
-    from {
-      transform: translateX(-100%);
-    }
-    to {
-      transform: translateX(250%);
-    }
   }
   .content {
     padding: 0 clamp(18px, 3.2vw, 40px) 40px;

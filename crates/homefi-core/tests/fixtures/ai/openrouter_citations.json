@@ -1,0 +1,9 @@
+{
+  "id": "gen-1", "model": "openai/gpt-x",
+  "choices": [{"index": 0, "finish_reason": "stop", "message": {
+    "role": "assistant", "content": "The band opened with Blind.",
+    "annotations": [
+      {"type": "url_citation", "url_citation": {"url": "https://www.example.com/or-one", "title": "OR One", "start_index": 0, "end_index": 5, "content": "..."}},
+      {"type": "url_citation", "url_citation": {"url": "https://news.example.org/or-two", "title": "OR Two"}}
+    ]}}]
+}

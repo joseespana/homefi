@@ -5,6 +5,8 @@
   import PageMore from "./PageMore.svelte";
   import { api, errorText, type Hit, type LocalPlaylist } from "../lib/api";
   import { app } from "../lib/state.svelte";
+  import { DEFAULT_PLAYLIST_SETTINGS, formatTime } from "../lib/api";
+  import { isChat, isConcert, isParty, playlists } from "../lib/playlists.svelte";
   import Cover from "./Cover.svelte";
   import Icon from "./Icon.svelte";
   import Skeleton from "./Skeleton.svelte";
@@ -52,6 +54,14 @@
   // a filter looks through every Tidal playlist, not only the pages loaded
   $effect(() => {
     if (filter.trim() && tidalList && !tidalList.done) tidalList.all().catch(() => {});
+  });
+  // playlists HomeFi made (kept in HomeFi only), looked through by the same filter
+  const madeByHomefi = $derived((app.settings?.playlists ?? DEFAULT_PLAYLIST_SETTINGS).home_section);
+  const shownMade = $derived(playlists.list.filter((p) => match(`${p.name} ${isConcert(p) ? p.origin.artist : ""}`)));
+  const MS_PER_MIN = 60_000;
+  const minutesOf = (ms: number) => Math.max(1, Math.round(ms / MS_PER_MIN));
+  $effect(() => {
+    if (madeByHomefi && !playlists.loaded) untrack(() => playlists.load());
   });
   const tidalError = $derived(tidalList?.error && !tidalList.items.length ? tidalList.error : null);
 
@@ -101,6 +111,9 @@
     </div>
     <div class="actions">
       <div class="filter"><Icon name="search" size={16} /><input placeholder="Filter playlists" bind:value={filter} /></div>
+      <button class="btn primary" onclick={() => (app.view = { name: "chat-playlist" })}><Icon name="ai" size={16} /> Make a playlist with AI</button>
+      <button class="btn tonal" onclick={() => (app.view = { name: "concert" })}><Icon name="mic" size={16} /> Get ready for a concert</button>
+      <button class="btn tonal" onclick={() => (app.view = { name: "party" })}><Icon name="music" size={16} /> Make a party playlist</button>
       <button class="icon-btn" title="Refresh" aria-label="Refresh" onclick={() => load(true)} disabled={loading}><Icon name="refresh" /></button>
       {#if app.account}
         <button class="btn tonal" onclick={() => (app.newPlaylist = { trackIds: [] })}><Icon name="plus" size={16} /> New playlist</button>
@@ -108,6 +121,26 @@
     </div>
   </header>
   {#if error}<p class="error">{error}</p>{/if}
+
+  {#if madeByHomefi && (shownMade.length || !filter.trim())}
+    <h2>Made by HomeFi</h2>
+    {#if shownMade.length}
+      <div class="grid">
+        {#each shownMade as p (p.id)}
+          <button class="card" in:item|global onclick={() => (app.view = { name: "home-playlist", id: p.id })}>
+            <Cover url={p.entries.find((e) => e.cover_url)?.cover_url ?? null} size="100%" radius={12} icon="queue" />
+            <span class="title ellipsis">{p.name}</span>
+            <span class="muted small">{p.entries.length} songs · {minutesOf(p.entries.reduce((sum, e) => sum + e.duration_ms, 0))} min</span>
+            {#if isConcert(p) && p.origin.source.kind === "tidal_popular"}<span class="badge not-real">Not the real setlist</span>{/if}
+            {#if isParty(p)}<span class="badge party">Party</span>{/if}
+            {#if isChat(p)}<span class="badge chat">Chat</span>{/if}
+          </button>
+        {/each}
+      </div>
+    {:else}
+      <p class="muted">Playlists you make with “Make a playlist with AI”, “Get ready for a concert” or “Make a party playlist” show up here. They live in HomeFi only.</p>
+    {/if}
+  {/if}
 
   <h2>On this computer</h2>
   {#if loading && !local.length}
@@ -209,6 +242,18 @@
   }
   .small {
     font-size: 12.5px;
+  }
+  .not-real {
+    align-self: flex-start;
+    background: var(--warn-bg);
+    border: 1px solid var(--warn);
+    color: var(--warn);
+  }
+  .party,
+  .chat {
+    align-self: flex-start;
+    border: 1px solid var(--border);
+    color: var(--muted);
   }
   .dim {
     color: var(--faint);

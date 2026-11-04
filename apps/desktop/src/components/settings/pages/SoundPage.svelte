@@ -55,8 +55,7 @@
 </SettingsGroup>
 
 <SettingsGroup title="Sound screen">
-  <SwitchRow label="Sound button in the player bar" hint="Next to the output" checked={eqUi.deck_button} onchange={(on) => saveEqUi({ deck_button: on })} />
-  <SwitchRow label="“Ask the AI” button in the player" hint="Opens Sound with the AI panel ready; the A key does the same" checked={soundUi.assistant_deck} onchange={(on) => saveSoundUi({ assistant_deck: on })} />
+  <SwitchRow label="Sound button in the player" hint="One button next to the volume. Click opens Sound; the A key asks the AI" checked={eqUi.deck_button} onchange={(on) => saveEqUi({ deck_button: on })} />
   <SwitchRow label="Band numbers on the curve" checked={eqUi.band_labels} onchange={(on) => saveEqUi({ band_labels: on })} />
   <SwitchRow label="Tilt sliders in Edit curve" hint="Bass, treble and clarity sliders next to the full curve" checked={eqUi.taste_sliders} onchange={(on) => saveEqUi({ taste_sliders: on })} />
   <SegmentedRow label="“Hear without”" hint="Compare the music with and without the sound; nothing is saved" options={AB_MODES} value={eqUi.ab_mode} onchange={(id) => saveEqUi({ ab_mode: id })} />
@@ -72,7 +71,7 @@
   />
   <SwitchRow label="“How does it sound?” button in the player bar" checked={soundUi.react_deck} onchange={(on) => saveSoundUi({ react_deck: on })} />
   <SwitchRow label="“How does it sound?” in the listening room" checked={soundUi.react_room} onchange={(on) => saveSoundUi({ react_room: on })} />
-  <SwitchRow label="Show the sound playing next to the output" hint="Like “HD 650 + Warm and airy · Eagles”" checked={soundUi.layer_chip} onchange={(on) => saveSoundUi({ layer_chip: on })} />
+  <SwitchRow label="Name the sound under the song" hint="“Warm and airy” next to the format. The full “HD 650 + Warm and airy · Eagles” is in the tooltip" checked={soundUi.layer_chip} onchange={(on) => saveSoundUi({ layer_chip: on })} />
   <SwitchRow label="Suggestions for what you listen to most" checked={soundUi.suggestions} onchange={(on) => saveSoundUi({ suggestions: on })} />
   <SegmentedRow
     label="A sound's curve opens in"

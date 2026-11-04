@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { ANGER_TIME, Choreographer, REST, TEMPER_CLICKS, TEMPER_WINDOW, angryPose, type DanceId, type Pose, type Specials, type Temper, type Turns } from "../lib/dance";
+  import type { BeatView } from "../lib/beat";
+  import { ANGER_TIME, Choreographer, REST, TEMPER_CLICKS, TEMPER_WINDOW, angryPose, type DanceId, type Pose, type Specials, type Strength, type Temper, type Turns } from "../lib/dance";
+  import { Hair, STRANDS } from "../lib/hair";
+  import { motionLevel } from "../lib/motion";
   import { MASCOT, MASCOT_BAND_WIDTH, MASCOT_COLORS as C, MASCOT_EYES, MASCOT_TILT } from "../lib/mascot";
   import type { Mood } from "../lib/mood";
 
@@ -12,7 +15,7 @@
     playing = false,
     energy = 0,
     kick = false,
-    mood = "bop",
+    mood: asked = "bop",
     bpm = 120,
     size = 180,
     dance = "auto",
@@ -21,6 +24,9 @@
     turns = "all",
     temper = "normal",
     singing = false,
+    hair: hairSetting = "auto",
+    strength = "normal",
+    follow = null,
     pose: fixed,
   }: {
     playing?: boolean;
@@ -39,10 +45,18 @@
     temper?: Temper;
     /** Karaoke: sings along into a microphone. */
     singing?: boolean;
+    /** Long hair: `auto` (in mosh), `long` or `short` (none). */
+    hair?: "auto" | "long" | "short";
+    /** How hard it headbangs. */
+    strength?: Strength;
+    /** The beat of the music to dance on; without it, it free-runs at `bpm`. */
+    follow?: BeatView | null;
     /** Draw this pose instead of dancing (previews). */
     pose?: Pose;
   } = $props();
 
+  // the pinned Mosh dance looks like the mosh style too, whatever the genre
+  const mood = $derived<Mood>(dance === "mosh" ? "mosh" : asked);
   const moves = new Choreographer();
   let p = $state<Pose>(REST);
   let current = $state<DanceId | null>(null);
@@ -63,12 +77,13 @@
     const loop = (t: number) => {
       const dt = Math.min(0.1, (t - last) / 1000);
       last = t;
-      p = moves.step(dt, { playing, bpm, energy, mood, specials, pinned: dance === "auto" ? null : (dance as DanceId), turns });
+      p = moves.step(dt, { playing, bpm, energy, mood, specials, pinned: dance === "auto" ? null : (dance as DanceId), turns, follow, strength, calm: motionLevel() !== "full" });
       current = moves.dance;
       anger = t < angryUntil ? (t - angryFrom) / 1000 : -1;
       if (angry) p = angryPose(anger);
       // the right hand holds the microphone up to the mouth
       else if (singing && playing) p = { ...p, armR: -110, turn: 0, flip: false, guitar: 0 };
+      if (longHair) swing(dt);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -110,6 +125,52 @@
   /** The famous dance going on, if any. */
   export function dancing(): DanceId | null {
     return current;
+  }
+
+  // Long hair: strands with spring physics (see hair.ts), simulated in the
+  // picture's coordinates from where the head is every frame.
+  const longHair = $derived(hairSetting === "long" || (hairSetting === "auto" && mood === "mosh"));
+  const strands = new Hair();
+  const roots = new Float64Array(STRANDS.length * 2);
+  let hairPaths = $state.raw<string[]>([]);
+  $effect(() => {
+    if (longHair) strands.settle();
+  });
+  const RAD = Math.PI / 180;
+  /** Where the head turns on the body: the bottom of the house. */
+  const NECK_Y = 800;
+
+  /** Moves the hair on by `dt` seconds: finds the roots on the head (as drawn now), steps the physics, redraws. */
+  function swing(dt: number) {
+    const body = p.rot * RAD;
+    const bc = Math.cos(body);
+    const bs = Math.sin(body);
+    const tilt = MASCOT_TILT.deg * RAD;
+    const tc = Math.cos(tilt);
+    const ts = Math.sin(tilt);
+    const head = p.headRot * RAD;
+    const hc = Math.cos(head);
+    const hs = Math.sin(head);
+    const sx = p.flip ? -p.sx : p.sx;
+    const squash = 1 - 0.2 * Math.abs(Math.sin((p.turn * Math.PI) / 2));
+    for (let i = 0; i < STRANDS.length; i++) {
+      // squash, then the head round the neck, then the tilt, then the body round its feet
+      const sqX = 512 + (STRANDS[i].x - 512) * squash;
+      const hx = sqX - 512;
+      const hy = STRANDS[i].y - NECK_Y;
+      const headX = 512 + hx * hc - hy * hs + p.headX;
+      const headY = NECK_Y + hx * hs + hy * hc + p.headY;
+      const tx = headX - MASCOT_TILT.x;
+      const ty = headY - MASCOT_TILT.y;
+      const bx = (MASCOT_TILT.x + tx * tc - ty * ts - 512) * sx;
+      const by = (MASCOT_TILT.y + tx * ts + ty * tc - GROUND) * p.sy;
+      roots[2 * i] = 512 + p.x + bx * bc - by * bs;
+      roots[2 * i + 1] = GROUND + p.y + bx * bs + by * bc;
+    }
+    strands.step(dt, roots, body + tilt + head);
+    const next: string[] = new Array(STRANDS.length);
+    for (let i = 0; i < STRANDS.length; i++) next[i] = strands.path(i);
+    hairPaths = next;
   }
 
   // where the limbs join the body (see dance.ts for the angles)
@@ -190,6 +251,8 @@
   const GUITAR = { x: 410, y: 712, ahead: 150, neck: 22, scale: 1.2 };
   const NECK_A = (GUITAR.neck * Math.PI) / 180;
   const ARM_MAX = 175;
+  /** An arm raised past this many degrees makes the horns when the pose asks for them. */
+  const HORNS_FROM = 120;
   const g = $derived(limbs === "off" ? 0 : Math.max(0, Math.min(1, p.guitar)));
   const guitar = $derived.by(() => {
     // the guitar turns a little less than the body so its face stays in view
@@ -224,8 +287,8 @@
   }
   const armList = $derived(
     [
-      { ...limb(SHOULDER.l[0], p.armL, 1), y: SHOULDER.l[1], mic: false, len: ARM, pick: false, hold: "pick" },
-      { ...limb(SHOULDER.r[0], p.armR, -1), y: SHOULDER.r[1], mic: singing && playing && !angry, len: ARM, pick: false, hold: "fret" },
+      { ...limb(SHOULDER.l[0], p.armL, 1), y: SHOULDER.l[1], mic: false, len: ARM, pick: false, hold: "pick", horns: p.horns > 0.5 && p.armL > HORNS_FROM },
+      { ...limb(SHOULDER.r[0], p.armR, -1), y: SHOULDER.r[1], mic: singing && playing && !angry, len: ARM, pick: false, hold: "fret", horns: p.horns > 0.5 && p.armR > HORNS_FROM && !(singing && playing) },
     ]
       .map((a) => (g > 0 ? { ...a, ...reach(a, a.hold === "pick" ? pickAt : fretAt(a)), pick: g > 0.5 && a.hold === "pick" } : a))
       .sort((a, b) => a.depth - b.depth),
@@ -283,7 +346,7 @@
     `M${x} ${y}L${x - s * 0.5} ${y + s * 1.1}L${x - s * 0.05} ${y + s * 1.1}L${x - s * 0.35} ${y + s * 2}L${x + s * 0.55} ${y + s * 0.75}L${x + s * 0.08} ${y + s * 0.75}L${x + s * 0.35} ${y}Z`;
 </script>
 
-{#snippet armShape(arm: { x: number; y: number; rot: number; mic: boolean; len: number; pick: boolean })}
+{#snippet armShape(arm: { x: number; y: number; rot: number; mic: boolean; len: number; pick: boolean; horns: boolean })}
   <g transform="translate({arm.x.toFixed(1)} {arm.y}) rotate({arm.rot.toFixed(1)})">
     {#if arm.pick}
       <!-- the pick, held tip down towards the strings and flicking with the wrist -->
@@ -302,6 +365,17 @@
     {/if}
     <line y2={arm.len} stroke={fill} stroke-width="56" stroke-linecap="round" />
     <circle cy={arm.len} r="38" fill={fill} />
+    {#if arm.horns && !arm.mic}
+      <!-- the horns: index and little finger out, past the fist -->
+      <g class="horns">
+        {#each [-20, 20] as fx}
+          {#if outline !== "none"}<line x1={fx} x2={fx} y1={arm.len + 18} y2={arm.len + 78} stroke={outline} stroke-width="38" stroke-linecap="round" />{/if}
+        {/each}
+        {#each [-20, 20] as fx}
+          <line x1={fx} x2={fx} y1={arm.len + 18} y2={arm.len + 78} stroke={fill} stroke-width="26" stroke-linecap="round" />
+        {/each}
+      </g>
+    {/if}
     {#if arm.mic}
       <!-- microphone, pointing at the mouth -->
       <rect x="-15" y={ARM - 6} width="30" height="78" rx="12" fill="#374151" />
@@ -339,6 +413,10 @@
     <!-- strings -->
     <path d="M-64 -12H372M-64 0H372M-64 12H372" stroke="#e5e7eb" stroke-width="3" />
   </g>
+{/snippet}
+
+{#snippet strand(d: string, dark: boolean)}
+  <path {d} class:under={dark} />
 {/snippet}
 
 {#snippet bandShape(d: string)}
@@ -460,6 +538,11 @@
   {:else if !playing}
     <path d={closedEyes} fill="none" stroke={C.navy} stroke-width="12" stroke-linecap="round" />
     <ellipse cx="512" cy="690" rx="18" ry="12" fill={C.navy} />
+  {:else if mood === "mosh" && p.calm > 0.5}
+    <!-- a slow nod: eyes half closed, a small mouth -->
+    <path d={coolEyes} fill={C.navy} />
+    <path d="M{lx - r} {ly}L{lx + r} {ly}M{rx - r} {ry}L{rx + r} {ry}" stroke={C.navy} stroke-width="10" stroke-linecap="round" />
+    <ellipse cx="512" cy="706" rx="26" ry="16" fill={C.navy} />
   {:else if mood === "mosh"}
     <path d="M398 548L478 578M626 548L546 578" stroke={C.navy} stroke-width="18" stroke-linecap="round" />
     <circle cx={lx} cy={ly + 8} r={r * 0.7} fill={C.navy} />
@@ -544,6 +627,13 @@
       </g>
     {/if}
 
+    {#if longHair}
+      <!-- hair behind the head: the dark undersides first -->
+      <g class="hair">
+        {#each STRANDS as s, i}{#if s.back && s.dark && hairPaths[i]}{@render strand(hairPaths[i], true)}{/if}{/each}
+        {#each STRANDS as s, i}{#if s.back && !s.dark && hairPaths[i]}{@render strand(hairPaths[i], false)}{/if}{/each}
+      </g>
+    {/if}
     <g transform={bodyTransform}>
       {#if limbs !== "off"}
         <!-- legs and feet, behind the house; toes point where it faces -->
@@ -567,6 +657,8 @@
             {@render armShape(arm)}
           {/each}
         {/if}
+        <!-- the head: nods, circles and tilts round the neck -->
+        <g transform="translate({p.headX.toFixed(1)} {p.headY.toFixed(1)}) rotate({p.headRot.toFixed(2)} 512 {NECK_Y})">
         {#each bandHalves.filter((h) => h.depth < 0) as h}
           {@render bandShape(h.d)}
         {/each}
@@ -607,6 +699,7 @@
             {/if}
           </g>
         </g>
+        </g>
         {#if g > 0}
           <!-- in front of the body, behind the hands -->
           {@render guitarShape()}
@@ -619,6 +712,12 @@
         {/if}
       </g>
     </g>
+    {#if longHair}
+      <!-- the strands over the shoulders -->
+      <g class="hair">
+        {#each STRANDS as s, i}{#if !s.back && hairPaths[i]}{@render strand(hairPaths[i], false)}{/if}{/each}
+      </g>
+    {/if}
     {#each steam as puff}
       <circle cx={puff.x.toFixed(1)} cy={puff.y.toFixed(1)} r={puff.r.toFixed(1)} fill="#e5e7eb" stroke={C.navy} stroke-opacity="0.18" stroke-width="5" opacity={puff.o.toFixed(2)} />
     {/each}
@@ -635,6 +734,21 @@
     flex: none;
     --k: 1;
     --beat: 0.5s;
+  }
+  /* hair: the mascot's navy with a light edge so it reads on any skin and theme; a skin can set --mascot-hair */
+  .mascot {
+    --hair: var(--mascot-hair, #1b2c4d);
+    --hair-dark: color-mix(in srgb, var(--hair) 60%, #000);
+  }
+  .hair path {
+    fill: var(--hair);
+    stroke: color-mix(in srgb, var(--hair) 55%, #fff);
+    stroke-width: 4;
+    stroke-linejoin: round;
+  }
+  .hair path.under {
+    fill: var(--hair-dark);
+    stroke: color-mix(in srgb, var(--hair-dark) 70%, #fff);
   }
   svg {
     width: 100%;

@@ -170,6 +170,13 @@ Features:
   never boosts more than +12 dB; the automatic preamp covers the device profile and the sound together,
   so nothing clips. Ask the AI in plain words (it explains every band in one line), or tap "How does it
   sound?" for a quick change.
+- **Playlists made by HomeFi** (also on the desktop, with your own AI): "Get ready for a concert" builds
+  an artist's tour set from the setlists of their latest shows, and "Make a party playlist" builds one
+  from a few taps and an optional short chat. Every song is checked against your library and TIDAL, so
+  songs the AI makes up are left out. They're saved in HomeFi only, never in your TIDAL account.
+  Settings → Playlists.
+- **What's new** (also on the desktop): after an update the app shows once what changed, read offline
+  from this project's changelog. Settings → About shows it again, or turns it off.
 - **Crossfade** (also on the desktop, off by default so playback stays gapless and bit-perfect):
   Settings → Playback. The next song starts while the current one fades out, 1 to 12 s, with an
   equal-power, S-curve or linear curve. "Skip the silence" fades from where the music really ends into

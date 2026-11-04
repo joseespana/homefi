@@ -16,7 +16,7 @@
 <SettingsGroup title="Mascot" span={2}>
   <SwitchRow label="Show the mascot" checked={settings.room.mascot} onchange={(on) => m.saveRoom({ mascot: on })} />
   {#if settings.room.mascot}
-    <SettingRow label="Style, dance and place" hint="Mood, famous dances, turns, arms and legs, temper, size, floating" stack="always">
+    <SettingRow label="Style, dance and place" hint="Mood, famous dances, hair, headbang, turns, arms and legs, temper, size, floating" stack="always">
       <MascotOptions />
     </SettingRow>
   {/if}

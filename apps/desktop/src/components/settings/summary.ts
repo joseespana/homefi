@@ -1,5 +1,6 @@
 // The one line about a page under its name in the page list and in the page header.
-import type { Settings } from "../../lib/api";
+import { DEFAULT_PLAYLIST_SETTINGS, discSettingsOf, partyLength, type Settings } from "../../lib/api";
+import { formatLabel } from "../../lib/disc.svelte";
 import { LAYOUTS, fixedTheme, layoutOf, skinOf } from "../../lib/layouts";
 import { share } from "../../lib/share.svelte";
 import { app } from "../../lib/state.svelte";
@@ -16,7 +17,7 @@ export function summaryOf(id: PageId, s: Settings): string {
       return `${theme} · ${PROGRESS_STYLES.find((p) => p.id === (s.progress_style ?? "wavy"))?.label} bar${motion}`;
     }
     case "room":
-      return `${LAYOUTS.find((l) => l.id === layoutOf(s.room.layout))?.label ?? ""}${s.room.layout_everywhere === false ? " · room only" : " · everywhere"}`;
+      return `${LAYOUTS.find((l) => l.id === layoutOf(s.room.layout))?.label ?? ""}${s.room.layout_everywhere === false ? " · room only" : " · everywhere"}${s.room.player_buttons === "bottom" ? " · buttons in the player bar" : ""}`;
     case "lyrics":
       return `${s.room.lyrics_mode === "karaoke" ? "Karaoke" : "Normal"} · ${SIZE_LABELS[s.room.lyrics_size] ?? "Medium"} text${s.room.lyrics_offset_ms ? ` · ${offsetLabel(s.room.lyrics_offset_ms)}` : ""}`;
     case "mascot":
@@ -32,12 +33,20 @@ export function summaryOf(id: PageId, s: Settings): string {
       const sur = s.output?.surround && s.output.surround !== "frontOnly" ? ` · ${s.output.surround === "upmix" ? "upmix" : "all speakers"}` : "";
       return `${xf}${sur}${s.output?.resampler === "fast" ? " · fast resampler" : ""}`;
     }
+    case "playlists": {
+      const pl = { ...DEFAULT_PLAYLIST_SETTINGS, ...s.playlists };
+      return `${pl.concert_shows} shows · always from ${pl.concert_thresholds.always_pct}% · party ${partyLength(pl.party_minutes)} · chat ${partyLength(pl.chat_minutes)}`;
+    }
     case "ai":
       return s.ai?.provider ? (AI_NAMES[s.ai.provider] ?? s.ai.provider) : "None · guided questions";
     case "share":
       return share.sharing ? `Sharing · ${share.hub.guests.length} guests` : share.inRoom ? `In ${share.guest.session_name}` : `As “${s.share.name || share.name}”`;
     case "downloads":
       return QUALITIES.find((q) => q.id === s.quality)?.label ?? "";
+    case "discs": {
+      const d = discSettingsOf(s);
+      return `${formatLabel(d.format)} · ${d.mode === "secure" ? "secure" : "fast"} reading${d.watch ? "" : " · not watching"}`;
+    }
     case "library":
       return s.library_dirs.length === 1 ? "1 folder" : `${s.library_dirs.length} folders`;
     case "tidal":

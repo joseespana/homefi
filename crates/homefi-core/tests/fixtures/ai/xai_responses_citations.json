@@ -1,0 +1,9 @@
+{
+  "id": "resp_x1", "object": "response", "status": "completed",
+  "output": [
+    {"type": "message", "id": "msg_x1", "role": "assistant", "content": [
+      {"type": "output_text", "text": "Recent shows found.", "annotations": []}
+    ]}
+  ],
+  "citations": ["https://www.example.com/x-one", "https://news.example.org/x-two", "https://www.example.com/x-one"]
+}

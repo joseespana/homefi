@@ -16,9 +16,20 @@ pub enum Lang {
 
 static LANG: AtomicU8 = AtomicU8::new(0);
 
+impl Lang {
+    /// `es`, `es-MX` and `es_ES` are Spanish; anything else is English.
+    pub fn from_code(code: &str) -> Lang {
+        if code.trim().to_lowercase().starts_with("es") {
+            Lang::Es
+        } else {
+            Lang::En
+        }
+    }
+}
+
 /// Sets the language of [`Error::humane`] from a code like `es`, `es-MX` or `en_US`.
 pub fn set_language(code: &str) {
-    let es = code.to_lowercase().starts_with("es");
+    let es = Lang::from_code(code) == Lang::Es;
     LANG.store(es as u8, Ordering::Relaxed);
 }
 
@@ -106,6 +117,7 @@ impl Error {
             Error::Template(_) | Error::Config(_) => Problem::Settings,
             Error::Share(_) => Problem::Worded,
             Error::AutoEq(_) => Problem::Worded,
+            Error::Playlist(_) => Problem::Worded,
             Error::Ai(_) => Problem::Worded,
         }
     }
@@ -148,7 +160,7 @@ impl Error {
             }
             Problem::Worded => match self {
                 Error::Share(m) => m.clone(),
-                Error::AutoEq(m) => m.clone(),
+                Error::AutoEq(m) | Error::Playlist(m) => m.clone(),
                 Error::Ai(e) => e.humane_in(lang),
                 e => e.to_string(),
             },
@@ -266,6 +278,22 @@ fn status_problem(status: u16, msg: &str) -> Problem {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lang_from_code() {
+        assert_eq!(Lang::from_code("es"), Lang::Es);
+        assert_eq!(Lang::from_code("es-MX"), Lang::Es);
+        assert_eq!(Lang::from_code("es_ES"), Lang::Es);
+        assert_eq!(Lang::from_code("en_US"), Lang::En);
+        assert_eq!(Lang::from_code(""), Lang::En);
+    }
+
+    #[test]
+    fn playlist_error_is_worded() {
+        let e = Error::Playlist("Type the artist's name.".into());
+        assert_eq!(e.problem(), Problem::Worded);
+        assert_eq!(e.humane_in(Lang::En), "Type the artist's name.");
+    }
 
     fn api(status: u16, sub: &str, msg: &str) -> Error {
         Error::Api { status, sub_status: sub.into(), user_message: msg.into() }

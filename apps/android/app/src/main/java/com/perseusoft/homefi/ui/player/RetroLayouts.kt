@@ -1,5 +1,7 @@
 package com.perseusoft.homefi.ui.player
 
+import com.perseusoft.homefi.ui.playlists.songSeedAction
+import com.perseusoft.homefi.ui.playlists.toSeed
 import com.perseusoft.homefi.player.EqPanel
 import androidx.compose.material.icons.rounded.Hearing
 
@@ -863,7 +865,7 @@ private fun AlbumBack(album: FlowAlbum, playingMediaId: String?, onClose: () -> 
                         IconButton(onClick = { menu = true }, enabled = caps.canPlayLibrary) {
                             Icon(Icons.Rounded.MoreVert, stringResource(R.string.queue_add), tint = Color(0xFF555555).copy(alpha = if (caps.canPlayLibrary) 1f else DISABLED_ALPHA))
                         }
-                        QueueMenu(menu, { menu = false }) { next -> player.queueTracks(listOf(track), next) }
+                        QueueMenu(menu, { menu = false }, onPlaylistLikeThis = songSeedAction { track.toSeed() }) { next -> player.queueTracks(listOf(track), next) }
                     }
                 }
             }

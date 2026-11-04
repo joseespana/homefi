@@ -98,7 +98,7 @@
   {#each sections as [title, hits]}
     {#if hits.length}
       <h2>{title}</h2>
-      <div class="hits">
+      <div class="hits" class:top={title === "Top hit"}>
         {#each hits as hit (hit.kind + hit.id + title)}
           <HitRow {hit} />
         {/each}
@@ -154,6 +154,10 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
     gap: 4px 12px;
+  }
+  /* one row with room for its title, badges and actions */
+  .hits.top {
+    grid-template-columns: minmax(0, 1fr);
   }
   .error {
     color: var(--danger);

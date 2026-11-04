@@ -1,7 +1,7 @@
 // App-wide reactive state (Svelte 5 runes), fed by Rust events.
 import { snapTime } from "./snap";
 import { Paged } from "./paged.svelte";
-import { api, errorText, on, type Account, type LibraryKind, type AppInfo, type DownloadEvent, type Hit, type Kind, type PlayerState, type Settings, type StreamItem, type Theme, type Track, type PlayerLayout, type Upcoming, type SourceContext, type TasteScope, type VersionHit, type AlbumVersionPrefs } from "./api";
+import { api, errorText, on, type Account, type LibraryKind, type AppInfo, type DownloadEvent, type Hit, type Kind, type PlayerState, type Settings, type StreamItem, type Theme, type Track, type PlayerLayout, type Upcoming, type SourceContext, type TasteScope, type VersionHit, type AlbumVersionPrefs, type SongSeed, DEFAULT_PLAYLIST_SETTINGS } from "./api";
 import { fixedTheme } from "./layouts";
 import { TERMS_VERSION } from "./terms";
 
@@ -14,11 +14,21 @@ export type View =
   | { name: "artist"; name_: string }
   | { name: "playlists" }
   | { name: "playlist"; path: string }
+  /** "Get ready for a concert": type an artist, get the songs of their tour. */
+  | { name: "concert" }
+  /** "Make a party playlist"; `replace` is a saved playlist's id to rebuild ("Change answers"). */
+  | { name: "party"; replace?: string }
+  /** "Make a playlist with AI"; `replace` is a saved chat playlist's id to keep chatting ("Keep chatting"). */
+  | { name: "chat-playlist"; replace?: string; seed?: SongSeed }
+  /** A playlist HomeFi made (saved only in HomeFi). */
+  | { name: "home-playlist"; id: string }
   | { name: "search" }
   | { name: "tidal"; tab: "playlists" | "albums" | "artists" | "tracks" }
   | { name: "tidal-item"; kind: "album" | "playlist" | "artist" | "mix"; id: string; back?: View }
   | { name: "folder"; path: string }
   | { name: "downloads" }
+  /** Audio CDs: read, name and rip them. */
+  | { name: "disc" }
   /** `page` opens a section (Settings → Sound, AI...). */
   | { name: "settings"; page?: string }
   /** Sound: what is playing and how it sounds. `edit` opens a sound's panel, `output` an output's own curve. */
@@ -129,7 +139,7 @@ class AppState {
   private noteTimers = new Map<number, ReturnType<typeof setTimeout>>();
   /** Open "Add to playlist" menu, anchored at a screen point. */
   playlistPicker = $state<{ trackIds: string[]; x: number; y: number } | null>(null);
-  queueMenu = $state<{ label: string; x: number; y: number; run: (next: boolean) => void; sound?: { scope: TasteScope; label: string } } | null>(null);
+  queueMenu = $state<{ label: string; x: number; y: number; run: (next: boolean) => void; sound?: { scope: TasteScope; label: string }; like?: SongSeed } | null>(null);
   /** Open album version picker (a card's "3 versions" chip, the album page's "Other versions"). */
   versionPicker = $state<{ title: string; versions: VersionHit[]; current: string | null; x: number; y: number } | null>(null);
   /** Open "New playlist" dialog; the tracks go in once it's created. */
@@ -216,13 +226,23 @@ class AppState {
     }
   }
 
+  /** The seed to offer “Playlist like this” with, or undefined when the user turned it off. */
+  songLike(seed?: SongSeed): SongSeed | undefined {
+    return seed && (this.settings?.playlists?.chat_from_song ?? DEFAULT_PLAYLIST_SETTINGS.chat_from_song) ? seed : undefined;
+  }
+
+  /** Opens the AI chat with a wish made from this song. */
+  playlistLike(seed: SongSeed) {
+    this.view = { name: "chat-playlist", seed };
+  }
+
   /** Opens "Play next / Add to queue" next to the clicked button (or at the pointer, on right-click). */
-  openQueueMenu(e: MouseEvent, label: string, run: (next: boolean) => void, sound?: TasteScope) {
+  openQueueMenu(e: MouseEvent, label: string, run: (next: boolean) => void, sound?: TasteScope, like?: SongSeed) {
     e.preventDefault();
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const x = e.type === "contextmenu" ? e.clientX + 200 : r.right;
     const y = e.type === "contextmenu" ? e.clientY : r.bottom + 6;
-    this.queueMenu = { label, x, y, run, sound: sound && { scope: sound, label } };
+    this.queueMenu = { label, x, y, run, sound: sound && { scope: sound, label }, like: this.songLike(like) };
   }
 
   /**

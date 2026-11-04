@@ -1,6 +1,7 @@
 <script lang="ts">
   import { pop } from "../lib/motion";
   import { api, khz, outputIcon, type OutputDevice } from "../lib/api";
+  import { layersWords } from "../lib/sound.svelte";
   import { app } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
 
@@ -51,7 +52,7 @@
         <div class="ok">Native rate, no resampling.</div>
       {/if}
       {#if app.player?.eq_active}
-        <div class="warn">Sound on (“{app.player.eq_profile}”): processed, not bit-perfect.</div>
+        <div class="warn">Sound on (“{layersWords(app.player)}”): processed, not bit-perfect.</div>
       {:else if !stream.resampled}
         <div class="ok">Bit-perfect.</div>
       {/if}
@@ -134,7 +135,7 @@
   }
   .warn {
     margin-top: 4px;
-    color: #fbbf24;
+    color: var(--warn);
   }
   .ok {
     margin-top: 4px;

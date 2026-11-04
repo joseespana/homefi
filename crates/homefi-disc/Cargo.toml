@@ -1,0 +1,43 @@
+[package]
+name = "homefi-disc"
+description = "HomeFi desktop disc access: drives, TOC and ids, secure audio-CD reading (pure Rust, per-OS transports), media and copy-protection detection"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+homefi-core.workspace = true
+base64.workspace = true
+chrono.workspace = true
+flacenc.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+symphonia.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_Storage_IscsiDisc",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+] }
+
+[dev-dependencies]
+tempfile.workspace = true
+symphonia.workspace = true
+wiremock = "0.6"
+lofty.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

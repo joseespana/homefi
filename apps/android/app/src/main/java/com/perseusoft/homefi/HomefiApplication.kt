@@ -10,8 +10,10 @@ import com.perseusoft.homefi.data.AccountStore
 import com.perseusoft.homefi.data.AiSetup
 import com.perseusoft.homefi.data.AppUpdater
 import com.perseusoft.homefi.data.DownloadRepository
+import com.perseusoft.homefi.data.HomePlaylists
 import com.perseusoft.homefi.data.KeyVault
 import com.perseusoft.homefi.data.SettingsStore
+import com.perseusoft.homefi.data.WhatsNew
 import com.perseusoft.homefi.library.EmbeddedCover
 import com.perseusoft.homefi.library.EmbeddedCoverFetcher
 import com.perseusoft.homefi.library.EmbeddedCoverKeyer
@@ -22,6 +24,7 @@ import com.perseusoft.homefi.player.Equalizer
 import com.perseusoft.homefi.player.PlayerController
 import com.perseusoft.homefi.player.SoundLayers
 import com.perseusoft.homefi.share.ShareManager
+import com.perseusoft.homefi.ui.playlists.SongSeeds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -46,6 +49,9 @@ class HomefiApplication : Application(), SingletonImageLoader.Factory {
         private set
     lateinit var player: PlayerController
         private set
+    /** Playlists HomeFi built (concert setlists), saved as JSON in its own folder. */
+    lateinit var playlists: HomePlaylists
+        private set
     lateinit var outputs: AudioOutputs
         private set
     /** Song lyrics for the player, cached per song. */
@@ -63,8 +69,15 @@ class HomefiApplication : Application(), SingletonImageLoader.Factory {
     /** Shared control / party mode, as hub or guest. */
     lateinit var share: ShareManager
         private set
+    /** "Playlist like this": a song waiting to open the AI chat. */
+    val songSeeds = SongSeeds()
+
     /** "HomeFi X is available" (official build only; nothing about the user is sent). */
     lateinit var updates: AppUpdater
+        private set
+
+    /** "What's new" after an update, from the core's embedded CHANGELOG. */
+    lateinit var whatsNew: WhatsNew
         private set
 
     override fun onCreate() {
@@ -85,6 +98,7 @@ class HomefiApplication : Application(), SingletonImageLoader.Factory {
         }
         downloads = DownloadRepository(this, engine, settings, appScope)
         library = LibraryRepository(this, engine, downloads, appScope)
+        playlists = HomePlaylists(engine, appScope)
         outputs = AudioOutputs(this)
         equalizer = Equalizer(settings, outputs, appScope)
         ai = AiSetup(settings, KeyVault(this))
@@ -93,6 +107,8 @@ class HomefiApplication : Application(), SingletonImageLoader.Factory {
         share = ShareManager(this)
         lyrics = LyricsRepository(engine, appScope)
         updates = AppUpdater(this, settings, appScope)
+        whatsNew = WhatsNew(this, settings, appScope)
+        whatsNew.check()
     }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader =

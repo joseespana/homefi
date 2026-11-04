@@ -94,6 +94,9 @@
     limbs={room?.mascot_limbs ?? "white"}
     turns={room?.mascot_turns ?? "all"}
     temper={(room?.mascot_temper ?? "normal") as Temper}
+    hair={room?.mascot_hair ?? "auto"}
+    strength={room?.mascot_headbang ?? "normal"}
+    follow={(room?.mascot_follow_beat ?? true) ? visual.follower : null}
   />
   {#if styleTag}<span class="tag">{styleTag}</span>{/if}
   {#if room?.mascot_dance_button ?? true}

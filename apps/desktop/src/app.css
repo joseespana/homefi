@@ -434,7 +434,7 @@ h2 {
   --set-badge-sel-bg: var(--primary);
   --set-badge-sel-fg: var(--on-primary, #fff);
   --set-badge-shadow: none;
-  --set-head-bg: color-mix(in srgb, var(--surface) 62%, transparent);
+  --set-head-bg: color-mix(in srgb, var(--surface) 94%, transparent);
 }
 
 /* Motion (Settings → Look → Motion): lib/motion.ts sets <html data-motion>
@@ -514,4 +514,104 @@ select option,
 select optgroup {
   background-color: Canvas;
   color: CanvasText;
+}
+
+/* Hardware-like buttons of the player bar (the deck, its menus and the buttons
+   shared with the top bar), and the small menus that open above them */
+.hw {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: min(12px, var(--r-max));
+  color: var(--text);
+  background: linear-gradient(180deg, var(--hw-top), var(--hw-bottom));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.12), 0 2px 0 rgb(0 0 0 / 0.35), 0 6px 14px rgb(0 0 0 / 0.25);
+  transition: transform 0.08s, box-shadow 0.08s, color 0.15s;
+}
+.hw:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 0 0 rgb(0 0 0 / 0.35);
+}
+.hw.small {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  color: var(--muted);
+}
+.hw.on {
+  color: var(--accent-text);
+}
+.hw.play {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  color: #fff;
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--room-accent) 90%, white), var(--room-glow));
+  box-shadow: 0 0 24px color-mix(in srgb, var(--room-accent) 45%, transparent), inset 0 1px 0 rgb(255 255 255 / 0.3);
+}
+.deck-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  cursor: default;
+}
+.deck-menu {
+  /* an ordinary surface, whatever colours the skin gives the deck */
+  --text: var(--window-text);
+  --muted: var(--window-muted);
+  --surface: var(--window-surface);
+  --surface-2: var(--window-surface-2);
+  --border: var(--window-border);
+  --accent-text: var(--window-accent-text);
+  color: var(--text);
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 11;
+  display: flex;
+  flex-direction: column;
+  min-width: 210px;
+  padding: 6px;
+  border-radius: min(14px, var(--r-max));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow, 0 12px 32px rgb(0 0 0 / 0.35));
+}
+.deck-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: min(9px, var(--r-max));
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+}
+.deck-menu button:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.deck-menu button.on {
+  color: var(--accent-text);
+}
+.deck-menu button:disabled {
+  opacity: 0.45;
+}
+.deck-menu kbd {
+  margin-left: auto;
+  padding-left: 14px;
+  color: var(--muted);
+  font: 600 11px var(--font-mono);
+}
+
+/* text for screen readers only */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

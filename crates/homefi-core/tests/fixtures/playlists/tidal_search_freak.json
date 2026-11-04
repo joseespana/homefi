@@ -1,0 +1,196 @@
+{
+  "artists": {
+    "limit": 0,
+    "offset": 0,
+    "totalNumberOfItems": 0,
+    "items": []
+  },
+  "albums": {
+    "limit": 0,
+    "offset": 0,
+    "totalNumberOfItems": 0,
+    "items": []
+  },
+  "playlists": {
+    "limit": 0,
+    "offset": 0,
+    "totalNumberOfItems": 0,
+    "items": []
+  },
+  "videos": {
+    "limit": 0,
+    "offset": 0,
+    "totalNumberOfItems": 0,
+    "items": []
+  },
+  "tracks": {
+    "limit": 300,
+    "offset": 0,
+    "totalNumberOfItems": 4,
+    "items": [
+      {
+        "id": 101,
+        "title": "Freak On A Leash (Live)",
+        "duration": 184,
+        "allowStreaming": true,
+        "streamReady": true,
+        "explicit": false,
+        "popularity": 60,
+        "streamStartDate": "2007-03-01",
+        "isrc": "USXX00700002",
+        "audioQuality": "LOSSLESS",
+        "audioModes": [
+          "STEREO"
+        ],
+        "artist": {
+          "id": 1,
+          "name": "Korn",
+          "type": "MAIN"
+        },
+        "artists": [
+          {
+            "id": 1,
+            "name": "Korn",
+            "type": "MAIN"
+          }
+        ],
+        "album": {
+          "id": 1010,
+          "title": "MTV Unplugged",
+          "cover": "aaaa-bbbb"
+        }
+      },
+      {
+        "id": 102,
+        "title": "Freak On A Leash",
+        "duration": 184,
+        "allowStreaming": true,
+        "streamReady": true,
+        "explicit": false,
+        "popularity": 40,
+        "streamStartDate": "2010-01-01",
+        "isrc": "USXX01000003",
+        "audioQuality": "LOSSLESS",
+        "audioModes": [
+          "STEREO"
+        ],
+        "artist": {
+          "id": 1,
+          "name": "Karaoke Band",
+          "type": "MAIN"
+        },
+        "artists": [
+          {
+            "id": 1,
+            "name": "Karaoke Band",
+            "type": "MAIN"
+          }
+        ],
+        "album": {
+          "id": 1020,
+          "title": "Karaoke Hits",
+          "cover": "aaaa-bbbb"
+        }
+      },
+      {
+        "id": 103,
+        "title": "Freak On A Leash",
+        "duration": 184,
+        "allowStreaming": true,
+        "streamReady": true,
+        "explicit": false,
+        "popularity": 70,
+        "streamStartDate": "1998-08-18",
+        "isrc": "USSM19800100",
+        "audioQuality": "LOSSLESS",
+        "audioModes": [
+          "STEREO"
+        ],
+        "artist": {
+          "id": 1,
+          "name": "Korn",
+          "type": "MAIN"
+        },
+        "artists": [
+          {
+            "id": 1,
+            "name": "Korn",
+            "type": "MAIN"
+          }
+        ],
+        "album": {
+          "id": 1030,
+          "title": "Follow the Leader",
+          "cover": "aaaa-bbbb"
+        }
+      },
+      {
+        "id": 104,
+        "title": "Freaky Friday",
+        "duration": 184,
+        "allowStreaming": true,
+        "streamReady": true,
+        "explicit": false,
+        "popularity": 90,
+        "streamStartDate": "2005-05-05",
+        "isrc": "USXX00500004",
+        "audioQuality": "LOSSLESS",
+        "audioModes": [
+          "STEREO"
+        ],
+        "artist": {
+          "id": 1,
+          "name": "Another Band",
+          "type": "MAIN"
+        },
+        "artists": [
+          {
+            "id": 1,
+            "name": "Another Band",
+            "type": "MAIN"
+          }
+        ],
+        "album": {
+          "id": 1040,
+          "title": "Other Songs",
+          "cover": "aaaa-bbbb"
+        }
+      }
+    ]
+  },
+  "topHit": {
+    "type": "TRACKS",
+    "value": {
+      "id": 104,
+      "title": "Freaky Friday",
+      "duration": 184,
+      "allowStreaming": true,
+      "streamReady": true,
+      "explicit": false,
+      "popularity": 90,
+      "streamStartDate": "2005-05-05",
+      "isrc": "USXX00500004",
+      "audioQuality": "LOSSLESS",
+      "audioModes": [
+        "STEREO"
+      ],
+      "artist": {
+        "id": 1,
+        "name": "Another Band",
+        "type": "MAIN"
+      },
+      "artists": [
+        {
+          "id": 1,
+          "name": "Another Band",
+          "type": "MAIN"
+        }
+      ],
+      "album": {
+        "id": 1040,
+        "title": "Other Songs",
+        "cover": "aaaa-bbbb"
+      }
+    }
+  }
+}

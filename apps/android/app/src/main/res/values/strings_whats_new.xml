@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="whats_new_setting">Show what\'s new after an update</string>
+    <string name="whats_new_setting_hint">Once per version, the first time HomeFi opens after updating</string>
+    <string name="whats_new_open">What\'s new in HomeFi %1$s</string>
+    <string name="whats_new_open_hint">The notes of the version you\'re running</string>
+    <string name="whats_new_show">Show</string>
+    <string name="whats_new_version">HomeFi %1$s · %2$s</string>
+    <string name="whats_new_close">Got it</string>
+    <string name="whats_new_none">No notes for this version.</string>
+</resources>

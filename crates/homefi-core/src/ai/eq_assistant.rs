@@ -15,6 +15,7 @@ use serde_json::{json, Value};
 
 use super::chat::{chat, Message, Tool, ToolCall, ToolResult};
 use super::guided::{GuidedEq, GuidedState};
+use super::replies::{quick_replies, suggest_replies_tool};
 use super::{resolve_model, AiConfig};
 use crate::dsp::autoeq::{AutoEq, HeadphoneEntry};
 use crate::dsp::{
@@ -35,8 +36,6 @@ const MAX_ROUNDS: usize = 6;
 const MAX_QUESTIONS: u32 = 6;
 /// Headphones returned to the model per search.
 const SEARCH_RESULTS: usize = 8;
-/// Tap-able answers per question.
-const MAX_QUICK_REPLIES: usize = 4;
 
 /// What kind of output a device is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -1055,19 +1054,6 @@ fn tilt_schema() -> Value {
     })
 }
 
-fn quick_replies(v: Option<&Value>) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for o in v.and_then(Value::as_array).into_iter().flatten() {
-        let Some(s) = o.as_str().map(str::trim).filter(|s| !s.is_empty()) else { continue };
-        let s: String = s.chars().take(48).collect();
-        if !out.contains(&s) {
-            out.push(s);
-        }
-    }
-    out.truncate(MAX_QUICK_REPLIES);
-    out
-}
-
 fn tools() -> Vec<Tool> {
     let tool = |name: &str, description: &str, parameters: Value| Tool {
         name: name.into(),
@@ -1126,15 +1112,7 @@ fn tools() -> Vec<Tool> {
     };
     let tilt = tilt_schema();
     vec![
-        tool(
-            "suggest_replies",
-            "Show 2 to 4 short answers the user can tap for the question you just asked. Call it with every question.",
-            json!({
-                "type": "object",
-                "properties": { "options": { "type": "array", "items": { "type": "string" }, "maxItems": MAX_QUICK_REPLIES } },
-                "required": ["options"]
-            }),
-        ),
+        suggest_replies_tool(),
         tool(
             "search_headphones",
             "Search the AutoEq database of measured headphones and earphones by brand and model (e.g. \"Sony WH-1000XM5\"). Returns matches with a `path`.",
@@ -1986,7 +1964,6 @@ pub(crate) mod tests {
             ("Sennheiser HD 650", "oratory1990", "over-ear")
         );
         assert!(entry_for(&[], "nonsense").is_none());
-        assert_eq!(quick_replies(Some(&json!(["a", " a ", "", "b", "c", "d", "e"]))), ["a", "b", "c", "d"]);
     }
 
     #[test]

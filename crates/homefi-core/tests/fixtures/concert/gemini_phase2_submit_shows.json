@@ -1,0 +1,279 @@
+{
+ "candidates": [
+  {
+   "content": {
+    "role": "model",
+    "parts": [
+     {
+      "functionCall": {
+       "name": "submit_shows",
+       "args": {
+        "shows": [
+         {
+          "date": "2026-10-24",
+          "venue": "Arena CDMX",
+          "city": "Mexico City",
+          "country": "MX",
+          "tour": "2026 Tour",
+          "url": "https://www.example.com/korn-2026-10-24",
+          "songs": [
+           {
+            "name": "Intro",
+            "original_artist": null,
+            "tape": true,
+            "encore": false
+           },
+           {
+            "name": "Blind",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Got the Life",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Falling Away From Me",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Freak On A Leash",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Wicked Game",
+            "original_artist": "Chris Isaak",
+            "tape": false,
+            "encore": true
+           }
+          ]
+         },
+         {
+          "date": "2026-10-22",
+          "venue": "Auditorio",
+          "city": "Monterrey",
+          "country": "MX",
+          "tour": "2026 Tour",
+          "url": "https://www.example.com/korn-2026-10-22",
+          "songs": [
+           {
+            "name": "Intro",
+            "original_artist": null,
+            "tape": true,
+            "encore": false
+           },
+           {
+            "name": "Blind",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Got the Life",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Here to Stay",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Freak On A Leash",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Wicked Game",
+            "original_artist": "Chris Isaak",
+            "tape": false,
+            "encore": true
+           }
+          ]
+         },
+         {
+          "date": "2026-10-20",
+          "venue": "Foro Sol",
+          "city": "Mexico City",
+          "country": "MX",
+          "tour": "2026 Tour",
+          "url": "https://www.example.com/korn-2026-10-20",
+          "songs": [
+           {
+            "name": "Intro",
+            "original_artist": null,
+            "tape": true,
+            "encore": false
+           },
+           {
+            "name": "Blind",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Make Me Bad",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Y'all Want a Single",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Freak On A Leash",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Wicked Game",
+            "original_artist": "Chris Isaak",
+            "tape": false,
+            "encore": true
+           }
+          ]
+         },
+         {
+          "date": "2099-01-01",
+          "venue": "Future Hall",
+          "city": "Nowhere",
+          "country": "MX",
+          "tour": "2026 Tour",
+          "url": "https://www.example.com/korn-2099-01-01",
+          "songs": [
+           {
+            "name": "Intro",
+            "original_artist": null,
+            "tape": true,
+            "encore": false
+           },
+           {
+            "name": "Blind",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Got the Life",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Falling Away From Me",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Freak On A Leash",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Wicked Game",
+            "original_artist": "Chris Isaak",
+            "tape": false,
+            "encore": true
+           }
+          ]
+         },
+         {
+          "date": "2026-10-18",
+          "venue": "Tiny Club",
+          "city": "Puebla",
+          "country": "MX",
+          "tour": "2026 Tour",
+          "url": "https://www.example.com/korn-2026-10-18",
+          "songs": [
+           {
+            "name": "Blind",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Freak On A Leash",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Wicked Game",
+            "original_artist": "Chris Isaak",
+            "tape": false,
+            "encore": true
+           }
+          ]
+         },
+         {
+          "date": "2026-10-24",
+          "venue": "ARENA CDMX",
+          "city": "Mexico City",
+          "country": "MX",
+          "tour": "2026 Tour",
+          "url": "https://www.example.com/korn-2026-10-24",
+          "songs": [
+           {
+            "name": "Intro",
+            "original_artist": null,
+            "tape": true,
+            "encore": false
+           },
+           {
+            "name": "Blind",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Got the Life",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Falling Away From Me",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Freak On A Leash",
+            "original_artist": null,
+            "tape": false,
+            "encore": false
+           },
+           {
+            "name": "Wicked Game",
+            "original_artist": "Chris Isaak",
+            "tape": false,
+            "encore": true
+           }
+          ]
+         }
+        ]
+       }
+      }
+     }
+    ]
+   },
+   "finishReason": "STOP"
+  }
+ ]
+}

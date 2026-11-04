@@ -1,6 +1,30 @@
 package com.perseusoft.homefi.ui.library
 
+import com.perseusoft.homefi.ui.playlists.songSeedAction
+import com.perseusoft.homefi.ui.playlists.toSeed
 import com.perseusoft.homefi.ui.haptics
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Celebration
+import androidx.compose.material.icons.rounded.Chat
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.heightIn
+import com.perseusoft.homefi.core.PlaylistOrigin
+import com.perseusoft.homefi.core.SongSeed
+import androidx.compose.runtime.LaunchedEffect
+import com.perseusoft.homefi.core.HomePlaylist
+import com.perseusoft.homefi.ui.playlists.ChatBadge
+import com.perseusoft.homefi.ui.playlists.ChatPlaylistScreen
+import com.perseusoft.homefi.ui.playlists.ConcertScreen
+import com.perseusoft.homefi.ui.playlists.HomePlaylistScreen
+import com.perseusoft.homefi.ui.playlists.NotRealSetlistBadge
+import com.perseusoft.homefi.ui.playlists.PartyBadge
+import com.perseusoft.homefi.ui.playlists.PartyScreen
+import com.perseusoft.homefi.ui.playlists.concert
+import com.perseusoft.homefi.ui.playlists.deleteWithUndo
+import com.perseusoft.homefi.core.SetlistSource
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -132,8 +156,33 @@ fun LibraryScreen() {
     var albumKey by rememberSaveable { mutableStateOf<String?>(null) }
     var artistName by rememberSaveable { mutableStateOf<String?>(null) }
     var playlistPath by rememberSaveable { mutableStateOf<String?>(null) }
+    var concertOpen by rememberSaveable { mutableStateOf(false) }
+    // the party screen: closed, new, or rebuilding the saved playlist with this id
+    var partyOpen by rememberSaveable { mutableStateOf(false) }
+    var partyReplaceId by rememberSaveable { mutableStateOf<String?>(null) }
+    // the "Playlist with AI" chat: closed, new, or continuing the saved playlist with this id
+    var chatOpen by rememberSaveable { mutableStateOf(false) }
+    var chatReplaceId by rememberSaveable { mutableStateOf<String?>(null) }
+    // "Playlist like this": the song the chat opens with (not restored after the process dies)
+    var chatSeed by remember { mutableStateOf<SongSeed?>(null) }
+    var homeListId by rememberSaveable { mutableStateOf<String?>(null) }
+    val homeLists by app.playlists.list.collectAsStateWithLifecycle()
+    val snackbar = remember { SnackbarHostState() }
 
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { app.library.refresh() }
+
+    // a song sent here from a menu opens the chat with it
+    LaunchedEffect(Unit) {
+        app.songSeeds.request.collect { seed ->
+            if (seed == null) return@collect
+            app.songSeeds.consume()
+            concertOpen = false
+            partyOpen = false
+            chatReplaceId = null
+            chatSeed = seed
+            chatOpen = true
+        }
+    }
 
     val tracks = remember(state.tracks, query) { state.tracks.filterQuery(query) }
     val albums = remember(tracks) { tracks.albums() }
@@ -142,6 +191,10 @@ fun LibraryScreen() {
     // an album, playlist or artist opens over the tabs: forward slides in, back slides out
     val motion = LocalMotion.current
     val page = when {
+        concertOpen -> LibraryPage.Concert
+        partyOpen -> LibraryPage.Party(partyReplaceId)
+        chatOpen -> LibraryPage.Chat(chatReplaceId, chatSeed)
+        homeListId != null && homeLists.any { it.id == homeListId } -> LibraryPage.HomeList(homeListId!!)
         albumKey != null && albums.any { it.key == albumKey } -> LibraryPage.AlbumPage(albumKey!!)
         playlistPath != null && state.playlists.any { it.path == playlistPath } -> LibraryPage.PlaylistPage(playlistPath!!)
         artistName != null && artists.any { it.name == artistName } -> LibraryPage.ArtistPage(artistName!!)
@@ -149,18 +202,48 @@ fun LibraryScreen() {
     }
     BackHandler(enabled = page != LibraryPage.Root) {
         when (page) {
+            LibraryPage.Concert -> concertOpen = false
+            is LibraryPage.Party -> { partyOpen = false; partyReplaceId = null }
+            is LibraryPage.Chat -> { chatOpen = false; chatReplaceId = null; chatSeed = null }
+            is LibraryPage.HomeList -> homeListId = null
             is LibraryPage.AlbumPage -> albumKey = null
             is LibraryPage.PlaylistPage -> playlistPath = null
             is LibraryPage.ArtistPage -> artistName = null
             LibraryPage.Root -> Unit
         }
     }
+    Box(Modifier.fillMaxSize()) {
     AnimatedContent(
         targetState = page,
         transitionSpec = { motion.screens(forward = targetState != LibraryPage.Root) },
         label = "library-page",
     ) { shown ->
         when (shown) {
+            LibraryPage.Concert -> ConcertScreen(
+                onBack = { concertOpen = false },
+                onDelete = { deleteWithUndo(app, snackbar, it) },
+            )
+            is LibraryPage.Party -> PartyScreen(
+                replace = homeLists.firstOrNull { it.id == shown.replaceId },
+                onBack = { partyOpen = false; partyReplaceId = null },
+                onDelete = { partyOpen = false; partyReplaceId = null; deleteWithUndo(app, snackbar, it) },
+            )
+            is LibraryPage.Chat -> ChatPlaylistScreen(
+                replace = homeLists.firstOrNull { it.id == shown.replaceId },
+                seed = shown.seed,
+                onBack = { chatOpen = false; chatReplaceId = null; chatSeed = null },
+                onDelete = { chatOpen = false; chatReplaceId = null; chatSeed = null; deleteWithUndo(app, snackbar, it) },
+            )
+            is LibraryPage.HomeList -> HomePlaylistScreen(
+                id = shown.id,
+                onBack = { homeListId = null },
+                onDelete = { homeListId = null; deleteWithUndo(app, snackbar, it) },
+                // a saved playlist goes back to the screen that made it
+                onChangeAnswers = {
+                    if (it.origin is PlaylistOrigin.Chat) { chatReplaceId = it.id; chatOpen = true }
+                    else { partyReplaceId = it.id; partyOpen = true }
+                },
+            )
             is LibraryPage.AlbumPage -> albums.firstOrNull { it.key == shown.key }?.let { album ->
                 AlbumDetail(album, currentId, onBack = { albumKey = null })
             }
@@ -215,14 +298,24 @@ fun LibraryScreen() {
                 onArtist = { artistName = it.name },
                 onPlaylist = { playlistPath = it.path },
                 onSound = app.sound::openMenu,
+                onChat = { chatReplaceId = null; chatSeed = null; chatOpen = true },
+                onConcert = { concertOpen = true },
+                onParty = { partyReplaceId = null; partyOpen = true },
+                onHomeList = { homeListId = it.id },
             )
         }
+    }
+    SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp))
     }
 }
 
 /** What the library shows: its tabs, or an album / playlist / artist opened from them. */
 private sealed interface LibraryPage {
     data object Root : LibraryPage
+    data object Concert : LibraryPage
+    data class Party(val replaceId: String?) : LibraryPage
+    data class Chat(val replaceId: String?, val seed: SongSeed?) : LibraryPage
+    data class HomeList(val id: String) : LibraryPage
     data class AlbumPage(val key: String) : LibraryPage
     data class PlaylistPage(val path: String) : LibraryPage
     data class ArtistPage(val name: String) : LibraryPage
@@ -251,10 +344,16 @@ private fun LibraryTabs(
     onArtist: (Artist) -> Unit,
     onPlaylist: (LocalPlaylist) -> Unit,
     onSound: (TasteScope) -> Unit,
+    onChat: () -> Unit,
+    onConcert: () -> Unit,
+    onParty: () -> Unit,
+    onHomeList: (HomePlaylist) -> Unit,
 ) {
     val app = LocalContext.current.homefi
     val state by app.library.state.collectAsStateWithLifecycle()
     val motion = LocalMotion.current
+    // the playlists HomeFi made are read again whenever their tab shows
+    LaunchedEffect(tab) { if (tab == LibraryTab.PLAYLISTS) app.playlists.refresh() }
     Column(Modifier.fillMaxSize()) {
         OutlinedTextField(
             value = query,
@@ -284,6 +383,8 @@ private fun LibraryTabs(
             modifier = Modifier.fillMaxSize(),
         ) {
             val body = when {
+                // the concert playlist needs no local files
+                tab == LibraryTab.PLAYLISTS -> TabBody.Showing(tab)
                 state.tracks.isEmpty() && !state.scanned -> TabBody.Loading
                 state.tracks.isEmpty() -> TabBody.Empty
                 else -> TabBody.Showing(tab)
@@ -315,7 +416,10 @@ private fun LibraryTabs(
                         })
                         LibraryTab.ALBUMS -> AlbumGrid(albums, onAlbum, onSound)
                         LibraryTab.ARTISTS -> ArtistList(artists, onArtist, onSound)
-                        LibraryTab.PLAYLISTS -> PlaylistList(state.playlists.filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }, onPlaylist, onSound)
+                        LibraryTab.PLAYLISTS -> PlaylistList(
+                            state.playlists.filter { query.isBlank() || it.name.contains(query, ignoreCase = true) },
+                            onPlaylist, onSound, onChat, onConcert, onParty, onHomeList,
+                        )
                     }
                 }
             }
@@ -393,7 +497,7 @@ fun PlayHeader(subtitle: String, tracks: List<LibraryTrack>, source: SourceConte
 }
 
 @Composable
-private fun ScreenHeader(title: String, onBack: () -> Unit, onSound: (() -> Unit)? = null) {
+internal fun ScreenHeader(title: String, onBack: () -> Unit, onSound: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.back)) }
         Text(
@@ -464,7 +568,11 @@ fun TrackRow(track: LibraryTrack, current: Boolean, index: Int = 0, modifier: Mo
     val haptics = haptics()
     Box(modifier) {
     val sound = LocalContext.current.homefi.sound
-    QueueMenu(menu, { menu = false }, onSound = { sound.openMenu(TasteScope.Track(id = track.path, name = track.title)) }) { next -> player.queueTracks(listOf(track), next) }
+    QueueMenu(
+        menu, { menu = false },
+        onSound = { sound.openMenu(TasteScope.Track(id = track.path, name = track.title)) },
+        onPlaylistLikeThis = songSeedAction { track.toSeed() },
+    ) { next -> player.queueTracks(listOf(track), next) }
     ListItem(
         modifier = Modifier.combinedClickable(
             onClick = {
@@ -558,21 +666,90 @@ private fun AlbumGrid(albums: List<Album>, onOpen: (Album) -> Unit, onSound: (Ta
 }
 
 @Composable
-private fun PlaylistList(playlists: List<LocalPlaylist>, onOpen: (LocalPlaylist) -> Unit, onSound: (TasteScope) -> Unit) {
+private fun PlaylistList(
+    playlists: List<LocalPlaylist>,
+    onOpen: (LocalPlaylist) -> Unit,
+    onSound: (TasteScope) -> Unit,
+    onChat: () -> Unit,
+    onConcert: () -> Unit,
+    onParty: () -> Unit,
+    onHomeList: (HomePlaylist) -> Unit,
+) {
     val haptics = haptics()
-    if (playlists.isEmpty()) {
-        Text(
-            stringResource(R.string.library_playlists_empty),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(32.dp),
-        )
-        return
-    }
+    val app = LocalContext.current.homefi
+    val made by app.playlists.list.collectAsStateWithLifecycle()
+    val settings by app.settings.playlists.collectAsStateWithLifecycle()
+    val homeMade = if (settings.homeSection) made else emptyList()
     ListEntrance {
     LazyColumn(Modifier.fillMaxSize()) {
+        // the AI chat is the general way in (primary); concert and party are the specific ones
+        item(key = "chat") {
+            MakeCard(Icons.Rounded.Chat, R.string.pl_chat_button, MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer, onChat, itemMotion(0))
+        }
+        item(key = "concert") {
+            MakeCard(Icons.Rounded.AutoAwesome, R.string.pl_concert_button, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer, onConcert, itemMotion(1))
+        }
+        item(key = "party") {
+            MakeCard(Icons.Rounded.Celebration, R.string.pl_party_button, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer, onParty, itemMotion(2))
+        }
+        if (homeMade.isNotEmpty()) {
+            item(key = "made-head") {
+                Text(
+                    stringResource(R.string.pl_made_by_homefi),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+                )
+            }
+            itemsIndexed(homeMade, key = { _, it -> "made-" + it.id }) { i, playlist ->
+                val popular = playlist.concert?.source is SetlistSource.TidalPopular
+                val party = playlist.origin is PlaylistOrigin.Party
+                val chat = playlist.origin is PlaylistOrigin.Chat
+                ListItem(
+                    modifier = itemMotion(i + 3).combinedClickable(
+                        onClick = { onHomeList(playlist) },
+                        onLongClick = { haptics.longPress(); onSound(TasteScope.Playlist(id = playlist.id, name = playlist.name)) },
+                    ),
+                    colors = skinRowColors(i, current = false),
+                    leadingContent = {
+                        CoverArt(playlist.entries.firstNotNullOfOrNull { it.coverUrl }, 52.dp, icon = if (party) Icons.Rounded.Celebration else if (chat) Icons.Rounded.Chat else Icons.Rounded.AutoAwesome)
+                    },
+                    headlineContent = { Text(playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    supportingContent = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                stringResource(R.string.pl_count, playlist.entries.size, formatDuration(playlist.entries.sumOf { it.durationMs.toLong() })),
+                                maxLines = 1,
+                            )
+                            if (popular) {
+                                Spacer(Modifier.width(6.dp))
+                                NotRealSetlistBadge()
+                            }
+                            if (party) {
+                                Spacer(Modifier.width(6.dp))
+                                PartyBadge()
+                            }
+                            if (chat) {
+                                Spacer(Modifier.width(6.dp))
+                                ChatBadge()
+                            }
+                        }
+                    },
+                )
+            }
+        }
+        if (playlists.isEmpty() && homeMade.isEmpty()) {
+            item(key = "empty") {
+                Text(
+                    stringResource(R.string.library_playlists_empty),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(32.dp),
+                )
+            }
+        }
         itemsIndexed(playlists, key = { _, it -> it.path }) { i, playlist ->
             ListItem(
-                modifier = itemMotion(i).combinedClickable(
+                modifier = itemMotion(i + homeMade.size + 2).combinedClickable(
                     onClick = { onOpen(playlist) },
                     onLongClick = { haptics.longPress(); onSound(TasteScope.Playlist(id = "", name = playlist.name)) },
                 ),
@@ -585,6 +762,32 @@ private fun PlaylistList(playlists: List<LocalPlaylist>, onOpen: (LocalPlaylist)
             )
         }
     }
+    }
+}
+
+/** One way into making a playlist (chat, concert or party): an icon and a label on a tinted card. */
+@Composable
+private fun MakeCard(
+    icon: ImageVector,
+    label: Int,
+    container: Color,
+    content: Color,
+    onClick: () -> Unit,
+    modifier: Modifier,
+) {
+    val haptics = haptics()
+    Card(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clickable(role = Role.Button) { haptics.press(); onClick() },
+        colors = CardDefaults.cardColors(containerColor = container, contentColor = content),
+    ) {
+        Row(Modifier.heightIn(min = 56.dp).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null)
+            Spacer(Modifier.width(12.dp))
+            Text(stringResource(label), Modifier.weight(1f), fontWeight = FontWeight.Bold)
+        }
     }
 }
 

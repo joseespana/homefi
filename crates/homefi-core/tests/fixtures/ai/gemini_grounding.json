@@ -1,0 +1,15 @@
+{
+  "candidates": [{
+    "content": {"role": "model", "parts": [{"text": "The band played Blind first."}]},
+    "finishReason": "STOP",
+    "groundingMetadata": {
+      "webSearchQueries": ["Example Band setlist 2026"],
+      "searchEntryPoint": {"renderedContent": "<div class=\"container\"><a class=\"chip\" href=\"https://www.google.com/search?q=example+band\">Example Band setlist 2026</a></div>"},
+      "groundingChunks": [
+        {"web": {"uri": "https://www.example.com/band-2026-10-24", "title": "example.com"}},
+        {"web": {"uri": "https://news.example.org/band-tour", "title": "news.example.org"}},
+        {"web": {"uri": "https://www.example.com/band-2026-10-24", "title": "dup"}}
+      ]
+    }
+  }]
+}

@@ -1,0 +1,17 @@
+{
+ "id": "msg_9",
+ "type": "message",
+ "role": "assistant",
+ "model": "claude-x",
+ "stop_reason": "end_turn",
+ "content": [
+  {
+   "type": "text",
+   "text": "Sure, here are some songs"
+  }
+ ],
+ "usage": {
+  "input_tokens": 1,
+  "output_tokens": 1
+ }
+}

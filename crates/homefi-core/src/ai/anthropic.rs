@@ -4,7 +4,11 @@
 use serde_json::{json, Value};
 
 use super::chat::{arguments, send, ChatReply, Message, Native, Tool, ToolCall, MAX_TOKENS};
-use super::{http, AiConfig, AiError, AiErrorKind, ModelInfo, CHAT_TIMEOUT, LIST_TIMEOUT};
+use super::web_search::{self, SourceList, WebSearch};
+use super::{http, AiConfig, AiError, AiErrorKind, Api, ModelInfo, CHAT_TIMEOUT, LIST_TIMEOUT};
+
+/// How many times a paused (`pause_turn`) search turn is resumed.
+const PAUSE_RETRIES: usize = 2;
 
 /// The API version this client is written against.
 const VERSION: &str = "2026-10-21";
@@ -88,19 +92,71 @@ pub(crate) fn parse(config: &AiConfig, answer: Value) -> Result<ChatReply, AiErr
     Ok(ChatReply {
         text: text.join("\n").trim().to_owned(),
         tool_calls,
-        native: Some(Native::new(config, Value::Array(blocks.clone()))),
+        native: Some(Native::new(Api::Anthropic, config, Value::Array(blocks.clone()))),
+        sources: web_search::anthropic_sources(blocks),
+        search_widget_html: None,
     })
 }
 
+/// A search turn can pause (`pause_turn`): the same request goes again with the paused
+/// content appended, and the rounds are merged into one reply.
 pub(crate) async fn chat(
     config: &AiConfig,
     system: &str,
     messages: &[Message],
     tools: &[Tool],
+    search: Option<&WebSearch>,
 ) -> Result<ChatReply, AiError> {
     let url = format!("{}/messages", config.base());
-    let req = request(config, http().post(url)).timeout(CHAT_TIMEOUT).json(&body(config, system, messages, tools));
-    parse(config, send(config, req, false).await?)
+    let mut payload = body(config, system, messages, tools);
+    if let Some(search) = search {
+        web_search::anthropic_request(&mut payload, search);
+    }
+    let mut merged: Option<ChatReply> = None;
+    for round in 0..=PAUSE_RETRIES {
+        let req = request(config, http().post(&url)).timeout(CHAT_TIMEOUT).json(&payload);
+        let answer = send(config, req, false).await?;
+        let paused = search.is_some() && answer["stop_reason"] == "pause_turn";
+        let content = answer["content"].clone();
+        let reply = parse(config, answer)?;
+        let merged_now = match merged.take() {
+            Some(before) => merge(before, reply),
+            None => reply,
+        };
+        if !paused || round == PAUSE_RETRIES {
+            return Ok(merged_now);
+        }
+        if let Some(messages) = payload["messages"].as_array_mut() {
+            messages.push(json!({ "role": "assistant", "content": content }));
+        }
+        merged = Some(merged_now);
+    }
+    unreachable!("the last round always returns")
+}
+
+/// Two rounds of one turn as a single reply: text, calls and sources in order, blocks joined.
+fn merge(mut first: ChatReply, next: ChatReply) -> ChatReply {
+    if !next.text.is_empty() {
+        if !first.text.is_empty() {
+            first.text.push('\n');
+        }
+        first.text.push_str(&next.text);
+    }
+    first.tool_calls.extend(next.tool_calls);
+    let mut sources = SourceList::default();
+    sources.extend(std::mem::take(&mut first.sources));
+    sources.extend(next.sources);
+    first.sources = sources.into_vec();
+    first.native = match (first.native, next.native) {
+        (Some(mut a), Some(b)) => {
+            if let (Some(left), Some(right)) = (a.value.as_array_mut(), b.value.as_array()) {
+                left.extend(right.iter().cloned());
+            }
+            Some(a)
+        }
+        (a, b) => a.or(b),
+    };
+    first
 }
 
 pub(crate) async fn list_models(config: &AiConfig) -> Result<Vec<ModelInfo>, AiError> {
@@ -199,7 +255,7 @@ mod tests {
             .mount(&server)
             .await;
         let reply =
-            chat(&config(&server.uri()), "sys", &[Message::User { text: "hi".into() }], &[tool()]).await.unwrap();
+            chat(&config(&server.uri()), "sys", &[Message::User { text: "hi".into() }], &[tool()], None).await.unwrap();
         assert_eq!(reply.text, "Looking that up.");
         assert_eq!(reply.tool_calls[0].name, "search_headphones");
         assert_eq!(reply.tool_calls[0].arguments["query"], "Sony WH-1000XM5");

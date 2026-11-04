@@ -25,6 +25,15 @@ const SLOW = new Set([
   "ai_list_models",
   "ai_test_key",
   "taste_suggest",
+  "concert_build",
+  "concert_rearrange",
+  "party_start",
+  "chat_open",
+  "party_reply",
+  "party_build",
+  "home_playlists",
+  "disc_open",
+  "disc_identify",
 ]);
 
 /** A command that sends its pages through a channel as they arrive. */
@@ -260,6 +269,12 @@ export interface RoomSettings {
   /** A dances button next to the mascot. */
   mascot_dance_button: boolean;
   mascot_temper: "off" | "patient" | "normal" | "short";
+  /** Long hair: `auto` (in mosh mode), `long` or `short`. */
+  mascot_hair?: "auto" | "long" | "short";
+  /** Dance on the real beat of the music; off keeps the free tempo. */
+  mascot_follow_beat?: boolean;
+  /** How hard it headbangs; the windmill needs more than gentle. */
+  mascot_headbang?: "gentle" | "normal" | "wild";
   album_colors: boolean;
   /** Look of the now-playing room (the same layouts as Android). */
   layout: PlayerLayout;
@@ -279,7 +294,11 @@ export interface RoomSettings {
   motion: Motion;
   /** How wide Settings reads: a centred column (two columns of groups on very wide windows) or one broader column. */
   settings_width: SettingsWidth;
+  /** Lyrics, queue and mini player in a bar above the content, or in the player bar. */
+  player_buttons: PlayerButtonsPlace;
 }
+
+export type PlayerButtonsPlace = "top" | "bottom";
 
 export type Motion = "auto" | "full" | "subtle" | "off";
 
@@ -358,12 +377,27 @@ export interface Settings {
   sound_ui: SoundUiSettings;
   /** One card per album on Tidal lists, and which release it shows. */
   album_versions: AlbumVersionPrefs;
+  /** "Get ready for a concert" and the playlists HomeFi makes. */
+  playlists: PlaylistSettings;
+  /** Reading and ripping discs (Settings → Discs); camelCase inside, like `eq`. */
+  disc: DiscSettings;
   /** Crossfade between songs (off: gapless, bit-perfect); the same JSON as Android. */
   crossfade: CrossfadeSettings;
   /** Stereo on surround devices and the resampler's quality. */
   output: OutputOptions;
   /** Looking for and installing new versions (Settings → About). */
   updates: UpdateSettings;
+  /** What the mini player adds to its bar (Settings → Listening room). */
+  mini: MiniSettings;
+  /** The version that ran last: the backend owns it (`set_settings` keeps the stored value). */
+  last_seen_version: string | null;
+}
+
+export interface MiniSettings {
+  /** The synced lyrics: the line being sung, big, and the next one. */
+  lyrics: boolean;
+  /** HomeFito dances to the music. */
+  mascot: boolean;
 }
 
 // ---------------------------------------------------------------- updates (src-tauri/src/updater.rs)
@@ -375,6 +409,32 @@ export interface UpdateSettings {
   prereleases: boolean;
   /** `ask`: a banner offers it; `idle`: downloaded and installed when nothing plays, downloads or is shared. */
   install: "ask" | "idle";
+  /** Show the notes of the new version the first time HomeFi opens after updating. */
+  whats_new: boolean;
+}
+
+// ---------------------------------------------------------------- what's new (src-tauri/src/whats_new.rs)
+
+export interface NoteSpan {
+  text: string;
+  bold: boolean;
+  code: boolean;
+  /** http(s) only. */
+  link: string | null;
+}
+export interface NoteLine {
+  spans: NoteSpan[];
+}
+export interface NoteSection {
+  title: string;
+  items: NoteLine[];
+}
+export interface ReleaseNotes {
+  version: string;
+  /** yyyy-mm-dd or "". */
+  date: string;
+  summary: NoteLine | null;
+  sections: NoteSection[];
 }
 
 export type UpdateStatus = "idle" | "checking" | "upToDate" | "available" | "downloading" | "ready" | "installing" | "error";
@@ -448,8 +508,6 @@ export interface SoundUiSettings {
   layer_chip: boolean;
   /** Suggestion cards (a sound for what you listen to most). */
   suggestions: boolean;
-  /** The "Ask the AI" button in the player bar. */
-  assistant_deck: boolean;
   /** How a taste rule's editor opens: the curve when it has bands (`auto`), the three sliders, or the curve. */
   taste_editor?: "auto" | "simple" | "advanced";
 }
@@ -965,6 +1023,384 @@ export interface StreamItem {
   explicit?: boolean;
 }
 
+// ---------------------------------------------------------------- HomeFi playlists (concert)
+// homefi-core's `playlist` and `concert` modules (serde shape, snake_case). Saved only in
+// HomeFi (`~/.homefi/playlists`); nothing is written to the Tidal account.
+
+export type EntryTag = "always" | "usually" | "sometimes" | "encore" | "plain";
+export interface PlaylistEntry {
+  title: string;
+  artist: string;
+  album: string;
+  tidal_id: string | null;
+  isrc: string | null;
+  local_path: string | null;
+  duration_ms: number;
+  explicit: boolean;
+  cover_url: string | null;
+  tag: EntryTag;
+  /** "Played in 7 of 8 shows · encore", already in the build language. */
+  note: string;
+}
+export interface SongCandidate {
+  title: string;
+  artist: string;
+  tag: EntryTag;
+  note: string;
+}
+export interface SourceLink {
+  url: string;
+  title: string;
+}
+export interface ConcertSong {
+  name: string;
+  original_artist: string | null;
+  tape: boolean;
+  encore: boolean;
+}
+export interface ConcertShow {
+  id: string;
+  /** ISO yyyy-mm-dd. */
+  date: string;
+  venue: string;
+  city: string;
+  country: string;
+  tour: string;
+  url: string | null;
+  songs: ConcertSong[];
+}
+export type ConcertMode = { kind: "tour" } | { kind: "show"; show_id: string };
+export type SetlistSource = { kind: "ai"; provider_id: string; model: string } | { kind: "tidal_popular" };
+export interface ConcertThresholds {
+  always_pct: number;
+  usually_pct: number;
+  sometimes_pct: number;
+  encore_pct: number;
+}
+export interface ConcertOrigin {
+  artist: string;
+  source: SetlistSource;
+  mode: ConcertMode;
+  shows_wanted: number;
+  thresholds: ConcertThresholds;
+  /** Every show found, most recent first (empty for Tidal's most played). */
+  shows: ConcertShow[];
+  fetched_ms: number;
+}
+// "Make a party playlist": the questions, and what the AI's session answers (homefi-core `party`).
+export type PartyGuests = "friends" | "family" | "coworkers" | "mixed";
+export type AgeGroup = "kids" | "teens" | "young_adults" | "adults" | "seniors";
+export type PartyVibe = "background" | "chill" | "dance" | "singalong" | "throwback";
+export type EnergyCurve = "arc" | "rising" | "steady";
+/** The energy curves with their words (party questions, settings, chat summary). */
+export const ENERGY_CURVES: { id: EnergyCurve; label: string }[] = [
+  { id: "arc", label: "Warm up, peak, wind down" },
+  { id: "rising", label: "Keep building" },
+  { id: "steady", label: "Steady" },
+];
+export interface PartyBrief {
+  guests: PartyGuests;
+  /** Empty = any age. */
+  ages: AgeGroup[];
+  vibe: PartyVibe;
+  /** 30..=480, rounded to 15. */
+  minutes: number;
+  curve: EnergyCurve;
+  allow_explicit: boolean;
+  notes: string;
+}
+export interface PartyOrigin {
+  brief: PartyBrief;
+  provider_id: string;
+  model: string;
+  built_ms: number;
+}
+// "Make a playlist with AI": the same session as the party, with what the user said in the chat as the brief.
+export interface ChatBrief {
+  /** The user's first message: the playlist's description. */
+  wish: string;
+  /** The AI's short title; empty until it sets one. */
+  title: string;
+  /** 30..=480, rounded to 15. */
+  minutes: number;
+  curve: EnergyCurve;
+  allow_explicit: boolean;
+}
+/** The song “Playlist like this” starts from (what the app knows of it). */
+export interface SongSeed {
+  title: string;
+  artist: string;
+  album?: string;
+  year?: number;
+  genre?: string;
+}
+export interface ChatOrigin {
+  brief: ChatBrief;
+  provider_id: string;
+  model: string;
+  built_ms: number;
+}
+export type PlaylistOrigin = ({ kind: "concert" } & ConcertOrigin) | ({ kind: "party" } & PartyOrigin) | ({ kind: "chat" } & ChatOrigin);
+export interface PartyTurn {
+  text: string;
+  quick_replies: string[];
+  /** The brief as the AI understands it so far (chat mode only). */
+  chat_brief?: ChatBrief | null;
+}
+export interface PartyBuilt {
+  playlist: HomePlaylist;
+  note: string | null;
+}
+export type PartyProgress = { kind: "asking"; round: number } | { kind: "resolving"; done: number; total: number };
+export interface HomePlaylist {
+  version: number;
+  id: string;
+  name: string;
+  description: string;
+  created_ms: number;
+  updated_ms: number;
+  origin: PlaylistOrigin;
+  entries: PlaylistEntry[];
+  unmatched: SongCandidate[];
+  sources: SourceLink[];
+  /** Gemini only: Google's Search Suggestions HTML, shown with the grounded result. */
+  search_widget_html: string | null;
+}
+export interface ConcertRequest {
+  artist: string;
+  shows: number;
+  thresholds: ConcertThresholds;
+  mode: ConcertMode;
+  /** Skip the AI: Tidal's most played. */
+  popular_only: boolean;
+}
+export interface ConcertBuilt {
+  playlist: HomePlaylist;
+  fallback_note: string | null;
+}
+export type ConcertProgress =
+  | { kind: "searching"; with_ai: boolean }
+  | { kind: "shows_found"; count: number }
+  | { kind: "resolving"; done: number; total: number };
+export interface ConcertSources {
+  /** null: no AI set up (or its key is missing). */
+  ai: { provider_id: string; provider_name: string; model: string; web_search: boolean } | null;
+  /** Signed in to Tidal. */
+  tidal: boolean;
+}
+export interface PlaylistSettings {
+  /** Recent shows the AI looks up (3..15). */
+  concert_shows: number;
+  concert_thresholds: ConcertThresholds;
+  prefer_library: boolean;
+  /** Web searches the AI may run per build (1..10). */
+  search_budget: number;
+  skip_tape: boolean;
+  covers_original_artist: boolean;
+  show_sources: boolean;
+  home_section: boolean;
+  /** Default answers on the party screen. */
+  party_minutes: number;
+  party_curve: EnergyCurve;
+  party_allow_explicit: boolean;
+  /** Songs by one artist, at most (1..10). */
+  party_max_per_artist: number;
+  /** Defaults of "Make a playlist with AI"; the chat can change them. */
+  chat_minutes: number;
+  chat_curve: EnergyCurve;
+  chat_allow_explicit: boolean;
+  /** Offer “Playlist like this” in song menus (default true). */
+  chat_from_song: boolean;
+}
+/** Slider ranges (the core clamps again at use). */
+export const CONCERT_SHOWS_RANGE = { min: 3, max: 15 } as const;
+export const THRESHOLD_PCT_RANGE = { min: 5, max: 100, step: 5 } as const;
+export const SEARCH_BUDGET_RANGE = { min: 1, max: 10 } as const;
+export const PARTY_MINUTES_RANGE = { min: 30, max: 480, step: 15 } as const;
+export const PER_ARTIST_RANGE = { min: 1, max: 10 } as const;
+const MIN_PER_HOUR = 60;
+/** A party's length as "2 h", "1 h 30 min", "45 min" (`long`: "2 hours", for screen readers). */
+export function partyLength(minutes: number, long = false): string {
+  const h = Math.floor(minutes / MIN_PER_HOUR);
+  const m = minutes % MIN_PER_HOUR;
+  const hours = long ? `${h} ${h === 1 ? "hour" : "hours"}` : `${h} h`;
+  const mins = long ? `${m} ${m === 1 ? "minute" : "minutes"}` : `${m} min`;
+  return !h ? mins : m ? `${hours} ${mins}` : hours;
+}
+export const DEFAULT_PLAYLIST_SETTINGS: PlaylistSettings = {
+  concert_shows: 8,
+  concert_thresholds: { always_pct: 80, usually_pct: 50, sometimes_pct: 25, encore_pct: 50 },
+  prefer_library: true,
+  search_budget: 5,
+  skip_tape: true,
+  covers_original_artist: true,
+  show_sources: true,
+  home_section: true,
+  party_minutes: 120,
+  party_curve: "arc",
+  party_allow_explicit: true,
+  party_max_per_artist: 3,
+  chat_minutes: 60,
+  chat_curve: "steady",
+  chat_allow_explicit: true,
+  chat_from_song: true,
+};
+
+// ---------------------------------------------------------------- discs (src-tauri/src/disc.rs, crates/homefi-disc)
+// Audio CDs are read and ripped on this computer; the rules (secure reading, offsets, encoders,
+// file names) live in homefi-disc. The UI draws state and sends intents.
+
+export type DiscMedia = "none" | "audio" | "data" | "protected" | "unknown";
+export type DiscProtection = "css" | "cppm" | "aacs";
+export interface DriveView {
+  id: string;
+  name: string;
+  media: DiscMedia;
+  tracks?: number;
+  lengthMs?: number;
+  protection?: DiscProtection;
+  /** Where a data disc is mounted (to open its folder). */
+  mount?: string;
+}
+export type DiscSource = "cdText" | "tidal" | "musicbrainz" | "ai" | "manual";
+export interface AlbumMeta {
+  title: string;
+  artist: string;
+  year: number | null;
+  genre: string | null;
+  upc: string | null;
+  discNumber: number;
+  discTotal: number;
+  tidalAlbumId: number | null;
+  mbid: string | null;
+}
+export interface TrackMeta {
+  number: number;
+  title: string;
+  artists: string[];
+  isrc: string | null;
+  tidalTrackId: number | null;
+}
+/** What was found about a disc (on the disc itself, or by a lookup the user turned on). */
+export interface DiscMatch {
+  source: DiscSource;
+  confidence: number;
+  album: AlbumMeta;
+  tracks: TrackMeta[];
+  cover: { kind: "tidal"; id: string } | { kind: "url"; url: string } | null;
+  note: string | null;
+}
+export interface DiscView {
+  drive: DriveView;
+  toc: { tracks: { number: number; startLba: number; endLba: number; preEmphasis: boolean }[]; leadoutLba: number };
+  ids: { musicbrainz: string; freedb: string; ctdb: string };
+  mcn: string | null;
+  /** The names on the disc (CD-Text), when it has them. */
+  cdText: DiscMatch | null;
+}
+export type RipFormat = { kind: "flac"; level: number } | { kind: "alac" } | { kind: "wav" } | { kind: "mp3"; mp3: "cbr320" | "v0" } | { kind: "aac"; kbps: number } | { kind: "opus"; kbps: number };
+export type RipFormatKind = RipFormat["kind"];
+export interface TrackRead {
+  samplesTotal: number;
+  rereads: number;
+  suspiciousSamples: number;
+  unreadableSamples: number;
+  c2Errors: number;
+}
+export type RipProgress =
+  | { type: "started"; track: number; title: string }
+  | { type: "reading"; track: number; doneSectors: number; totalSectors: number; rereads: number; suspiciousSamples: number }
+  | { type: "encoding"; track: number; percent: number }
+  | { type: "verifying"; track: number }
+  | { type: "trackDone"; track: number; path: string; read: TrackRead; verified: string | null }
+  | { type: "trackFailed"; track: number; message: string }
+  | { type: "finished"; ok: number; failed: number; logPath: string | null };
+/** What the user decided at rip time (blanks already filled in: "Disc 1", "Unknown artist", "Track 01"). */
+export interface RipRequest {
+  drive: string;
+  tracks: number[];
+  meta: DiscMatch;
+  format: RipFormat;
+  /** An image file chosen for the cover, or null. */
+  coverFile: string | null;
+}
+export interface RipSummary {
+  ok: number;
+  failed: number;
+  logPath: string | null;
+  /** The folder the album was written to. */
+  albumDir: string | null;
+}
+export interface IdentifySources {
+  cdText: boolean;
+  tidal: boolean;
+  musicbrainz: boolean;
+  ai: boolean;
+}
+export type DiscEvent = { type: "inserted"; drive: DriveView } | { type: "removed"; drive: DriveView } | { type: "isrcs"; drive: DriveView; isrcs: (string | null)[] };
+
+export type DiscOpenOnInsert = "notice" | "open" | "off";
+export type DiscRailItem = "whenInserted" | "always" | "never";
+export type DiscReadMode = "secure" | "fast";
+export type DiscC2 = "auto" | "on" | "off";
+export type DiscSpeed = "max" | "auto" | number;
+export interface DiscSettings {
+  watch: boolean;
+  watchSeconds: number;
+  openOnInsert: DiscOpenOnInsert;
+  railItem: DiscRailItem;
+  format: RipFormat;
+  flacVerify: boolean;
+  mode: DiscReadMode;
+  agree: number;
+  maxRereads: number;
+  c2: DiscC2;
+  /** Read offset in samples, per drive id (people have more than one drive). */
+  offsets: Record<string, number>;
+  speed: DiscSpeed;
+  onUnreadable: "keep" | "skip";
+  sources: IdentifySources;
+  cover: { embed: boolean; saveFile: boolean; source: string };
+  /** Null: the downloads folder. */
+  ripDir: string | null;
+  /** Null: the downloads template. */
+  template: string | null;
+  writeLog: boolean;
+  writeCue: boolean;
+  ejectWhenDone: boolean;
+  hideCdOnlyNote: boolean;
+}
+export const DISC_WATCH_SECONDS_RANGE = { min: 2, max: 30 } as const;
+export const DISC_AGREE_RANGE = { min: 2, max: 4 } as const;
+export const DISC_REREADS_RANGE = { min: 1, max: 50 } as const;
+export const DISC_OFFSET_RANGE = { min: -2000, max: 2000 } as const;
+export const DISC_FLAC_LEVEL_RANGE = { min: 0, max: 8 } as const;
+export const DEFAULT_DISC_SETTINGS: DiscSettings = {
+  watch: true,
+  watchSeconds: 3,
+  openOnInsert: "notice",
+  railItem: "whenInserted",
+  format: { kind: "flac", level: 5 },
+  flacVerify: true,
+  mode: "secure",
+  agree: 2,
+  maxRereads: 20,
+  c2: "auto",
+  offsets: {},
+  speed: "auto",
+  onUnreadable: "keep",
+  sources: { cdText: true, tidal: false, musicbrainz: false, ai: false },
+  cover: { embed: true, saveFile: false, source: "best" },
+  ripDir: null,
+  template: null,
+  writeLog: true,
+  writeCue: false,
+  ejectWhenDone: true,
+  hideCdOnlyNote: false,
+};
+/** The setting with defaults for whatever an older settings file doesn't have. */
+export const discSettingsOf = (s: Settings | null | undefined): DiscSettings => ({ ...DEFAULT_DISC_SETTINGS, ...s?.disc, sources: { ...DEFAULT_DISC_SETTINGS.sources, ...s?.disc?.sources }, cover: { ...DEFAULT_DISC_SETTINGS.cover, ...s?.disc?.cover } });
+
 // ---------------------------------------------------------------- AI (bring your own key)
 // homefi-core's `ai` module and src-tauri/src/ai.rs. Keys go to the backend
 // (save / test) but never come back: only "set / not set".
@@ -987,6 +1423,8 @@ export interface AiProviderInfo {
   badge: AiProviderBadge | null;
   /** One line on why to pick it. */
   hint: string;
+  /** The provider can search the web from its API (needed by "Get ready for a concert"). */
+  web_search: boolean;
 }
 
 export type AiProviderBadge = "recommended" | "cheapest" | "one_key_for_all" | "private_local";
@@ -1102,6 +1540,8 @@ export const api = {
   miniPlayer: (open: boolean) => invoke<void>("mini_player", { open }),
   /** The mini player's page has drawn: show its window and minimize the main one. */
   miniReady: () => invoke<void>("mini_ready"),
+  /** The mini player's window takes this size (logical px), keeping its bottom-right corner. */
+  miniResize: (width: number, height: number) => invoke<void>("mini_resize", { width, height }),
   moveTrack: (from: number, to: number) => invoke<void>("player_move", { from, to }),
   shuffle: (on: boolean) => invoke<void>("player_shuffle", { on }),
   repeat: (mode: Repeat) => invoke<void>("player_repeat", { mode }),
@@ -1153,6 +1593,47 @@ export const api = {
   shareParseLink: (link: string) => invoke<JoinLink | null>("share_parse_link", { link }),
   // AI: the key is read from the OS keychain by the backend
   aiProviders: () => invoke<AiProviderInfo[]>("ai_providers"),
+  concertSources: () => invoke<ConcertSources>("concert_sources"),
+  concertBuild: (request: ConcertRequest, replaceId: string | null, language: "en" | "es", onProgress: (p: ConcertProgress) => void) => {
+    const channel = new Channel<ConcertProgress>();
+    channel.onmessage = onProgress;
+    return invoke<ConcertBuilt>("concert_build", { request, replaceId, language, onProgress: channel });
+  },
+  concertRearrange: (playlist: HomePlaylist, request: ConcertRequest, language: "en" | "es", onProgress: (p: ConcertProgress) => void) => {
+    const channel = new Channel<ConcertProgress>();
+    channel.onmessage = onProgress;
+    return invoke<HomePlaylist>("concert_rearrange", { playlist, request, language, onProgress: channel });
+  },
+  concertCancel: () => invoke<void>("concert_cancel"),
+  partyDefaultBrief: () => invoke<PartyBrief>("party_default_brief"),
+  chatDefaultBrief: () => invoke<ChatBrief>("chat_default_brief"),
+  chatSongWish: (seed: SongSeed, language: "en" | "es") => invoke<string>("chat_song_wish", { seed, language }),
+  chatOpen: (brief: ChatBrief, language: "en" | "es") => invoke<void>("chat_open", { brief, language }),
+  partyOpen: (brief: PartyBrief, language: "en" | "es") => invoke<void>("party_open", { brief, language }),
+  partySetBrief: (brief: PartyBrief) => invoke<void>("party_set_brief", { brief }),
+  partyStart: () => invoke<PartyTurn>("party_start"),
+  partyReply: (text: string) => invoke<PartyTurn>("party_reply", { text }),
+  partyBuild: (replaceId: string | null, onProgress: (p: PartyProgress) => void) => {
+    const channel = new Channel<PartyProgress>();
+    channel.onmessage = onProgress;
+    return invoke<PartyBuilt>("party_build", { replaceId, onProgress: channel });
+  },
+  partyCancel: () => invoke<void>("party_cancel"),
+  partyClose: () => invoke<void>("party_close"),
+  homePlaylists: () => invoke<HomePlaylist[]>("home_playlists"),
+  // discs
+  discDrives: () => invoke<DriveView[]>("disc_drives"),
+  discOpen: (drive: string | null) => invoke<DiscView>("disc_open", { drive }),
+  discIdentify: (drive: string, sources: IdentifySources) => invoke<DiscMatch[]>("disc_identify", { drive, sources }),
+  discRip: (request: RipRequest, onProgress: (p: RipProgress) => void) => {
+    const channel = new Channel<RipProgress>();
+    channel.onmessage = onProgress;
+    return invoke<RipSummary>("disc_rip", { request, onProgress: channel });
+  },
+  discCancel: () => invoke<void>("disc_cancel"),
+  discEject: (drive: string) => invoke<void>("disc_eject", { drive }),
+  homePlaylistSave: (playlist: HomePlaylist) => invoke<void>("home_playlist_save", { playlist }),
+  homePlaylistDelete: (id: string) => invoke<boolean>("home_playlist_delete", { id }),
   /** Which providers have a key saved. */
   aiKeyStatus: () => invoke<Record<AiProviderId, boolean>>("ai_key_status"),
   aiKeySet: (provider: AiProviderId, key: string) => invoke<void>("ai_key_set", { provider, key }),
@@ -1215,6 +1696,12 @@ export const api = {
   updateRestart: (when: "now" | "song_end") => invoke<void>("update_restart", { when }),
   /** "Later": hides the banner for this version until HomeFi starts again. */
   updateDismiss: () => invoke<void>("update_dismiss"),
+
+  // what's new after an update (src-tauri/src/whats_new.rs): the notes are embedded in the app
+  /** The notes to show now: the first call per launch decides and records the version; later calls return []. */
+  whatsNewCheck: () => invoke<ReleaseNotes[]>("whats_new_check"),
+  /** The notes of the version that is running (Settings → About → What's new). */
+  whatsNewLatest: () => invoke<ReleaseNotes | null>("whats_new_latest"),
 };
 
 export const on = {
@@ -1234,6 +1721,7 @@ export const on = {
   shareNotice: (f: (n: ShareNotice) => void): Promise<UnlistenFn> => listen<ShareNotice>("share-notice", (e) => f(e.payload)),
   shareNearby: (f: (list: Nearby[]) => void): Promise<UnlistenFn> => listen<Nearby[]>("share-nearby", (e) => f(e.payload)),
   update: (f: (v: UpdateView) => void): Promise<UnlistenFn> => listen<UpdateView>("update", (e) => f(e.payload)),
+  disc: (f: (e: DiscEvent) => void): Promise<UnlistenFn> => listen<DiscEvent>("disc", (e) => f(e.payload)),
 };
 
 const isWindows = navigator.userAgent.includes("Windows");

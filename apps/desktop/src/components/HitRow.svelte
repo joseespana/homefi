@@ -91,7 +91,7 @@
 
   function queueMenu(e: MouseEvent) {
     if (hit.versions && hit.versions.length > 1) return app.openVersions(e, hit.title, hit.versions);
-    if (hit.kind === "track") app.openQueueMenu(e, hit.title, (next) => app.queueHits([hit], hit.title, next), { kind: "track", id: hit.id, name: hit.title });
+    if (hit.kind === "track") app.openQueueMenu(e, hit.title, (next) => app.queueHits([hit], hit.title, next), { kind: "track", id: hit.id, name: hit.title }, { title: hit.title, artist: hit.artist ?? hit.subtitle, album: hit.album });
   }
 
   function open() {
@@ -143,7 +143,7 @@
       <div class="ellipsis sub">
         {#if hit.quality}<span class="badge">{hit.quality}</span>{/if}
         {#if hit.versions && hit.versions.length > 1}<span class="badge versions">{hit.versions.length} versions</span>{/if}
-        {#if error}<span class="error">{error}</span>{:else}{hit.subtitle}{/if}
+        {#if error}<span class="error ellipsis">{error}</span>{:else}<span class="ellipsis">{hit.subtitle}</span>{/if}
       </div>
     </div>
   </button>
@@ -269,6 +269,10 @@
     display: flex;
     gap: 6px;
     align-items: center;
+  }
+  /* the quality and versions badges keep their words; the subtitle gives way */
+  .sub > .badge {
+    flex: none;
   }
   .badge.versions {
     margin-right: 6px;

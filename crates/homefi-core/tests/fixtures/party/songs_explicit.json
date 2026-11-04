@@ -1,0 +1,87 @@
+{
+ "id": "msg_1",
+ "type": "message",
+ "role": "assistant",
+ "model": "claude-x",
+ "stop_reason": "tool_use",
+ "content": [
+  {
+   "type": "tool_use",
+   "id": "toolu_1",
+   "name": "propose_songs",
+   "input": {
+    "songs": [
+     {
+      "title": "Explicit Song 0",
+      "artist": "Bad Bunny",
+      "energy": 3
+     },
+     {
+      "title": "Clean Song 1",
+      "artist": "Daddy Yankee",
+      "energy": 3
+     },
+     {
+      "title": "Clean Song 2",
+      "artist": "Shakira",
+      "energy": 3
+     },
+     {
+      "title": "Clean Song 3",
+      "artist": "ABBA",
+      "energy": 3
+     },
+     {
+      "title": "Explicit Song 4",
+      "artist": "Queen",
+      "energy": 3
+     },
+     {
+      "title": "Clean Song 5",
+      "artist": "Madonna",
+      "energy": 3
+     },
+     {
+      "title": "Clean Song 6",
+      "artist": "Prince",
+      "energy": 3
+     },
+     {
+      "title": "Clean Song 7",
+      "artist": "Rihanna",
+      "energy": 3
+     },
+     {
+      "title": "Explicit Song 8",
+      "artist": "Drake",
+      "energy": 3
+     },
+     {
+      "title": "Clean Song 9",
+      "artist": "Adele",
+      "energy": 3
+     },
+     {
+      "title": "Clean Song 10",
+      "artist": "Coldplay",
+      "energy": 3
+     },
+     {
+      "title": "Clean Song 11",
+      "artist": "Maroon 5",
+      "energy": 3
+     },
+     {
+      "title": "Explicit Song 12",
+      "artist": "Bad Bunny",
+      "energy": 3
+     }
+    ]
+   }
+  }
+ ],
+ "usage": {
+  "input_tokens": 10,
+  "output_tokens": 10
+ }
+}

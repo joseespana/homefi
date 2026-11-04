@@ -9,6 +9,9 @@ use homefi_core::share::{AddMode, EditMode, Permissions, QueueOrder, SkipMode};
 use homefi_player::OutputOptions;
 use serde::{Deserialize, Serialize};
 
+const PLAYER_BUTTONS_TOP: &str = "top";
+const PLAYER_BUTTONS_BOTTOM: &str = "bottom";
+
 /// What the listening room shows. Everything can be turned off.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -50,6 +53,12 @@ pub struct RoomSettings {
     /// Clicking it a lot makes it angry: `off`, `patient` (10 quick clicks),
     /// `normal` (6) or `short` (4).
     pub mascot_temper: String,
+    /// Long hair: `auto` (in mosh mode), `long` or `short`.
+    pub mascot_hair: String,
+    /// Dance on the real beat of the music; off keeps the free tempo.
+    pub mascot_follow_beat: bool,
+    /// How hard it headbangs: `gentle`, `normal` or `wild`.
+    pub mascot_headbang: String,
     /// Tint the interface with the colors of the album art.
     pub album_colors: bool,
     /// Look of the now-playing room, as on Android: `classic`, `immersive`,
@@ -79,6 +88,9 @@ pub struct RoomSettings {
     /// How wide the Settings screen reads: `comfortable` (a centred column,
     /// two columns of groups on very wide windows) or `wide` (one broader column).
     pub settings_width: String,
+    /// Where lyrics, queue and the mini player sit: `top` (a bar above the
+    /// content, freeing the player bar) or `bottom` (in the player bar).
+    pub player_buttons: String,
 }
 
 impl Default for RoomSettings {
@@ -104,6 +116,9 @@ impl Default for RoomSettings {
             mascot_hold: "menu".into(),
             mascot_dance_button: true,
             mascot_temper: "normal".into(),
+            mascot_hair: "auto".into(),
+            mascot_follow_beat: true,
+            mascot_headbang: "normal".into(),
             album_colors: true,
             layout: "classic".into(),
             layout_everywhere: true,
@@ -115,6 +130,7 @@ impl Default for RoomSettings {
             lyrics_offset_ms: 0,
             motion: "auto".into(),
             settings_width: "comfortable".into(),
+            player_buttons: PLAYER_BUTTONS_TOP.into(),
         }
     }
 }
@@ -279,8 +295,10 @@ pub struct SoundUiSettings {
     /// How a taste rule's editor opens: `auto` (the curve editor when the rule
     /// has bands, else the three sliders), `simple` or `advanced`.
     pub taste_editor: String,
-    /// An "Ask the AI" button in the player bar.
-    pub assistant_deck: bool,
+    /// Retired in 1.5.2 (one Sound button): read from old files and folded
+    /// into `eq_ui.deck_button` on load, never written back.
+    #[serde(skip_serializing)]
+    assistant_deck: Option<bool>,
 }
 
 impl Default for SoundUiSettings {
@@ -291,7 +309,7 @@ impl Default for SoundUiSettings {
             layer_chip: true,
             suggestions: true,
             taste_editor: "auto".into(),
-            assistant_deck: true,
+            assistant_deck: None,
         }
     }
 }
@@ -317,12 +335,24 @@ pub struct UpdateSettings {
     /// Offer beta versions too (GitHub pre-releases).
     pub prereleases: bool,
     pub install: UpdateInstall,
+    /// After an update, show the notes of the new versions once.
+    pub whats_new: bool,
 }
 
 impl Default for UpdateSettings {
     fn default() -> Self {
-        Self { auto_check: true, prereleases: false, install: UpdateInstall::Ask }
+        Self { auto_check: true, prereleases: false, install: UpdateInstall::Ask, whats_new: true }
     }
+}
+
+/// What the always-on-top mini player adds to its bar (Settings → Listening room).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct MiniSettings {
+    /// The synced lyrics in the mini player, the line being sung big and the next one below.
+    pub lyrics: bool,
+    /// HomeFito dances in the mini player.
+    pub mascot: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -372,6 +402,9 @@ pub struct DesktopSettings {
     /// of the output's profile (camelCase inside, like `eq`; off until the first rule).
     #[serde(deserialize_with = "homefi_core::dsp::lenient_taste")]
     pub taste: TasteSettings,
+    /// HomeFi playlists ("Get ready for a concert"): shows, thresholds, sources.
+    #[serde(deserialize_with = "homefi_core::playlist::lenient_playlist_settings")]
+    pub playlists: homefi_core::playlist::PlaylistSettings,
     /// Loudness normalization from ReplayGain (off: bit-perfect).
     #[serde(deserialize_with = "homefi_core::dsp::lenient_loudness")]
     pub loudness: LoudnessSettings,
@@ -388,6 +421,16 @@ pub struct DesktopSettings {
     /// Looking for and installing new versions.
     #[serde(deserialize_with = "lenient")]
     pub updates: UpdateSettings,
+    /// The mini player's lyrics and mascot.
+    #[serde(deserialize_with = "lenient")]
+    pub mini: MiniSettings,
+    /// Reading and ripping discs (camelCase inside, like `eq`); an unreadable section falls
+    /// back to the defaults.
+    #[serde(deserialize_with = "homefi_disc::lenient_disc")]
+    pub disc: homefi_disc::DiscSettings,
+    /// The version whose notes were last decided (shown or skipped). Owned by the
+    /// backend: `set_settings` keeps the stored value, so a stale UI copy can't reset it.
+    pub last_seen_version: Option<String>,
 }
 
 /// A section written by a newer version (unknown values) reads as its
@@ -436,12 +479,16 @@ impl Default for DesktopSettings {
             eq_presets: Vec::new(),
             eq_ui: EqUiSettings::default(),
             taste: TasteSettings::default(),
+            playlists: Default::default(),
             loudness: LoudnessSettings::default(),
             sound_ui: SoundUiSettings::default(),
             album_versions: Default::default(),
             crossfade: CrossfadeSettings::default(),
             output: OutputOptions::default(),
             updates: UpdateSettings::default(),
+            mini: MiniSettings::default(),
+            disc: Default::default(),
+            last_seen_version: None,
         }
     }
 }
@@ -456,7 +503,18 @@ impl DesktopSettings {
                 tracing::warn!("couldn't save the migrated sound settings: {e}");
             }
         }
+        settings.normalise();
         settings
+    }
+
+    /// Folds retired settings into their successors and drops invalid values.
+    fn normalise(&mut self) {
+        if let Some(ask_ai) = self.sound_ui.assistant_deck.take() {
+            self.eq_ui.deck_button |= ask_ai;
+        }
+        if ![PLAYER_BUTTONS_TOP, PLAYER_BUTTONS_BOTTOM].contains(&self.room.player_buttons.as_str()) {
+            self.room.player_buttons = PLAYER_BUTTONS_TOP.into();
+        }
     }
 
     /// Writes the file whole or not at all (a temp file renamed over it): a
@@ -467,9 +525,16 @@ impl DesktopSettings {
         std::fs::rename(&tmp, path)
     }
 
+    /// Fields only the backend writes: whatever the UI sent is replaced by the stored value.
+    pub(crate) fn keep_backend_owned(&mut self, before: &DesktopSettings) {
+        self.last_seen_version.clone_from(&before.last_seen_version);
+    }
+
     pub fn library_roots(&self) -> Vec<PathBuf> {
         let mut roots = vec![self.download_dir.clone()];
         roots.extend(self.library_dirs.iter().cloned());
+        // ripped discs show up in the library even when they go to their own folder
+        roots.extend(self.disc.rip_dir.iter().map(|dir| homefi_core::paths::expand_tilde(dir)));
         roots
     }
 }
@@ -507,6 +572,22 @@ mod tests {
         assert_eq!(old.room.lyrics_offset_ms, 0);
         assert_eq!(old.room.motion, "auto");
         assert_eq!(old.room.settings_width, "comfortable");
+    }
+
+    #[test]
+    fn old_room_settings_get_the_mosh_defaults() {
+        let old: DesktopSettings = serde_json::from_str(r#"{"room":{"mascot_style":"mosh"}}"#).unwrap();
+        assert_eq!(old.room.mascot_style, "mosh");
+        assert_eq!(old.room.mascot_hair, "auto");
+        assert!(old.room.mascot_follow_beat);
+        assert_eq!(old.room.mascot_headbang, "normal");
+        let set: DesktopSettings = serde_json::from_str(
+            r#"{"room":{"mascot_hair":"long","mascot_follow_beat":false,"mascot_headbang":"wild"}}"#,
+        )
+        .unwrap();
+        assert_eq!(set.room.mascot_hair, "long");
+        assert!(!set.room.mascot_follow_beat);
+        assert_eq!(set.room.mascot_headbang, "wild");
     }
 
     #[test]
@@ -550,12 +631,53 @@ mod tests {
     #[test]
     fn updates_are_checked_and_asked_by_default() {
         let old: DesktopSettings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
-        assert_eq!(old.updates, UpdateSettings { auto_check: true, prereleases: false, install: UpdateInstall::Ask });
+        assert_eq!(
+            old.updates,
+            UpdateSettings { auto_check: true, prereleases: false, install: UpdateInstall::Ask, whats_new: true }
+        );
         let set: DesktopSettings =
             serde_json::from_str(r#"{"updates":{"auto_check":false,"prereleases":true,"install":"idle"}}"#).unwrap();
-        assert_eq!(set.updates, UpdateSettings { auto_check: false, prereleases: true, install: UpdateInstall::Idle });
+        assert_eq!(
+            set.updates,
+            UpdateSettings { auto_check: false, prereleases: true, install: UpdateInstall::Idle, whats_new: true }
+        );
         let bad: DesktopSettings = serde_json::from_str(r#"{"theme":"dark","updates":{"install":"always"}}"#).unwrap();
         assert_eq!((bad.theme.as_str(), bad.updates), ("dark", UpdateSettings::default()));
+    }
+
+    #[test]
+    fn the_mini_player_starts_plain() {
+        let old: DesktopSettings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(old.mini, MiniSettings { lyrics: false, mascot: false });
+        let some: DesktopSettings = serde_json::from_str(r#"{"mini":{"mascot":true}}"#).unwrap();
+        assert_eq!(some.mini, MiniSettings { lyrics: false, mascot: true });
+        let bad: DesktopSettings = serde_json::from_str(r#"{"theme":"dark","mini":{"lyrics":"yes"}}"#).unwrap();
+        assert_eq!((bad.theme.as_str(), bad.mini), ("dark", MiniSettings::default()));
+        let back: DesktopSettings = serde_json::from_slice(&serde_json::to_vec(&some).unwrap()).unwrap();
+        assert!(back.mini.mascot);
+    }
+
+    #[test]
+    fn whats_new_settings_default_and_round_trip() {
+        let old: DesktopSettings = serde_json::from_str(r#"{"updates":{"auto_check":false}}"#).unwrap();
+        assert!(old.updates.whats_new);
+        assert_eq!(old.last_seen_version, None);
+        let mut set = DesktopSettings::default();
+        set.updates.whats_new = false;
+        set.last_seen_version = Some("1.5.2".into());
+        let back: DesktopSettings = serde_json::from_slice(&serde_json::to_vec(&set).unwrap()).unwrap();
+        assert!(!back.updates.whats_new);
+        assert_eq!(back.last_seen_version.as_deref(), Some("1.5.2"));
+    }
+
+    #[test]
+    fn the_ui_cannot_change_the_last_seen_version() {
+        let before = DesktopSettings { last_seen_version: Some("1.5.2".into()), ..Default::default() };
+        for sent in [None, Some("0.1.0".to_string())] {
+            let mut ui = DesktopSettings { last_seen_version: sent, ..Default::default() };
+            ui.keep_backend_owned(&before);
+            assert_eq!(ui.last_seen_version.as_deref(), Some("1.5.2"));
+        }
     }
 
     /// A settings file as 1.5.0 wrote it: five artist sounds, the master (`eq.enabled`) off.
@@ -602,9 +724,61 @@ mod tests {
     }
 
     #[test]
-    fn old_files_get_the_assistant_button() {
-        let old: DesktopSettings = serde_json::from_str(r#"{"theme":"dark","sound_ui":{"react_deck":false}}"#).unwrap();
-        assert!(old.sound_ui.assistant_deck && !old.sound_ui.react_deck);
+    fn playlists_settings_default_clamp_and_survive_bad_data() {
+        let old: DesktopSettings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(old.playlists, Default::default());
+        let bad: DesktopSettings = serde_json::from_str(r#"{"playlists":5}"#).unwrap();
+        assert_eq!(bad.playlists, Default::default());
+        let wild: DesktopSettings = serde_json::from_str(r#"{"playlists":{"concert_shows":99}}"#).unwrap();
+        assert_eq!(wild.playlists.clamped().concert_shows, 15);
+    }
+
+    #[test]
+    fn disc_settings_default_clamp_and_survive_bad_data() {
+        let old: DesktopSettings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(old.disc, Default::default());
+        let bad: DesktopSettings = serde_json::from_str(r#"{"disc":5}"#).unwrap();
+        assert_eq!(bad.disc, Default::default());
+        let wild: DesktopSettings = serde_json::from_str(
+            r#"{"disc":{"watchSeconds":999,"format":{"kind":"wavpack"},"ripDir":"/rips","offsets":{"disk4":667}}}"#,
+        )
+        .unwrap();
+        assert_eq!(wild.disc.watch_seconds, 30);
+        assert_eq!(wild.disc.format, homefi_disc::RipFormat::Flac { level: 5 });
+        assert_eq!(wild.disc.offsets["disk4"], 667);
+        assert!(wild.library_roots().contains(&std::path::PathBuf::from("/rips")));
+        // what the screen reads back keeps the camelCase keys
+        let json = serde_json::to_value(&wild).unwrap();
+        assert_eq!(json["disc"]["watchSeconds"], 30);
+        assert_eq!(json["disc"]["sources"]["musicbrainz"], false);
+    }
+
+    fn loaded(json: &str) -> DesktopSettings {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let path = temp_file(&format!("load{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+        std::fs::write(&path, json).unwrap();
+        let settings = DesktopSettings::load(&path);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+        settings
+    }
+
+    #[test]
+    fn the_retired_ask_ai_button_folds_into_the_sound_button() {
+        let on = loaded(r#"{"sound_ui":{"assistant_deck":true},"eq_ui":{"deck_button":false}}"#);
+        assert!(on.eq_ui.deck_button && on.sound_ui.assistant_deck.is_none());
+        let off = loaded(r#"{"sound_ui":{"assistant_deck":false},"eq_ui":{"deck_button":false}}"#);
+        assert!(!off.eq_ui.deck_button);
+        let plain = loaded(r#"{"theme":"dark","sound_ui":{"react_deck":false}}"#);
+        assert!(plain.eq_ui.deck_button && !plain.sound_ui.react_deck);
+        let written = serde_json::to_string(&on).unwrap();
+        assert!(!written.contains("assistant_deck"));
+    }
+
+    #[test]
+    fn player_buttons_default_to_the_top_and_reject_unknown_values() {
+        assert_eq!(loaded(r#"{"theme":"dark"}"#).room.player_buttons, "top");
+        assert_eq!(loaded(r#"{"room":{"player_buttons":"bottom"}}"#).room.player_buttons, "bottom");
+        assert_eq!(loaded(r#"{"room":{"player_buttons":"left"}}"#).room.player_buttons, "top");
     }
 
     #[test]

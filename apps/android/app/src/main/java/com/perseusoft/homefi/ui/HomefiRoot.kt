@@ -5,6 +5,10 @@ import com.perseusoft.homefi.ui.eq.AssistantScreen
 import com.perseusoft.homefi.ui.eq.OutputCurveEditor
 import com.perseusoft.homefi.ui.eq.AssistantSheet
 import com.perseusoft.homefi.ui.sound.SoundMenu
+import com.perseusoft.homefi.ui.sound.SoundButton
+import com.perseusoft.homefi.data.PlayerButtons
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.rounded.Groups
 import com.perseusoft.homefi.ui.sound.SoundScreen
 
 import com.perseusoft.homefi.ui.haptics
@@ -126,6 +130,7 @@ fun HomefiRoot(destinations: Flow<Destination>) {
     val guestOpen by app.share.guestOpen.collectAsStateWithLifecycle()
     // while this phone is in someone's room, "now playing" is the room's until it leaves
     val guestUi by app.share.guest.collectAsStateWithLifecycle()
+    val settings by app.settings.settings.collectAsStateWithLifecycle()
     val inRoom = guestUi.status == GuestStatus.CONNECTED
     val scope = rememberCoroutineScope()
     val roomPlayer = remember(app.share) { GuestPlayer(app.share, loggedIn = app.account.account, scope = scope) }
@@ -152,6 +157,15 @@ fun HomefiRoot(destinations: Flow<Destination>) {
         }
     }
 
+    // "Playlist like this": the player closes and the library opens the AI chat with the song
+    val songSeed by app.songSeeds.request.collectAsStateWithLifecycle()
+    LaunchedEffect(songSeed) {
+        if (songSeed != null) {
+            playerOpen = false
+            tab = Tab.LIBRARY
+        }
+    }
+
     val motion = LocalMotion.current
     val nowPlayingShown = playerOpen && !inRoom && playing.current != null
     val body: @Composable () -> Unit = {
@@ -170,6 +184,15 @@ fun HomefiRoot(destinations: Flow<Destination>) {
                             HomefiLogo(28.dp)
                             Spacer(Modifier.width(10.dp))
                             Text(stringResource(R.string.app_name), fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    actions = {
+                        // one Sound control; in a room the Groups icon mirrors the desktop's sharing status
+                        if (settings.playerButtons == PlayerButtons.TOP) SoundButton(remote = false)
+                        if (inRoom) {
+                            IconButton(onClick = { app.share.openGuest(true) }) {
+                                Icon(Icons.Rounded.Groups, stringResource(R.string.sharing_title))
+                            }
                         }
                     },
                     colors = if (bar == null) {
@@ -348,7 +371,6 @@ fun HomefiRoot(destinations: Flow<Destination>) {
     joinRequest?.let { JoinDialog(it) }
 
     // signed in before the personal-use notice existed (or it changed): shown once, accept or sign out
-    val settings by app.settings.settings.collectAsStateWithLifecycle()
     if (loggedIn && !settings.termsAccepted) {
         TermsDialog(
             onAccept = { app.settings.acceptTerms() },
@@ -360,5 +382,11 @@ fun HomefiRoot(destinations: Flow<Destination>) {
                 }
             },
         )
+    }
+
+    // once per version after an update, never over the terms notice
+    val releaseNotes by app.whatsNew.pending.collectAsStateWithLifecycle()
+    if (releaseNotes.isNotEmpty() && !(loggedIn && !settings.termsAccepted)) {
+        ReleaseNotesDialog(notes = releaseNotes, onDismiss = app.whatsNew::dismiss)
     }
 }

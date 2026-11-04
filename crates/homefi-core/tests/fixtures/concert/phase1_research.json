@@ -1,0 +1,35 @@
+{
+ "id": "msg_1",
+ "type": "message",
+ "role": "assistant",
+ "model": "claude-x",
+ "stop_reason": "end_turn",
+ "content": [
+  {
+   "type": "text",
+   "text": "Korn played Mexico City on 2026-10-24: Intro, Blind, Got the Life, Falling Away From Me, Freak On A Leash, Wicked Game (Chris Isaak cover, encore)."
+  },
+  {
+   "type": "web_search_tool_result",
+   "tool_use_id": "srv_1",
+   "content": [
+    {
+     "type": "web_search_result",
+     "url": "https://www.example.com/korn-2026-10-24",
+     "title": "Korn live in Mexico City",
+     "encrypted_content": "e"
+    },
+    {
+     "type": "web_search_result",
+     "url": "https://news.example.org/korn-tour",
+     "title": "Korn tour report",
+     "encrypted_content": "e"
+    }
+   ]
+  }
+ ],
+ "usage": {
+  "input_tokens": 10,
+  "output_tokens": 10
+ }
+}

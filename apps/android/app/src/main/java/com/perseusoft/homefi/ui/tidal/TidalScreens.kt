@@ -1,5 +1,7 @@
 package com.perseusoft.homefi.ui.tidal
 
+import com.perseusoft.homefi.ui.playlists.songSeedAction
+import com.perseusoft.homefi.ui.playlists.toSeed
 import com.perseusoft.homefi.ui.haptics
 import com.perseusoft.homefi.ui.theme.SkinHeading
 import androidx.compose.animation.AnimatedContent
@@ -157,7 +159,11 @@ fun TidalRow(hit: SearchHit, list: List<SearchHit>, index: Int, ctx: RowContext,
     val haptics = haptics()
     Box(modifier) {
     val sound = LocalContext.current.homefi.sound
-    if (isTrack) QueueMenu(menu, { menu = false }, onSound = { sound.openMenu(TasteScope.Track(id = hit.id, name = hit.title)) }) { next -> player.queueTidal(listOf(hit), next) }
+    if (isTrack) QueueMenu(
+        menu, { menu = false },
+        onSound = { sound.openMenu(TasteScope.Track(id = hit.id, name = hit.title)) },
+        onPlaylistLikeThis = songSeedAction { hit.toSeed() },
+    ) { next -> player.queueTidal(listOf(hit), next) }
     if (picker) AlbumVersionsSheet(hit.title, hit.versions, null, { picker = false }, ctx.onVersion)
     ListItem(
         modifier = Modifier.combinedClickable(

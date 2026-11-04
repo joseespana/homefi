@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.PI
-import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.ln
@@ -29,9 +28,24 @@ class AudioLevels(val left: Float, val right: Float, val bands: FloatArray) {
 
 /**
  * What the current track sounds like so far, for the mascot: loudness averaged
- * over the track (0..1), estimated tempo and seconds analysed.
+ * over the track (0..1), tempo and seconds analysed, and the beat follower's
+ * state. [beat] counts beats as of [atNs] (a [System.nanoTime] reading): the
+ * mascot carries it on with [bpm]. [bar], [drops] and [accents] are counters
+ * that change when a bar line, a drop or an accent goes by.
  */
-data class Listening(val energy: Float = 0f, val bpm: Float = 120f, val heard: Float = 0f)
+data class Listening(
+    val energy: Float = 0f,
+    val bpm: Float = 120f,
+    val heard: Float = 0f,
+    val beat: Double = 0.0,
+    val atNs: Long = 0L,
+    val confidence: Float = 0f,
+    val intensity: Float = 0f,
+    val section: Section = Section.GROOVE,
+    val bar: Int = 0,
+    val drops: Int = 0,
+    val accents: Int = 0,
+)
 
 /**
  * Reads the PCM ExoPlayer is about to play (a [TeeAudioProcessor] in the
@@ -59,18 +73,15 @@ object AudioTap : TeeAudioProcessor.AudioBufferSink {
     @Volatile var energy = 0f
         private set
 
-    // tempo from bass kicks, like the desktop's `visual.svelte.ts` (audio thread only)
+    // tempo and beat from bass kicks (audio thread only), see [BeatFollower]
     @Volatile private var trackId: String? = null
     @Volatile private var forget = false
-    private var bassAvg = 0f
-    private var lastKick = 0L
     private var lastFrame = 0L
     private var frames = 0
     private var trackEnergy = 0f
     private var heard = 0f
-    private var bpm = 120f
-    private val intervals = ArrayDeque<Float>()
-    private val sorted = FloatArray(16)
+    private val onsets = OnsetDetector()
+    private val follower = BeatFollower()
 
     private var channels = 2
     private var encoding = C.ENCODING_PCM_16BIT
@@ -167,50 +178,48 @@ object AudioTap : TeeAudioProcessor.AudioBufferSink {
         if (mediaId == trackId) return
         trackId = mediaId
         forget = true
-        _listening.value = Listening(bpm = bpm)
+        _listening.value = Listening(
+            bpm = follower.bpm.toFloat(),
+            bar = follower.bars,
+            drops = follower.drops,
+            accents = follower.accents,
+        )
     }
 
-    /** Loudness, kicks and the tempo they make, once per spectrum frame. */
+    /** Loudness, kicks and the tempo and beat they make, once per spectrum frame. */
     private fun track(bands: FloatArray) {
         if (forget) {
             forget = false
-            intervals.clear()
-            lastKick = 0L
+            onsets.reset()
+            follower.reset()
             frames = 0
             trackEnergy = 0f
             heard = 0f
         }
-        val t = System.nanoTime() / 1_000_000L
+        val nowNs = System.nanoTime()
+        val t = nowNs / 1_000_000L
         heard += if (lastFrame == 0L) 0.033f else ((t - lastFrame) / 1000f).coerceIn(0f, 0.1f)
         lastFrame = t
         frames++
         energy += (bands.average().toFloat() - energy) * 0.25f
         trackEnergy += (energy - trackEnergy) / min(frames, 600)
-        // a bass hit: well above its running average
+        // a kick: the low band rising sharply (bands 2..5, about 60 to 130 Hz)
         val bass = (bands[2] + bands[3] + bands[4] + bands[5]) / 4
-        val kick = bass > bassAvg * 1.18f && bass > 0.45f
-        bassAvg = bassAvg * 0.9f + bass * 0.1f
-        if (kick && t - lastKick >= 250) {
-            val gap = t - lastKick
-            lastKick = t
-            if (gap <= 1500) {
-                // fold into 80..160 BPM so half/double-time kicks agree
-                var beats = 60_000f / gap
-                while (beats < 80) beats *= 2
-                while (beats > 160) beats /= 2
-                if (intervals.size >= 16) intervals.removeFirst()
-                intervals.addLast(beats)
-                if (intervals.size >= 6) {
-                    val n = intervals.size
-                    intervals.forEachIndexed { i, v -> sorted[i] = v }
-                    sorted.sort(0, n)
-                    val median = Math.round(sorted[n shr 1]).toFloat()
-                    // only move on real changes, so the animation doesn't stutter
-                    if (abs(median - bpm) / bpm > 0.05f) bpm = median
-                }
-            }
-        }
-        _listening.value = Listening(trackEnergy, bpm, heard)
+        val seconds = nowNs / 1e9
+        follower.update(seconds, energy.toDouble(), onsets.feed(seconds, bass.toDouble()))
+        _listening.value = Listening(
+            energy = trackEnergy,
+            bpm = follower.bpm.toFloat(),
+            heard = heard,
+            beat = follower.beat,
+            atNs = nowNs,
+            confidence = follower.confidence.toFloat(),
+            intensity = follower.intensity.toFloat(),
+            section = follower.section,
+            bar = follower.bars,
+            drops = follower.drops,
+            accents = follower.accents,
+        )
     }
 
     /** RMS → 0..1 over a 36 dB range (typical music sits in the upper half). */

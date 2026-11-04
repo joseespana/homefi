@@ -1,10 +1,11 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import { disc } from "../lib/disc.svelte";
   import { share } from "../lib/share.svelte";
   import { app, type View } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
 
-  const items: { view: View["name"]; label: string; icon: string }[] = [
+  const base: { view: View["name"]; label: string; icon: string }[] = [
     { view: "room", label: "Listening room", icon: "headphones" },
     { view: "albums", label: "Albums", icon: "disc" },
     { view: "songs", label: "Songs", icon: "music" },
@@ -15,12 +16,14 @@
     { view: "search", label: "Search Tidal", icon: "search" },
     { view: "downloads", label: "Downloads", icon: "download" },
   ];
+  // the Disc item follows the "Disc item in the sidebar" setting (a disc in, always or never)
+  const items = $derived(disc.railVisible ? [...base.slice(0, -1), { view: "disc" as const, label: "Disc", icon: "cd" }, ...base.slice(-1)] : base);
 
   const active = (name: string) =>
     app.view.name === name ||
     (name === "albums" && app.view.name === "album") ||
     (name === "artists" && app.view.name === "artist") ||
-    (name === "playlists" && (app.view.name === "playlist" || (app.view.name === "tidal-item" && app.view.back?.name === "playlists"))) ||
+    (name === "playlists" && (app.view.name === "playlist" || app.view.name === "concert" || app.view.name === "party" || app.view.name === "chat-playlist" || app.view.name === "home-playlist" || (app.view.name === "tidal-item" && app.view.back?.name === "playlists"))) ||
     (name === "tidal" && app.view.name === "tidal-item" && app.view.back?.name !== "playlists");
 
   // One tooltip outside the rail: inside it would be clipped by the rail's
@@ -67,7 +70,7 @@
       onblur={hide}
     >
       <Icon name={item.icon} size={20} />
-      {#if item.view === "downloads" && app.busy}<span class="dot"></span>{/if}
+      {#if (item.view === "downloads" && app.busy) || (item.view === "disc" && disc.ripping)}<span class="dot"></span>{/if}
     </button>
   {/each}
   <div class="spacer"></div>
@@ -224,7 +227,10 @@
     display: grid;
     place-items: center;
     border-radius: min(8px, var(--r-max));
-    font: 800 13px var(--font-display);
+    box-sizing: border-box;
+    /* line-height 1 and a trimmed text box: the display font's ascent pushed the letter off centre */
+    font: 800 13px/1 var(--font-display);
+    text-box: trim-both cap alphabetic;
     border: 2px solid var(--faint);
     color: var(--faint);
   }

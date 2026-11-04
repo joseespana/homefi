@@ -1,0 +1,28 @@
+{
+ "candidates": [
+  {
+   "content": {
+    "role": "model",
+    "parts": [
+     {
+      "text": "Korn played Blind first."
+     }
+    ]
+   },
+   "finishReason": "STOP",
+   "groundingMetadata": {
+    "searchEntryPoint": {
+     "renderedContent": "<div class=\"container\"><a href=\"https://www.google.com/search?q=korn+setlist\">korn setlist</a></div>"
+    },
+    "groundingChunks": [
+     {
+      "web": {
+       "uri": "https://www.example.com/korn-2026-10-24",
+       "title": "example.com"
+      }
+     }
+    ]
+   }
+  }
+ ]
+}

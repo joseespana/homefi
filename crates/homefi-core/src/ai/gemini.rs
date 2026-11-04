@@ -7,7 +7,8 @@
 use serde_json::{json, Value};
 
 use super::chat::{arguments, send, ChatReply, Message, Native, Tool, ToolCall, MAX_TOKENS};
-use super::{http, AiConfig, AiError, AiErrorKind, ModelInfo, CHAT_TIMEOUT, LIST_TIMEOUT};
+use super::web_search::{self, WebSearch};
+use super::{http, AiConfig, AiError, AiErrorKind, Api, ModelInfo, CHAT_TIMEOUT, LIST_TIMEOUT};
 
 fn request(config: &AiConfig, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
     match config.key() {
@@ -120,7 +121,14 @@ pub(crate) fn parse(config: &AiConfig, answer: Value) -> Result<ChatReply, AiErr
     if content.get("role").is_none() {
         content["role"] = json!("model");
     }
-    Ok(ChatReply { text: text.join("").trim().to_owned(), tool_calls, native: Some(Native::new(config, content)) })
+    let (sources, search_widget_html) = web_search::gemini_grounding(&answer);
+    Ok(ChatReply {
+        text: text.join("").trim().to_owned(),
+        tool_calls,
+        native: Some(Native::new(Api::Gemini, config, content)),
+        sources,
+        search_widget_html,
+    })
 }
 
 pub(crate) async fn chat(
@@ -128,9 +136,14 @@ pub(crate) async fn chat(
     system: &str,
     messages: &[Message],
     tools: &[Tool],
+    search: Option<&WebSearch>,
 ) -> Result<ChatReply, AiError> {
     let url = format!("{}/{}:generateContent", config.base(), model_path(&config.model));
-    let req = request(config, http().post(url)).timeout(CHAT_TIMEOUT).json(&body(config, system, messages, tools));
+    let mut payload = body(config, system, messages, tools);
+    if search.is_some() {
+        web_search::gemini_request(&mut payload);
+    }
+    let req = request(config, http().post(url)).timeout(CHAT_TIMEOUT).json(&payload);
     parse(config, send(config, req, false).await?)
 }
 
@@ -229,7 +242,7 @@ mod tests {
             .mount(&server)
             .await;
         let c = cfg(&server.uri());
-        let reply = chat(&c, "s", &[Message::User { text: "hi".into() }], &[]).await.unwrap();
+        let reply = chat(&c, "s", &[Message::User { text: "hi".into() }], &[], None).await.unwrap();
         assert_eq!(reply.text, "Veamos.");
         assert_eq!(reply.tool_calls[0].id, "gemini_2");
         assert_eq!(reply.tool_calls[0].arguments["query"], "HD 600");

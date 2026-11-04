@@ -19,6 +19,8 @@ mod gemini;
 pub mod guided;
 mod openai;
 pub mod reactions;
+pub(crate) mod replies;
+mod web_search;
 
 use std::fmt;
 use std::sync::OnceLock;
@@ -28,7 +30,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::humane::Lang;
 
-pub use chat::{chat, ChatReply, Message, Tool, ToolCall, ToolResult};
+pub use chat::{chat, chat_with, ChatOptions, ChatReply, Message, Tool, ToolCall, ToolResult};
 pub use eq_assistant::{
     AssistantContext, AssistantState, AssistantTurn, AudioOutput, EqAssistant, EqProposal, EqSession, ListeningSummary,
     OutputKind, SavedSession, TranscriptLine,
@@ -36,6 +38,7 @@ pub use eq_assistant::{
 pub use error::{AiError, AiErrorKind};
 pub use guided::{GuidedEq, GuidedState, GuidedStep};
 pub use reactions::{react, react_guided, ReactionContext, ReactionResult, SoundReaction, SoundSnapshot, UndoStack};
+pub use web_search::{Source, WebSearch, MAX_WEB_SEARCHES};
 
 /// Who answers. Every provider but Anthropic and Gemini speaks the OpenAI API.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -265,6 +268,23 @@ impl AiProvider {
         }
     }
 
+    /// The API a call speaks when it asks for web search; `None` when the provider can't search.
+    /// xAI chats on Chat Completions but searches through Responses.
+    pub(crate) fn search_api(&self) -> Option<Api> {
+        match self {
+            AiProvider::Anthropic => Some(Api::Anthropic),
+            AiProvider::OpenAi | AiProvider::XAi => Some(Api::OpenAiResponses),
+            AiProvider::Gemini => Some(Api::Gemini),
+            AiProvider::OpenRouter => Some(Api::ChatCompletions),
+            _ => None,
+        }
+    }
+
+    /// The provider can search the web from its API (Anthropic, OpenAI, Gemini, xAI, OpenRouter).
+    pub fn web_search(&self) -> bool {
+        self.search_api().is_some()
+    }
+
     /// What a settings screen shows about the provider, hint in the app's language.
     pub fn info(&self) -> ProviderInfo {
         self.info_in(crate::humane::language())
@@ -283,6 +303,7 @@ impl AiProvider {
             rank: self.rank(),
             badge: self.badge(),
             hint: self.hint_in(lang).to_owned(),
+            web_search: self.web_search(),
         }
     }
 }
@@ -338,6 +359,9 @@ pub struct ProviderInfo {
     /// One line on why to pick it, in the app's language.
     #[serde(default)]
     pub hint: String,
+    /// Can search the web from its API (needed by the concert playlists).
+    #[serde(default)]
+    pub web_search: bool,
 }
 
 /// Every provider with its display info, best pick first.
@@ -776,5 +800,23 @@ mod tests {
         // listed JSON from an older app (no flags) still parses
         let m: ModelInfo = serde_json::from_str(r#"{"id":"a","name":"A"}"#).unwrap();
         assert!(!m.recommended && !m.small && !m.economical);
+    }
+
+    #[test]
+    fn exactly_five_providers_search_the_web() {
+        let searching: Vec<_> = AiProvider::all().iter().filter(|p| p.web_search()).map(AiProvider::id).collect();
+        assert_eq!(searching, ["anthropic", "gemini", "openai", "openrouter", "xai"]);
+        assert_eq!(AiProvider::XAi.api(), Api::ChatCompletions);
+        assert_eq!(AiProvider::XAi.search_api(), Some(Api::OpenAiResponses));
+        assert_eq!(AiProvider::OpenRouter.search_api(), Some(Api::ChatCompletions));
+        assert!(AiProvider::Ollama.search_api().is_none());
+        assert!(AiProvider::Anthropic.info_in(Lang::En).web_search);
+        assert!(!AiProvider::Mistral.info_in(Lang::En).web_search);
+    }
+
+    #[test]
+    fn provider_info_from_an_older_app_has_no_web_search() {
+        let json = r#"{"id":"x","name":"X","key_url":"","needs_key":true,"default_base_url":"","custom_base_url":false,"default_model":null}"#;
+        assert!(!serde_json::from_str::<ProviderInfo>(json).unwrap().web_search);
     }
 }

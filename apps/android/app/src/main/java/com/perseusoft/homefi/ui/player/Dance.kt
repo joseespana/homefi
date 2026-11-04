@@ -1,10 +1,13 @@
 package com.perseusoft.homefi.ui.player
 
 import com.perseusoft.homefi.R
+import com.perseusoft.homefi.player.BeatTuning
+import com.perseusoft.homefi.player.Listening
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -84,6 +87,12 @@ data class Pose(
     val strum: Double = 0.0,
     /** Where the fretting hand is along the neck: 0 near the body, 1 further up. */
     val fret: Double = 0.0,
+    /** The head nodding on its own, in degrees (positive is forward), and moved off its place in units. */
+    val head: Double = 0.0,
+    val headX: Double = 0.0,
+    val headY: Double = 0.0,
+    /** How far the eyelids are down: 0 open, 1 closed. */
+    val lids: Double = 0.0,
 )
 
 val REST = Pose()
@@ -306,9 +315,25 @@ private fun blend(a: Pose, b: Pose, t: Double) = Pose(
     guitar = mix(a.guitar, b.guitar, t),
     strum = mix(a.strum, b.strum, t),
     fret = mix(a.fret, b.fret, t),
+    head = mix(a.head, b.head, t),
+    headX = mix(a.headX, b.headX, t),
+    headY = mix(a.headY, b.headY, t),
+    lids = mix(a.lids, b.lids, t),
 )
 
 private const val DANCE_BEATS = 16
+
+// catching breath when the music stops, in mosh mode
+private const val CATCH_BREATH_S = 1.5
+private const val CALM_BREATH_RAD_S = 1.11
+private const val CATCH_BREATH_SPEED = 2.5
+private const val CATCH_BREATH_DEPTH = 3.0
+
+/** How fast the dance catches up with the real beat, per second. */
+private const val PHASE_LOCK_RATE_PER_S = 10.0
+
+/** A beat reading older than this is not carried on (the analysis stopped). */
+private const val MAX_BEAT_AGE_S = 1.0
 
 /**
  * Keeps the beat (tempo changes don't make it jump), decides when a famous
@@ -328,6 +353,9 @@ class Choreographer(private val now: () -> Double = { System.nanoTime() / 1e6 })
     private var fromAt = -10.0
     private var last = REST
     private var wave = 0.0
+    private val mosh = MoshDirector()
+    private var stoppedFor = 0.0
+    private var breath = 0.0
 
     /** Starts a famous dance now (or a random one that suits the mood). */
     fun trigger(mood: Mood, id: DanceId? = null) {
@@ -351,17 +379,33 @@ class Choreographer(private val now: () -> Double = { System.nanoTime() / 1e6 })
      * Advances by `dt` seconds and returns the pose to draw. `pinned` keeps one
      * famous dance going all the time.
      */
-    fun step(dt: Double, playing: Boolean, bpm: Double, energy: Double, mood: Mood, specials: Specials, pinned: DanceId?, turns: Turns = Turns.ALL): Pose {
+    fun step(
+        dt: Double, playing: Boolean, bpm: Double, energy: Double, mood: Mood, specials: Specials, pinned: DanceId?,
+        turns: Turns = Turns.ALL, sound: Listening = Listening(), options: BeatOptions = BeatOptions(),
+    ): Pose {
         val k = if (playing) 0.5 + min(1.0, energy * 1.6) * 0.8 else 0.0
         wave = max(0.0, wave - dt)
         if (!playing) {
             // asleep: arms down, breathing; or waving when poked
-            val breathe = sin(now() / 900)
-            val p = Pose(y = 4 + 3 * breathe, sy = 1 + 0.012 * breathe, armL = 12.0, armR = if (wave > 0) 150 + 25 * sin(wave * 14) else 12.0)
+            // after mosh mode it catches its breath first: the chest heaves, then settles
+            val catching = if (mood == Mood.MOSH) exp(-stoppedFor / CATCH_BREATH_S) else 0.0
+            stoppedFor += dt
+            breath += dt * CALM_BREATH_RAD_S * (1 + CATCH_BREATH_SPEED * catching)
+            val breathe = if (mood == Mood.MOSH) sin(breath) else sin(now() / 900)
+            val heave = 1 + CATCH_BREATH_DEPTH * catching
+            val p = Pose(y = 4 + 3 * heave * breathe, sy = 1 + 0.012 * heave * breathe, armL = 12.0, armR = if (wave > 0) 150 + 25 * sin(wave * 14) else 12.0)
+            mosh.reset()
             last = settle(p, dt)
             return last
         }
+        stoppedFor = 0.0
         beat += (dt * bpm) / 60
+        // locked to the real beat: only the phase moves (smoothly), the count of beats stays
+        val locked = options.follow && sound.confidence >= BeatTuning.LOCK_CONFIDENCE
+        if (locked) {
+            val ahead = sound.beat + ((now() * 1e6 - sound.atNs) / 1e9).coerceIn(0.0, MAX_BEAT_AGE_S) * sound.bpm / 60 - beat
+            beat += (ahead - Math.rint(ahead)) * min(1.0, dt * PHASE_LOCK_RATE_PER_S)
+        }
 
         if (pinned != null && dance != pinned) start(pinned)
         if (pinned == null) {
@@ -375,7 +419,8 @@ class Choreographer(private val now: () -> Double = { System.nanoTime() / 1e6 })
 
         val b = beat - danceStart
         val current = dance
-        var p = if (current != null && b >= 0) dancePose(current, b, k, turns != Turns.OFF) else moodPose(mood, beat, k, turns == Turns.ALL)
+        var p = if (current != null && b >= 0) dancePose(current, b, k, turns != Turns.OFF) else if (mood == Mood.MOSH) mosh.pose(dt, beat, sound, locked, options)
+        else moodPose(mood, beat, k, turns == Turns.ALL)
         // half a beat to blend into a new move
         val t = min(1.0, (beat - fromAt) / 0.5)
         if (t < 1) p = blend(from, p, ease(t))

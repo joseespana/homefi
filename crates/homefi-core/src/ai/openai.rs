@@ -6,7 +6,8 @@
 use serde_json::{json, Value};
 
 use super::chat::{arguments, send, ChatReply, Message, Native, Tool, ToolCall, MAX_TOKENS};
-use super::{http, AiConfig, AiError, AiErrorKind, AiProvider, ModelInfo, CHAT_TIMEOUT, LIST_TIMEOUT};
+use super::web_search::{self, WebSearch};
+use super::{http, AiConfig, AiError, AiErrorKind, AiProvider, Api, ModelInfo, CHAT_TIMEOUT, LIST_TIMEOUT};
 
 fn bearer(config: &AiConfig, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
     match config.key() {
@@ -87,7 +88,9 @@ pub(crate) fn parse_responses(config: &AiConfig, answer: Value) -> Result<ChatRe
     Ok(ChatReply {
         text: text.join("\n").trim().to_owned(),
         tool_calls,
-        native: Some(Native::new(config, Value::Array(items.clone()))),
+        native: Some(Native::new(Api::OpenAiResponses, config, Value::Array(items.clone()))),
+        sources: web_search::responses_sources(items, &answer),
+        search_widget_html: None,
     })
 }
 
@@ -96,10 +99,17 @@ pub(crate) async fn responses(
     system: &str,
     messages: &[Message],
     tools: &[Tool],
+    search: Option<&WebSearch>,
 ) -> Result<ChatReply, AiError> {
     let url = format!("{}/responses", config.base());
-    let req =
-        bearer(config, http().post(url)).timeout(CHAT_TIMEOUT).json(&responses_body(config, system, messages, tools));
+    let mut payload = responses_body(config, system, messages, tools);
+    match search {
+        // xAI searches through Responses too, with the bare tool
+        Some(_) if config.provider == AiProvider::XAi => web_search::xai_request(&mut payload),
+        Some(search) => web_search::openai_request(&mut payload, search),
+        None => {}
+    }
+    let req = bearer(config, http().post(url)).timeout(CHAT_TIMEOUT).json(&payload);
     parse_responses(config, send(config, req, false).await?)
 }
 
@@ -172,7 +182,13 @@ pub(crate) fn parse_chat(config: &AiConfig, answer: Value) -> Result<ChatReply, 
             arguments: arguments(c.pointer("/function/arguments")),
         })
         .collect();
-    Ok(ChatReply { text: text.trim().to_owned(), tool_calls, native: Some(Native::new(config, msg.clone())) })
+    Ok(ChatReply {
+        text: text.trim().to_owned(),
+        tool_calls,
+        native: Some(Native::new(Api::ChatCompletions, config, msg.clone())),
+        sources: web_search::chat_sources(msg),
+        search_widget_html: None,
+    })
 }
 
 pub(crate) async fn chat_completions(
@@ -180,9 +196,14 @@ pub(crate) async fn chat_completions(
     system: &str,
     messages: &[Message],
     tools: &[Tool],
+    search: Option<&WebSearch>,
 ) -> Result<ChatReply, AiError> {
     let url = format!("{}/chat/completions", config.base());
-    let req = bearer(config, http().post(url)).timeout(CHAT_TIMEOUT).json(&chat_body(config, system, messages, tools));
+    let mut payload = chat_body(config, system, messages, tools);
+    if search.is_some() {
+        web_search::openrouter_request(&mut payload);
+    }
+    let req = bearer(config, http().post(url)).timeout(CHAT_TIMEOUT).json(&payload);
     parse_chat(config, send(config, req, false).await?)
 }
 
@@ -298,7 +319,7 @@ mod tests {
             .mount(&server)
             .await;
         let c = cfg(AiProvider::OpenAi, &server.uri());
-        let reply = responses(&c, "s", &[Message::User { text: "hi".into() }], &[tool()]).await.unwrap();
+        let reply = responses(&c, "s", &[Message::User { text: "hi".into() }], &[tool()], None).await.unwrap();
         assert_eq!(reply.text, "Buscando…");
         assert_eq!(
             reply.tool_calls,
@@ -329,7 +350,7 @@ mod tests {
             .mount(&server)
             .await;
         let c = AiConfig::new(AiProvider::Ollama, "qwen3:8b", None).with_base_url(server.uri());
-        let reply = chat_completions(&c, "s", &[Message::User { text: "hi".into() }], &[tool()]).await.unwrap();
+        let reply = chat_completions(&c, "s", &[Message::User { text: "hi".into() }], &[tool()], None).await.unwrap();
         assert_eq!(reply.tool_calls[0].id, "call_0");
         assert_eq!(reply.tool_calls[0].arguments, json!({"q": 1}));
         // reasoning goes back to the same provider

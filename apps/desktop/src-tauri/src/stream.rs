@@ -211,7 +211,7 @@ pub fn add_to_queue(player: &homefi_player::Player, path: PathBuf, next: bool, n
 
 async fn resolve<R: Runtime>(app: &AppHandle<R>, item: &StreamItem) -> Result<PathBuf, String> {
     let path = fetch_or_local(app, item).await?;
-    crate::sound::remember(app, &path, item.source.clone(), Some(item.id.clone()));
+    crate::sound::remember(app, &path, item.source.clone(), Some(item.id.clone()).filter(|id| !id.is_empty()));
     Ok(path)
 }
 

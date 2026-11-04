@@ -52,6 +52,10 @@ pub enum Error {
     #[error("{0}")]
     AutoEq(String),
 
+    /// Building a HomeFi playlist failed; the text is already user-facing.
+    #[error("{0}")]
+    Playlist(String),
+
     /// An AI provider call failed (bad key, no credit, offline...).
     #[error(transparent)]
     Ai(#[from] crate::ai::AiError),

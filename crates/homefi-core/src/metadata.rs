@@ -1,4 +1,4 @@
-//! Audio / video tags (FLAC, M4A, MP3, MP4) and cover art.
+//! Audio / video tags (FLAC, M4A, MP3, WAV, Opus, MP4) and cover art.
 
 use std::path::{Path, PathBuf};
 
@@ -217,6 +217,34 @@ fn write_mp3(path: &Path, tags: &TrackTags) -> Result<()> {
     id3.save_to_path(path, WriteOptions::default().use_id3v23(true)).map_err(|e| meta_err(path, e))
 }
 
+/// WAV carries both tag families: RIFF INFO (basic, read by everything) and an ID3v2 chunk
+/// (full fields and the cover, read by the players that matter).
+fn write_wav(path: &Path, tags: &TrackTags) -> Result<()> {
+    let mut file = lofty::read_from_path(path).map_err(|e| meta_err(path, e))?;
+    file.remove(TagType::RiffInfo);
+    file.remove(TagType::Id3v2);
+
+    let mut info = Tag::new(TagType::RiffInfo);
+    fill_common(&mut info, &TrackTags { cover: None, ..tags.clone() }, true);
+    file.insert_tag(info);
+
+    let mut id3 = Tag::new(TagType::Id3v2);
+    fill_common(&mut id3, tags, true);
+    file.insert_tag(id3);
+
+    file.save_to_path(path, WriteOptions::default().use_id3v23(true)).map_err(|e| meta_err(path, e))
+}
+
+/// Ogg Opus: Vorbis comments, the cover as a `METADATA_BLOCK_PICTURE`.
+fn write_opus(path: &Path, tags: &TrackTags) -> Result<()> {
+    let mut file = lofty::read_from_path(path).map_err(|e| meta_err(path, e))?;
+    file.remove(TagType::VorbisComments);
+    let mut tag = Tag::new(TagType::VorbisComments);
+    fill_common(&mut tag, tags, false);
+    file.insert_tag(tag);
+    file.save_to_path(path, WriteOptions::default()).map_err(|e| meta_err(path, e))
+}
+
 /// Writes track tags based on the file extension.
 pub fn write_track_tags(path: &Path, tags: &TrackTags) -> Result<()> {
     let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
@@ -224,6 +252,8 @@ pub fn write_track_tags(path: &Path, tags: &TrackTags) -> Result<()> {
         "flac" => write_flac(path, tags),
         "m4a" | "mp4" => write_m4a(path, tags),
         "mp3" => write_mp3(path, tags),
+        "wav" => write_wav(path, tags),
+        "opus" => write_opus(path, tags),
         other => Err(meta_err(path, format!("unsupported file extension `{other}`"))),
     }
 }
@@ -358,8 +388,55 @@ mod tests {
         assert_eq!(cover.url, "https://resources.tidal.com/images/ab12/cd34/1280x1280.jpg");
     }
 
+    /// A silent 16-bit stereo 44.1 kHz WAV of `frames` frames.
+    fn silent_wav(path: &Path, frames: u32) {
+        let data = frames * 4;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&2u16.to_le_bytes());
+        bytes.extend_from_slice(&44_100u32.to_le_bytes());
+        bytes.extend_from_slice(&(44_100u32 * 4).to_le_bytes());
+        bytes.extend_from_slice(&4u16.to_le_bytes());
+        bytes.extend_from_slice(&16u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data.to_le_bytes());
+        bytes.resize(bytes.len() + data as usize, 0);
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn wav_files_get_tags_and_cover() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("song.wav");
+        silent_wav(&path, 4410);
+        let tags = TrackTags {
+            title: "Blind".into(),
+            album_title: "Korn".into(),
+            album_artist: "Korn".into(),
+            artists: vec!["Korn".into()],
+            track_number: 1,
+            genre: "Metal".into(),
+            cover: Some(vec![0xFF, 0xD8, 0xFF, 0xD9]),
+            ..Default::default()
+        };
+        write_track_tags(&path, &tags).unwrap();
+        let file = lofty::read_from_path(&path).unwrap();
+        let id3 = file.tag(TagType::Id3v2).expect("id3v2 chunk");
+        assert_eq!(id3.title().as_deref(), Some("Blind"));
+        assert_eq!(id3.album().as_deref(), Some("Korn"));
+        assert_eq!(id3.track(), Some(1));
+        assert_eq!(id3.pictures().len(), 1);
+        let info = file.tag(TagType::RiffInfo).expect("riff info");
+        assert_eq!(info.title().as_deref(), Some("Blind"));
+        assert_eq!(file.properties().duration().as_millis(), 100);
+    }
+
     #[test]
     fn unsupported_extension() {
-        assert!(write_track_tags(Path::new("song.wav"), &TrackTags::default()).is_err());
+        assert!(write_track_tags(Path::new("song.xyz"), &TrackTags::default()).is_err());
     }
 }
