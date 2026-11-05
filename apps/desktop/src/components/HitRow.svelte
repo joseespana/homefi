@@ -225,6 +225,7 @@
 
 <style>
   .hit {
+    container: hit / inline-size;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -439,6 +440,19 @@
   .quiet:focus-visible,
   .quiet.fav {
     opacity: 1;
+  }
+  /* a narrow row (a cell of the search grid): hidden actions take no room, so the title and its
+     badges keep it; on hover they replace the duration */
+  @container hit (max-width: 560px) {
+    .quiet:not(.fav) {
+      display: none;
+    }
+    .hit:is(:hover, :focus-within) .quiet {
+      display: inline-grid;
+    }
+    .hit:is(:hover, :focus-within) .time {
+      display: none;
+    }
   }
   .fav {
     color: #f472b6;

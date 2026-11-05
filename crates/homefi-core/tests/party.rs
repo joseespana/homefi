@@ -9,7 +9,8 @@ use homefi_core::ai::{AiConfig, AiProvider};
 use homefi_core::api::{TidalApi, TidalClient};
 use homefi_core::humane::Lang;
 use homefi_core::party::{
-    AgeGroup, ChatBrief, EnergyCurve, PartyBrief, PartyContext, PartyProgress, PartySession, PartyVibe, MAX_CHAT_TURNS,
+    AgeGroup, AskedSong, ChatBrief, EnergyCurve, PartyBrief, PartyContext, PartyProgress, PartySession, PartyVibe,
+    MAX_CHAT_TURNS,
 };
 use homefi_core::playlist::{LibraryIndex, LibraryRef, PlaylistOrigin, PlaylistSettings};
 use serde_json::{json, Value};
@@ -462,4 +463,48 @@ async fn the_chat_opener_is_recalled_when_keeping_chatting() {
     assert!(turn.text.contains("La última vez pediste: “sad 90s”"));
     assert_eq!(turn.chat_brief, Some(brief));
     assert!(server.received_requests().await.unwrap().is_empty(), "the opener needs no AI");
+}
+
+#[tokio::test]
+async fn named_songs_open_the_playlist_once_even_when_explicit() {
+    let server = MockServer::start().await;
+    mount_proposals(&server, &[ROUND1]).await;
+    mount_tidal(&server).await;
+    let (api, fx) = (tidal_api(&server), Fixture::new());
+    let songs = vec![
+        AskedSong { title: "Explicit Anthem".into(), artist: "Queen".into() },
+        AskedSong { title: "Made Up Song".into(), artist: "Queen".into() },
+        AskedSong { title: "Song 0".into(), artist: "Bad Bunny".into() },
+    ];
+    let brief = ChatBrief {
+        wish: "Queen and similar".into(),
+        minutes: 30,
+        allow_explicit: false,
+        curve: EnergyCurve::Arc,
+        songs,
+        ..ChatBrief::default()
+    };
+    let mut session = PartySession::new(config(&server), brief, Lang::En);
+
+    let built = session.build(&fx.ctx(Some(&api)), &|_| {}).await.unwrap();
+
+    let got = titles(&built.playlist.entries);
+    assert_eq!(&got[..2], ["Explicit Anthem", "Song 0"], "named songs first, in order, explicit kept");
+    assert_eq!(got.iter().filter(|t| **t == "Song 0").count(), 1, "the AI's copy is a repeat");
+    assert!(built.playlist.unmatched.iter().any(|c| c.title == "Made Up Song"));
+    let asked = ai_bodies(&server.received_requests().await.unwrap());
+    assert!(asked.iter().any(|b| b.contains("Songs to include (they open the playlist): Queen – Explicit Anthem")));
+}
+
+#[tokio::test]
+async fn a_chat_playlist_needs_a_wish_before_it_builds() {
+    let server = MockServer::start().await;
+    mount_tidal(&server).await;
+    let (api, fx) = (tidal_api(&server), Fixture::new());
+    let mut session = PartySession::new(config(&server), ChatBrief::default(), Lang::Es);
+
+    let err = session.build(&fx.ctx(Some(&api)), &|_| {}).await.unwrap_err();
+
+    assert_eq!(err.to_string(), "Primero dile a tu IA qué te gustaría escuchar.");
+    assert!(server.received_requests().await.unwrap().is_empty(), "no AI, no search");
 }

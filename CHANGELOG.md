@@ -7,6 +7,15 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Fixed
+- Playlist with AI: songs you name in the chat ("alors dance") are recognised (Alors on danse by Stromae),
+  open the playlist and set its sound; the rest has to match their genre, era, language and energy, not
+  just the mood. The AI says back what it understood, and a playlist can no longer be built before your
+  request reached it (it used to come out as a generic list). Same on Android.
+- The Tidal mark in the side bar is centred.
+- Search: the quality and "versions" tags of Tracks and Albums are no longer cut off; a row's hidden
+  buttons take no room until you point at it.
+
 ## [1.5.2] - 2026-11-04
 
 ### Added

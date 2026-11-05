@@ -99,7 +99,7 @@
     onfocus={(e) => show(e, tidalLabel)}
     onblur={hide}
   >
-    <span class="tidal" class:on={!!app.account}>T</span>
+    <span class="tidal" class:on={!!app.account}><svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true"><path d="M6 6h10v2.5h-3.75V16h-2.5V8.5H6z" /></svg></span>
   </button>
 </nav>
 {#if tip}<div class="tip" role="tooltip" style:top="{tip.y}px">{tip.text}</div>{/if}
@@ -228,11 +228,12 @@
     place-items: center;
     border-radius: min(8px, var(--r-max));
     box-sizing: border-box;
-    /* line-height 1 and a trimmed text box: the display font's ascent pushed the letter off centre */
-    font: 800 13px/1 var(--font-display);
-    text-box: trim-both cap alphabetic;
     border: 2px solid var(--faint);
     color: var(--faint);
+  }
+  /* a drawn T, centred by geometry: a font letter sat off centre (its ascent and side bearings) */
+  .tidal svg {
+    fill: currentColor;
   }
   .tidal.on {
     border-color: var(--ok);

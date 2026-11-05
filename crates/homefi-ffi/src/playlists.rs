@@ -491,6 +491,27 @@ pub struct ChatBrief {
     pub minutes: u16,
     pub curve: EnergyCurve,
     pub allow_explicit: bool,
+    /// Songs the user named: they open the playlist, in this order.
+    pub songs: Vec<AskedSong>,
+}
+
+/// A song the user named in the chat, as the AI corrected it.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct AskedSong {
+    pub title: String,
+    pub artist: String,
+}
+
+impl From<core_party::AskedSong> for AskedSong {
+    fn from(s: core_party::AskedSong) -> Self {
+        Self { title: s.title, artist: s.artist }
+    }
+}
+
+impl From<AskedSong> for core_party::AskedSong {
+    fn from(s: AskedSong) -> Self {
+        Self { title: s.title, artist: s.artist }
+    }
 }
 
 impl From<core_party::ChatBrief> for ChatBrief {
@@ -501,6 +522,7 @@ impl From<core_party::ChatBrief> for ChatBrief {
             minutes: b.minutes,
             curve: b.curve.into(),
             allow_explicit: b.allow_explicit,
+            songs: b.songs.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -513,6 +535,7 @@ impl From<ChatBrief> for core_party::ChatBrief {
             minutes: b.minutes,
             curve: b.curve.into(),
             allow_explicit: b.allow_explicit,
+            songs: b.songs.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -1032,6 +1055,7 @@ mod tests {
                     minutes: 45,
                     curve: core_party::EnergyCurve::Rising,
                     allow_explicit: false,
+                    songs: vec![core_party::AskedSong { title: "Creep".into(), artist: "Radiohead".into() }],
                 },
                 provider_id: "anthropic".into(),
                 model: "m".into(),

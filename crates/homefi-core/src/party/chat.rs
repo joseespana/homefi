@@ -13,6 +13,25 @@ use crate::playlist::PlaylistSettings;
 pub(crate) const SET_PLAYLIST: &str = "set_playlist";
 /// The `energy` words the AI may use; anything else is ignored (an unknown word reads as `Arc` elsewhere).
 const ENERGY_WORDS: [&str; 3] = ["steady", "rising", "arc"];
+/// Most songs the user can name for the playlist to include.
+pub const MAX_ASKED_SONGS: usize = 10;
+/// Longest title or artist of a named song (chars).
+const MAX_SONG_FIELD_CHARS: usize = 120;
+
+/// A song the user named ("alors dance" → “Alors on danse” by Stromae, as the AI corrected it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct AskedSong {
+    pub title: String,
+    pub artist: String,
+}
+
+impl AskedSong {
+    /// Same song under another spelling or credit counts once.
+    pub(crate) fn key(&self) -> (String, String) {
+        (crate::playlist::artist_key(&self.artist), crate::text::song_key(&self.title))
+    }
+}
 
 /// What the user asked for in the chat, and what the AI understood of it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -26,6 +45,10 @@ pub struct ChatBrief {
     pub minutes: u16,
     pub curve: EnergyCurve,
     pub allow_explicit: bool,
+    /// Songs the user named: they open the playlist, in this order, and the rest sounds like them.
+    /// At most [`MAX_ASKED_SONGS`], no repeats, none without a title or an artist. Left out of the JSON when empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub songs: Vec<AskedSong>,
 }
 
 impl Default for ChatBrief {
@@ -43,18 +66,25 @@ impl ChatBrief {
             minutes: settings.chat_minutes,
             curve: settings.chat_curve,
             allow_explicit: settings.chat_allow_explicit,
+            songs: Vec::new(),
         }
         .clamped()
     }
 
-    /// Length rounded and clamped, wish and title trimmed and cut on characters.
+    /// Length rounded and clamped, wish and title trimmed and cut on characters, songs cleaned.
     pub fn clamped(self) -> Self {
         Self {
             wish: cut(&self.wish, MAX_NOTES_CHARS),
             title: cut(&self.title, MAX_TITLE_CHARS),
             minutes: round_minutes(self.minutes),
+            songs: clean_songs(self.songs),
             ..self
         }
+    }
+
+    /// The user has said what they want (the first message), so there is something to build from.
+    pub fn is_asked(&self) -> bool {
+        !self.wish.is_empty()
     }
 
     /// The length asked for, in ms.
@@ -85,6 +115,13 @@ impl ChatBrief {
         if let Some(allow) = arguments.get("allow_explicit").and_then(Value::as_bool) {
             self.allow_explicit = allow;
         }
+        // the whole list every time: a song left out was dropped by the user
+        if let Some(songs) = arguments.get("songs").and_then(Value::as_array) {
+            let text = |song: &Value, key: &str| song.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+            let songs =
+                songs.iter().map(|s| AskedSong { title: text(s, "title"), artist: text(s, "artist") }).collect();
+            self.songs = clean_songs(songs);
+        }
     }
 
     /// The brief as a bullet list, for the prompts.
@@ -92,11 +129,16 @@ impl ChatBrief {
         let title = if self.title.is_empty() { "not set yet" } else { self.title.as_str() };
         let wish = if self.wish.is_empty() { "nothing yet" } else { self.wish.as_str() };
         let explicit = if self.allow_explicit { "allowed" } else { "to avoid" };
-        format!(
+        let mut text = format!(
             "- Asked for: {wish}\n- Title: {title}\n- Length: {}\n- Energy: {}\n- Explicit lyrics: {explicit}",
             words::length(self.minutes),
             self.curve.prompt_phrase()
-        )
+        );
+        if !self.songs.is_empty() {
+            let songs: Vec<String> = self.songs.iter().map(|s| format!("{} – {}", s.artist, s.title)).collect();
+            text.push_str(&format!("\n- Songs to include (they open the playlist): {}", songs.join("; ")));
+        }
+        text
     }
 }
 
@@ -118,6 +160,17 @@ pub fn song_wish(seed: &SongSeed, lang: Lang) -> String {
     words::song_wish(seed, lang)
 }
 
+/// Trimmed and cut, without blanks or repeats (first wins), at most [`MAX_ASKED_SONGS`].
+fn clean_songs(songs: Vec<AskedSong>) -> Vec<AskedSong> {
+    let mut seen = std::collections::HashSet::new();
+    songs
+        .into_iter()
+        .map(|s| AskedSong { title: cut(&s.title, MAX_SONG_FIELD_CHARS), artist: cut(&s.artist, MAX_SONG_FIELD_CHARS) })
+        .filter(|s| !s.title.is_empty() && !s.artist.is_empty() && seen.insert(s.key()))
+        .take(MAX_ASKED_SONGS)
+        .collect()
+}
+
 /// Trimmed and cut at `max` characters (never in the middle of one).
 fn cut(text: &str, max: usize) -> String {
     text.trim().chars().take(max).collect::<String>().trim_end().to_owned()
@@ -133,6 +186,15 @@ pub(crate) fn set_playlist_tool() -> Tool {
                 "title": { "type": "string", "description": "Short name of the playlist, at most 6 words, in the user's language" },
                 "minutes": { "type": "integer", "minimum": super::MIN_PARTY_MINUTES, "maximum": super::MAX_PARTY_MINUTES },
                 "allow_explicit": { "type": "boolean" },
+                "songs": {
+                    "type": "array", "maxItems": MAX_ASKED_SONGS,
+                    "description": "Every song the user named for the playlist, the full list each time, with the official \
+                        title and main artist even when the user misspelled it or gave no artist \
+                        (\"alors dance\" is Alors on danse by Stromae)",
+                    "items": { "type": "object", "properties": {
+                        "title": { "type": "string" }, "artist": { "type": "string" }
+                    }, "required": ["title", "artist"] }
+                },
                 "energy": {
                     "type": "string", "enum": ENERGY_WORDS,
                     "description": "steady: your order; rising: builds to the end; arc: warm up, peak, wind down"
@@ -207,6 +269,33 @@ mod tests {
         assert_eq!(tagged["wish"], "sad 90s");
         let back: super::super::Brief = serde_json::from_value(tagged).unwrap();
         assert_eq!(back, super::super::Brief::Chat(b));
+    }
+
+    #[test]
+    fn named_songs_are_cleaned_and_replaced_as_a_whole() {
+        let mut b = ChatBrief::default();
+        b.apply(&json!({ "songs": [
+            { "title": " Alors on danse ", "artist": "Stromae" },
+            { "title": "alors on danse", "artist": "stromae" },
+            { "title": "", "artist": "Nobody" },
+            { "title": "No artist" },
+            { "title": "Papaoutai", "artist": "Stromae" }
+        ] }));
+        let names: Vec<(&str, &str)> = b.songs.iter().map(|s| (s.title.as_str(), s.artist.as_str())).collect();
+        assert_eq!(names, [("Alors on danse", "Stromae"), ("Papaoutai", "Stromae")]);
+        assert!(b
+            .describe()
+            .contains("Songs to include (they open the playlist): Stromae – Alors on danse; Stromae – Papaoutai"));
+        b.apply(&json!({ "title": "x" }));
+        assert_eq!(b.songs.len(), 2, "a call without songs keeps them");
+        b.apply(&json!({ "songs": [] }));
+        assert!(b.songs.is_empty(), "the full list each time: empty clears it");
+        let many: Vec<Value> = (0..20).map(|n| json!({ "title": format!("S{n}"), "artist": "A" })).collect();
+        b.apply(&json!({ "songs": many }));
+        assert_eq!(b.songs.len(), MAX_ASKED_SONGS);
+        let old: ChatBrief = serde_json::from_value(json!({ "wish": "w" })).unwrap();
+        assert!(old.songs.is_empty() && old.is_asked(), "briefs saved before named songs still read");
+        assert!(!ChatBrief::default().is_asked());
     }
 
     fn seed(title: &str, artist: &str) -> SongSeed {

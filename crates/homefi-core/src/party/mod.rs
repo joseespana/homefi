@@ -20,7 +20,7 @@ mod session;
 pub(crate) mod words;
 
 pub use arrange::{arrange, cap_per_artist, pick_for_duration, Picked};
-pub use chat::{song_wish, ChatBrief, SongSeed};
+pub use chat::{song_wish, AskedSong, ChatBrief, SongSeed, MAX_ASKED_SONGS};
 pub use session::{
     needs_ai_message, no_session_message, PartyBuilt, PartyContext, PartyProgress, PartySession, PartyTurn,
 };

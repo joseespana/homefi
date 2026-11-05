@@ -246,7 +246,8 @@ impl PartySession {
         }
         turn.text = texts.join("\n\n");
         if turn.text.is_empty() {
-            turn.text = words::empty_turn(self.lang);
+            let title = self.brief.as_chat().map(|b| b.title.as_str()).unwrap_or_default();
+            turn.text = words::empty_turn(self.lang, title);
         }
         turn.chat_brief = self.brief.as_chat().cloned();
         Ok(turn)
@@ -278,6 +279,9 @@ impl PartySession {
         if ctx.api.is_none() && ctx.library.is_empty() {
             return Err(words::problem(self.lang, Problem::NothingToUse));
         }
+        if self.brief.as_chat().is_some_and(|b| !b.is_asked()) {
+            return Err(words::problem(self.lang, Problem::NothingAsked));
+        }
         let settings = ctx.settings.clamped();
         let mut config = self.config.clone();
         if config.model.trim().is_empty() {
@@ -286,6 +290,7 @@ impl PartySession {
         let target_ms = self.brief.target_ms();
         let resolver = Resolver { api: ctx.api, library: ctx.library, prefer_library: settings.prefer_library };
         let mut pool = Pool::default();
+        self.pin_asked_songs(&resolver, &mut pool, progress).await;
 
         for round in 0..=MAX_FILL_ROUNDS {
             progress(PartyProgress::Asking { round });
@@ -307,12 +312,15 @@ impl PartySession {
             }
         }
 
-        if pool.kept.is_empty() {
+        if pool.kept.is_empty() && pool.pinned.is_empty() {
             return Err(words::problem(self.lang, Problem::NoSongs));
         }
-        let (picked, _rest) = pick_for_duration(std::mem::take(&mut pool.kept), target_ms);
-        let picked_ms: u64 = picked.iter().map(|p| effective_ms(&p.entry)).sum();
-        let entries = arrange(picked, self.brief.curve(), self.lang);
+        let pinned_ms = pool.pinned_ms();
+        let (picked, _rest) = pick_for_duration(std::mem::take(&mut pool.kept), target_ms.saturating_sub(pinned_ms));
+        let picked_ms = pinned_ms + picked.iter().map(|p| effective_ms(&p.entry)).sum::<u64>();
+        // the songs the user named open the playlist, in their order; the rest follows the energy curve
+        let mut entries = std::mem::take(&mut pool.pinned);
+        entries.extend(arrange(picked, self.brief.curve(), self.lang));
         let note = self.note(target_ms.saturating_sub(picked_ms), pool.explicit_left_out, ctx.api.is_none());
         let last_songs = entries.iter().take(MAX_LAST_SONGS).map(|e| format!("{} – {}", e.artist, e.title)).collect();
         let now = now_ms();
@@ -330,6 +338,29 @@ impl PartySession {
             search_widget_html: None,
         };
         Ok(BuildResult { built: PartyBuilt { playlist, note }, model: config.model, last_songs })
+    }
+
+    /// Finds the songs the user named (chat mode) and pins them: they are kept even when
+    /// explicit, and the AI's own proposals of them count as repeats.
+    async fn pin_asked_songs(&self, resolver: &Resolver<'_>, pool: &mut Pool, progress: Progress<'_>) {
+        let Some(brief) = self.brief.as_chat().filter(|b| !b.songs.is_empty()) else {
+            return;
+        };
+        let candidates: Vec<SongCandidate> = brief
+            .songs
+            .iter()
+            .map(|s| SongCandidate { title: s.title.clone(), artist: s.artist.clone(), ..SongCandidate::default() })
+            .collect();
+        pool.asked.extend(brief.songs.iter().map(|s| s.key()));
+        let resolved =
+            resolver.resolve_all(candidates, &|done, total| progress(PartyProgress::Resolving { done, total })).await;
+        for resolved in resolved {
+            match resolved.entry {
+                Some(entry) if pool.seen.first_time(&entry) => pool.pinned.push(entry),
+                Some(_) => {}
+                None => pool.unmatched.push(resolved.candidate),
+            }
+        }
     }
 
     /// Short of the length, explicit songs left out, no Tidal: said in words, joined with a space.
@@ -385,6 +416,8 @@ impl Proposed {
 /// What has been found so far across the rounds.
 #[derive(Default)]
 struct Pool {
+    /// The songs the user named, found: they open the playlist.
+    pinned: Vec<PlaylistEntry>,
     kept: Vec<Picked>,
     unmatched: Vec<SongCandidate>,
     seen: SeenEntries,
@@ -394,7 +427,11 @@ struct Pool {
 
 impl Pool {
     fn total_ms(&self) -> u64 {
-        self.kept.iter().map(|p| effective_ms(&p.entry)).sum()
+        self.pinned_ms() + self.kept.iter().map(|p| effective_ms(&p.entry)).sum::<u64>()
+    }
+
+    fn pinned_ms(&self) -> u64 {
+        self.pinned.iter().map(effective_ms).sum()
     }
 
     fn add(&mut self, entry: Option<PlaylistEntry>, candidate: SongCandidate, energy: u8, allow_explicit: bool) {
@@ -507,7 +544,10 @@ fn chat_system_prompt(brief: &Brief, lang: Lang) -> String {
              question (artists to lean on, a decade, a language, calmer or more upbeat, how long). Call \
              {SUGGEST_REPLIES} with 2 to 4 short answers every time. Whenever you learn what the playlist is about, \
              call {SET_PLAYLIST} with a short title in the user's language and whatever else you learned (minutes, \
-             allow_explicit, energy). Never list songs in the chat: the playlist is built later. {rule}"
+             allow_explicit, energy). When the user names songs (even misspelled or without the artist), work out the \
+             real song and pass every one of them in `songs`, and name it back in your reply (\"Alors on danse by \
+             Stromae\") so they can correct you. Always write a reply, never only call tools. Never list songs of \
+             your own in the chat: the playlist is built later. {rule}"
         ),
     }
 }
@@ -524,8 +564,10 @@ fn build_system_prompt(brief: &Brief, lang: Lang) -> String {
         Brief::Chat(_) => format!(
             "You are an expert music curator. Pick the songs of a playlist for what the user asked in the \
              conversation:\n{describe}\n\nCall {PROPOSE_SONGS} once with the songs. Propose only real, released songs \
-             by their exact title and main artist. Stay inside the decade, language and genre the user asked for. If the user names a song to start \
-             with, make it the first song. {rule}"
+             by their exact title and main artist. Stay inside the decade, language and genre the user asked for. The \
+             songs to include are already in the playlist, do not propose them again: every other song must sound like \
+             them (same genre and scene, era, language and energy; the same artist and close artists first), not just \
+             share a mood. {rule}"
         ),
     }
 }
@@ -551,9 +593,10 @@ fn build_instruction(
             last_songs.join("; ")
         ));
     }
+    let in_playlist = pool.pinned.iter().chain(pool.kept.iter().map(|p| &p.entry));
     if !pool.kept.is_empty() || !pool.unmatched.is_empty() {
         let names = |songs: Vec<String>| songs.join("; ");
-        let have = names(pool.kept.iter().map(|p| format!("{} – {}", p.entry.artist, p.entry.title)).collect());
+        let have = names(in_playlist.map(|e| format!("{} – {}", e.artist, e.title)).collect());
         let missing = names(pool.unmatched.iter().map(|c| format!("{} – {}", c.artist, c.title)).collect());
         text.push_str(&format!(
             " We still need more songs. Already in the playlist: {have}. Not found, do not repeat: {missing}. \

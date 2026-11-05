@@ -1125,6 +1125,8 @@ export interface ChatBrief {
   minutes: number;
   curve: EnergyCurve;
   allow_explicit: boolean;
+  /** Songs the user named, as the AI corrected them: they open the playlist. */
+  songs?: { title: string; artist: string }[];
 }
 /** The song “Playlist like this” starts from (what the app knows of it). */
 export interface SongSeed {

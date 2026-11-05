@@ -55,14 +55,23 @@ pub(crate) fn chat_limit(lang: Lang) -> String {
     )
 }
 
-pub(crate) fn empty_turn(lang: Lang) -> String {
-    say(lang, "Anything else before I build it?".into(), "¿Algo más antes de armarla?".into())
+/// The turn when the AI only called tools: what it understood (`title`, when set), then the question.
+pub(crate) fn empty_turn(lang: Lang, title: &str) -> String {
+    let title = title.trim();
+    match (lang, title.is_empty()) {
+        (Lang::En, true) => "Anything else before I build it?".into(),
+        (Lang::Es, true) => "¿Algo más antes de armarla?".into(),
+        (Lang::En, false) => format!("Got it: “{title}”. Anything else before I build it?"),
+        (Lang::Es, false) => format!("Entendido: «{title}». ¿Algo más antes de armarla?"),
+    }
 }
 
 /// Errors the build can end with, worded for people.
 pub(crate) enum Problem {
     NothingToUse,
     NoSongs,
+    /// A chat playlist before the user said what they want.
+    NothingAsked,
 }
 
 pub(crate) fn problem(lang: Lang, p: Problem) -> Error {
@@ -77,6 +86,11 @@ pub(crate) fn problem(lang: Lang, p: Problem) -> Error {
             "Your AI didn't suggest any songs HomeFi could find. Try again or change the answers.".into(),
             "Tu IA no sugirió canciones que HomeFi pudiera encontrar. Inténtalo de nuevo o cambia las respuestas."
                 .into(),
+        ),
+        Problem::NothingAsked => say(
+            lang,
+            "Tell your AI first what you'd like to hear.".into(),
+            "Primero dile a tu IA qué te gustaría escuchar.".into(),
         ),
     };
     Error::Playlist(text)
