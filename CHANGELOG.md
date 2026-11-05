@@ -7,6 +7,8 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.7] - 2026-11-05
+
 ### Added
 - Android Auto: lyrics in the car. The line being sung shows under the title in the car's player,
   one line at a time, when the song has synced lyrics (Settings → Playback → Android Auto → Lyrics in
