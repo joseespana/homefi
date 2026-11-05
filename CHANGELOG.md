@@ -7,6 +7,8 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-11-05
+
 ### Fixed
 - Playlist with AI: songs you name in the chat ("alors dance") are recognised (Alors on danse by Stromae),
   open the playlist and set its sound; the rest has to match their genre, era, language and energy, not
