@@ -12,7 +12,7 @@
   .ai {
     flex: none;
     padding: 1px 6px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.04em;

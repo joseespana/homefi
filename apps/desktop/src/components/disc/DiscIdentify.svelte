@@ -86,7 +86,7 @@
     gap: 14px;
     padding: 18px 20px;
     border: 1px solid var(--border);
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--surface);
   }
   header {
@@ -173,7 +173,7 @@
   .chip {
     min-height: 32px;
     padding: 0 12px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     background: var(--surface-3);
     font-size: 13px;
   }

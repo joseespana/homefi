@@ -55,7 +55,7 @@
     --sk-shine: color-mix(in srgb, var(--text) 14%, transparent);
   }
   .block {
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     background: linear-gradient(100deg, var(--sk) 40%, var(--sk-shine) 50%, var(--sk) 60%) 0 0 / 300% 100%;
     animation: sk-shine 1.6s ease-in-out infinite;
   }
@@ -120,7 +120,7 @@
   }
   .art {
     aspect-ratio: 1;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     margin-bottom: 4px;
   }
   .head {
@@ -133,6 +133,6 @@
     width: 200px;
     height: 200px;
     flex: none;
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
   }
 </style>

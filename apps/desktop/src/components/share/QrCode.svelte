@@ -26,7 +26,7 @@
 <style>
   .qr {
     flex: none;
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
     overflow: hidden;
     box-shadow: 0 0 0 1px var(--border);
   }

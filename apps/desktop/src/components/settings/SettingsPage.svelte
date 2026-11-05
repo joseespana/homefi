@@ -48,22 +48,36 @@
 {/key}
 
 <style>
-  /* clear at rest so it melts into the page; a near-solid surface once rows scroll under it
-     (no blur: blurred text under the title read as a smudge).
-     It reaches up under the window's drag strip (which stays on top and draggable), so
-     one surface covers the strip too and nothing peeks over the title. */
+  /* clear at rest so it melts into the page; once rows scroll under it, a floating pill behind the
+     title and the search (like a song row's hover), inset with room around it, over a strong blur
+     and a light tint: frosted glass, the rows under it only a soft glow. It hugs the content, so it
+     looks the same whatever sits left or right of the column. */
   .head {
     position: sticky;
     top: 0;
     z-index: 2;
     margin-top: calc(-1 * var(--topbar-h, var(--set-drag-h)));
     padding-top: var(--topbar-h, var(--set-drag-h));
-    border-radius: 0 0 var(--set-card-r) var(--set-card-r);
-    transition: background 0.2s, box-shadow 0.2s;
   }
-  .head.scrolled {
+  .head::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: calc(var(--topbar-h, var(--set-drag-h)) + var(--s-2)) calc(-1 * var(--s-4)) var(--s-1);
+    border-radius: var(--r-md);
+    border: 1px solid var(--set-card-border);
     background: var(--set-head-bg);
-    box-shadow: 0 10px 20px -16px rgb(0 0 0 / 0.55);
+    backdrop-filter: blur(28px) saturate(1.5);
+    -webkit-backdrop-filter: blur(28px) saturate(1.5);
+    box-shadow: 0 10px 24px -14px rgb(0 0 0 / 0.55);
+    opacity: 0;
+    transform: translateY(-4px);
+    transition: opacity 0.2s, transform 0.2s;
+    pointer-events: none;
+  }
+  .head.scrolled::before {
+    opacity: 1;
+    transform: none;
   }
   .inner {
     display: flex;

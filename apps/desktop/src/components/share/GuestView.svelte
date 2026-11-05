@@ -207,7 +207,7 @@
     flex: none;
     width: 38px;
     height: 38px;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--gradient);
     color: #fff;
   }
@@ -215,7 +215,7 @@
     display: flex;
     gap: 4px;
     padding: 4px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     background: var(--glass);
     border: 1px solid var(--glass-border);
   }
@@ -224,7 +224,7 @@
     align-items: center;
     gap: 6px;
     padding: 6px 14px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-weight: 600;
     color: var(--muted);
   }
@@ -255,7 +255,7 @@
     flex-wrap: wrap;
     gap: 14px;
     padding: 16px;
-    border-radius: min(18px, var(--r-max));
+    border-radius: var(--r-lg);
     background: var(--glass);
     border: 1px solid var(--glass-border);
     backdrop-filter: blur(20px) saturate(1.3);
@@ -352,7 +352,7 @@
     align-items: center;
     gap: 10px;
     padding: 6px 6px 6px 14px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     background: var(--surface-2);
     border: 1px solid var(--border);
     color: var(--muted);
@@ -387,7 +387,7 @@
     align-items: center;
     gap: 10px;
     padding: 6px 8px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
   }
   .song:hover {
     background: var(--surface-2);
@@ -415,7 +415,7 @@
     align-items: center;
     gap: 10px;
     padding: 8px;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     text-align: left;
     background: var(--glass);
     border: 1px solid var(--glass-border);

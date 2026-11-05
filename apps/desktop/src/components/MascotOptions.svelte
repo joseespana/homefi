@@ -173,7 +173,7 @@
   .auto,
   .reset {
     padding: 5px 11px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     background: var(--surface-2);
     border: 1px solid var(--border);
     font-size: 12.5px;
@@ -203,7 +203,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 7px 6px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     cursor: pointer;
   }
   .row:hover {

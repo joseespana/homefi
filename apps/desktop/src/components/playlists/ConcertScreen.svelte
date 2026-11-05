@@ -141,7 +141,7 @@
     height: 40px;
     padding: 0 12px;
     border: 1px solid var(--border);
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface-2);
     font-size: 15px;
   }

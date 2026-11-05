@@ -440,7 +440,7 @@ fn install_and_restart(app: &AppHandle) {
     // blocking: macOS may ask for an administrator password on the main thread
     tauri::async_runtime::spawn_blocking(move || {
         app.state::<AppState>().player.pause();
-        match update.install(&bytes) {
+        match install(&update, &bytes) {
             // macOS / Linux: the new version is in place; the Exit event says goodbye to guests
             Ok(()) => app.restart(),
             Err(e) => {
@@ -454,6 +454,19 @@ fn install_and_restart(app: &AppHandle) {
             }
         }
     });
+}
+
+/// Puts the new version in place. macOS: the bundle's Contents are swapped and its folder is kept,
+/// so the Dock's pinned icon stays (see `bundle_swap`); the plugin installs it when that can't.
+fn install(update: &Update, bytes: &[u8]) -> Result<(), tauri_plugin_updater::Error> {
+    #[cfg(target_os = "macos")]
+    if let Some(bundle) = crate::bundle_swap::current_bundle() {
+        match crate::bundle_swap::install(&bundle, bytes) {
+            Ok(()) => return Ok(()),
+            Err(e) => tracing::warn!("in-place update failed ({e}), using the updater's install"),
+        }
+    }
+    update.install(bytes)
 }
 
 /// "Restart now" (`now`) or "When the song ends" (`song_end`).

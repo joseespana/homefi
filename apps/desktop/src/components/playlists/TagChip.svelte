@@ -20,7 +20,7 @@
     gap: 5px;
     padding: 1px 8px;
     border: 1px solid color-mix(in srgb, var(--tone) 60%, transparent);
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     background: color-mix(in srgb, var(--tone) 18%, var(--surface));
     color: var(--text);
     font-size: 11px;

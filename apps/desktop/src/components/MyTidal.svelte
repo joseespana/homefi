@@ -149,7 +149,7 @@
     padding-left: 10px;
     background: var(--glass-strong);
     border: 1px solid var(--glass-border);
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     color: var(--muted);
   }
   .filter input {
@@ -164,7 +164,7 @@
   }
   .tabs button {
     padding: 7px 16px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     background: var(--glass-strong);
     border: 1px solid var(--glass-border);
     color: var(--muted);
@@ -198,7 +198,7 @@
     gap: 8px;
   }
   .empty img {
-    border-radius: min(20px, var(--r-max));
+    border-radius: var(--r-lg);
   }
   .error {
     color: var(--danger);

@@ -203,7 +203,7 @@
     padding-left: 10px;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     color: var(--muted);
   }
   .filter input {
@@ -245,7 +245,7 @@
     text-align: left;
     padding: 8px;
     margin: -8px;
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
     transition: background 0.15s;
   }
   .card:hover {
@@ -345,7 +345,7 @@
     align-items: center;
     text-align: left;
     padding: 8px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     min-width: 0;
   }
   .artist > div {
@@ -370,7 +370,7 @@
     z-index: 11;
     width: 320px;
     padding: 6px;
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--surface);
     border: 1px solid var(--border);
     box-shadow: var(--shadow);
@@ -382,7 +382,7 @@
     align-items: flex-start;
     gap: 1px;
     padding: 8px 10px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     text-align: left;
   }
   .menu button:first-child {
@@ -405,7 +405,7 @@
     gap: 10px;
     margin-bottom: 14px;
     padding: 10px 14px;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--glass-strong);
     border: 1px solid var(--glass-border);
     font-size: 13px;
@@ -435,7 +435,7 @@
     gap: 8px;
   }
   .empty img {
-    border-radius: min(22px, var(--r-max));
+    border-radius: var(--r-lg);
   }
   .empty p {
     max-width: 420px;

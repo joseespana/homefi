@@ -57,11 +57,19 @@
     max-height: calc(100vh - var(--topbar-h, var(--set-drag-h)) - var(--set-deck-h));
     overflow-y: auto;
     overscroll-behavior: contain;
+    /* the scrollbar shows only while the list is pointed at, and never covers a row */
+    scrollbar-gutter: stable;
     padding: var(--set-nav-pad);
     border: 1px solid var(--set-nav-border);
     border-radius: var(--set-nav-r);
     background: var(--set-nav-bg);
     color: var(--set-nav-fg);
+  }
+  nav::-webkit-scrollbar-thumb {
+    background-color: transparent;
+  }
+  nav:hover::-webkit-scrollbar-thumb {
+    background-color: var(--surface-3);
   }
   .top {
     display: none;
@@ -100,7 +108,7 @@
     border-radius: var(--set-nav-item-r);
     text-align: left;
     color: var(--set-nav-fg);
-    transition: background 0.2s;
+    transition: background 0.2s, box-shadow 0.2s;
   }
   button:hover:not(.selected) {
     background: var(--set-nav-hover);
@@ -108,6 +116,7 @@
   button.selected {
     background: var(--set-nav-sel-bg);
     color: var(--set-nav-sel-fg);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--set-nav-sel-fg) 22%, transparent);
   }
   button.selected::before {
     content: "";

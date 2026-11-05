@@ -21,7 +21,7 @@
   code {
     font: 12px var(--font-mono);
     padding: 0 4px;
-    border-radius: 4px;
+    border-radius: var(--r-xs);
     background: var(--surface-2);
   }
   a {

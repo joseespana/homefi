@@ -45,7 +45,7 @@
   code {
     font: 12px var(--font-mono);
     padding: 0 3px;
-    border-radius: 4px;
+    border-radius: var(--r-xs);
     background: var(--surface);
   }
 </style>

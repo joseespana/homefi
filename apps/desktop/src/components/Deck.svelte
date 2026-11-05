@@ -230,7 +230,7 @@
     min-width: 0;
     max-width: 100%;
     text-align: left;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
   }
   /* the title column: nothing in it (the format / EQ chip above all) may
      paint over the seek bar and its times, whatever the engine's sizing */
@@ -256,7 +256,7 @@
     white-space: nowrap;
     margin-top: 4px;
     padding: 2px 8px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     background: var(--glass-strong);
     font: 600 10.5px var(--font-mono);
     color: var(--muted);
@@ -292,7 +292,7 @@
     box-sizing: border-box;
     white-space: nowrap;
     padding: 0 7px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     background: color-mix(in srgb, var(--muted) 16%, transparent);
     color: var(--muted);
     font-weight: 600;
@@ -428,7 +428,7 @@
     min-width: 34px;
     height: 34px;
     padding: 0 12px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     background: var(--glass-strong);
     border: 1px solid var(--glass-border);
     color: var(--text);

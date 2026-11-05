@@ -26,7 +26,7 @@
     padding: 10px 12px;
     font-size: 12px;
     line-height: 1.5;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface-2);
     border: 1px solid var(--border);
   }

@@ -204,7 +204,7 @@
   .sleeve {
     position: relative;
     width: 82%;
-    border-radius: min(18px, var(--r-max));
+    border-radius: var(--r-lg);
     box-shadow: 0 30px 80px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.08);
     transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
@@ -240,7 +240,7 @@
     align-items: center;
     gap: 5px;
     padding: 5px 12px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 12px;
     color: var(--muted);
     background: var(--glass-strong);
@@ -277,7 +277,7 @@
   }
   .panel {
     padding: 14px;
-    border-radius: min(18px, var(--r-max));
+    border-radius: var(--r-lg);
     background: var(--glass);
     border: 1px solid var(--glass-border);
     backdrop-filter: blur(20px) saturate(1.3);
@@ -297,7 +297,7 @@
     grid-template-columns: 1fr 1fr;
     gap: 12px;
     padding: 14px;
-    border-radius: min(18px, var(--r-max));
+    border-radius: var(--r-lg);
     background: linear-gradient(180deg, #25313e, #141c26);
     box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 16px 40px rgb(0 0 0 / 0.35);
   }
@@ -314,7 +314,7 @@
     align-items: center;
     gap: 10px;
     padding: 8px;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--glass);
     border: 1px solid var(--glass-border);
     text-align: left;
@@ -362,7 +362,7 @@
     transform-origin: left center;
     transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), margin 0.35s;
     box-shadow: -12px 10px 30px rgb(0 0 0 / 0.45);
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
   }
   .record:first-child {
     margin-left: 0;

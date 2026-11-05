@@ -230,7 +230,7 @@
     align-items: center;
     gap: 10px;
     padding: 6px 8px;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     min-width: 0;
   }
   .hit:hover {
@@ -358,7 +358,7 @@
     place-content: center;
     width: 28px;
     height: 28px;
-    border-radius: 999px;
+    border-radius: var(--r-pill);
     transition: background 0.15s, transform 0.15s;
   }
   /* number, speaker and play / pause share the circle's centre */
@@ -400,7 +400,7 @@
     inset: 0;
     display: grid;
     place-items: center;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     color: #fff;
     background: rgb(0 0 0 / 0.45);
     opacity: 0;

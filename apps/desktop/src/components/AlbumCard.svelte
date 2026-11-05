@@ -44,7 +44,7 @@
     min-width: 0;
     padding: 8px;
     margin: -8px;
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
   }
   .card.contained {
     content-visibility: auto;
@@ -101,7 +101,7 @@
     align-items: center;
     gap: 4px;
     padding: 3px 9px 3px 7px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 11.5px;
     font-weight: 600;
     color: #fff;

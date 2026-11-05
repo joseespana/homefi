@@ -45,5 +45,12 @@ mdns-sd = { version = "=0.21.6", default-features = false }
 # Secret Service over pure-Rust D-Bus (zbus), no OpenSSL or libdbus
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "async-secret-service", "async-io", "crypto-rust"] }
 
+# macOS updates swap the bundle's Contents in place, so the Dock keeps its pinned icon
+[target.'cfg(target_os = "macos")'.dependencies]
+flate2 = "1"
+libc.workspace = true
+tar = "0.4"
+tempfile.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true

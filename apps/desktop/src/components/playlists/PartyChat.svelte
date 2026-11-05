@@ -77,7 +77,7 @@
     max-height: 360px;
     overflow-y: auto;
     padding: 12px;
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--surface-2);
     border: 1px solid var(--border);
   }
@@ -103,7 +103,7 @@
     margin: 0;
     max-width: 75%;
     padding: 8px 12px;
-    border-radius: min(16px, var(--r-max)) min(16px, var(--r-max)) min(16px, var(--r-max)) min(4px, var(--r-max));
+    border-radius: var(--r-md) var(--r-md) var(--r-md) var(--r-xs);
     background: var(--surface);
     border: 1px solid var(--border);
     font-size: 13.5px;
@@ -112,7 +112,7 @@
     user-select: text;
   }
   .bubble.me {
-    border-radius: min(16px, var(--r-max)) min(16px, var(--r-max)) min(4px, var(--r-max)) min(16px, var(--r-max));
+    border-radius: var(--r-md) var(--r-md) var(--r-xs) var(--r-md);
     background: var(--primary);
     border-color: var(--primary);
     color: var(--on-primary);
@@ -126,7 +126,7 @@
   .chip {
     height: 28px;
     padding: 0 12px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 12.5px;
     color: var(--muted);
     background: var(--glass-strong);
@@ -141,7 +141,7 @@
     align-items: center;
     gap: 8px;
     padding: 5px 5px 5px 14px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     background: var(--surface-2);
     border: 1.5px solid color-mix(in srgb, var(--primary) 70%, var(--border));
   }

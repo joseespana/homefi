@@ -108,7 +108,7 @@
   }
   .progress-total {
     height: 4px;
-    border-radius: min(4px, var(--r-max));
+    border-radius: var(--r-xs);
     background: var(--surface-3);
     margin-bottom: 12px;
     overflow: hidden;
@@ -123,7 +123,7 @@
     align-items: center;
     gap: 14px;
     padding: 10px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
   }
   .row:hover {
     background: var(--surface-2);
@@ -138,7 +138,7 @@
   .track {
     height: 4px;
     margin-top: 6px;
-    border-radius: min(4px, var(--r-max));
+    border-radius: var(--r-xs);
     background: var(--surface-3);
     overflow: hidden;
   }

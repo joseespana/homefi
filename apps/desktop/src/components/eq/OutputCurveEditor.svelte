@@ -301,7 +301,7 @@
     max-width: 240px;
     height: 32px;
     padding: 0 12px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     background: var(--glass-strong);
     border: 1px solid var(--glass-border);
     font-size: 12.5px;
@@ -329,7 +329,7 @@
   }
   .card {
     padding: 14px 16px;
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--glass);
     border: 1px solid var(--glass-border);
     backdrop-filter: blur(18px) saturate(1.2);
@@ -389,7 +389,7 @@
     max-height: 60vh;
     overflow-y: auto;
     padding: 6px;
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--surface);
     border: 1px solid var(--border);
     box-shadow: var(--shadow);
@@ -401,7 +401,7 @@
     width: 100%;
     min-height: 36px;
     padding: 0 10px;
-    border-radius: min(9px, var(--r-max));
+    border-radius: var(--r-sm);
     font-size: 13px;
     text-align: left;
   }

@@ -70,7 +70,7 @@
     align-items: center;
     gap: 10px;
     padding: 6px 6px 6px 8px;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--glass);
     border: 1px solid var(--glass-border);
   }
@@ -133,7 +133,7 @@
     flex-direction: column;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     box-shadow: var(--shadow);
   }
   .menu button {
@@ -141,7 +141,7 @@
     align-items: center;
     gap: 10px;
     padding: 8px 10px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     text-align: left;
   }
   .menu button:hover:not(:disabled) {

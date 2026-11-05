@@ -92,7 +92,7 @@
     grid-template-columns: 1fr 1fr;
     height: 48px;
     overflow: hidden;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     border: 1px solid var(--border);
   }
   .swatch i {

@@ -58,7 +58,7 @@
     align-items: center;
     gap: 8px;
     padding: 4px 6px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     border: 1px solid transparent;
   }
   .brow.selected {

@@ -7,6 +7,20 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Changed
+- One set of rounded corners across the desktop app (small, medium, large, extra and pill), with
+  nested corners that follow the shape around them; the Settings page list marks the open page with
+  a soft tile and shows its scrollbar only when pointed at; scrollbars are clean capsules.
+
+### Fixed
+- macOS: HomeFi could close by itself when the list of audio outputs was read while a song was
+  starting (a crash inside CoreAudio). Device queries now happen one at a time.
+- Settings: when you scroll, the page title and search sit on a floating frosted pill, like a song
+  row's hover, instead of a half-width box.
+- macOS: updating keeps the HomeFi icon you pinned in the Dock. The update now replaces what is inside
+  `HomeFi.app` instead of the whole app, so the Dock still recognises it (this applies from the next
+  update after this version is installed).
+
 ## [1.5.3] - 2026-11-05
 
 ### Fixed

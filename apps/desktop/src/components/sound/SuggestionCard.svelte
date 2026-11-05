@@ -69,7 +69,7 @@
     align-items: flex-start;
     gap: 12px;
     padding: 14px 16px;
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
     background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 14%, var(--surface)), var(--glass));
     border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--glass-border));
   }

@@ -75,7 +75,7 @@
     max-height: 360px;
     overflow-y: auto;
     padding: 6px;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface);
     border: 1px solid var(--border);
     box-shadow: var(--shadow);
@@ -99,7 +99,7 @@
     align-items: center;
     gap: 8px;
     padding: 7px 8px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     text-align: left;
     font-size: 13px;
   }

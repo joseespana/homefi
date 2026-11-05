@@ -481,7 +481,7 @@
   }
   .skin-luna .cover {
     padding: 3px;
-    border-radius: 4px;
+    border-radius: var(--r-xs);
     background: #fff;
   }
   .skin-luna .play {
@@ -518,7 +518,7 @@
   }
   .skin-aluminum .meta {
     padding: 3px 8px;
-    border-radius: 5px;
+    border-radius: var(--r-xs);
     text-align: center;
     background: linear-gradient(180deg, #f2f4e6, #d8dcc4);
     border: 1px solid #8c8c8c;
@@ -555,7 +555,7 @@
   }
   .skin-web2000 .cover {
     padding: 3px;
-    border-radius: 8px;
+    border-radius: var(--r-sm);
     background: #f4f4f4;
   }
   .skin-web2000 .play {

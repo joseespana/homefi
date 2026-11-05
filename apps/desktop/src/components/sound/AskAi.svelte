@@ -153,7 +153,7 @@
     max-height: 260px;
     overflow-y: auto;
     padding: 10px 12px;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface-2);
     border: 1px solid var(--border);
   }
@@ -169,7 +169,7 @@
     flex-direction: column;
     gap: 6px;
     padding: 8px 10px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface);
     border-left: 3px solid color-mix(in srgb, var(--primary) 60%, transparent);
   }
@@ -225,7 +225,7 @@
     align-items: center;
     gap: 8px;
     padding: 6px;
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--surface-2);
     border: 1.5px solid color-mix(in srgb, var(--primary) 70%, var(--border));
   }
@@ -266,7 +266,7 @@
   .chip {
     height: 28px;
     padding: 0 12px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 12px;
     color: var(--muted);
     background: var(--glass-strong);

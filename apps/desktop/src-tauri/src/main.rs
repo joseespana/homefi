@@ -2,6 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod ai;
+#[cfg(target_os = "macos")]
+mod bundle_swap;
 mod commands;
 mod disc;
 mod eq;

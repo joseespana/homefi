@@ -82,7 +82,7 @@
     flex-direction: column;
     gap: 10px;
     padding: 10px;
-    border-radius: 12px;
+    border-radius: var(--r-sm);
     color: #333;
     background:
       repeating-linear-gradient(90deg, rgb(255 255 255 / 0.05) 0 1px, rgb(0 0 0 / 0.025) 1px 3px),
@@ -145,7 +145,7 @@
     flex-direction: column;
     align-items: center;
     padding: 8px 12px;
-    border-radius: 8px;
+    border-radius: var(--r-sm);
     background: linear-gradient(180deg, #f2f4e6, #d8dcc4);
     border: 1px solid #8c8c8c;
     box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.18);

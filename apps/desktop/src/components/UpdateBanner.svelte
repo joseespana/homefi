@@ -90,7 +90,7 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px;
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
     background: color-mix(in srgb, var(--surface) 92%, transparent);
     border: 1px solid var(--border);
     box-shadow: var(--shadow);
@@ -107,7 +107,7 @@
     flex: none;
     width: 32px;
     height: 32px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--gradient);
     color: #fff;
   }
@@ -149,7 +149,7 @@
     max-height: 220px;
     overflow-y: auto;
     padding: 8px 10px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface-2);
   }
   .why {

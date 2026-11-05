@@ -206,7 +206,7 @@
     padding-left: 10px;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     color: var(--muted);
   }
   .filter input {
@@ -226,7 +226,7 @@
     text-align: left;
     padding: 8px;
     margin: -8px;
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
     transition: background 0.15s;
     min-width: 0;
   }

@@ -115,7 +115,7 @@
     flex-direction: column;
     gap: 10px;
     padding: 12px;
-    border-radius: 14px;
+    border-radius: var(--r-md);
     background: linear-gradient(180deg, #7fa6ee, #2e5bd0 50%, #1b3a93);
     color: #fff;
   }
@@ -125,7 +125,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    border-radius: 12px;
+    border-radius: var(--r-sm);
     border: 2px solid #0b2a80;
     background: #0a1450;
   }
@@ -199,7 +199,7 @@
     top: 1px;
     width: 26px;
     height: 14px;
-    border-radius: 7px;
+    border-radius: var(--r-sm);
     background: linear-gradient(180deg, #b8f0a8, #2e9a36);
     border: 1px solid #1c5a20;
   }

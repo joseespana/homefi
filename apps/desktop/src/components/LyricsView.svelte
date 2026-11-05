@@ -301,7 +301,7 @@
     align-items: center;
     gap: 14px;
     padding: 8px 10px;
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--ly-panel);
     border: 1px solid var(--glass-border);
     backdrop-filter: blur(18px) saturate(1.3);
@@ -332,7 +332,7 @@
     display: inline-flex;
     padding: 3px;
     gap: 2px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     background: var(--glass-strong);
     border: 1px solid var(--glass-border);
   }
@@ -342,7 +342,7 @@
     align-items: center;
     gap: 6px;
     padding: 5px 12px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 12.5px;
     font-weight: 600;
     color: var(--muted);
@@ -374,7 +374,7 @@
     height: 34px;
     display: grid;
     place-items: center;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     color: var(--muted);
   }
   .tool:hover,
@@ -401,7 +401,7 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--surface);
     border: 1px solid var(--border);
     box-shadow: var(--shadow);
@@ -478,7 +478,7 @@
     font: 750 var(--ly-line) / 1.3 var(--ly-font);
     letter-spacing: -0.01em;
     color: var(--ly-dim);
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     transform-origin: left center;
     transition: color 0.35s, transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.35s;
     overflow-wrap: anywhere;
@@ -515,7 +515,7 @@
     align-items: center;
     gap: 6px;
     padding: 8px 16px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 13px;
     font-weight: 700;
     color: var(--on-primary);
@@ -642,7 +642,7 @@
   }
   .skeleton span {
     height: calc(var(--ly-line) * 0.9);
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     background: linear-gradient(90deg, var(--glass-strong), color-mix(in srgb, var(--text) 12%, transparent), var(--glass-strong));
     background-size: 200% 100%;
     animation: shimmer 1.3s linear infinite;
@@ -755,7 +755,7 @@
   :global(:root[data-skin="web2000"]) .body {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     padding: 10px 14px;
     box-shadow: var(--shadow);
   }

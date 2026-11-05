@@ -170,7 +170,7 @@
     flex-direction: column;
     gap: 12px;
     padding: 16px 18px;
-    border-radius: min(18px, var(--r-max));
+    border-radius: var(--r-lg);
     background: var(--glass);
     border: 1px solid var(--glass-border);
     backdrop-filter: blur(18px) saturate(1.2);
@@ -232,7 +232,7 @@
     align-items: flex-start;
     gap: 10px;
     padding: 12px 14px;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface-2);
     border-left: 3px solid var(--primary);
     font-size: 14px;
@@ -258,14 +258,14 @@
   .tag-try {
     margin-left: 6px;
     padding: 1px 8px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 10.5px;
     font-weight: 700;
     color: var(--on-primary-strong);
     background: var(--primary-strong);
   }
   .curve {
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     background: color-mix(in srgb, var(--bg) 70%, transparent);
     border: 1px solid var(--border);
     overflow: hidden;
@@ -310,7 +310,7 @@
     max-width: 220px;
     height: 32px;
     padding: 0 14px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     font-size: 12.5px;
     color: var(--text);
     background: var(--surface-2);
@@ -331,7 +331,7 @@
   .warn {
     margin: 0;
     padding: 8px 10px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     font-size: 12px;
     color: var(--warn);
     background: var(--warn-bg);

@@ -83,7 +83,7 @@
     display: flex;
     flex-direction: column;
     padding: 8px;
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--surface);
     border: 1px solid var(--border);
     box-shadow: var(--shadow);
@@ -104,7 +104,7 @@
     align-items: center;
     gap: 10px;
     padding: 6px 8px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     text-align: left;
   }
   .row:hover {
@@ -119,13 +119,13 @@
     height: 32px;
     display: grid;
     place-items: center;
-    border-radius: min(6px, var(--r-max));
+    border-radius: var(--r-xs);
     background: color-mix(in srgb, var(--primary) 16%, transparent);
   }
   .filter {
     margin: 4px 0 6px;
     padding: 7px 10px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     border: 1px solid var(--border);
     background: var(--surface-2);
     color: var(--text);

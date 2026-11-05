@@ -230,7 +230,7 @@
     align-items: flex-start;
     gap: 12px;
     padding: 24px;
-    border-radius: min(18px, var(--r-max));
+    border-radius: var(--r-lg);
     background: var(--glass);
     border: 1px solid var(--glass-border);
     backdrop-filter: blur(18px);
@@ -247,7 +247,7 @@
     place-items: center;
     width: 56px;
     height: 56px;
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--gradient);
     color: #fff;
   }
@@ -267,7 +267,7 @@
     color: var(--text);
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     padding: 8px 10px;
     resize: vertical;
     outline: none;
@@ -282,7 +282,7 @@
     gap: 10px;
     align-items: flex-start;
     padding: 10px 12px;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface-2);
     font-size: 13px;
     color: var(--muted);
@@ -345,7 +345,7 @@
     align-items: flex-start;
     gap: 6px;
     padding: 10px 14px;
-    border-radius: min(18px, var(--r-max)) min(18px, var(--r-max)) min(18px, var(--r-max)) min(6px, var(--r-max));
+    border-radius: var(--r-lg) var(--r-lg) var(--r-lg) var(--r-xs);
     background: var(--surface-2);
     border: 1px solid var(--border);
     line-height: 1.5;
@@ -355,7 +355,7 @@
     white-space: pre-wrap;
   }
   .me .bubble {
-    border-radius: min(18px, var(--r-max)) min(18px, var(--r-max)) min(6px, var(--r-max)) min(18px, var(--r-max));
+    border-radius: var(--r-lg) var(--r-lg) var(--r-xs) var(--r-lg);
     background: var(--primary-strong);
     border-color: transparent;
     color: var(--on-primary-strong);
@@ -406,7 +406,7 @@
   .proposal {
     width: min(560px, 70vw);
     padding: 12px 14px;
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--glass);
     border: 1px solid color-mix(in srgb, var(--accent-text) 40%, var(--glass-border));
     box-shadow: 0 10px 30px -18px color-mix(in srgb, var(--accent-text) 80%, transparent);
@@ -453,7 +453,7 @@
     flex-wrap: wrap;
     gap: 10px;
     padding: 12px 14px;
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
     background: color-mix(in srgb, var(--ok) 12%, var(--surface));
     border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent);
   }
@@ -476,7 +476,7 @@
   .chips button {
     height: 34px;
     padding: 0 14px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     border: 1px solid color-mix(in srgb, var(--primary) 55%, var(--border));
     color: var(--primary);
     background: color-mix(in srgb, var(--primary) 8%, var(--surface));
@@ -493,7 +493,7 @@
     display: flex;
     gap: 8px;
     padding: 8px;
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--surface);
     border: 1px solid var(--border);
     box-shadow: var(--shadow);

@@ -157,7 +157,7 @@
     flex-direction: column;
     gap: 10px;
     padding: 14px 16px;
-    border-radius: min(18px, var(--r-max));
+    border-radius: var(--r-lg);
     background: var(--glass);
     border: 1px solid var(--glass-border);
     backdrop-filter: blur(18px) saturate(1.2);
@@ -177,7 +177,7 @@
   .chip {
     height: 30px;
     padding: 0 12px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 12.5px;
     color: var(--muted);
     background: var(--glass-strong);
@@ -200,7 +200,7 @@
     height: 30px;
     max-width: 100%;
     padding: 0 8px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     border: 1px solid var(--border);
     background: var(--surface-2);
     color: var(--text);
@@ -213,7 +213,7 @@
     gap: 6px;
     height: 30px;
     padding: 0 10px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     border: 1px solid var(--border);
     background: var(--surface-2);
     color: var(--muted);
@@ -239,7 +239,7 @@
   .body .row:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: -2px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
   }
   .head {
     min-height: 32px;

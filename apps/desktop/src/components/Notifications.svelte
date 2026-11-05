@@ -41,7 +41,7 @@
     align-items: flex-start;
     gap: 10px;
     padding: 10px 10px 10px 12px;
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
     background: color-mix(in srgb, var(--surface) 88%, transparent);
     border: 1px solid var(--border);
     border-left: 3px solid var(--room-accent);
@@ -87,7 +87,7 @@
     flex: none;
     margin: -3px 0;
     padding: 3px 10px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     font-weight: 700;
     font-size: 12.5px;
     color: var(--primary);
@@ -102,7 +102,7 @@
     height: 22px;
     display: grid;
     place-items: center;
-    border-radius: min(6px, var(--r-max));
+    border-radius: var(--r-xs);
     color: var(--muted);
   }
   .close:hover {

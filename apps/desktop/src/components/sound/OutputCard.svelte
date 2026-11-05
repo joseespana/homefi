@@ -40,7 +40,7 @@
     flex-direction: column;
     gap: 6px;
     padding: 14px 16px;
-    border-radius: min(18px, var(--r-max));
+    border-radius: var(--r-lg);
     background: var(--glass);
     border: 1px solid var(--glass-border);
     backdrop-filter: blur(18px) saturate(1.2);
@@ -81,7 +81,7 @@
     max-width: 100%;
     height: 32px;
     padding: 0 14px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 12.5px;
     color: var(--muted);
     background: var(--glass-strong);

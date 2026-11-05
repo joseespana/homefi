@@ -71,6 +71,12 @@
   --radius: 10px;
   /* skins (src/skins.css) cap every corner with this, and covers with --r-cover */
   --r-max: 999px;
+  /* the one corner scale of the app: every rounded corner is one of these (skins still cap them) */
+  --r-xs: min(6px, var(--r-max));
+  --r-sm: min(10px, var(--r-max));
+  --r-md: min(14px, var(--r-max));
+  --r-lg: min(20px, var(--r-max));
+  --r-pill: var(--r-max);
   --on-primary-strong: #fff;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Roboto", "Helvetica Neue", Arial, sans-serif;
   --font-display: ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
@@ -189,7 +195,7 @@ select {
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: min(8px, var(--r-max));
+  border-radius: var(--r-sm);
   padding: 8px 10px;
   outline: none;
 }
@@ -207,7 +213,7 @@ button:focus-visible {
   gap: 8px;
   height: 36px;
   padding: 0 16px;
-  border-radius: min(999px, var(--r-max));
+  border-radius: var(--r-pill);
   font-weight: 600;
   transition: filter 0.15s, background 0.15s;
 }
@@ -230,7 +236,7 @@ button:focus-visible {
   place-items: center;
   width: 36px;
   height: 36px;
-  border-radius: min(999px, var(--r-max));
+  border-radius: var(--r-pill);
   color: var(--muted);
   transition: background 0.15s, color 0.15s;
 }
@@ -247,7 +253,7 @@ button:focus-visible {
 .badge {
   display: inline-block;
   padding: 1px 7px;
-  border-radius: min(5px, var(--r-max));
+  border-radius: var(--r-xs);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -331,10 +337,15 @@ h2 {
   width: 10px;
 }
 
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+/* a floating capsule: the transparent border is clipped out, so nothing outlines it on art backgrounds */
 ::-webkit-scrollbar-thumb {
   background: var(--surface-3);
-  border-radius: min(10px, var(--r-max));
-  border: 2px solid var(--bg);
+  background-clip: padding-box;
+  border-radius: var(--r-pill);
+  border: 3px solid transparent;
 }
 
 /* Settings design system (src/components/settings). Spacing, type roles and the
@@ -383,7 +394,7 @@ h2 {
   /* group card */
   --set-card-bg: var(--surface);
   --set-card-border: var(--border);
-  --set-card-r: min(14px, var(--r-max));
+  --set-card-r: var(--r-md);
   --set-card-shadow: none;
   --set-card-blur: none;
   --set-divider: color-mix(in srgb, var(--border) 70%, transparent);
@@ -392,7 +403,7 @@ h2 {
   --set-ctl-bg: var(--surface-2);
   --set-ctl-border: var(--border);
   --set-ctl-shadow: none;
-  --set-ctl-r: min(10px, var(--r-max));
+  --set-ctl-r: var(--r-sm);
   --set-ctl-hover: color-mix(in srgb, var(--primary) 45%, var(--border));
   --set-sel-bg: color-mix(in srgb, var(--primary) 14%, var(--surface));
   --set-sel-border: var(--primary);
@@ -402,12 +413,12 @@ h2 {
   --set-field-border: var(--border);
   --set-field-shadow: none;
   --set-field-fg: var(--text);
-  --set-field-r: min(10px, var(--r-max));
+  --set-field-r: var(--r-sm);
   /* switch */
   --switch-w: 44px;
   --switch-h: 24px;
-  --switch-r: 999px;
-  --switch-knob-r: 999px;
+  --switch-r: var(--r-pill);
+  --switch-knob-r: var(--r-pill);
   --switch-off: var(--surface-3);
   --switch-on: var(--primary-strong);
   --switch-knob: #fff;
@@ -422,19 +433,20 @@ h2 {
   --set-nav-fg: var(--text);
   --set-nav-muted: var(--muted);
   --set-nav-caption: var(--muted);
-  --set-nav-item-r: min(10px, var(--r-max));
+  --set-nav-item-r: var(--r-sm);
   --set-nav-hover: var(--surface-2);
   --set-nav-sel-bg: color-mix(in srgb, var(--primary) 14%, var(--surface));
   --set-nav-sel-fg: var(--primary);
   --set-nav-sel-muted: var(--muted);
-  --set-nav-indicator: var(--primary);
+  /* the default look marks the page by its tile alone; skins may add a bar */
+  --set-nav-indicator: transparent;
   --set-badge-bg: var(--surface-2);
   --set-badge-fg: var(--primary);
-  --set-badge-r: min(9px, var(--r-max));
+  --set-badge-r: var(--r-xs);
   --set-badge-sel-bg: var(--primary);
   --set-badge-sel-fg: var(--on-primary, #fff);
   --set-badge-shadow: none;
-  --set-head-bg: color-mix(in srgb, var(--surface) 94%, transparent);
+  --set-head-bg: color-mix(in srgb, var(--surface) 55%, transparent);
 }
 
 /* Motion (Settings → Look → Motion): lib/motion.ts sets <html data-motion>
@@ -523,7 +535,7 @@ select optgroup {
   height: 40px;
   display: grid;
   place-items: center;
-  border-radius: min(12px, var(--r-max));
+  border-radius: var(--r-sm);
   color: var(--text);
   background: linear-gradient(180deg, var(--hw-top), var(--hw-bottom));
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.12), 0 2px 0 rgb(0 0 0 / 0.35), 0 6px 14px rgb(0 0 0 / 0.25);
@@ -573,7 +585,7 @@ select optgroup {
   flex-direction: column;
   min-width: 210px;
   padding: 6px;
-  border-radius: min(14px, var(--r-max));
+  border-radius: var(--r-md);
   background: var(--surface);
   border: 1px solid var(--border);
   box-shadow: var(--shadow, 0 12px 32px rgb(0 0 0 / 0.35));
@@ -584,7 +596,7 @@ select optgroup {
   gap: 10px;
   min-height: 36px;
   padding: 0 12px;
-  border-radius: min(9px, var(--r-max));
+  border-radius: var(--r-sm);
   color: var(--text);
   font-size: 13px;
   text-align: left;

@@ -254,7 +254,7 @@
     align-self: flex-start;
     margin: 2px 0;
     padding: 1px 7px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-style: normal;
     font-size: 11px;
     font-weight: 600;

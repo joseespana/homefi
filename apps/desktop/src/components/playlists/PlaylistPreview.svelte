@@ -201,7 +201,7 @@
     align-items: center;
     gap: 6px;
     padding: 4px 12px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     background: var(--warn-bg);
     border: 1.5px solid var(--warn);
     color: var(--warn);
@@ -217,7 +217,7 @@
     margin: 0;
     padding: 12px 14px;
     border: 1px solid var(--warn-border);
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--warn-bg);
     line-height: 1.45;
   }
@@ -232,7 +232,7 @@
   .shows {
     padding: 8px 14px;
     border: 1px solid var(--border);
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface-2);
   }
   .shows summary {
@@ -285,7 +285,7 @@
     gap: 12px;
     width: 100%;
     padding: 6px 10px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     text-align: left;
   }
   button.row:hover:not(:disabled) {

@@ -59,7 +59,7 @@
   .card {
     padding: 12px 8px 8px;
     border: 1px solid var(--border);
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--surface);
   }
   header {
@@ -92,7 +92,7 @@
     gap: 10px;
     min-height: 44px;
     padding: 2px 12px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
   }
   li:hover {
     background: var(--surface-2);
@@ -132,7 +132,7 @@
   .skeleton {
     width: 96px;
     height: 10px;
-    border-radius: min(5px, var(--r-max));
+    border-radius: var(--r-xs);
     background: var(--surface-3);
     animation: pulse 1.4s ease-in-out infinite;
   }

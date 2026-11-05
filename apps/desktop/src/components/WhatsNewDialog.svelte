@@ -113,7 +113,7 @@
     flex-direction: column;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: min(20px, var(--r-max));
+    border-radius: var(--r-lg);
     box-shadow: var(--shadow);
     overflow: hidden;
   }

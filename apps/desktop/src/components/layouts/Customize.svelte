@@ -39,7 +39,7 @@
     align-items: center;
     gap: 6px;
     padding: 5px 11px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 12px;
     color: rgb(255 255 255 / 0.85);
     background: rgb(0 0 0 / 0.3);

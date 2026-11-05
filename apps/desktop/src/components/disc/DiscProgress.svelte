@@ -94,7 +94,7 @@
   .card {
     padding: 16px 12px 12px;
     border: 1px solid var(--border);
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--surface);
   }
   header {
@@ -115,7 +115,7 @@
   .total {
     height: 4px;
     margin: 0 8px 10px;
-    border-radius: min(4px, var(--r-max));
+    border-radius: var(--r-xs);
     background: var(--surface-3);
     overflow: hidden;
   }
@@ -135,7 +135,7 @@
     gap: 14px;
     min-height: 52px;
     padding: 8px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
   }
   .row.waiting {
     opacity: 0.6;
@@ -153,7 +153,7 @@
   .track {
     height: 4px;
     margin-top: 6px;
-    border-radius: min(4px, var(--r-max));
+    border-radius: var(--r-xs);
     background: var(--surface-3);
     overflow: hidden;
   }

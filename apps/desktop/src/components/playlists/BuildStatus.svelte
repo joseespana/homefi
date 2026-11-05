@@ -57,7 +57,7 @@
     gap: 10px;
     padding: 14px 16px;
     border: 1px solid var(--border);
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--surface-2);
   }
   .line {
@@ -69,7 +69,7 @@
   .bar {
     height: 6px;
     overflow: hidden;
-    border-radius: 999px;
+    border-radius: var(--r-pill);
     background: var(--surface-3);
   }
   .bar i {

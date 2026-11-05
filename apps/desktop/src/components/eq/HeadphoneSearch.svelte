@@ -97,7 +97,7 @@
     align-items: center;
     gap: 8px;
     padding: 7px 12px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface-2);
     border: 1px solid var(--border);
     color: var(--muted);
@@ -147,7 +147,7 @@
     align-items: center;
     gap: 10px;
     padding: 8px 10px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface-2);
   }
   .grow {

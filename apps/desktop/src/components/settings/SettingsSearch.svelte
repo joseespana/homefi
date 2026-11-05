@@ -52,7 +52,7 @@
   kbd {
     flex: none;
     padding: 1px 6px;
-    border-radius: min(5px, var(--r-max));
+    border-radius: var(--r-xs);
     border: 1px solid var(--border);
     font: 500 11px var(--font);
     color: var(--faint);

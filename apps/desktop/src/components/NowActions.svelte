@@ -93,7 +93,7 @@
     align-items: center;
     gap: 6px;
     padding: 0 12px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 12.5px;
     font-weight: 600;
   }

@@ -139,7 +139,7 @@
     align-items: center;
     gap: 6px;
     padding: 5px 12px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 12.5px;
     color: var(--muted);
     background: var(--glass-strong);
@@ -155,7 +155,7 @@
     align-items: center;
     gap: 10px;
     padding: 6px 8px 6px 16px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     background: var(--glass);
     border: 1px solid var(--glass-border);
     cursor: pointer;
@@ -170,7 +170,7 @@
     position: relative;
     width: 46px;
     height: 26px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     background: var(--surface-3);
     border: 1px solid var(--border);
     transition: background 0.2s;
@@ -181,7 +181,7 @@
     left: 2px;
     width: 20px;
     height: 20px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     background: var(--surface);
     box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
     transition: transform calc(0.2s * var(--motion-speed, 1)) var(--ease-pop, ease);

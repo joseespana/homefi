@@ -399,7 +399,7 @@
     align-items: center;
     gap: 5px;
     padding: 2px 10px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 12px;
     font-weight: 600;
     background: color-mix(in srgb, var(--room-accent) 18%, transparent);
@@ -432,7 +432,7 @@
   }
   .dl-progress .bar {
     height: 5px;
-    border-radius: min(5px, var(--r-max));
+    border-radius: var(--r-xs);
     background: var(--glass-border);
     overflow: hidden;
   }

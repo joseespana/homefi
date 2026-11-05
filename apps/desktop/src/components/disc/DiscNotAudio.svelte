@@ -53,7 +53,7 @@
     margin-top: 24px;
     padding: 24px;
     border: 1px solid var(--border);
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--surface);
   }
   .art {

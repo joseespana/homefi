@@ -412,7 +412,7 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
-    border-radius: 8px;
+    border-radius: var(--r-sm);
     background: linear-gradient(180deg, #2a2a2a, #000);
     user-select: none;
     touch-action: pan-y;
@@ -477,7 +477,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    border-radius: 6px;
+    border-radius: var(--r-xs);
     background: linear-gradient(180deg, #f7f7f7, #dcdcdc);
     border: 1px solid #8c8c8c;
     color: #1e1e1e;

@@ -127,7 +127,7 @@
   }
   .logo {
     margin-bottom: 14px;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     transition: transform 0.2s;
   }
   .logo:hover {
@@ -135,7 +135,7 @@
   }
   .logo img {
     display: block;
-    border-radius: min(11px, var(--r-max));
+    border-radius: var(--r-sm);
   }
   .item {
     position: relative;
@@ -143,7 +143,7 @@
     height: 46px;
     display: grid;
     place-items: center;
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
     color: var(--muted);
     transition: background 0.15s, color 0.15s;
   }
@@ -161,7 +161,7 @@
     top: 0;
     left: 3px;
     width: 4px;
-    border-radius: 4px;
+    border-radius: var(--r-xs);
     background: var(--accent-text);
     box-shadow: 0 0 10px color-mix(in srgb, var(--accent-text) 70%, transparent);
     opacity: 0;
@@ -186,7 +186,7 @@
     left: 86px;
     z-index: 50;
     padding: 5px 10px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface);
     border: 1px solid var(--border);
     color: var(--text);
@@ -226,7 +226,7 @@
     height: 26px;
     display: grid;
     place-items: center;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     box-sizing: border-box;
     border: 2px solid var(--faint);
     color: var(--faint);

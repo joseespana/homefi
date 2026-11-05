@@ -67,7 +67,7 @@
     place-items: center;
     width: 20px;
     height: 20px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     background: var(--set-sel-border);
     color: var(--on-primary, #fff);
   }

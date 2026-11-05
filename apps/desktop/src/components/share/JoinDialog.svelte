@@ -135,7 +135,7 @@
     gap: 14px;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: min(20px, var(--r-max));
+    border-radius: var(--r-lg);
     box-shadow: var(--shadow);
   }
   h2 {
@@ -164,7 +164,7 @@
   }
   input {
     padding: 10px 12px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     font-size: 14px;
     font-weight: 400;
   }

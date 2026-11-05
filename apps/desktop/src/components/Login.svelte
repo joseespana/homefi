@@ -108,11 +108,11 @@
     text-align: center;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: min(20px, var(--r-max));
+    border-radius: var(--r-lg);
     box-shadow: var(--shadow);
   }
   .dialog img {
-    border-radius: min(18px, var(--r-max));
+    border-radius: var(--r-lg);
   }
   .close {
     position: absolute;
@@ -123,7 +123,7 @@
     font: 700 34px/1 var(--font-mono);
     letter-spacing: 0.2em;
     padding: 16px 24px;
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--surface-3);
     user-select: text;
   }

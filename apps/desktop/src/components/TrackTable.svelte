@@ -100,7 +100,7 @@
     align-items: center;
     gap: 14px;
     padding: 6px 10px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     outline: none;
   }
   .row.noalbum {
@@ -132,7 +132,7 @@
     inset: 0;
     display: none;
     place-items: center;
-    border-radius: min(6px, var(--r-max));
+    border-radius: var(--r-xs);
     background: rgb(0 0 0 / 0.55);
     color: #fff;
   }

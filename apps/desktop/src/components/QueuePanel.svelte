@@ -178,7 +178,7 @@
     height: 60px;
     display: flex;
     align-items: center;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     transition: transform 0.18s ease;
   }
   .row:hover {
@@ -231,7 +231,7 @@
     width: 32px;
     height: 40px;
     margin-right: 6px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     display: grid;
     place-items: center;
     cursor: grab;

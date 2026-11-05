@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::deck::{music_end, Deck, DeckFormat, Fade, FadeSpec, ResamplerQuality, SurroundMode};
 use crate::decoder::Source;
 use crate::error::{PlayerError, Result};
-use crate::output::{find_device, Meters, Output, Shared};
+use crate::output::{device_queries, find_device, Meters, Output, Shared};
 
 /// How often position updates are emitted while playing.
 const TICK: Duration = Duration::from_millis(250);
@@ -760,14 +760,11 @@ impl Engine {
         let device = find_device(self.device.as_deref())?;
         let target_rate = best_rate(&device, source.sample_rate);
 
-        let reuse = !reopen
-            && self
-                .output
-                .as_ref()
-                .is_some_and(|o| o.rate == target_rate && o.device_name == device.name().unwrap_or_default());
+        let device_name = device_name(&device);
+        let reuse =
+            !reopen && self.output.as_ref().is_some_and(|o| o.rate == target_rate && o.device_name == device_name);
         let sound = self.sound_of(&path);
         let mut tags_gain = None;
-        let device_name = device.name().unwrap_or_else(|_| "output".into());
         let plan = self.plan_for(&path, &sound, &mut tags_gain, &device_name, target_rate);
         if !reuse {
             self.output = None;
@@ -1347,10 +1344,17 @@ fn audition_over(audition: Option<&TasteAudition>, front: Option<&NowPlayingCont
     matches!((audition, front), (Some(a), Some(ctx)) if !a.applies_to(ctx))
 }
 
+/// The device's name as the output records it ("output" when it has none), under the device-query lock.
+fn device_name(device: &cpal::Device) -> String {
+    let _queries = device_queries();
+    device.name().unwrap_or_else(|_| "output".into())
+}
+
 /// Rate to open `device` at for a `source` Hz file: the file's own rate when
 /// supported (no resampling), else the highest supported rate of the same
 /// family (176.4 kHz → 88.2 kHz, 192 kHz → 96 kHz), else the highest below it.
 fn best_rate(device: &cpal::Device, source: u32) -> u32 {
+    let _queries = device_queries();
     let ranges: Vec<_> = device.supported_output_configs().map(|it| it.collect()).unwrap_or_default();
     let supported = |r: u32| ranges.iter().any(|c| c.min_sample_rate().0 <= r && r <= c.max_sample_rate().0);
     if supported(source) {

@@ -79,7 +79,7 @@
     display: flex;
     align-items: center;
     height: 34px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--glass-strong);
     border: 1px solid var(--glass-border);
   }
@@ -117,7 +117,7 @@
     min-width: 16px;
     height: 16px;
     padding: 0 4px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--primary-strong);
     color: var(--on-primary-strong);
     font-size: 10px;

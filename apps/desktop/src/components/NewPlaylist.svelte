@@ -76,7 +76,7 @@
     gap: 14px;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: min(20px, var(--r-max));
+    border-radius: var(--r-lg);
     box-shadow: var(--shadow);
   }
   h2 {
@@ -101,7 +101,7 @@
   input,
   textarea {
     padding: 10px 12px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     border: 1px solid var(--border);
     background: var(--surface-2);
     color: var(--text);

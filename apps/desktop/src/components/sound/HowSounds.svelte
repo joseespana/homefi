@@ -93,7 +93,7 @@
     gap: 6px;
     white-space: nowrap;
     padding: 5px 12px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 12px;
     color: var(--muted);
     background: var(--glass-strong);
@@ -138,7 +138,7 @@
     z-index: 31;
     width: min(400px, calc(100vw - 24px));
     padding: 12px;
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--surface);
     border: 1px solid var(--border);
     box-shadow: var(--shadow);
@@ -175,7 +175,7 @@
     max-width: 170px;
     height: 26px;
     padding: 0 10px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 11.5px;
     color: var(--muted);
     background: var(--surface-2);
@@ -202,7 +202,7 @@
     align-items: flex-start;
     gap: 1px;
     padding: 9px 11px;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--glass-strong);
     border: 1px solid var(--glass-border);
     text-align: left;

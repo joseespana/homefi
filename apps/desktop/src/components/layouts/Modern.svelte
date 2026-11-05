@@ -158,7 +158,7 @@
   .backdrop {
     position: absolute;
     inset: 0 0 0 0;
-    border-radius: min(18px, var(--r-max));
+    border-radius: var(--r-lg);
     overflow: hidden;
   }
   .backdrop img {
@@ -248,7 +248,7 @@
     align-items: center;
     gap: 6px;
     padding: 4px 10px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 12px;
     font-weight: 600;
     background: var(--glass-strong);
@@ -362,7 +362,7 @@
     flex: 1;
     min-height: 0;
     padding: 8px;
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--glass);
     border: 1px solid var(--glass-border);
   }

@@ -106,7 +106,7 @@
     max-height: calc(100vh - 24px);
     overflow-y: auto;
     padding: 6px;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface);
     border: 1px solid var(--border);
     box-shadow: var(--shadow);
@@ -134,7 +134,7 @@
     align-items: center;
     gap: 10px;
     padding: 7px 8px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     text-align: left;
   }
   .row:hover,

@@ -18,7 +18,7 @@
     min-width: 28px;
     height: 26px;
     padding: 0 5px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     font-size: 10px;
     font-weight: 800;
     letter-spacing: 0.06em;

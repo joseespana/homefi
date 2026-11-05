@@ -47,7 +47,7 @@
 <style>
   .card {
     padding: 4px 16px;
-    border-radius: min(18px, var(--r-max));
+    border-radius: var(--r-lg);
     background: var(--glass);
     border: 1px solid var(--glass-border);
   }
@@ -100,7 +100,7 @@
   .seg button {
     height: 28px;
     padding: 0 12px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 12px;
     color: var(--muted);
     background: var(--glass-strong);

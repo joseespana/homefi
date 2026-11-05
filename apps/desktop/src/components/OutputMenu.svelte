@@ -86,7 +86,7 @@
     padding: 8px;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
     box-shadow: var(--shadow);
     z-index: 20;
   }
@@ -100,7 +100,7 @@
     align-items: center;
     gap: 12px;
     padding: 10px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     text-align: left;
     color: var(--muted);
   }
@@ -125,7 +125,7 @@
   .now {
     margin: 6px 4px 4px;
     padding: 10px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface-2);
     font-size: 12.5px;
     color: var(--muted);

@@ -476,7 +476,7 @@
     --sc-muted: var(--muted);
     --sc-chip: color-mix(in srgb, var(--sc-clean) 22%, transparent);
     --sc-chip-text: var(--text);
-    --sc-radius: min(999px, var(--r-max));
+    --sc-radius: var(--r-pill);
     --sc-font: var(--font-mono);
   }
   :global(:root[data-mode="light"]) :is(.chain, .sc-card):is(.sc-room, .sc-glass) {
@@ -602,7 +602,7 @@
     align-items: center;
     gap: 3px;
     padding: 2px 5px;
-    border-radius: min(5px, var(--r-max));
+    border-radius: var(--r-xs);
     background: var(--sc-chip);
     color: var(--sc-chip-text);
     font-size: 10px;
@@ -751,7 +751,7 @@
     z-index: 60;
     width: 300px;
     padding: 12px 14px;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--window-surface, var(--surface));
     color: var(--window-text, var(--text));
     border: 1px solid var(--window-border, var(--border));
@@ -838,7 +838,7 @@
     width: 100%;
     height: 46px;
     margin: 2px 0 10px;
-    border-radius: 6px;
+    border-radius: var(--r-xs);
     background: color-mix(in srgb, var(--sc-warm) 7%, transparent);
   }
   .curve line {
@@ -946,7 +946,7 @@
     --sc-muted: rgb(255 255 255 / 0.75);
     --sc-chip: #3c8d2f;
     --sc-chip-text: #fff;
-    --sc-radius: 4px;
+    --sc-radius: var(--r-xs);
     font-family: Tahoma, "Segoe UI", var(--font);
   }
   .chain.sc-luna .node,
@@ -992,7 +992,7 @@
     background: #ffffc6;
     color: #000;
     border-color: #9a9a9a;
-    border-radius: 4px;
+    border-radius: var(--r-xs);
   }
 
   /* Web 2000: glossy, orange and lime */

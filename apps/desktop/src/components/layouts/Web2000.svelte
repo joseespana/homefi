@@ -111,7 +111,7 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    border-radius: 10px;
+    border-radius: var(--r-sm);
     background: #3c3c3f;
     color: #ededed;
   }
@@ -123,7 +123,7 @@
   }
   .tab {
     padding: 8px 18px;
-    border-radius: 10px 10px 0 0;
+    border-radius: var(--r-sm) var(--r-sm) 0 0;
     font-weight: 700;
     font-size: 14px;
     color: #dadada;
@@ -153,7 +153,7 @@
     flex-direction: column;
     gap: 8px;
     padding: 8px;
-    border-radius: 0 0 10px 10px;
+    border-radius: 0 0 var(--r-sm) var(--r-sm);
     background: #d9d9d9;
   }
   .box {
@@ -162,7 +162,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    border-radius: 6px;
+    border-radius: var(--r-xs);
     background: #f2f2f2;
   }
   .box-title {
@@ -272,7 +272,7 @@
     flex: 1;
     height: 8px;
     overflow: hidden;
-    border-radius: 4px;
+    border-radius: var(--r-xs);
     background: #b5b5b5;
   }
   .fill {

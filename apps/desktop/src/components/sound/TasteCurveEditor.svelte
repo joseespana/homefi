@@ -139,7 +139,7 @@
     gap: 6px;
     height: 28px;
     padding: 0 12px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 12.5px;
     color: var(--muted);
     background: var(--glass-strong);
@@ -154,7 +154,7 @@
   .count {
     min-width: 16px;
     padding: 0 4px;
-    border-radius: 8px;
+    border-radius: var(--r-sm);
     font-size: 10.5px;
     font-weight: 700;
     background: var(--primary-strong);

@@ -62,7 +62,7 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px 14px;
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--glass);
     border: 1px solid var(--glass-border);
   }
@@ -126,7 +126,7 @@
     align-items: baseline;
     gap: 8px;
     padding: 3px 6px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     font-size: 12.5px;
   }
   .blist li.sel {

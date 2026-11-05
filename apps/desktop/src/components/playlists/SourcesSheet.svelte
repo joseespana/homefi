@@ -115,7 +115,7 @@
     align-items: center;
     gap: 8px;
     padding: 6px 10px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface-2);
     color: var(--muted);
   }

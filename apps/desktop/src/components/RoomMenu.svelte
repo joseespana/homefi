@@ -92,7 +92,7 @@
     max-height: min(640px, calc(100vh - 160px));
     overflow-y: auto;
     padding: 10px;
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--surface);
     border: 1px solid var(--border);
     box-shadow: var(--shadow);
@@ -106,7 +106,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 7px 6px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     cursor: pointer;
   }
   .row:hover {
@@ -114,7 +114,7 @@
   }
   .row select {
     padding: 4px 6px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface-2);
     color: var(--text);
     border: 1px solid var(--border);

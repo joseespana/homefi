@@ -20,6 +20,17 @@ const BUFFER_SECONDS: f32 = 0.5;
 /// rate means resampling more often), where a busy moment would underrun.
 const SAFE_BUFFER_SECONDS: f32 = 1.0;
 
+/// Serialises every device query (enumeration, names, supported configs, opening a stream).
+/// CoreAudio crashes inside its own property calls when two threads query devices at once
+/// (the device list for the UI while the engine opens the next track); one at a time, on
+/// every platform, costs nothing noticeable. Never held while waiting on anything else.
+static DEVICE_QUERIES: Mutex<()> = Mutex::new(());
+
+/// Holds the device-query lock; a panic elsewhere never leaves it unusable.
+pub(crate) fn device_queries() -> std::sync::MutexGuard<'static, ()> {
+    DEVICE_QUERIES.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// An output device as shown in the UI.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct OutputDevice {
@@ -34,6 +45,7 @@ pub struct OutputDevice {
 
 /// Lists the output devices of the default host.
 pub fn list_devices() -> Vec<OutputDevice> {
+    let _queries = device_queries();
     let host = cpal::default_host();
     let default_name = host.default_output_device().and_then(|d| d.name().ok());
     let Ok(devices) = host.output_devices() else { return Vec::new() };
@@ -67,6 +79,7 @@ pub fn list_devices() -> Vec<OutputDevice> {
 
 /// Finds a device by name, falling back to the system default.
 pub(crate) fn find_device(name: Option<&str>) -> Result<cpal::Device> {
+    let _queries = device_queries();
     let host = cpal::default_host();
     if let Some(name) = name {
         if let Ok(mut devices) = host.output_devices() {
@@ -212,6 +225,7 @@ pub(crate) struct Output {
 impl Output {
     /// Opens `device` at exactly `rate` Hz, or fails with [`PlayerError::RateUnsupported`].
     pub fn open(device: &cpal::Device, rate: u32, channels: u16, shared: Arc<Shared>) -> Result<Self> {
+        let _queries = device_queries();
         let device_name = device.name().unwrap_or_else(|_| "output".into());
         let ranges: Vec<_> =
             device.supported_output_configs().map_err(|e| PlayerError::Output(e.to_string()))?.collect();

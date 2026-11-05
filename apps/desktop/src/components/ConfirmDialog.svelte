@@ -77,7 +77,7 @@
     gap: 10px;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: min(20px, var(--r-max));
+    border-radius: var(--r-lg);
     box-shadow: var(--shadow);
     animation: pop 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.2);
   }

@@ -97,7 +97,7 @@
     flex-direction: column;
     max-height: min(560px, calc(100vh - 24px));
     padding: 6px;
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--surface);
     border: 1px solid var(--border);
     box-shadow: var(--shadow);
@@ -125,7 +125,7 @@
     align-items: center;
     gap: 10px;
     padding: 7px 6px 7px 8px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
   }
   .row:hover {
     background: var(--surface-2);

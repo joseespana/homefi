@@ -31,7 +31,7 @@
     align-items: center;
     gap: 12px;
     padding: 10px 12px;
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
     background: color-mix(in srgb, var(--surface) 90%, transparent);
     border: 1px solid var(--border);
     box-shadow: var(--shadow);
@@ -44,7 +44,7 @@
     flex: none;
     width: 32px;
     height: 32px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--gradient);
     color: #fff;
   }

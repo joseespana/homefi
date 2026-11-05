@@ -72,7 +72,7 @@
     flex-direction: column;
     gap: 2px;
     padding: 10px 12px;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--glass-strong);
     border: 1px solid var(--glass-border);
     font-size: 11.5px;

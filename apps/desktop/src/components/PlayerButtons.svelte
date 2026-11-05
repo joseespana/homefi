@@ -87,7 +87,7 @@
     min-width: 16px;
     height: 16px;
     padding: 0 4px;
-    border-radius: min(8px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--primary-strong);
     color: var(--on-primary-strong);
     font-size: 10px;
@@ -100,7 +100,8 @@
     place-items: center;
     width: var(--tb-size, 30px);
     height: var(--tb-size, 30px);
-    border-radius: min(999px, var(--r-max));
+    /* concentric with the group around it (its corner less its 3px padding) */
+    border-radius: var(--r-xs);
     color: var(--muted);
   }
   .tb-btn:hover:not(:disabled) {

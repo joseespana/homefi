@@ -119,7 +119,7 @@
     height: 48px;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     color: var(--muted);
   }
   .searchbox input {
@@ -147,7 +147,7 @@
     gap: 14px;
     margin-top: 16px;
     padding: 16px;
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--surface-3);
   }
   .hits {
@@ -171,6 +171,6 @@
     gap: 8px;
   }
   .empty img {
-    border-radius: min(20px, var(--r-max));
+    border-radius: var(--r-lg);
   }
 </style>

@@ -208,7 +208,7 @@
     font-size: 12.5px;
   }
   .curve {
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface-2);
     border: 1px solid var(--border);
     overflow: hidden;
@@ -226,7 +226,7 @@
     min-width: 0;
     height: 36px;
     padding: 0 12px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     border: 1px solid var(--primary);
     background: var(--surface-2);
     color: var(--text);
@@ -234,7 +234,7 @@
   }
   .editor {
     padding: 12px;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface-2);
   }
   section {
@@ -268,7 +268,7 @@
     max-width: 100%;
     height: 30px;
     padding: 0 12px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 12.5px;
     color: var(--muted);
     background: var(--glass-strong);
@@ -292,7 +292,7 @@
     max-width: 100%;
     height: 30px;
     padding: 0 4px 0 12px;
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     font-size: 12.5px;
     background: var(--surface-2);
     border: 1px solid var(--border);
@@ -312,7 +312,7 @@
   .empty {
     margin: 0;
     padding: 10px 12px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     border: 1px dashed var(--border);
     font-size: 12.5px;
     color: var(--muted);

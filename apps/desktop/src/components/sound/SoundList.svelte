@@ -67,7 +67,7 @@
     flex-direction: column;
     gap: 8px;
     padding: 14px 16px;
-    border-radius: min(18px, var(--r-max));
+    border-radius: var(--r-lg);
     background: var(--glass);
     border: 1px solid var(--glass-border);
     backdrop-filter: blur(18px) saturate(1.2);
@@ -103,7 +103,7 @@
     align-items: center;
     gap: 10px;
     padding: 9px 8px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   }
   li.playing {

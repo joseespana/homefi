@@ -168,7 +168,7 @@
     flex-direction: column;
     gap: 4px;
     padding: 8px;
-    border-radius: 6px;
+    border-radius: var(--r-xs);
     background: linear-gradient(180deg, #34344a, #1e1e2c);
     color: #cfcfe0;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

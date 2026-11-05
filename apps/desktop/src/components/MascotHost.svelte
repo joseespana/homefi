@@ -142,7 +142,7 @@
   .host:focus-visible {
     outline: 2px solid var(--room-accent);
     outline-offset: 4px;
-    border-radius: 16px;
+    border-radius: var(--r-md);
   }
   .floating {
     position: fixed;
@@ -155,7 +155,7 @@
     top: -6px;
     transform: translateX(-50%);
     padding: 3px 10px;
-    border-radius: 999px;
+    border-radius: var(--r-pill);
     background: var(--room-accent, #34d399);
     color: #0b1e3a;
     font-size: 12px;

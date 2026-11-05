@@ -184,7 +184,7 @@
     gap: 18px;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: min(20px, var(--r-max));
+    border-radius: var(--r-lg);
     box-shadow: var(--shadow);
     animation: slide 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
@@ -220,14 +220,14 @@
     flex: none;
     width: 36px;
     height: 36px;
-    border-radius: min(11px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--gradient);
     color: #fff;
   }
   .small-mark {
     width: 30px;
     height: 30px;
-    border-radius: min(9px, var(--r-max));
+    border-radius: var(--r-sm);
   }
   section.join {
     flex-direction: row;
@@ -253,7 +253,7 @@
     align-items: center;
     gap: 8px;
     padding: 8px 12px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface-2);
     font-size: 13px;
   }
@@ -286,7 +286,7 @@
     align-items: center;
     gap: 10px;
     padding: 6px 8px;
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface-2);
   }
   .dot {
@@ -312,7 +312,7 @@
     align-items: flex-start;
     gap: 4px;
     padding: 12px;
-    border-radius: min(12px, var(--r-max));
+    border-radius: var(--r-sm);
     text-align: left;
     background: var(--surface-2);
     border: 1px solid var(--border);

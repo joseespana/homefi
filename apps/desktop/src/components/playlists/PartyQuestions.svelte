@@ -167,7 +167,7 @@
     min-height: 36px;
     padding: 0 14px;
     border: 1px solid var(--set-ctl-border);
-    border-radius: min(999px, var(--r-max));
+    border-radius: var(--r-pill);
     background: var(--set-ctl-bg);
     box-shadow: var(--set-ctl-shadow);
     font: var(--set-label-font);
@@ -197,7 +197,7 @@
     height: 40px;
     padding: 0 12px;
     border: 1px solid var(--border);
-    border-radius: min(10px, var(--r-max));
+    border-radius: var(--r-sm);
     background: var(--surface-2);
     font-size: 15px;
   }

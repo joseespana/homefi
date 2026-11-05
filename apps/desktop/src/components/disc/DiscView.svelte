@@ -146,7 +146,7 @@
     align-items: flex-start;
     padding: 16px 20px;
     border: 1px solid var(--border);
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--surface);
   }
   .art {
@@ -210,7 +210,7 @@
     gap: 16px;
     padding: 12px 16px;
     border: 1px solid var(--glass-border);
-    border-radius: min(16px, var(--r-max));
+    border-radius: var(--r-md);
     background: var(--glass);
     backdrop-filter: blur(24px) saturate(1.3);
     box-shadow: var(--shadow);

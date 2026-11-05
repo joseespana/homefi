@@ -35,7 +35,7 @@
     align-items: center;
     gap: 6px 14px;
     padding: 12px 14px;
-    border-radius: min(14px, var(--r-max));
+    border-radius: var(--r-md);
     background: color-mix(in srgb, var(--primary) 9%, var(--surface));
     border: 1.5px solid var(--primary);
   }
