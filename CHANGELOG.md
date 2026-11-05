@@ -7,6 +7,8 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-11-05
+
 ### Changed
 - One set of rounded corners across the desktop app (small, medium, large, extra and pill), with
   nested corners that follow the shape around them; the Settings page list marks the open page with
