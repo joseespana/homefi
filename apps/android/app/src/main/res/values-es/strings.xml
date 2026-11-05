@@ -705,7 +705,9 @@
     <string name="car_title">Android Auto</string>
     <string name="car_keywords">android auto, coche, carro, auto, manejar, conducir</string>
     <string name="car_enabled">Mostrar HomeFi en el coche</string>
-    <string name="car_enabled_hint">Explora y busca tu música desde la pantalla del coche. La letra se queda en el teléfono: los coches solo muestran su propio reproductor.</string>
+    <string name="car_enabled_hint">Explora y busca tu música desde la pantalla del coche. Con la línea de la letra bajo el título, una a la vez.</string>
+    <string name="car_lyrics">Letra en el coche</string>
+    <string name="car_lyrics_hint">La línea que suena aparece bajo el título en el reproductor del coche, si la canción tiene letra sincronizada. Los coches solo muestran su propio reproductor, así que es una línea a la vez.</string>
     <string name="car_recent">Escuchado hace poco</string>
     <string name="car_playlists">Hechas por HomeFi</string>
     <string name="car_albums">Álbumes</string>

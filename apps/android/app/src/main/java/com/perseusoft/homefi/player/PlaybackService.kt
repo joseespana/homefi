@@ -47,6 +47,10 @@ class PlaybackService : MediaLibraryService() {
     private val scope = MainScope()
 
     private var crossfader: Crossfader? = null
+    /** The decks as the session sees them: with the lyric line while a car is connected. */
+    private var carDecks: List<CarLyricsPlayer> = emptyList()
+    /** Android Auto controllers connected now. */
+    private val cars = mutableSetOf<MediaSession.ControllerInfo>()
 
     override fun onCreate() {
         super.onCreate()
@@ -59,7 +63,7 @@ class PlaybackService : MediaLibraryService() {
         val players = listOf(0, 1).map { deck -> buildPlayer(deck, streams, attributes, handleFocus = deck == 0) }
         val fader = Crossfader(this, players, attributes, homefi.settings.crossfade, homefi.sound, streams, scope) { from, to ->
             // the incoming deck is the session's from now on: notification, lock screen, the app's queue
-            crossfader?.decks?.get(to)?.let { session?.player = it }
+            carDecks.getOrNull(to)?.let { session?.player = it }
             val player = players[to]
             streams.prefetch(player)
             homefi.sound.onTrack(player)
@@ -102,7 +106,10 @@ class PlaybackService : MediaLibraryService() {
             Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_OPEN_PLAYER, true),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        session = MediaLibrarySession.Builder(this, fader.decks[0], Callback(this, CarLibrary(homefi), scope))
+        carDecks = fader.decks.map { CarLyricsPlayer(it, homefi, scope) }
+        // the lyrics in the car follow the setting
+        scope.launch { homefi.settings.settings.collect { carDecks.forEach(CarLyricsPlayer::refresh) } }
+        session = MediaLibrarySession.Builder(this, carDecks[0], Callback(this, CarLibrary(homefi), scope, ::carConnected))
             .setSessionActivity(open)
             .build()
     }
@@ -139,6 +146,13 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
 
+    /** Android Auto connected ([connected]) or left: the car shows the lyric line meanwhile. */
+    private fun carConnected(controller: MediaSession.ControllerInfo, connected: Boolean) {
+        if (controller.packageName != ANDROID_AUTO_PACKAGE) return
+        if (connected) cars += controller else cars -= controller
+        carDecks.forEach { it.carConnected = cars.isNotEmpty() }
+    }
+
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = session?.player
         if (player == null || !player.playWhenReady || player.mediaItemCount == 0) stopSelf()
@@ -147,6 +161,8 @@ class PlaybackService : MediaLibraryService() {
     override fun onDestroy() {
         scope.cancel()
         session?.release()
+        carDecks.forEach(CarLyricsPlayer::stopLyrics)
+        carDecks = emptyList()
         crossfader?.release()
         crossfader = null
         session = null
@@ -174,7 +190,17 @@ class PlaybackService : MediaLibraryService() {
         private val context: Context,
         private val car: CarLibrary,
         private val scope: CoroutineScope,
+        private val onCar: (MediaSession.ControllerInfo, Boolean) -> Unit,
     ) : MediaLibrarySession.Callback {
+        override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
+            onCar(controller, true)
+            return super.onConnect(session, controller)
+        }
+
+        override fun onDisconnected(session: MediaSession, controller: MediaSession.ControllerInfo) {
+            onCar(controller, false)
+        }
+
         /** Controllers send items without their local URI; restore it from the request metadata. */
         override fun onAddMediaItems(
             mediaSession: MediaSession,

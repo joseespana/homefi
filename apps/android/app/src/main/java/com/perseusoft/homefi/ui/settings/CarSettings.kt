@@ -9,7 +9,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.perseusoft.homefi.R
 import com.perseusoft.homefi.homefi
 
-/** Settings → Playback → Android Auto: on / off and which sections the car shows. */
+/** Settings → Playback → Android Auto: on / off, the lyric line, and which sections the car shows. */
 @Composable
 internal fun CarSettings() {
     val app = LocalContext.current.homefi
@@ -21,6 +21,11 @@ internal fun CarSettings() {
         ) { v -> app.settings.update { it.copy(carEnabled = v) } }
         Reveal(settings.carEnabled) {
             Column {
+                RowDivider()
+                SwitchRow(
+                    stringResource(R.string.car_lyrics), settings.carLyrics,
+                    hint = stringResource(R.string.car_lyrics_hint),
+                ) { v -> app.settings.update { it.copy(carLyrics = v) } }
                 RowDivider()
                 SwitchRow(stringResource(R.string.car_recent), settings.carRecent) { v -> app.settings.update { it.copy(carRecent = v) } }
                 RowDivider()

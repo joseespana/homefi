@@ -7,6 +7,13 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Added
+- Android Auto: lyrics in the car. The line being sung shows under the title in the car's player,
+  one line at a time, when the song has synced lyrics (Settings → Playback → Android Auto → Lyrics in
+  the car, on by default; the phone's own screens are unchanged once the car disconnects).
+- Android Auto: albums and HomeFi's playlists open as a grid of covers, and songs in lists show their
+  cover (read from the files and handed to the car read-only).
+
 ## [1.5.6] - 2026-11-05
 
 ### Added

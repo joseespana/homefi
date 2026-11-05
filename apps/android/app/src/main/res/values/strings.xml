@@ -705,7 +705,9 @@
     <string name="car_title">Android Auto</string>
     <string name="car_keywords">android auto, car, driving, vehicle</string>
     <string name="car_enabled">Show HomeFi in the car</string>
-    <string name="car_enabled_hint">Browse and search your music from the car screen. Lyrics stay on the phone: cars only show their own player.</string>
+    <string name="car_enabled_hint">Browse and search your music from the car screen. With the lyric line under the title, one line at a time.</string>
+    <string name="car_lyrics">Lyrics in the car</string>
+    <string name="car_lyrics_hint">The line being sung shows under the title in the car\'s player, when the song has synced lyrics. Cars only show their own player, so this is one line at a time.</string>
     <string name="car_recent">Recently played</string>
     <string name="car_playlists">Made by HomeFi</string>
     <string name="car_albums">Albums</string>

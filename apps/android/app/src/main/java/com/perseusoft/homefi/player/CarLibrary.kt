@@ -3,6 +3,7 @@ package com.perseusoft.homefi.player
 import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.session.MediaConstants
 import com.perseusoft.homefi.HomefiApplication
 import com.perseusoft.homefi.R
 import com.perseusoft.homefi.core.LibraryTrack
@@ -36,8 +37,11 @@ class CarLibrary(private val app: HomefiApplication) {
         return when {
             parentId == ROOT -> sections(settings)
             parentId == RECENT -> app.player.recents.items.value.take(MAX_ITEMS).map { recentItem(it) }
-            parentId == PLAYLISTS -> app.playlists.list.value.map { folder(PLAYLIST + it.id, it.name, subtitle = it.description) }
-            parentId == ALBUMS -> tracks().albums().take(MAX_ITEMS).map { folder(ALBUM + it.key, it.title, subtitle = it.artist) }
+            parentId == PLAYLISTS -> app.playlists.list.value.map { p ->
+                val cover = p.entries.firstNotNullOfOrNull { e -> e.localPath?.let(app.library::find)?.path }
+                folder(PLAYLIST + p.id, p.name, subtitle = p.description, coverPath = cover, remoteCover = p.entries.firstNotNullOfOrNull { it.coverUrl })
+            }
+            parentId == ALBUMS -> tracks().albums().take(MAX_ITEMS).map { folder(ALBUM + it.key, it.title, subtitle = it.artist, coverPath = it.tracks.first().path) }
             parentId == ARTISTS -> tracks().artists().take(MAX_ITEMS).map { folder(ARTIST + it.name, it.name) }
             parentId == SONGS -> tracks().take(MAX_ITEMS).mapIndexed { i, t -> inList(SONGS, i, t.toMediaItem()) }
             else -> listItems(parentId)?.mapIndexed { i, item -> inList(parentId, i, item) }
@@ -114,22 +118,47 @@ class CarLibrary(private val app: HomefiApplication) {
 
     /** A playable [item] shown inside list [parentId] at [index]: picking it plays the list from there. */
     /** Without its address: the session sees a car's pick and expands it (see `onSetMediaItems`). */
-    private fun inList(parentId: String, index: Int, item: MediaItem): MediaItem =
-        item.buildUpon()
+    private fun inList(parentId: String, index: Int, item: MediaItem): MediaItem {
+        val path = item.mediaId.takeIf(::isFilePath)
+        val metadata = if (path != null && item.mediaMetadata.artworkUri == null) {
+            item.mediaMetadata.buildUpon().setArtworkUri(CoverProvider.uriFor(app, path)).build()
+        } else item.mediaMetadata
+        return item.buildUpon()
             .setMediaId("$IN$parentId|$index")
+            .setMediaMetadata(metadata)
             .setUri(null as Uri?)
             .setRequestMetadata(MediaItem.RequestMetadata.EMPTY)
             .build()
+    }
 
-    // no artwork on lists: covers are embedded in the files and a car can't read a file path
-    // (the song playing shows its cover, which the player reads from the file)
-    private fun folder(id: String, title: String, subtitle: String? = null, playableChildren: Boolean = false): MediaItem =
+    /** Android Auto shows this folder's children as a grid of covers. */
+    private fun gridStyle(): android.os.Bundle = android.os.Bundle().apply {
+        putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_BROWSABLE, MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM)
+        putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_PLAYABLE, MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM)
+    }
+
+    /**
+     * A browsable row. [coverPath] is a library file whose embedded cover the car gets through
+     * [CoverProvider] (a car can't read a path); else [remoteCover] (a TIDAL image URL).
+     * Albums and playlists open as a grid of covers.
+     */
+    private fun folder(
+        id: String,
+        title: String,
+        subtitle: String? = null,
+        playableChildren: Boolean = false,
+        coverPath: String? = null,
+        remoteCover: String? = null,
+        grid: Boolean = id == ALBUMS || id == PLAYLISTS,
+    ): MediaItem =
         MediaItem.Builder()
             .setMediaId(id)
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(title)
                     .setSubtitle(subtitle?.ifBlank { null })
+                    .setArtworkUri(coverPath?.let { CoverProvider.uriFor(app, it) } ?: remoteCover?.let(Uri::parse))
+                    .setExtras(if (grid) gridStyle() else null)
                     .setIsBrowsable(true)
                     .setIsPlayable(false)
                     .setMediaType(if (playableChildren) MediaMetadata.MEDIA_TYPE_PLAYLIST else MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)

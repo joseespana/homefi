@@ -271,6 +271,8 @@ data class AppSettings(
     val carAlbums: Boolean = true,
     val carArtists: Boolean = true,
     val carSongs: Boolean = true,
+    /** The line being sung shows in the car's player, under the title. */
+    val carLyrics: Boolean = true,
     val share: ShareSettings = ShareSettings(),
     val ai: AiSettings = AiSettings(),
     /** "How does it sound?" button in the player (it stays in the player's menu either way). */
@@ -410,6 +412,7 @@ class SettingsStore(context: Context) {
         carAlbums = prefs.getBoolean("car_albums", true),
         carArtists = prefs.getBoolean("car_artists", true),
         carSongs = prefs.getBoolean("car_songs", true),
+        carLyrics = prefs.getBoolean("car_lyrics", true),
         pipMascot = prefs.getBoolean("pip_mascot", false),
         share = loadShare(),
         ai = AiSettings(
@@ -543,6 +546,7 @@ class SettingsStore(context: Context) {
             .putBoolean("car_albums", next.carAlbums)
             .putBoolean("car_artists", next.carArtists)
             .putBoolean("car_songs", next.carSongs)
+            .putBoolean("car_lyrics", next.carLyrics)
             .putBoolean("pip_mascot", next.pipMascot)
             .putShare(next.share)
             .putString("ai_provider", next.ai.provider)
