@@ -508,3 +508,36 @@ async fn a_chat_playlist_needs_a_wish_before_it_builds() {
     assert_eq!(err.to_string(), "Primero dile a tu IA qué te gustaría escuchar.");
     assert!(server.received_requests().await.unwrap().is_empty(), "no AI, no search");
 }
+
+#[tokio::test]
+async fn only_the_named_songs_found_is_a_worded_error_not_a_playlist() {
+    let server = MockServer::start().await;
+    // the AI's own songs don't exist on Tidal; the named one does
+    mount_proposals(&server, &[r#"{"id":"m","type":"message","role":"assistant","model":"x","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t","name":"propose_songs","input":{"songs":[{"title":"Made Up Song","artist":"Queen","energy":3}]}}],"usage":{"input_tokens":1,"output_tokens":1}}"#]).await;
+    mount_tidal(&server).await;
+    let (api, fx) = (tidal_api(&server), Fixture::new());
+    let brief = ChatBrief {
+        wish: "Queen".into(),
+        songs: vec![AskedSong { title: "Song 0".into(), artist: "Queen".into() }],
+        ..ChatBrief::default()
+    };
+    let mut session = PartySession::new(config(&server), brief, Lang::En);
+
+    let err = session.build(&fx.ctx(Some(&api)), &|_| {}).await.unwrap_err();
+
+    assert_eq!(err.to_string(), "Your AI didn't suggest any songs HomeFi could find. Try again or change the answers.");
+}
+
+#[tokio::test]
+async fn tidal_not_answering_is_said_as_such() {
+    let server = MockServer::start().await;
+    mount_proposals(&server, &[ROUND1]).await;
+    Mock::given(method("GET")).and(path("/v1/search")).respond_with(ResponseTemplate::new(404)).mount(&server).await;
+    let (api, fx) = (tidal_api(&server), Fixture::new());
+    let brief = ChatBrief { wish: "anything".into(), minutes: 30, ..ChatBrief::default() };
+    let mut session = PartySession::new(config(&server), brief, Lang::En);
+
+    let err = session.build(&fx.ctx(Some(&api)), &|_| {}).await.unwrap_err().to_string();
+
+    assert!(err.starts_with("TIDAL didn't answer ") && err.ends_with("Try again in a minute."), "{err}");
+}

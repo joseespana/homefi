@@ -29,14 +29,9 @@
   const draft = $derived(party.draft);
   const defaults = $derived({ ...DEFAULT_PLAYLIST_SETTINGS, ...app.settings?.playlists });
   const brief = $derived(party.chatBrief ?? { wish: "", title: "", minutes: defaults.chat_minutes, curve: defaults.chat_curve, allow_explicit: defaults.chat_allow_explicit });
-  /** "Sad 90s in English · 1 h · Steady · Explicit allowed" (the title shows "Not set yet" until the AI sets one). */
-  const summary = $derived(
-    [
-      brief.title || "Not set yet",
-      partyLength(brief.minutes),
-      ENERGY_CURVES.find((c) => c.id === brief.curve)?.label ?? "",
-      brief.allow_explicit ? "Explicit allowed" : "No explicit",
-    ].join(" · "),
+  /** What the AI understood besides the title: "1 h", "Steady", "Explicit allowed". */
+  const facts = $derived(
+    [partyLength(brief.minutes), ENERGY_CURVES.find((c) => c.id === brief.curve)?.label ?? "", brief.allow_explicit ? "Explicit allowed" : "No explicit"].filter(Boolean),
   );
   /** Nothing to build from until the user has said something. */
   const canBuild = $derived(party.userTurns > 0 && !party.building && !party.thinking);
@@ -81,33 +76,38 @@
 <svelte:window onkeydown={key} />
 
 <button class="back" onclick={() => (app.view = { name: "playlists" })}><Icon name="back" size={16} /> Playlists</button>
-<h1>Playlist with AI</h1>
 
-{#if !checked}
-  <Skeleton kind="grid" count={1} />
-{:else if needsAi}
-  <p class="source muted">
-    <Icon name="info" size={15} />
-    <span>Playlists with AI are made by your AI. Set one up in Settings → AI (your own key, nothing else is needed).</span>
-  </p>
-  <!-- svelte-ignore a11y_autofocus -->
-  <button class="btn primary setup" autofocus onclick={() => (app.view = { name: "settings", page: "ai" })}>Set up an AI</button>
-{:else}
-  <p class="intro muted">Say what you're in the mood for and your AI shapes the playlist with you. HomeFi checks every song against your library and TIDAL.</p>
+<div class="screen">
+  <header class="hero">
+    <span class="mark" aria-hidden="true"><Icon name="ai" size={22} /></span>
+    <h1>Playlist with AI</h1>
+    <p class="muted">Say what you're in the mood for and your AI shapes the playlist with you. HomeFi checks every song against your library and TIDAL.</p>
+  </header>
 
-  {#if !party.opened}
-    <Skeleton kind="grid" count={1} />
+  {#if !checked}
+    <div class="main"><Skeleton kind="grid" count={1} /></div>
+  {:else if needsAi}
+    <div class="main setup-box">
+      <p class="muted">Playlists with AI are made by your AI. Set one up in Settings → AI (your own key, nothing else is needed).</p>
+      <!-- svelte-ignore a11y_autofocus -->
+      <button class="btn primary" autofocus onclick={() => (app.view = { name: "settings", page: "ai" })}>Set up an AI</button>
+    </div>
+  {:else if !party.opened}
+    <div class="main"><Skeleton kind="grid" count={1} /></div>
   {:else}
     <div class="main">
       <PartyChat disabled={party.building} />
-      <p class="summary muted" aria-label="What the AI understood">{summary}</p>
-      <div class="actions">
-        <button type="button" class="btn primary" disabled={!canBuild} onclick={() => party.build()}><Icon name="play" size={16} /> {draft ? "Build again" : "Build playlist"}</button>
+      <div class="bar">
+        <ul class="brief" aria-label="What the AI understood">
+          <li class="tag lead" class:pending={!brief.title}>{brief.title || "Tell your AI what you want"}</li>
+          {#each brief.songs ?? [] as song (song.artist + song.title)}<li class="tag song" title="Opens the playlist"><Icon name="music" size={12} /> <span class="ellipsis">{song.title} · {song.artist}</span></li>{/each}
+          {#each facts as fact (fact)}<li class="tag">{fact}</li>{/each}
+        </ul>
+        <button type="button" class="btn primary build" disabled={!canBuild} onclick={() => party.build()}><Icon name="play" size={16} /> {draft ? "Build again" : "Build playlist"}</button>
       </div>
-      {#if party.error}<p class="error" role="alert">{party.error}</p>{/if}
+      {#if party.error}<p class="alert" role="alert"><Icon name="alert" size={16} /><span>{party.error}</span></p>{/if}
+      <BuildStatus active={party.building} text={party.statusText} fraction={party.fraction} oncancel={() => party.cancel()} />
     </div>
-
-    <div class="status"><BuildStatus active={party.building} text={party.statusText} fraction={party.fraction} oncancel={() => party.cancel()} /></div>
 
     <div class="result" class:dim={party.building} bind:this={result}>
       {#if draft}
@@ -116,7 +116,7 @@
       {/if}
     </div>
   {/if}
-{/if}
+</div>
 
 <style>
   .back {
@@ -130,49 +130,115 @@
   .back:hover {
     color: var(--text);
   }
-  .intro {
-    max-width: 62ch;
+  /* one centred column for the talk; the playlist below gets the full reading width */
+  .screen {
+    max-width: 1040px;
+    margin-inline: auto;
+  }
+  .hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 8px;
+    margin: 4px auto 22px;
+    max-width: 560px;
+  }
+  .hero h1 {
+    margin: 4px 0 0;
+  }
+  .hero p {
+    margin: 0;
     line-height: 1.5;
-    margin: 8px 0 20px;
+    text-wrap: balance;
+  }
+  .mark {
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    border-radius: var(--r-md);
+    color: var(--on-primary);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 80%, white), var(--primary));
+    box-shadow: 0 10px 28px -10px color-mix(in srgb, var(--primary) 70%, transparent);
   }
   .main {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    max-width: 640px;
-    margin-bottom: 20px;
+    gap: 12px;
+    width: min(720px, 100%);
+    margin-inline: auto;
   }
-  .summary {
-    margin: 0;
-    font-size: 12.5px;
+  .setup-box {
+    align-items: center;
+    text-align: center;
   }
-  .actions {
+  .bar {
     display: flex;
-    gap: 8px;
+    align-items: center;
+    gap: 12px;
     flex-wrap: wrap;
   }
-  .source {
+  .brief {
     display: flex;
-    gap: 8px;
-    align-items: flex-start;
-    max-width: 62ch;
-    margin: 8px 0 16px;
-    line-height: 1.5;
-    font-size: 13.5px;
-  }
-  .source :global(svg) {
-    flex: none;
-    margin-top: 3px;
-  }
-  .error {
-    color: var(--danger);
+    flex-wrap: wrap;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
     margin: 0;
+    padding: 0;
+    list-style: none;
   }
-  .status {
-    max-width: 640px;
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    height: 26px;
+    padding: 0 10px;
+    border-radius: var(--r-sm);
+    background: var(--glass-strong);
+    border: 1px solid var(--glass-border);
+    color: var(--muted);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .tag.lead {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .tag.lead.pending {
+    color: var(--muted);
+    font-weight: 400;
+    font-style: italic;
+  }
+  .tag.song {
+    color: var(--accent-text);
+  }
+  .build {
+    flex: none;
+    margin-left: auto;
+  }
+  .alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: var(--r-sm);
+    border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .alert :global(svg) {
+    flex: none;
+    margin-top: 1px;
+    color: var(--danger);
   }
   .result {
-    margin-top: 28px;
+    margin-top: 32px;
   }
   .result.dim {
     opacity: 0.55;

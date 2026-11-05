@@ -224,6 +224,8 @@ pub struct Resolved {
     /// `None` = not found (below [`MIN_CONFIDENCE`]).
     pub entry: Option<PlaylistEntry>,
     pub confidence: f32,
+    /// Tidal's search failed or timed out (not the same as "no match"), and the library had no copy.
+    pub failed: bool,
 }
 
 pub struct Resolver<'a> {
@@ -259,9 +261,12 @@ impl Resolver<'_> {
 
     async fn resolve_one(&self, candidate: SongCandidate) -> Resolved {
         let library_hit = self.library.find(&candidate.artist, &candidate.title);
-        let tidal = match self.api {
-            Some(api) => self.best_on_tidal(api, &candidate).await,
-            None => None,
+        let (tidal, search_failed) = match self.api {
+            Some(api) => match self.best_on_tidal(api, &candidate).await {
+                Ok(best) => (best, false),
+                Err(()) => (None, true),
+            },
+            None => (None, false),
         };
         let entry = match (tidal.as_ref(), library_hit) {
             (Some((track, _)), lib) => {
@@ -277,21 +282,23 @@ impl Resolver<'_> {
         };
         let tidal_score = tidal.as_ref().map_or(0.0, |(_, s)| *s);
         let confidence = if library_hit.is_some() { CERTAIN } else { tidal_score.min(CERTAIN) };
-        Resolved { candidate, entry, confidence }
+        let failed = search_failed && entry.is_none();
+        Resolved { candidate, entry, confidence, failed }
     }
 
-    /// The best studio match on Tidal and its score, if it reaches [`MIN_CONFIDENCE`].
-    async fn best_on_tidal(&self, api: &TidalApi, candidate: &SongCandidate) -> Option<(Track, f32)> {
+    /// The best studio match on Tidal and its score, if it reaches [`MIN_CONFIDENCE`];
+    /// `Err` when the search itself failed or timed out.
+    async fn best_on_tidal(&self, api: &TidalApi, candidate: &SongCandidate) -> Result<Option<(Track, f32)>, ()> {
         let query = format!("{} {}", candidate.artist, candidate.title);
         let found = match tokio::time::timeout(RESOLVE_TIMEOUT, api.search(&query)).await {
             Ok(Ok(found)) => found,
             Ok(Err(e)) => {
                 tracing::warn!("searching Tidal for “{}” by {} failed: {e}", candidate.title, candidate.artist);
-                return None;
+                return Err(());
             }
             Err(_) => {
                 tracing::warn!("searching Tidal for “{}” by {} timed out", candidate.title, candidate.artist);
-                return None;
+                return Err(());
             }
         };
         let top = found
@@ -299,7 +306,7 @@ impl Resolver<'_> {
             .filter(|h| h.kind.eq_ignore_ascii_case("TRACKS"))
             .and_then(|h| serde_json::from_value::<Track>(h.value).ok());
         let mut seen = std::collections::HashSet::new();
-        found
+        Ok(found
             .tracks
             .items
             .into_iter()
@@ -310,7 +317,7 @@ impl Resolver<'_> {
                 (t, s)
             })
             .filter(|(_, s)| *s >= MIN_CONFIDENCE)
-            .reduce(|best, next| if is_better(&next, &best) { next } else { best })
+            .reduce(|best, next| if is_better(&next, &best) { next } else { best }))
     }
 }
 

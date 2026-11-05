@@ -69,7 +69,7 @@
     value={taste.intensity}
     onchange={(id) => m.save({ taste: { ...taste, intensity: id } })}
   />
-  <SwitchRow label="“How does it sound?” button in the player bar" checked={soundUi.react_deck} onchange={(on) => saveSoundUi({ react_deck: on })} />
+  <SwitchRow label="“How does it sound?” button with the player buttons" checked={soundUi.react_deck} onchange={(on) => saveSoundUi({ react_deck: on })} />
   <SwitchRow label="“How does it sound?” in the listening room" checked={soundUi.react_room} onchange={(on) => saveSoundUi({ react_room: on })} />
   <SwitchRow label="Name the sound under the song" hint="“Warm and airy” next to the format. The full “HD 650 + Warm and airy · Eagles” is in the tooltip" checked={soundUi.layer_chip} onchange={(on) => saveSoundUi({ layer_chip: on })} />
   <SwitchRow label="Suggestions for what you listen to most" checked={soundUi.suggestions} onchange={(on) => saveSoundUi({ suggestions: on })} />

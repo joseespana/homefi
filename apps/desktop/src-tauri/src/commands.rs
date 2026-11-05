@@ -1244,6 +1244,8 @@ pub fn player_move(app: AppHandle, from: usize, to: usize) {
 // ----------------------------------------------------------------- mini player
 
 const MINI: &str = "mini";
+/// Space between the mini player and the screen's edges (logical px).
+const MINI_MARGIN: f64 = 24.0;
 
 /// Opens the always-on-top mini player (bottom-right corner) and minimizes the
 /// main window, or closes it and brings the main window back.
@@ -1278,11 +1280,7 @@ pub async fn mini_player<R: Runtime>(app: AppHandle<R>, open: bool) -> CmdResult
         .visible(false)
         .build()
         .map_err(err)?;
-    if let Ok(Some(monitor)) = mini.current_monitor() {
-        let scale = monitor.scale_factor();
-        let area = monitor.work_area();
-        let x = area.position.x as f64 / scale + area.size.width as f64 / scale - w - 24.0;
-        let y = area.position.y as f64 / scale + area.size.height as f64 / scale - h - 24.0;
+    if let Some((x, y)) = mini_corner(&mini, w, h) {
         let _ = mini.set_position(tauri::LogicalPosition::new(x, y));
     }
     // a page that never comes up (a web view that failed to start) must not leave the
@@ -1312,12 +1310,47 @@ pub async fn mini_resize<R: Runtime>(app: AppHandle<R>, width: f64, height: f64)
     let Some(mini) = app.get_webview_window(MINI) else { return Ok(()) };
     // sane bounds: a bad call can't make a giant or an invisible window
     let (width, height) = (width.clamp(240.0, 900.0), height.clamp(80.0, 600.0));
+    // not shown yet (the first size, before `mini_ready`): its place is the screen's corner, as
+    // a hidden window's position can't be trusted to keep a corner from
+    if !mini.is_visible().unwrap_or(false) {
+        mini.set_size(tauri::LogicalSize::new(width, height)).map_err(err)?;
+        if let Some((x, y)) = mini_corner(&mini, width, height) {
+            let _ = mini.set_position(tauri::LogicalPosition::new(x, y));
+        }
+        return Ok(());
+    }
     let scale = mini.scale_factor().map_err(err)?;
     let old = mini.inner_size().map_err(err)?.to_logical::<f64>(scale);
     let at = mini.outer_position().map_err(err)?.to_logical::<f64>(scale);
     mini.set_size(tauri::LogicalSize::new(width, height)).map_err(err)?;
-    let _ = mini.set_position(tauri::LogicalPosition::new(at.x + old.width - width, at.y + old.height - height));
+    let (x, y) = on_screen(&mini, at.x + old.width - width, at.y + old.height - height, width, height);
+    let _ = mini.set_position(tauri::LogicalPosition::new(x, y));
     Ok(())
+}
+
+/// Logical work area of the mini player's screen: (x, y, width, height).
+fn work_area<R: Runtime>(mini: &tauri::WebviewWindow<R>) -> Option<(f64, f64, f64, f64)> {
+    let monitor = mini.current_monitor().ok().flatten().or_else(|| mini.primary_monitor().ok().flatten())?;
+    let scale = monitor.scale_factor();
+    let area = monitor.work_area();
+    Some((
+        area.position.x as f64 / scale,
+        area.position.y as f64 / scale,
+        area.size.width as f64 / scale,
+        area.size.height as f64 / scale,
+    ))
+}
+
+/// Where a `w` x `h` mini player sits: the bottom-right corner of the screen, 24 px in.
+fn mini_corner<R: Runtime>(mini: &tauri::WebviewWindow<R>, w: f64, h: f64) -> Option<(f64, f64)> {
+    let (x, y, aw, ah) = work_area(mini)?;
+    Some((x + aw - w - MINI_MARGIN, y + ah - h - MINI_MARGIN))
+}
+
+/// `(x, y)` moved just enough that a `w` x `h` window stays whole inside the work area.
+fn on_screen<R: Runtime>(mini: &tauri::WebviewWindow<R>, x: f64, y: f64, w: f64, h: f64) -> (f64, f64) {
+    let Some((ax, ay, aw, ah)) = work_area(mini) else { return (x, y) };
+    (x.clamp(ax, (ax + aw - w).max(ax)), y.clamp(ay, (ay + ah - h).max(ay)))
 }
 
 /// The mini player's page has drawn: show it, and only then tuck the main window away.

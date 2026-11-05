@@ -7,6 +7,28 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Changed
+- Playlist with AI: a centred, responsive screen. The chat is one card with the field at its foot,
+  what the AI understood (title, the songs that open it, length, energy) shows as tags beside Build,
+  and errors read as a clear note. A message the AI couldn't answer goes back to the field to send
+  again, instead of staying in the chat unanswered.
+- With the player buttons on top, "How does it sound?" sits with them in the top bar; the player bar
+  keeps the output, Sound and the volume. The output button has the same corners as its neighbours.
+
+### Fixed
+- Playlist with AI: the AI answers in its own words again (models that call their tools first used to
+  leave only "Got it: … Anything else?"). A build where none of the AI's songs could be found (TIDAL's
+  searches failing or timing out, or no songs suggested) now says so instead of giving a playlist of
+  just the song you named; a playlist that is short because TIDAL didn't answer says how many searches
+  failed.
+- macOS: HomeFi still closed by itself now and then (a crash inside CoreAudio while listing outputs
+  or reading their sample rates). The cause was in the audio library: it handed CoreAudio a size the
+  optimised build treated as zero, so the device list was written to an invalid address. Fixed in
+  HomeFi's copy of the library.
+- macOS: the mini player could open off screen (leaving only the minimised main window) when it
+  started with lyrics or Homefito on; it now always opens whole in the screen's corner and stays
+  on screen when it grows.
+
 ## [1.5.4] - 2026-11-05
 
 ### Changed

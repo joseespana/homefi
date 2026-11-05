@@ -67,6 +67,33 @@ page visit: your IP address and a `HomeFi/<version>` user agent).
 HomeFi is a Rust + Kotlin rewrite of [tiddl](https://github.com/oskvr37/tiddl). It keeps
 tiddl's config file, path templates and CLI flags, so existing setups keep working.
 
+## What's new
+
+The highlights of the latest versions. Every change is in [CHANGELOG.md](CHANGELOG.md), each
+[release](https://github.com/joseespana/homefi/releases) lists its own, and the apps show them once
+after updating (Settings → About → What's new).
+
+- **Playlist with AI** (1.5.2, desktop and Android, with your own AI): a simple chat ("what kind of
+  playlist do you want today?"): a mood, a decade, a language, anything. Songs you name open the
+  playlist, even misspelled ("alors dance" is *Alors on danse* by Stromae), and the rest has to sound
+  like them. **Playlist like this** makes one from the song playing or any song's menu: same style,
+  era and mood. Every song is checked against your library and TIDAL.
+- **CDs** (1.5.2, desktop): read and rip audio CDs with an external or built-in drive: secure reads,
+  CD-Text, names you type in (or blank: "Disc 1", "Track 1"), optional MusicBrainz lookup (off by
+  default), and the format you pick (FLAC, WAV, ALAC, MP3, AAC, Opus). DVDs and Blu-rays are
+  recognised and their files can be imported; HomeFi never breaks copy protection.
+- **Homefito's mosh mode** (1.5.2, desktop and Android): long hair, headbanging and gestures that
+  follow the beat of the song.
+- **Mini player and picture-in-picture** (1.5.2): the desktop mini player can show karaoke lyrics and
+  Homefito; Android gets picture-in-picture with the same options.
+- **A cleaner player** (1.5.2–1.5.5): lyrics, queue, mini player and "How does it sound?" in a top bar
+  (or the bottom bar, your choice), one Sound button, readable quality tags in search, one set of
+  rounded corners across the app, a calmer Settings and a centred, responsive Playlist with AI screen.
+- **Fixes** (1.5.3–1.5.5): HomeFi no longer closes by itself on macOS (a bug in the audio library when
+  it listed the outputs), the mini player always opens on screen, macOS updates keep the icon you
+  pinned in the Dock, and Playlist with AI says when TIDAL or the AI failed instead of giving a
+  one-song playlist.
+
 ## Repository layout
 
 ```
@@ -75,6 +102,7 @@ homefi/
 ├── crates/
 │   ├── homefi-core/           # Tidal auth + API, streams, lyrics, library, tagging, downloads, shared control
 │   ├── homefi-player/         # bit-perfect audio engine of the desktop app
+│   ├── homefi-disc/           # CD reading and ripping of the desktop app (own drive access, encoders)
 │   ├── homefi-cli/            # `homefi` command line app
 │   └── homefi-ffi/            # UniFFI bindings of the core for Android and iPhone
 ├── apps/
@@ -170,11 +198,16 @@ Features:
   never boosts more than +12 dB; the automatic preamp covers the device profile and the sound together,
   so nothing clips. Ask the AI in plain words (it explains every band in one line), or tap "How does it
   sound?" for a quick change.
-- **Playlists made by HomeFi** (also on the desktop, with your own AI): "Get ready for a concert" builds
-  an artist's tour set from the setlists of their latest shows, and "Make a party playlist" builds one
-  from a few taps and an optional short chat. Every song is checked against your library and TIDAL, so
-  songs the AI makes up are left out. They're saved in HomeFi only, never in your TIDAL account.
-  Settings → Playlists.
+- **Playlists made by HomeFi** (also on the desktop, with your own AI): "Make a playlist with AI" is a
+  simple chat where you ask for anything (a mood, a decade, a language, songs to start with); "Playlist
+  like this" starts from a song you like; "Get ready for a concert" builds an artist's tour set from the
+  setlists of their latest shows, and "Make a party playlist" builds one from a few taps and an optional
+  short chat. Every song is checked against your library and TIDAL, so songs the AI makes up are left
+  out. They're saved in HomeFi only, never in your TIDAL account. Settings → Playlists.
+- **Homefito** (also on the desktop): the mascot dances to the music; in mosh mode it grows long hair
+  and headbangs on the beat. Settings → Mascot (hair, follow the beat, headbang strength).
+- **Picture-in-picture**: leaving the app while music plays keeps a small player on screen, with
+  optional lyrics and Homefito (the desktop has its always-on-top mini player with the same options).
 - **What's new** (also on the desktop): after an update the app shows once what changed, read offline
   from this project's changelog. Settings → About shows it again, or turns it off.
 - **Crossfade** (also on the desktop, off by default so playback stays gapless and bit-perfect):

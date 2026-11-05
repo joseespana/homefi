@@ -63,7 +63,8 @@
   const soundTagTitle = $derived(
     `${p?.auditioning ? "Trying" : "Sound on"}: ${layers ?? "on"}. Playback is not bit-perfect.\nOpen the room to see the signal chain.`,
   );
-  const showHow = $derived(sound.ui.react_deck && !src.remote);
+  // with the player buttons on top it sits with them in the top bar
+  const showHow = $derived(sound.ui.react_deck && !src.remote && !buttonsTop);
   const showSound = $derived(app.settings?.eq_ui?.deck_button ?? true);
 
   // the one Sound button: what it says depends on the master switch, the output and this song
@@ -428,7 +429,7 @@
     min-width: 34px;
     height: 34px;
     padding: 0 12px;
-    border-radius: var(--r-pill);
+    border-radius: var(--r-sm);
     background: var(--glass-strong);
     border: 1px solid var(--glass-border);
     color: var(--text);

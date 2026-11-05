@@ -239,8 +239,9 @@ impl PartySession {
                 })
                 .collect();
             self.messages.push(Message::Tool { results });
-            // only quick replies: the question is asked, wait for the user
-            if !needs_model {
+            // the tools are answered and the AI has spoken: wait for the user. Some models call the
+            // tools first and write after the results, so with no words yet they get one more round.
+            if !needs_model && !texts.is_empty() {
                 break;
             }
         }
@@ -298,12 +299,14 @@ impl PartySession {
             let instruction = build_instruction(&self.brief, &settings, ask_count(missing_ms), &self.last_songs, &pool);
             let proposed = self.ask_for_songs(&config, instruction).await?;
             let fresh: Vec<Proposed> = proposed.into_iter().filter(|p| pool.asked.insert(p.key())).collect();
+            pool.proposed += fresh.len();
             let (candidates, energies): (Vec<SongCandidate>, Vec<u8>) =
                 fresh.into_iter().map(|p| (p.candidate, p.energy)).unzip();
             let resolved = resolver
                 .resolve_all(candidates, &|done, total| progress(PartyProgress::Resolving { done, total }))
                 .await;
             for (resolved, energy) in resolved.into_iter().zip(energies) {
+                pool.failed += usize::from(resolved.failed);
                 pool.add(resolved.entry, resolved.candidate, energy, self.brief.allow_explicit());
             }
             pool.kept = cap_per_artist(std::mem::take(&mut pool.kept), settings.party_max_per_artist);
@@ -312,8 +315,21 @@ impl PartySession {
             }
         }
 
-        if pool.kept.is_empty() && pool.pinned.is_empty() {
-            return Err(words::problem(self.lang, Problem::NoSongs));
+        // nothing of the AI's own was found: a playlist of only the songs the user named is no playlist
+        if pool.kept.is_empty() {
+            let problem = if pool.proposed == 0 {
+                Problem::NoProposals
+            } else if pool.failed * 2 >= pool.proposed {
+                Problem::TidalBusy { failed: pool.failed, asked: pool.proposed }
+            } else {
+                Problem::NoSongs
+            };
+            tracing::warn!(
+                proposed = pool.proposed,
+                failed = pool.failed,
+                "a playlist with AI found none of its songs"
+            );
+            return Err(words::problem(self.lang, problem));
         }
         let pinned_ms = pool.pinned_ms();
         let (picked, _rest) = pick_for_duration(std::mem::take(&mut pool.kept), target_ms.saturating_sub(pinned_ms));
@@ -321,7 +337,7 @@ impl PartySession {
         // the songs the user named open the playlist, in their order; the rest follows the energy curve
         let mut entries = std::mem::take(&mut pool.pinned);
         entries.extend(arrange(picked, self.brief.curve(), self.lang));
-        let note = self.note(target_ms.saturating_sub(picked_ms), pool.explicit_left_out, ctx.api.is_none());
+        let note = self.note(target_ms.saturating_sub(picked_ms), &pool, ctx.api.is_none());
         let last_songs = entries.iter().take(MAX_LAST_SONGS).map(|e| format!("{} – {}", e.artist, e.title)).collect();
         let now = now_ms();
         let playlist = HomePlaylist {
@@ -363,14 +379,18 @@ impl PartySession {
         }
     }
 
-    /// Short of the length, explicit songs left out, no Tidal: said in words, joined with a space.
-    fn note(&self, short_ms: u64, explicit_left_out: usize, no_tidal: bool) -> Option<String> {
+    /// Short of the length, searches TIDAL didn't answer, explicit songs left out, no Tidal: said in
+    /// words, joined with a space.
+    fn note(&self, short_ms: u64, pool: &Pool, no_tidal: bool) -> Option<String> {
         let mut parts = Vec::new();
         if short_ms > AVG_SONG_MS {
             parts.push(words::short_note(self.lang, short_ms / MS_PER_MINUTE, self.brief.minutes()));
         }
-        if explicit_left_out > 0 {
-            parts.push(words::explicit_note(self.lang, explicit_left_out));
+        if pool.failed > 0 {
+            parts.push(words::failed_note(self.lang, pool.failed));
+        }
+        if pool.explicit_left_out > 0 {
+            parts.push(words::explicit_note(self.lang, pool.explicit_left_out));
         }
         if no_tidal {
             parts.push(concert_words::no_tidal_note(self.lang));
@@ -423,6 +443,9 @@ struct Pool {
     seen: SeenEntries,
     asked: HashSet<(String, String)>,
     explicit_left_out: usize,
+    /// Songs the AI proposed (repeats left out), and those whose TIDAL search failed or timed out.
+    proposed: usize,
+    failed: usize,
 }
 
 impl Pool {
@@ -750,6 +773,30 @@ mod tests {
         assert_eq!(session.brief().as_chat(), Some(&brief));
         // one model call: both tools are answered without asking the model again
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_model_that_calls_tools_first_gets_to_say_its_words() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(anthropic(json!([
+                { "type": "tool_use", "id": "t1", "name": "suggest_replies", "input": { "options": ["A", "B"] } },
+                { "type": "tool_use", "id": "t2", "name": "set_playlist", "input": { "title": "French club" } }
+            ])))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .respond_with(anthropic(
+                json!([{ "type": "text", "text": "French club from the 2010s, opening with Stromae." }]),
+            ))
+            .mount(&server)
+            .await;
+        let mut session = chat_session(&server);
+        let turn = session.reply("alors dance and similar").await.unwrap();
+        assert_eq!(turn.text, "French club from the 2010s, opening with Stromae.");
+        assert_eq!(turn.quick_replies, ["A", "B"], "the replies of the first round stay");
+        assert_eq!(server.received_requests().await.unwrap().len(), 2);
     }
 
     #[tokio::test]

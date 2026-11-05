@@ -2,9 +2,12 @@
   import { busy } from "../lib/busy.svelte";
   import { buttonsOnTop, toggleShare } from "../lib/playerButtons.svelte";
   import { share } from "../lib/share.svelte";
+  import { sound } from "../lib/sound.svelte";
+  import { shownSource as src } from "../lib/source.svelte";
   import { app } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
   import PlayerButtons from "./PlayerButtons.svelte";
+  import HowSounds from "./sound/HowSounds.svelte";
 
   let { queueOpen = $bindable(false) }: { queueOpen?: boolean } = $props();
 
@@ -29,6 +32,7 @@
       </button>
     {/if}
     <div class="cluster" role="toolbar" aria-label="Player tools">
+      {#if sound.ui.react_deck && !src.remote}<HowSounds place="top" look="tb" />{/if}
       <PlayerButtons look="ghost" bind:queueOpen />
     </div>
   {/if}

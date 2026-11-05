@@ -8,8 +8,9 @@
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
 
-  // `look`: the deck's hardware button, the room's chip, or a skin's chip (light on light skins)
-  let { place, look = "chip", up = false }: { place: "deck" | "room"; look?: "hw" | "chip" | "skin" | "skin-light"; up?: boolean } = $props();
+  // `look`: the deck's hardware button, the top bar's quiet button, the room's chip, or a skin's chip (light on light skins)
+  let { place, look = "chip", up = false }: { place: "deck" | "room" | "top"; look?: "hw" | "tb" | "chip" | "skin" | "skin-light"; up?: boolean } = $props();
+  const iconOnly = $derived(look === "hw" || look === "tb");
 
   const open = $derived(sound.reacting === place);
   const now = $derived(sound.now);
@@ -26,7 +27,7 @@
 
 <div class="how look-{look}" class:up>
   <button
-    class={look === "hw" ? "hw small" : "chip"}
+    class={look === "hw" ? "hw small" : look === "tb" ? "tb" : "chip"}
     class:on={open}
     title="How does it sound?"
     aria-label="How does it sound?"
@@ -34,8 +35,8 @@
     disabled={!playing}
     onclick={() => sound.open(place)}
   >
-    <Icon name="soundwave" size={look === "hw" ? 16 : 14} />
-    {#if look !== "hw"}<span class="label">How does it sound?</span>{/if}
+    <Icon name="soundwave" size={iconOnly ? 16 : 14} />
+    {#if !iconOnly}<span class="label">How does it sound?</span>{/if}
   </button>
 
   {#if open}
@@ -86,6 +87,23 @@
   .how {
     position: relative;
     display: inline-flex;
+  }
+  /* the top bar's quiet button, the same as its neighbours (PlayerButtons' tb-btn) */
+  .tb {
+    display: grid;
+    place-items: center;
+    width: var(--tb-size, 30px);
+    height: var(--tb-size, 30px);
+    border-radius: var(--r-xs);
+    color: var(--muted);
+  }
+  .tb:hover:not(:disabled),
+  .tb.on {
+    background-color: var(--surface-2);
+    color: var(--text);
+  }
+  .tb:disabled {
+    opacity: 0.4;
   }
   .chip {
     display: inline-flex;

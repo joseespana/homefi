@@ -72,6 +72,13 @@ pub(crate) enum Problem {
     NoSongs,
     /// A chat playlist before the user said what they want.
     NothingAsked,
+    /// The AI answered without a single song.
+    NoProposals,
+    /// Most of TIDAL's searches failed or timed out.
+    TidalBusy {
+        failed: usize,
+        asked: usize,
+    },
 }
 
 pub(crate) fn problem(lang: Lang, p: Problem) -> Error {
@@ -86,6 +93,16 @@ pub(crate) fn problem(lang: Lang, p: Problem) -> Error {
             "Your AI didn't suggest any songs HomeFi could find. Try again or change the answers.".into(),
             "Tu IA no sugirió canciones que HomeFi pudiera encontrar. Inténtalo de nuevo o cambia las respuestas."
                 .into(),
+        ),
+        Problem::NoProposals => say(
+            lang,
+            "Your AI answered without suggesting any songs. Try again.".into(),
+            "Tu IA respondió sin sugerir canciones. Inténtalo de nuevo.".into(),
+        ),
+        Problem::TidalBusy { failed, asked } => say(
+            lang,
+            format!("TIDAL didn't answer {failed} of the {asked} searches, so the songs couldn't be checked. Try again in a minute."),
+            format!("TIDAL no respondió {failed} de las {asked} búsquedas, así que no se pudieron comprobar las canciones. Inténtalo de nuevo en un minuto."),
         ),
         Problem::NothingAsked => say(
             lang,
@@ -113,6 +130,15 @@ pub(crate) fn short_note(lang: Lang, short_minutes: u64, target_minutes: u16) ->
         format!("{short_minutes} min short of {length}: not enough of the suggested songs were found."),
         format!("Faltan {short_minutes} min para {length}: no se encontraron suficientes canciones sugeridas."),
     )
+}
+
+pub(crate) fn failed_note(lang: Lang, failed: usize) -> String {
+    match (lang, failed) {
+        (Lang::En, 1) => "TIDAL didn't answer 1 search.".into(),
+        (Lang::Es, 1) => "TIDAL no respondió 1 búsqueda.".into(),
+        (Lang::En, n) => format!("TIDAL didn't answer {n} searches."),
+        (Lang::Es, n) => format!("TIDAL no respondió {n} búsquedas."),
+    }
 }
 
 pub(crate) fn explicit_note(lang: Lang, left_out: usize) -> String {

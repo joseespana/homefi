@@ -55,6 +55,8 @@ class PartyStore {
   /** Built, not saved yet (or, when rebuilding a saved playlist, already saved over). */
   draft = $state.raw<PartyBuilt | null>(null);
   error = $state<string | null>(null);
+  /** The words of a message the AI couldn't answer: they go back to the field (and out of the chat). */
+  retryText = $state<string | null>(null);
   /** The saved playlist being rebuilt ("Change answers"). */
   replaceId = $state<string | null>(null);
   /** The session is open in the backend. */
@@ -167,22 +169,31 @@ class PartyStore {
     if (!t || !this.opened || this.thinking || this.building || this.chatClosed) return;
     this.messages = [...this.messages, { fromUser: true, text: t }];
     this.quickReplies = [];
-    await this.#turn(() => api.partyReply(t));
+    const epoch = this.#epoch;
+    const answered = await this.#turn(() => api.partyReply(t));
+    // the core dropped it too: take it out of the chat and hand it back, so nothing is built from it
+    if (!answered && epoch === this.#epoch && this.messages.at(-1)?.text === t) {
+      this.messages = this.messages.slice(0, -1);
+      this.retryText = t;
+    }
   }
 
-  async #turn(ask: () => Promise<PartyTurn>) {
+  /** One chat turn; false when the AI couldn't answer (the error says why). */
+  async #turn(ask: () => Promise<PartyTurn>): Promise<boolean> {
     const epoch = this.#epoch;
     this.thinking = true;
     this.error = null;
     try {
       await this.#sync();
       const turn = await ask();
-      if (epoch !== this.#epoch) return;
+      if (epoch !== this.#epoch) return false;
       this.messages = [...this.messages, { fromUser: false, text: turn.text }];
       this.quickReplies = turn.quick_replies;
       if (this.mode === "chat") this.chatBrief = turn.chat_brief ?? this.chatBrief;
+      return true;
     } catch (e) {
       if (epoch === this.#epoch) this.error = errorText(e);
+      return false;
     } finally {
       if (epoch === this.#epoch) this.thinking = false;
     }
@@ -262,6 +273,7 @@ class PartyStore {
     this.progress = null;
     this.draft = null;
     this.error = null;
+    this.retryText = null;
     this.replaceId = null;
     this.opened = false;
     this.unavailable = false;

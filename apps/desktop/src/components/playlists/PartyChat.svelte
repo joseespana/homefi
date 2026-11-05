@@ -22,6 +22,15 @@
     tick().then(() => log?.scrollTo({ top: log.scrollHeight }));
   });
 
+  // a message the AI couldn't answer comes back to the field, ready to send again
+  $effect(() => {
+    const back = party.retryText;
+    if (back == null) return;
+    text = back;
+    party.retryText = null;
+    tick().then(() => input?.focus());
+  });
+
   function send(e?: Event) {
     e?.preventDefault();
     const t = text.trim();
@@ -52,34 +61,45 @@
     {/if}
   </div>
 
-  {#if closed}
-    <p class="muted closing">Build the playlist when you're ready.</p>
-  {:else}
-    <form class="field" onsubmit={send}>
-      <input bind:this={input} bind:value={text} maxlength="500" placeholder="Type an answer or tap one" aria-label="Your answer" disabled={disabled} autocomplete="off" />
-      <button class="send" aria-label="Send" title="Send" disabled={!text.trim() || busy}><Icon name="send" size={16} /></button>
-    </form>
-    <span class="muted count">{party.userTurns} of {party.maxTurns} answers</span>
-  {/if}
+  <div class="foot">
+    {#if closed}
+      <p class="muted closing">Build the playlist when you're ready.</p>
+    {:else}
+      <form class="field" onsubmit={send}>
+        <input bind:this={input} bind:value={text} maxlength="500" placeholder="Type an answer or tap one" aria-label="Your answer" disabled={disabled} autocomplete="off" />
+        <span class="count" title="Answers so far">{party.userTurns}/{party.maxTurns}</span>
+        <button class="send" aria-label="Send" title="Send" disabled={!text.trim() || busy}><Icon name="send" size={16} /></button>
+      </form>
+    {/if}
+  </div>
 </section>
 
 <style>
+  /* one card: the conversation, and the field docked at its foot */
   .chat {
     display: flex;
     flex-direction: column;
-    gap: 8px;
     min-width: 0;
+    border-radius: var(--r-lg);
+    background: color-mix(in srgb, var(--surface) 72%, transparent);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 18px 40px -28px rgb(0 0 0 / 0.6);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    overflow: hidden;
   }
   .log {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    max-height: 360px;
+    gap: 12px;
+    min-height: 180px;
+    max-height: min(440px, 52vh);
     overflow-y: auto;
-    padding: 12px;
-    border-radius: var(--r-md);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
+    padding: 18px 18px 12px;
+  }
+  .foot {
+    padding: 10px;
+    border-top: 1px solid var(--glass-border);
   }
   .row {
     display: flex;
@@ -140,12 +160,14 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 5px 5px 5px 14px;
-    border-radius: var(--r-pill);
+    padding: 4px 4px 4px 12px;
+    border-radius: var(--r-md);
     background: var(--surface-2);
-    border: 1.5px solid color-mix(in srgb, var(--primary) 70%, var(--border));
+    border: 1px solid var(--border);
+    transition: border-color 0.15s, box-shadow 0.15s;
   }
   .field:focus-within {
+    border-color: color-mix(in srgb, var(--primary) 70%, var(--border));
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent);
   }
   .field input {
@@ -166,7 +188,7 @@
     place-items: center;
     width: 34px;
     height: 34px;
-    border-radius: 50%;
+    border-radius: var(--r-sm);
     background: var(--primary);
     color: var(--on-primary);
   }
@@ -174,12 +196,14 @@
     opacity: 0.45;
   }
   .count {
-    font-size: 11.5px;
-    opacity: 0.8;
-    padding-left: 6px;
+    flex: none;
+    font: 11px var(--font-mono);
+    color: var(--faint);
   }
   .closing {
     margin: 0;
+    padding: 8px 6px;
+    text-align: center;
   }
   .typing {
     display: flex;

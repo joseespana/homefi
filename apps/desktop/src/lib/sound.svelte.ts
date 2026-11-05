@@ -220,7 +220,7 @@ const newId = () => `s${Date.now().toString(16)}${Math.floor(Math.random() * 65_
 
 class SoundStore {
   /** The reactions popover is open (in the deck or the room). */
-  reacting = $state<"deck" | "room" | null>(null);
+  reacting = $state<"deck" | "room" | "top" | null>(null);
   busy = $state<SoundReaction | null>(null);
   /** The sound playing now; replaced wholesale. */
   now = $state.raw<NowSound | null>(null);
@@ -298,7 +298,7 @@ class SoundStore {
     }
   }
 
-  open(place: "deck" | "room") {
+  open(place: "deck" | "room" | "top") {
     this.reacting = this.reacting === place ? null : place;
     if (this.reacting) this.refreshNow();
   }
