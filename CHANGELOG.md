@@ -7,6 +7,8 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.6] - 2026-11-05
+
 ### Added
 - Android Auto: HomeFi shows up in the car. Browse Recently played, the playlists HomeFi made, Albums,
   Artists and Songs, and search by voice ("play … on HomeFi"); picking a song in a list plays the
