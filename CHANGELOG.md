@@ -7,6 +7,8 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.5] - 2026-11-05
+
 ### Changed
 - Playlist with AI: a centred, responsive screen. The chat is one card with the field at its foot,
   what the AI understood (title, the songs that open it, length, energy) shows as tags beside Build,
