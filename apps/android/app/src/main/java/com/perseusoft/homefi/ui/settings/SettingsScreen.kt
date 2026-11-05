@@ -234,6 +234,7 @@ private enum class SettingsPage(val title: Int, val icon: ImageVector, val secti
         listOf(
             R.string.crossfade_on, R.string.crossfade_keywords, R.string.crossfade_curve, R.string.crossfade_smart,
             R.string.crossfade_album_runs, R.string.crossfade_manual, R.string.crossfade_low_power,
+            R.string.car_enabled, R.string.car_keywords,
         ),
     ),
     PLAYLISTS(

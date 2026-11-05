@@ -41,8 +41,8 @@ private fun FadeCurve.hintRes(): Int = when (this) {
 }
 
 /**
- * Settings → Playback: crossfade, the same settings (and JSON) as the desktop's.
- * Changes apply from the next transition.
+ * Settings → Playback: crossfade, the same settings (and JSON) as the desktop's
+ * (changes apply from the next transition), then Android Auto.
  */
 @Composable
 internal fun PlaybackSettings() {
@@ -97,6 +97,7 @@ internal fun PlaybackSettings() {
             SwitchRow(stringResource(R.string.crossfade_low_power), s.lowPowerFallback, hint = stringResource(R.string.crossfade_low_power_hint)) { set(s.copy(lowPowerFallback = it)) }
         }
     }
+    CarSettings()
 }
 
 /** A seconds slider that saves when let go (the audio picks it up at the next transition). */

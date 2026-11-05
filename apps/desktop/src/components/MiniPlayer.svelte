@@ -22,6 +22,8 @@
   const LYRICS_H = 76;
   const MASCOT_W = 104;
   const MASCOT_SIZE = 96;
+  /** How long to wait for a first frame before showing the window anyway (ms). */
+  const READY_FALLBACK_MS = 120;
 
   $effect(() => {
     // only what this window shows, then it appears (see `mini_ready`)
@@ -29,7 +31,16 @@
       .initMini()
       .catch((e) => console.warn("[homefi] mini player", e))
       .finally(() => {
-        requestAnimationFrame(() => api.miniReady().catch(() => {}));
+        // after the first paint; but a hidden window gets no animation frames on macOS, and the
+        // window stays hidden until this call, so a short timer stands in when no frame comes
+        let told = false;
+        const ready = () => {
+          if (told) return;
+          told = true;
+          api.miniReady().catch(() => {});
+        };
+        requestAnimationFrame(ready);
+        setTimeout(ready, READY_FALLBACK_MS);
         share.init();
       });
   });

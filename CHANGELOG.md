@@ -7,6 +7,17 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Added
+- Android Auto: HomeFi shows up in the car. Browse Recently played, the playlists HomeFi made, Albums,
+  Artists and Songs, and search by voice ("play … on HomeFi"); picking a song in a list plays the
+  list from it. The car shows its own player with the cover and controls (lyrics stay on the phone:
+  cars don't let music apps draw their own screens). Settings → Playback → Android Auto
+  turns it off or hides any section.
+
+### Fixed
+- macOS: the mini player opens again. It waited for a first frame before showing itself, and macOS
+  draws no frames in a hidden window, so it closed itself after a few seconds.
+
 ## [1.5.5] - 2026-11-05
 
 ### Changed

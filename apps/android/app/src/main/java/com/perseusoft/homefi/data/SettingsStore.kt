@@ -264,6 +264,13 @@ data class AppSettings(
     val pipLyrics: Boolean = false,
     /** The picture-in-picture player shows HomeFito dancing. */
     val pipMascot: Boolean = false,
+    /** Android Auto (and other media browsers) can browse HomeFi; each section can be hidden. */
+    val carEnabled: Boolean = true,
+    val carRecent: Boolean = true,
+    val carPlaylists: Boolean = true,
+    val carAlbums: Boolean = true,
+    val carArtists: Boolean = true,
+    val carSongs: Boolean = true,
     val share: ShareSettings = ShareSettings(),
     val ai: AiSettings = AiSettings(),
     /** "How does it sound?" button in the player (it stays in the player's menu either way). */
@@ -397,6 +404,12 @@ class SettingsStore(context: Context) {
         lyricsOffsetMs = prefs.getInt("lyrics_offset_ms", 0).coerceIn(LYRICS_OFFSET_RANGE),
         pipEnabled = prefs.getBoolean("pip_enabled", true),
         pipLyrics = prefs.getBoolean("pip_lyrics", false),
+        carEnabled = prefs.getBoolean("car_enabled", true),
+        carRecent = prefs.getBoolean("car_recent", true),
+        carPlaylists = prefs.getBoolean("car_playlists", true),
+        carAlbums = prefs.getBoolean("car_albums", true),
+        carArtists = prefs.getBoolean("car_artists", true),
+        carSongs = prefs.getBoolean("car_songs", true),
         pipMascot = prefs.getBoolean("pip_mascot", false),
         share = loadShare(),
         ai = AiSettings(
@@ -524,6 +537,12 @@ class SettingsStore(context: Context) {
             .putInt("lyrics_offset_ms", next.lyricsOffsetMs.coerceIn(LYRICS_OFFSET_RANGE))
             .putBoolean("pip_enabled", next.pipEnabled)
             .putBoolean("pip_lyrics", next.pipLyrics)
+            .putBoolean("car_enabled", next.carEnabled)
+            .putBoolean("car_recent", next.carRecent)
+            .putBoolean("car_playlists", next.carPlaylists)
+            .putBoolean("car_albums", next.carAlbums)
+            .putBoolean("car_artists", next.carArtists)
+            .putBoolean("car_songs", next.carSongs)
             .putBoolean("pip_mascot", next.pipMascot)
             .putShare(next.share)
             .putString("ai_provider", next.ai.provider)

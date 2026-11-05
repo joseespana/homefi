@@ -702,4 +702,13 @@
     <string name="settings_sharing_permissions">What guests can do</string>
     <string name="settings_ai_connection">Connection</string>
     <string name="settings_ai_model">Model</string>
+    <string name="car_title">Android Auto</string>
+    <string name="car_keywords">android auto, car, driving, vehicle</string>
+    <string name="car_enabled">Show HomeFi in the car</string>
+    <string name="car_enabled_hint">Browse and search your music from the car screen. Lyrics stay on the phone: cars only show their own player.</string>
+    <string name="car_recent">Recently played</string>
+    <string name="car_playlists">Made by HomeFi</string>
+    <string name="car_albums">Albums</string>
+    <string name="car_artists">Artists</string>
+    <string name="car_songs">Songs</string>
 </resources>

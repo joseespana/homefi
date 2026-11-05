@@ -89,8 +89,9 @@ after updating (Settings → About → What's new).
 - **A cleaner player** (1.5.2–1.5.5): lyrics, queue, mini player and "How does it sound?" in a top bar
   (or the bottom bar, your choice), one Sound button, readable quality tags in search, one set of
   rounded corners across the app, a calmer Settings and a centred, responsive Playlist with AI screen.
-- **Fixes** (1.5.3–1.5.5): HomeFi no longer closes by itself on macOS (a bug in the audio library when
-  it listed the outputs), the mini player always opens on screen, macOS updates keep the icon you
+- **Android Auto** (1.5.6): your library and HomeFi's playlists on the car screen, with voice search.
+- **Fixes** (1.5.3–1.5.6): HomeFi no longer closes by itself on macOS (a bug in the audio library when
+  it listed the outputs), the mini player opens again and always on screen, macOS updates keep the icon you
   pinned in the Dock, and Playlist with AI says when TIDAL or the AI failed instead of giving a
   one-song playlist.
 
@@ -208,6 +209,9 @@ Features:
   and headbangs on the beat. Settings → Mascot (hair, follow the beat, headbang strength).
 - **Picture-in-picture**: leaving the app while music plays keeps a small player on screen, with
   optional lyrics and Homefito (the desktop has its always-on-top mini player with the same options).
+- **Android Auto**: browse recently played, HomeFi's playlists, albums, artists and songs from the car
+  screen, or ask by voice; the car shows its own player (cover and controls). Each section can be
+  hidden in Settings.
 - **What's new** (also on the desktop): after an update the app shows once what changed, read offline
   from this project's changelog. Settings → About shows it again, or turns it off.
 - **Crossfade** (also on the desktop, off by default so playback stays gapless and bit-perfect):
