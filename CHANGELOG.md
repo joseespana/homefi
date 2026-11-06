@@ -7,6 +7,10 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Fixed
+- macOS: after an update HomeFi opens on the Dock's pinned icon instead of a second one. The new
+  version now opens only once the old one has quit (takes effect from the update after this one).
+
 ## [1.5.7] - 2026-11-05
 
 ### Added

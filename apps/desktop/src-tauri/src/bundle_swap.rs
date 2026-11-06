@@ -72,6 +72,38 @@ pub fn install(bundle: &Path, bytes: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
+/// Longest wait for this process to end before the new version opens anyway.
+const RELAUNCH_WAIT_TENTHS: u32 = 300;
+
+/// Shell: waits while process `$1` lives, `$3` tenths of a second at most.
+const WAIT_FOR_EXIT: &str =
+    r#"i=0; while kill -0 "$1" 2>/dev/null && [ "$i" -lt "$3" ]; do sleep 0.1; i=$((i+1)); done"#;
+
+/// Opens `bundle` once this process has exited, through LaunchServices.
+///
+/// Tauri's restart runs `open -n` while the old process is still alive: two copies of the
+/// app run for a moment and the Dock gives the new one its own icon, next to the pinned one.
+/// A small detached shell waits for this process to end, then opens the app normally, so the
+/// Dock sees one app and lights its pinned icon. The caller exits right after.
+pub fn relaunch_after_exit(bundle: &Path) -> io::Result<()> {
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+    Command::new("/bin/sh")
+        .arg("-c")
+        .arg(format!(r#"{WAIT_FOR_EXIT}; exec /usr/bin/open "$2""#))
+        .arg("homefi-relaunch")
+        .arg(std::process::id().to_string())
+        .arg(bundle)
+        .arg(RELAUNCH_WAIT_TENTHS.to_string())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        // its own process group: it outlives us and nothing we send reaches it
+        .process_group(0)
+        .spawn()
+        .map(drop)
+}
+
 /// Exchanges two paths on one volume in a single step (`renamex_np` with `RENAME_SWAP`, APFS).
 fn swap(a: &Path, b: &Path) -> io::Result<()> {
     let a = CString::new(a.as_os_str().as_bytes())?;
@@ -118,6 +150,21 @@ mod tests {
         assert_eq!(std::fs::read_to_string(bundle.join("Contents/Info.plist")).unwrap(), "1.5.3");
         assert!(bundle.join("Contents/MacOS/bin").is_file());
         assert!(!bundle.join("Contents/old-only").exists(), "nothing of the old version is left");
+    }
+
+    #[test]
+    fn the_relaunch_waits_for_the_old_process() {
+        // opening needs LaunchServices; the waiting is what matters: not done while the pid lives
+        let script = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(format!(r#"{WAIT_FOR_EXIT}; echo "$i""#))
+            .arg("t")
+            .arg(std::process::id().to_string())
+            .arg("unused")
+            .arg("3")
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&script.stdout).trim(), "3", "waited while alive, up to the cap");
     }
 
     #[test]

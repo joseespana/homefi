@@ -442,7 +442,7 @@ fn install_and_restart(app: &AppHandle) {
         app.state::<AppState>().player.pause();
         match install(&update, &bytes) {
             // macOS / Linux: the new version is in place; the Exit event says goodbye to guests
-            Ok(()) => app.restart(),
+            Ok(()) => relaunch(&app),
             Err(e) => {
                 let text = humane(&e);
                 app.state::<Updates>().change(&app, |i| {
@@ -454,6 +454,19 @@ fn install_and_restart(app: &AppHandle) {
             }
         }
     });
+}
+
+/// Opens the new version and quits. macOS: it opens only after this process is gone, so the
+/// Dock keeps one icon (see `bundle_swap::relaunch_after_exit`); elsewhere Tauri's restart.
+fn relaunch(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    if let Some(bundle) = crate::bundle_swap::current_bundle() {
+        match crate::bundle_swap::relaunch_after_exit(&bundle) {
+            Ok(()) => return app.exit(0),
+            Err(e) => tracing::warn!("relaunch after exit failed ({e}), restarting directly"),
+        }
+    }
+    app.restart();
 }
 
 /// Puts the new version in place. macOS: the bundle's Contents are swapped and its folder is kept,
