@@ -7,12 +7,15 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.9] - 2026-11-09
+
 ### Added
 - HomeFi for Android TV and Google TV (first part). The same app shows a TV interface on a TV:
   sign in to TIDAL with a QR or a code, Home, your library, search (on-screen keyboard, voice
   where the TV has it), your TIDAL collection, downloads to the TV or a USB drive (paused when
   the drive is pulled out), a full-screen player with lyrics and karaoke, an ambient mode while
-  music plays, and updates by itself. Playlists, Sound and Party on the TV come next.
+  music plays, your playlists, the sound settings, a party others join from their phones, and
+  updates by itself. The player's controls stay on screen (hiding them is a setting).
 - Rides on the TV without typing anything: the TV shows a QR, the phone scans it once, and from
   then on every ride opens on the TV by itself. The ride screen on the TV was redesigned and can
   show the song's lyrics in time with the music (a setting). "Put HomeFi on your TV" in the
