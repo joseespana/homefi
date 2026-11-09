@@ -148,4 +148,17 @@
     <string name="pl_set_chat_from_song">“Playlist como esta” en los menús de canciones</string>
     <string name="pl_set_chat_from_song_hint">Crea una playlist con IA a partir de una canción</string>
     <string name="pl_set_chat_from_song_keywords">Playlist como esta, canciones parecidas, menú de canción, IA, a partir de una canción</string>
+    <string name="pl_tidal_save">Guardar en TIDAL</string>
+    <string name="pl_tidal_update">Actualizar en TIDAL</string>
+    <string name="pl_tidal_saving">Guardando en TIDAL…</string>
+    <string name="pl_tidal_failed">No se pudo guardar en TIDAL: %1$s</string>
+    <string name="pl_tidal_not_there">No están en TIDAL (%1$d)</string>
+    <string name="pl_in_homefi_and_tidal">Se guarda en HomeFi y en tu cuenta de TIDAL.</string>
+    <string name="pl_delete_confirm_tidal">¿Borrar «%s»? Se quita de HomeFi y también se borra su copia en tu cuenta de TIDAL. Tu música no se toca.</string>
+    <string name="pl_set_tidal">Guardar en TIDAL</string>
+    <string name="pl_set_tidal_auto">Guardar en TIDAL automáticamente</string>
+    <string name="pl_set_tidal_auto_hint">Las playlists que guardas en HomeFi se agregan a tu cuenta de TIDAL, así aparecen en todos tus dispositivos, y se mantienen iguales cuando las cambias.</string>
+    <string name="pl_set_tidal_delete">Borrar también la copia en TIDAL</string>
+    <string name="pl_set_tidal_delete_hint">Al borrar una playlist en HomeFi también se borra la copia que HomeFi guardó en tu cuenta de TIDAL.</string>
+    <string name="pl_set_tidal_keywords">TIDAL, cuenta, sincronizar, subir, todos los dispositivos, copia, automático</string>
 </resources>

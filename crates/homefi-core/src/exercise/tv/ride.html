@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="{{LANG}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>{{TITLE}}</title>
+<style>
+  /* One renderer for the TV: a browser on the LAN, the desktop's TV window and Android TV's WebView.
+     Always dark. The layout is a 16:9 stage measured in rem, where 1rem = 10 vh (or 17.78 vw on a narrower
+     window), so it is the same at any resolution and letterboxed on any other shape. At 1080p, 0.44rem = 44 px:
+     the key text is never smaller. No filters, no blur, no per-frame layout: the beat only moves opacity and
+     transform. Colours: --k is the part's zone colour, --z the tint now (the interval's work / rest colour). */
+  html { font-size: calc(min(1vh, 0.5625vw) * 10); background: #04060a; }
+  body { margin: 0; height: 100vh; overflow: hidden; color: #f4f7fb; cursor: none; background: #04060a;
+    font-family: "SF Pro Display", "Helvetica Neue", Helvetica, Arial, "Segoe UI", Roboto, sans-serif;
+    --k: #4f8cff; --z: #4f8cff; --kr: 79,140,255; --zr: 79,140,255; }
+  .amb { position: fixed; left: 0; top: 0; right: 0; bottom: 0; opacity: 0; transition: opacity 0.9s ease; }
+  .amb.on { opacity: 1; }
+  #vignette { position: fixed; left: 0; top: 0; right: 0; bottom: 0; pointer-events: none;
+    background: radial-gradient(ellipse 90% 80% at 50% 45%, rgba(4,6,10,0) 55%, rgba(4,6,10,0.7) 100%); }
+  #stage { position: absolute; left: 50%; top: 50%; width: 17.778rem; height: 10rem; margin-left: -8.889rem;
+    margin-top: -5rem; transition: opacity 0.3s; font-variant-numeric: tabular-nums; }
+  body[data-paused="1"] #stage { opacity: 0.28; }
+  .abs { position: absolute; }
+  .r, .d, .w, .c { visibility: hidden; }
+  body[data-mode="ride"] .r, body[data-mode="ride"] .c, body[data-mode="done"] .d, body[data-mode="done"] .c,
+  body[data-mode="wait"] .w { visibility: visible; }
+  .glass { border-radius: 0.34rem; border: 1px solid rgba(255,255,255,0.1); box-sizing: border-box;
+    background: linear-gradient(165deg, rgba(255,255,255,0.085), rgba(255,255,255,0.03) 60%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0.6rem 1.6rem rgba(0,0,0,0.38); }
+  .cap { font-size: 0.4rem; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #9fb0c6; }
+
+  /* header */
+  #title { left: 0.7rem; top: 0.34rem; height: 0.5rem; display: flex; align-items: center; font-size: 0.36rem;
+    font-weight: 700; letter-spacing: 0.06em; color: #9fb0c6; white-space: nowrap; }
+  #titleText { display: block; max-width: 7rem; overflow: hidden; text-overflow: ellipsis; }
+  #mark { width: 0.26rem; height: 0.26rem; border-radius: 50%; margin-right: 0.18rem; flex: none; background: var(--k);
+    box-shadow: 0 0 0.26rem var(--k), inset 0 0.03rem 0.05rem rgba(255,255,255,0.7); transition: background 0.6s; }
+  #clock { right: 1.1rem; top: 0.34rem; height: 0.5rem; display: flex; align-items: center; font-size: 0.4rem;
+    font-weight: 700; color: #9fb0c6; letter-spacing: 0.02em; }
+  #clock b { color: #f4f7fb; font-weight: 700; }
+  #link { right: 0.7rem; top: 0.49rem; width: 0.17rem; height: 0.17rem; border-radius: 50%; background: #8f2f2f; }
+
+  /* left: the part, how to ride it and how hard */
+  #now { left: 0.7rem; top: 1.1rem; width: 5.4rem; height: 5.35rem; padding: 0.4rem 0.4rem 0.38rem;
+    transition: transform 0.6s cubic-bezier(.3,.8,.3,1), width 0.6s cubic-bezier(.3,.8,.3,1);
+    display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
+  #now::before { content: ""; position: absolute; left: 0; top: 0; right: 0; height: 0.07rem;
+    background: linear-gradient(90deg, var(--k), rgba(var(--kr),0) 90%); }
+  #segment { font-size: 0.86rem; font-weight: 800; line-height: 1.02; letter-spacing: -0.01em; color: var(--k);
+    transition: color 0.6s; }
+  #segment.s1 { font-size: 0.72rem; }
+  #segment.s2 { font-size: 0.62rem; }
+  #segment.s3 { font-size: 0.54rem; }
+  #position { margin-top: 0.22rem; display: inline-flex; align-items: center; align-self: flex-start;
+    font-size: 0.46rem; font-weight: 700; line-height: 1.1; padding: 0.1rem 0.28rem 0.1rem 0.16rem;
+    border-radius: 0.4rem; background: rgba(255,255,255,0.09); color: #cfe3ff; }
+  #position svg { width: 0.5rem; height: 0.5rem; margin-right: 0.12rem; flex: none; fill: none; stroke: currentColor;
+    stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+  #pipsCap { margin-bottom: 0.14rem; }
+  #pips { display: flex; align-items: flex-end; height: 0.3rem; }
+  #pips i { display: block; flex: 1; margin-right: 0.05rem; height: 0.12rem; border-radius: 0.06rem; background: var(--p);
+    opacity: 0.3; }
+  #pips i:last-child { margin-right: 0; }
+  #pips i.done { opacity: 0.55; }
+  #pips i.cur { height: 0.3rem; opacity: 1; box-shadow: 0 0 0.2rem var(--p); }
+  #effortHead { display: flex; align-items: baseline; justify-content: space-between; }
+  #effortWord { font-size: 0.5rem; font-weight: 800; letter-spacing: 0.01em; }
+  #effortNum { font-size: 0.62rem; font-weight: 800; color: var(--k); transition: color 0.6s; }
+  #effortNum small { font-size: 0.4rem; font-weight: 700; color: #9fb0c6; margin-left: 0.04rem; }
+  #bars { display: flex; align-items: flex-end; justify-content: space-between; height: 0.62rem; margin-top: 0.14rem; }
+  #bars i { display: block; width: 0.37rem; border-radius: 0.09rem; background: rgba(255,255,255,0.12);
+    transition: background 0.5s; }
+
+  /* right: the clock of this part, and what is next */
+  #timerCard { right: 0.7rem; top: 1.1rem; width: 5.4rem; height: 3.05rem; padding: 0.34rem 0.4rem 0;
+    overflow: hidden; transition: transform 0.6s cubic-bezier(.3,.8,.3,1), width 0.6s cubic-bezier(.3,.8,.3,1); }
+  #timer { font-size: 1.4rem; font-weight: 800; line-height: 1; letter-spacing: -0.015em; white-space: nowrap; }
+  #round { margin-top: 0.14rem; font-size: 0.44rem; font-weight: 600; color: #b6c4d8; line-height: 1.12; }
+  #segBar { margin-top: 0.2rem; height: 0.14rem; border-radius: 0.1rem;
+    background: rgba(255,255,255,0.12); overflow: hidden; }
+  #segFill { height: 100%; width: 0; border-radius: 0.1rem; background: var(--k); transition: background 0.6s; }
+  #dots { margin-top: 0.2rem; height: 0.14rem; display: flex; align-items: center; }
+  #dots i { display: block; flex: 1; max-width: 0.6rem; height: 0.14rem; margin-right: 0.08rem; border-radius: 0.1rem;
+    background: rgba(255,255,255,0.14); }
+  #dots i.done { background: var(--z); opacity: 0.5; }
+  #dots i.cur { background: var(--z); box-shadow: 0 0 0.2rem var(--z); }
+  #nextCard { right: 0.7rem; top: 4.3rem; width: 5.4rem; height: 2.15rem; padding: 0.24rem 0.4rem 0 0.5rem;
+    overflow: hidden; opacity: 0.88; transition: opacity 0.4s, box-shadow 0.4s, transform 0.6s cubic-bezier(.3,.8,.3,1),
+    width 0.6s cubic-bezier(.3,.8,.3,1), top 0.6s cubic-bezier(.3,.8,.3,1); }
+  #nextCard::before { content: ""; position: absolute; left: 0; top: 0.22rem; bottom: 0.22rem; width: 0.09rem;
+    border-radius: 0 0.1rem 0.1rem 0; background: var(--n, #4f8cff); }
+  #nextCard.soon { opacity: 1; box-shadow: 0 0 0 0.04rem var(--n), 0 0 0.9rem rgba(var(--nr),0.35); }
+  #nextName { margin-top: 0.1rem; font-size: 0.62rem; font-weight: 800; line-height: 1.04; color: var(--n); }
+  #nextName.s1 { font-size: 0.54rem; }
+  #nextName.s2 { font-size: 0.47rem; }
+  #nextSub { margin-top: 0.1rem; font-size: 0.44rem; font-weight: 600; color: #cfdcec; }
+
+  /* centre: the cadence gauge */
+  #phase { left: 5.9rem; width: 6rem; top: 0.25rem; text-align: center; }
+  #phase span { display: inline-block; font-size: 0.56rem; font-weight: 900; letter-spacing: 0.14em; line-height: 0.74rem;
+    padding: 0 0.5rem 0 0.62rem; border-radius: 0.5rem; color: #05070a; background: var(--z); transition: background 0.4s;
+    box-shadow: 0 0 0.9rem rgba(var(--zr),0.55); }
+  #center { left: 6.239rem; top: 1.15rem; width: 5.3rem; height: 5.3rem; transition: transform 0.6s cubic-bezier(.3,.8,.3,1); }
+  #aura { position: absolute; left: -12%; top: -12%; width: 124%; height: 124%; opacity: 0; border-radius: 50%;
+    background: radial-gradient(circle, rgba(var(--zr),0.42) 0%, rgba(var(--zr),0.14) 45%, rgba(var(--zr),0) 68%); }
+  #dial { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; }
+  #dial .rot { transform-origin: 200px 200px; }
+  #dial .band, #dial .knobG { transition: transform 0.7s cubic-bezier(.3,.8,.3,1), stroke-dasharray 0.7s cubic-bezier(.3,.8,.3,1),
+    stroke 0.5s; }
+  #dial .halo { transform-origin: 200px 200px; opacity: 0; }
+  #readout { position: absolute; left: 0; right: 0; top: 0; bottom: 0; text-align: center; }
+  #rpm { position: absolute; left: 0; right: 0; top: 20%; font-size: 2.15rem; font-weight: 900; line-height: 1;
+    letter-spacing: -0.03em; white-space: nowrap; color: #fff; text-shadow: 0 0 0.5rem rgba(var(--zr),0.6);
+    will-change: transform; }
+  #rpm.three { font-size: 1.7rem; top: 22%; }
+  #unit { position: absolute; left: 0; right: 0; top: 63%; font-size: 0.46rem; font-weight: 800; letter-spacing: 0.3em;
+    color: var(--z); transition: color 0.4s; padding-left: 0.3em; }
+  #range { position: absolute; left: 0; right: 0; top: 79%; text-align: center; font-size: 0; }
+  #rangeText { display: inline-block; min-width: 1.6rem; padding: 0 0.26rem; height: 0.62rem; line-height: 0.62rem;
+    font-size: 0.5rem; font-weight: 800; white-space: nowrap; border-radius: 0.4rem; background: rgba(255,255,255,0.1); color: #fff; }
+  #pbar { position: absolute; left: 50%; margin-left: -1.1rem; width: 2.2rem; top: 93%; height: 0.14rem; border-radius: 0.1rem;
+    background: rgba(255,255,255,0.14); display: none; overflow: hidden; }
+  #pbarFill { height: 100%; width: 0; background: var(--z); }
+  #flash { position: fixed; left: 0; top: 0; right: 0; bottom: 0; opacity: 0; pointer-events: none; }
+
+  /* bottom: the course */
+  #panel { left: 0.7rem; width: 16.378rem; top: 6.65rem; height: 3.1rem; transition: top 0.6s cubic-bezier(.3,.8,.3,1), height 0.6s cubic-bezier(.3,.8,.3,1); overflow: hidden; }
+  /* the course is one canvas inside the panel (drawn at a fixed design size and scaled: see drawCourse) */
+  #course { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
+
+  /* states */
+  #waitMark { left: 7.389rem; top: 1.7rem; width: 3rem; height: 3rem; }
+  #waitMark i { position: absolute; left: 0; top: 0; right: 0; bottom: 0; border-radius: 50%; border: 0.05rem solid #4f8cff;
+    animation: ripple 3.2s ease-out infinite; opacity: 0; }
+  #waitMark i:nth-child(2) { animation-delay: 1.07s; }
+  #waitMark i:nth-child(3) { animation-delay: 2.13s; }
+  #waitMark b { position: absolute; left: 0.8rem; top: 0.8rem; width: 1.4rem; height: 1.4rem; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #fff, #4f8cff 55%, #1d3f87); box-shadow: 0 0 1.4rem rgba(79,140,255,0.7); }
+  @keyframes ripple { 0% { transform: scale(0.45); opacity: 0.8; } 100% { transform: scale(1.35); opacity: 0; } }
+  #brand { left: 0; width: 17.778rem; top: 5.05rem; text-align: center; font-size: 0.8rem; font-weight: 900;
+    letter-spacing: 0.04em; }
+  #waitMsg { left: 0; width: 17.778rem; top: 6.1rem; text-align: center; font-size: 0.56rem; font-weight: 700; color: #b6c4d8; }
+  #url { left: 0; width: 17.778rem; top: 7.2rem; text-align: center; }
+  #url span { display: inline-block; font-size: 0.46rem; font-weight: 700; color: #9fb0c6; padding: 0.1rem 0.4rem;
+    border-radius: 0.4rem; background: rgba(255,255,255,0.08); }
+
+  #done { left: 2.389rem; width: 13rem; top: 1.1rem; height: 5.35rem; text-align: center; padding-top: 0.22rem; }
+  #doneBadge { width: 0.62rem; height: 0.62rem; margin: 0 auto; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #8ff0b4, #2fbf71); box-shadow: 0 0 1rem rgba(74,222,128,0.5); }
+  #doneBadge svg { display: block; width: 100%; height: 100%; fill: none; stroke: #04210f; stroke-width: 2.6; stroke-linecap: round;
+    stroke-linejoin: round; }
+  #doneTitle { margin-top: 0.1rem; font-size: 0.64rem; font-weight: 900; letter-spacing: -0.01em; }
+  #doneNice { margin-top: 0.02rem; font-size: 0.46rem; font-weight: 700; color: #b6c4d8; }
+  #stats { margin: 0.14rem auto 0; display: flex; justify-content: center; }
+  .stat { margin: 0 0.3rem; min-width: 2rem; }
+  .stat b { display: block; font-size: 0.62rem; font-weight: 800; line-height: 1; }
+  .stat span { display: block; margin-top: 0.06rem; font-size: 0.4rem; font-weight: 700; color: #9fb0c6; }
+  #mix { margin: 0.2rem 0.6rem 0; height: 0.2rem; border-radius: 0.12rem; overflow: hidden; display: flex; }
+  #mix i { display: block; height: 100%; }
+  #legend { margin: 0.14rem 0.3rem 0; display: flex; flex-wrap: wrap; justify-content: center; }
+  #legend span { margin: 0.03rem 0.14rem; font-size: 0.35rem; font-weight: 700; color: #cfdcec; white-space: nowrap; }
+  #legend i { display: inline-block; width: 0.18rem; height: 0.18rem; border-radius: 50%; margin-right: 0.08rem; }
+
+  #count { position: fixed; z-index: 8; left: 0; top: 0; right: 0; bottom: 0; display: none; background: rgba(4,6,10,0.93); }
+  #countBox { position: absolute; left: 50%; top: 50%; width: 17.778rem; height: 10rem; margin-left: -8.889rem; margin-top: -5rem;
+    text-align: center; }
+  #countDigit { position: absolute; left: 0; right: 0; top: 0.9rem; font-size: 4.4rem; font-weight: 900; line-height: 1;
+    color: var(--c, #fff); text-shadow: 0 0 1.4rem rgba(var(--cr),0.55); animation: digit 1s ease-out both; }
+  @keyframes digit { 0% { transform: scale(1.35); opacity: 0; } 22% { transform: scale(1); opacity: 1; }
+    100% { transform: scale(0.92); opacity: 0.85; } }
+  #countName { position: absolute; left: 0; right: 0; top: 6.0rem; font-size: 0.84rem; font-weight: 800; }
+  #countRpm { position: absolute; left: 0; right: 0; top: 7.1rem; font-size: 0.56rem; font-weight: 700; color: #cfdcec; }
+  #pausedMsg { position: fixed; z-index: 8; left: 50%; top: 50%; transform: translate(-50%, -50%); display: none; align-items: center;
+    padding: 0.3rem 0.8rem 0.3rem 0.6rem; font-size: 1rem; font-weight: 800; border-radius: 1rem;
+    background: rgba(18,25,36,0.92); border: 1px solid rgba(255,255,255,0.16); box-shadow: 0 1rem 3rem rgba(0,0,0,0.6); }
+  #pausedMsg i { display: block; width: 0.18rem; height: 0.6rem; margin-right: 0.12rem; border-radius: 0.05rem; background: #fff; }
+  #pausedMsg i:nth-child(2) { margin-right: 0.4rem; }
+  #reconnect { position: fixed; left: 50%; top: 0.25rem; transform: translateX(-50%); display: none; align-items: center;
+    font-size: 0.46rem; font-weight: 700; padding: 0.08rem 0.4rem 0.08rem 0.3rem; border-radius: 0.5rem;
+    background: rgba(91,29,29,0.95); color: #ffd6d6; border: 1px solid rgba(255,140,140,0.4); z-index: 9; }
+  #reconnect i { display: block; width: 0.22rem; height: 0.22rem; margin-right: 0.16rem; border-radius: 50%;
+    border: 0.05rem solid rgba(255,214,214,0.35); border-top-color: #ffd6d6; animation: spin 0.9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* lyrics: with lyrics on, the top row shrinks to 0.85 (cards keep their 5.4rem width: they are drawn 6.35rem wide and
+     scaled) and the course drops, so a band with the song fits between them without hiding anything */
+  #lyr { left: 0.7rem; top: 5.8rem; width: 16.378rem; height: 1.65rem; padding: 0 0.5rem; opacity: 0; overflow: hidden;
+    display: flex; flex-direction: column; justify-content: center; text-align: center; transition: opacity 0.5s; }
+  #lyr::before { content: ""; position: absolute; left: 0; top: 0; right: 0; height: 0.05rem;
+    background: linear-gradient(90deg, rgba(var(--kr),0), var(--k), rgba(var(--kr),0)); opacity: 0.8; }
+  body[data-ly="1"] #lyr { opacity: 1; }
+  .lr { height: 0.36rem; white-space: nowrap; }
+  .lr span { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
+  #lyP { height: 0.36rem; line-height: 0.36rem; font-size: 0.3rem; font-weight: 600; color: rgba(207,220,236,0.4); }
+  #lyCR { height: 0.66rem; }
+  #lyC { font-size: 0.5rem; font-weight: 800; line-height: 1.25; height: 0.66rem; color: #fff; }
+  #lyC.s1 { font-size: 0.47rem; }
+  #lyC.s2 { font-size: 0.44rem; }
+  /* karaoke: the sung part is bright, the rest dim; --f is how far the line is (percent of its width) */
+  #lyC[data-k="1"] { color: transparent; -webkit-background-clip: text; background-clip: text;
+    background-image: linear-gradient(90deg, #fff var(--f, 0%), rgba(255,255,255,0.4) calc(var(--f, 0%) + 3%)); }
+  #lyN { height: 0.4rem; line-height: 0.4rem; font-size: 0.34rem; font-weight: 600; color: rgba(207,220,236,0.66); }
+  body[data-ly="1"] #now, body[data-ly="1"] #timerCard, body[data-ly="1"] #nextCard { width: 6.35rem; transform: scale(0.85); }
+  body[data-ly="1"] #now { transform-origin: 0 0; }
+  body[data-ly="1"] #timerCard, body[data-ly="1"] #nextCard { transform-origin: 100% 0; }
+  body[data-ly="1"] #nextCard { top: 3.82rem; }
+  body[data-ly="1"] #center { transform: scale(0.85); transform-origin: 50% 0; }
+  body[data-ly="1"] #panel { top: 7.6rem; height: 2.15rem; }
+  .enter { animation: rise 0.55s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(0.22rem); } to { opacity: 1; transform: none; } }
+  /* motion off or reduced: nothing moves by itself, no transition either */
+  .nt *, .nt *::before, .nt *::after { transition: none !important; }
+  .calm *, .calm *::before, .calm *::after { animation: none !important; transition: none !important; }
+</style>
+</head>
+<body class="nt" data-mode="wait" data-waiting="{{WAITING}}" data-rpm="{{RPM}}" data-next="{{NEXT}}" data-done="{{DONE}}"
+  data-go="{{GO}}" data-rest="{{REST}}" data-paused-word="{{PAUSED}}" data-reconnecting="{{RECONNECTING}}"
+  data-left="{{LEFT}}" data-round="{{ROUND}}" data-nice="{{NICE}}" data-total="{{TOTAL}}" data-parts="{{PARTS}}"
+  data-in="{{IN}}" data-hint="{{HINT}}" data-keep="{{KEEP}}" data-kinds="{{KINDS}}">
+<div id="ambA" class="amb"></div><div id="ambB" class="amb"></div><div id="vignette"></div>
+<div id="stage">
+  <div id="title" class="abs"><span id="mark"></span><span id="titleText"></span></div>
+  <div id="clock" class="abs r d"></div>
+  <div id="link" class="abs"></div>
+
+  <div id="now" class="abs r glass">
+    <div id="nowTop" class="enter">
+      <div id="segment"></div>
+      <div id="position"></div>
+    </div>
+    <div id="pipsBox"><div id="pipsCap" class="cap"></div><div id="pips"></div></div>
+    <div id="effort">
+      <div id="effortHead"><span id="effortWord"></span><span id="effortNum"></span></div>
+      <div id="bars"></div>
+    </div>
+  </div>
+
+  <div id="timerCard" class="abs r glass">
+    <div id="timer"></div>
+    <div id="round"></div>
+    <div id="segBar"><div id="segFill"></div></div>
+    <div id="dots"></div>
+  </div>
+  <div id="nextCard" class="abs r glass">
+    <div id="nextLabel" class="cap"></div>
+    <div id="nextName"></div>
+    <div id="nextSub"></div>
+  </div>
+
+  <div id="lyr" class="abs r glass">
+    <div class="lr"><span id="lyP"></span></div>
+    <div class="lr" id="lyCR"><span id="lyC"></span></div>
+    <div class="lr"><span id="lyN"></span></div>
+  </div>
+
+  <div id="phase" class="abs r"><span id="phaseText"></span></div>
+  <div id="center" class="abs r">
+    <div id="aura"></div>
+    <svg id="dial" viewBox="0 0 400 400">
+      <circle class="rot" id="track" cx="200" cy="200" r="148" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="24"
+        stroke-linecap="round"></circle>
+      <g id="ticks2" stroke="rgba(255,255,255,0.3)" stroke-linecap="round"></g>
+      <circle class="rot band" id="bandGlow" cx="200" cy="200" r="148" fill="none" stroke-width="34" stroke-linecap="round"
+        style="stroke: var(--z); opacity: 0.16"></circle>
+      <circle class="rot band" id="band" cx="200" cy="200" r="148" fill="none" stroke-width="24" stroke-linecap="round"
+        style="stroke: var(--z)"></circle>
+      <circle class="rot halo" id="halo" cx="200" cy="200" r="148" fill="none" stroke-width="26" stroke-linecap="round"
+        style="stroke: var(--z)"></circle>
+      <g class="rot knobG" id="knob">
+        <circle id="knobHalo" cx="348" cy="200" r="27" style="fill: var(--z)" opacity="0.2"></circle>
+        <circle cx="348" cy="200" r="17" fill="#fff" stroke-width="7" style="stroke: var(--z)"></circle>
+      </g>
+    </svg>
+    <div id="readout">
+      <div id="rpm"></div>
+      <div id="unit"></div>
+      <div id="range"><span id="rangeText"></span></div>
+    </div>
+    <div id="pbar"><div id="pbarFill"></div></div>
+  </div>
+
+  <div id="panel" class="abs c glass"><canvas id="course" role="img" aria-label=""></canvas></div>
+
+  <div id="done" class="abs d glass">
+    <div id="doneBadge"><svg viewBox="0 0 24 24"><path d="M6.5 12.5l3.8 3.8 7.4-8"/></svg></div>
+    <div id="doneTitle"></div>
+    <div id="doneNice"></div>
+    <div id="stats">
+      <div class="stat"><b id="statTime"></b><span id="statTimeL"></span></div>
+      <div class="stat"><b id="statParts"></b><span id="statPartsL"></span></div>
+    </div>
+    <div id="mix"></div>
+    <div id="legend"></div>
+  </div>
+
+  <div id="waitMark" class="abs w"><i></i><i></i><i></i><b></b></div>
+  <div id="brand" class="abs w">HomeFi</div>
+  <div id="waitMsg" class="abs w"></div>
+  <div id="url" class="abs w"><span id="urlText"></span></div>
+</div>
+<div id="flash"></div>
+<div id="count"><div id="countBox"><div id="countDigit"></div><div id="countName"></div><div id="countRpm"></div></div></div>
+<div id="pausedMsg"><i></i><i></i><span id="pausedText"></span></div>
+<div id="reconnect"><i></i><span id="reconnectText"></span></div>
+<script>
+(function () {
+  "use strict";
+  var body = document.body;
+  function word(key) { return body.getAttribute("data-" + key) || ""; }
+  // zone colours (the dark set of docs/EXERCISE_UI.md, section 6, a touch more vivid)
+  var COLORS = { warm_up: "#5eb1ff", seated_flat: "#3ddc97", seated_climb: "#ffc233", standing_climb: "#ff8a3d",
+    jumps: "#b983ff", sprint: "#ff4d70", recovery: "#2fd6c4", cool_down: "#9aa8ff" };
+  var FALLBACK = "#4f8cff", WORK = "#ff4d70", REST = "#2fd6c4";
+  var POLL_MS = 500, STALE_MS = 5000;
+  var MAX_FLASH_PER_S = 3, FLASH_ALPHA = 0.22, MAX_DOT_PER_S = 2;
+  var SEATED_ICON = '<svg viewBox="0 0 24 24"><circle cx="9" cy="5" r="2.2"/><path d="M9 8v5h6l2 6M9 13l-2 6"/></svg>';
+  var STANDING_ICON = '<svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.2"/><path d="M12 8v6M12 14l-3 7M12 14l3 7M8 10l4-2 4 2"/></svg>';
+  var query = location.search;
+  var shiftMatch = query.match(/[?&]offset=(-?\d+)/);
+  var shiftMs = shiftMatch ? parseInt(shiftMatch[1], 10) : 0;
+  var reduced = /[?&]motion=off/.test(query) ||
+    (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  if (reduced) { document.documentElement.className += " calm"; }
+  function $(id) { return document.getElementById(id); }
+  var SVGNS = "http://www.w3.org/2000/svg";
+
+  // the kind names, "id=name|id=name", for the next part that differs from this one
+  var KIND_NAMES = {};
+  (function () {
+    var list = word("kinds").split("|");
+    for (var i = 0; i < list.length; i++) { var at = list[i].indexOf("="); if (at > 0) { KIND_NAMES[list[i].slice(0, at)] = list[i].slice(at + 1); } }
+  })();
+
+  // write only what changed: nothing here may churn the page at display rate
+  function setT(node, v) { if (node._t !== v) { node._t = v; node.textContent = v; } }
+  function setH(node, v) { if (node._h !== v) { node._h = v; node.innerHTML = v; } }
+  function setS(node, k, v) { var c = node._s || (node._s = {}); if (c[k] !== v) { c[k] = v; node.style[k] = v; } }
+  function setA(node, k, v) { var c = node._a || (node._a = {}); if (c[k] !== v) { c[k] = v; node.setAttribute(k, v); } }
+  function rgb(hex) { return parseInt(hex.substr(1, 2), 16) + "," + parseInt(hex.substr(3, 2), 16) + "," + parseInt(hex.substr(5, 2), 16); }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function mmss(ms) {
+    var s = Math.max(0, Math.ceil(ms / 1000)), m = Math.floor(s / 60), r = s % 60;
+    return m + ":" + (r < 10 ? "0" : "") + r;
+  }
+  // a name on one line: the first of the sizes s0 (as styled), s1, s2... that does not wrap or overflow
+  function fit(node, steps) {
+    for (var i = 0; i <= steps; i++) {
+      node.className = i ? "s" + i : "";
+      if (node.scrollWidth <= node.clientWidth + 1 && node.offsetHeight < parseFloat(getComputedStyle(node).fontSize) * 1.4) { return; }
+    }
+  }
+  function restart(node, cls) {
+    if (reduced) { return; }
+    node.className = node.className.replace(" " + cls, "");
+    void node.offsetWidth;
+    node.className += " " + cls;
+  }
+
+  var el = { stage: $("stage"), segment: $("segment"), position: $("position"), timer: $("timer"), round: $("round"),
+    segBar: $("segBar"), segFill: $("segFill"), dots: $("dots"), rpm: $("rpm"), unit: $("unit"), range: $("range"), rangeText: $("rangeText"),
+    phase: $("phase"), phaseText: $("phaseText"), aura: $("aura"), halo: $("halo"), band: $("band"), bandGlow: $("bandGlow"),
+    track: $("track"), knob: $("knob"), ticks2: $("ticks2"), knobHalo: $("knobHalo"), pbar: $("pbar"), pbarFill: $("pbarFill"),
+    flash: $("flash"), bars: $("bars"), effortWord: $("effortWord"), effortNum: $("effortNum"), nextCard: $("nextCard"),
+    nextLabel: $("nextLabel"), nextName: $("nextName"), nextSub: $("nextSub"), link: $("link"), count: $("count"),
+    countDigit: $("countDigit"), countName: $("countName"), countRpm: $("countRpm"), pausedMsg: $("pausedMsg"),
+    reconnect: $("reconnect"), clock: $("clock"), course: $("course"), panel: $("panel"),
+    nowTop: $("nowTop"), pips: $("pips"), pipsCap: $("pipsCap"), done: $("done"), lyr: $("lyr"), lyP: $("lyP"),
+    lyC: $("lyC"), lyN: $("lyN") };
+  for (var b = 0; b < 10; b++) {
+    var bar = document.createElement("i");
+    bar.style.height = (0.16 + b * 0.05).toFixed(3) + "rem";
+    el.bars.appendChild(bar);
+  }
+  setT(el.nextLabel, word("next"));
+  setT(el.unit, word("rpm"));
+  setT($("pausedText"), word("paused-word"));
+  setT($("reconnectText"), word("reconnecting"));
+  setT($("urlText"), location.host);
+  setT($("waitMsg"), word("waiting"));
+  setT($("titleText"), document.title);
+  setT($("doneTitle"), word("done"));
+  setT($("doneNice"), word("nice"));
+  setT($("statTimeL"), word("total"));
+  setT($("statPartsL"), word("parts"));
+  var bars = el.bars.childNodes;
+
+  var frame = null, offset = 0, received = 0, started = Date.now();
+
+  function serverNow() { return Date.now() + offset; }
+  // where the music is: the TV's own player when it plays the audio (the app injects this hook), else the
+  // polled position advanced by the time since it was read
+  function position() {
+    if (typeof window.homefiSongPositionMs === "function") {
+      var own = Number(window.homefiSongPositionMs());
+      if (isFinite(own) && own >= 0) { return own; }
+    }
+    var since = frame.playing ? serverNow() - frame.sampled_ms : 0;
+    return frame.ride.pulse.song_position_ms + Math.max(0, since);
+  }
+
+  // ---- the ambient light: two layers that cross-fade when the tint changes
+  var ambOn = 0, ambKey = "", ambs = [$("ambA"), $("ambB")];
+  function ambient(hex) {
+    if (hex === ambKey) { return; }
+    ambKey = hex;
+    var c = rgb(hex), next = ambs[1 - ambOn];
+    next.style.background = "radial-gradient(ellipse 62% 58% at 50% 40%, rgba(" + c + ",0.27), rgba(" + c + ",0) 72%)," +
+      "radial-gradient(ellipse 46% 50% at 4% 102%, rgba(" + c + ",0.17), rgba(" + c + ",0) 70%)," +
+      "radial-gradient(ellipse 40% 46% at 100% 0%, rgba(" + c + ",0.10), rgba(" + c + ",0) 70%)," +
+      "linear-gradient(180deg, #080c13 0%, #04060a 100%)";
+    next.className = "amb on";
+    ambs[ambOn].className = "amb";
+    ambOn = 1 - ambOn;
+  }
+  function tint(kindHex, zoneHex) {
+    if (body._k !== kindHex) { body._k = kindHex; body.style.setProperty("--k", kindHex); body.style.setProperty("--kr", rgb(kindHex)); }
+    if (body._z !== zoneHex) { body._z = zoneHex; body.style.setProperty("--z", zoneHex); body.style.setProperty("--zr", rgb(zoneHex)); }
+    ambient(zoneHex);
+  }
+
+  // ---- the gauge: a 270 degree arc from lower left to lower right, the target range as a lit band
+  var R = 148, CIRC = 2 * Math.PI * R, ARC = 0.75 * CIRC, CAP_DEG = 24 / 2 / R * 180 / Math.PI;
+  var scaleKey = "", lo = 30, hi = 130;
+  setA(el.track, "stroke-dasharray", ARC.toFixed(1) + " " + CIRC.toFixed(1));
+  setS(el.track, "transform", "rotate(135deg)");
+  setA(el.halo, "stroke-dasharray", ARC.toFixed(1) + " " + CIRC.toFixed(1));
+  setS(el.halo, "transform", "rotate(135deg)");
+  function angleOf(v) { return 135 + 270 * (clamp(v, lo, hi) - lo) / (hi - lo); }
+  function ticks() {
+    while (el.ticks2.firstChild) { el.ticks2.removeChild(el.ticks2.firstChild); }
+    for (var v = lo; v <= hi; v += 5) {
+      var major = v % 10 === 0, a = angleOf(v) * Math.PI / 180, r0 = R + 22, r1 = r0 + (major ? 16 : 8);
+      var line = document.createElementNS(SVGNS, "line");
+      line.setAttribute("x1", (200 + r0 * Math.cos(a)).toFixed(1)); line.setAttribute("y1", (200 + r0 * Math.sin(a)).toFixed(1));
+      line.setAttribute("x2", (200 + r1 * Math.cos(a)).toFixed(1)); line.setAttribute("y2", (200 + r1 * Math.sin(a)).toFixed(1));
+      line.setAttribute("stroke-width", major ? "4" : "3");
+      line.setAttribute("stroke-opacity", major ? "0.5" : "0.28");
+      el.ticks2.appendChild(line);
+    }
+  }
+  function gauge(ride) {
+    var mn = ride.range.min_rpm, mx = Math.max(ride.range.max_rpm, mn), t = ride.target_rpm;
+    var nlo = Math.floor((Math.min(30, mn - 5, t - 5)) / 10) * 10, nhi = Math.ceil((Math.max(130, mx + 5, t + 5)) / 10) * 10;
+    if (nlo !== lo || nhi !== hi || !scaleKey) { lo = nlo; hi = nhi; scaleKey = "x"; ticks(); }
+    var a0 = angleOf(mn), a1 = angleOf(mx), len = Math.max(0.5, a1 - a0 - 2 * CAP_DEG);
+    var start = a0 + CAP_DEG;
+    if (a1 - a0 < 2 * CAP_DEG) { start = (a0 + a1) / 2; len = 0.5; }
+    var dash = (len / 360 * CIRC).toFixed(1) + " " + CIRC.toFixed(1);
+    setS(el.band, "transform", "rotate(" + start.toFixed(1) + "deg)");
+    setS(el.bandGlow, "transform", "rotate(" + start.toFixed(1) + "deg)");
+    setS(el.band, "strokeDasharray", dash);
+    setS(el.bandGlow, "strokeDasharray", dash);
+    setS(el.knob, "transform", "rotate(" + angleOf(t).toFixed(1) + "deg)");
+  }
+
+  // ---- the course: a night mountain on a canvas (docs/MOUNTAIN.md, the same renderer as the desktop's
+  // lib/course-render.ts). Height and ground colour say how hard a part is; the zone is a thin line on the ridge and a
+  // ribbon at the base. Drawn in a fixed design size (COURSE_W wide, the panel's shape) and scaled to the real pixels,
+  // so it looks the same at any resolution. The expensive bitmaps (backdrop, ridden, to come) are rebuilt only when the
+  // course, the look or the panel's size changes; a frame is three drawImage calls and the overlay.
+  // text is drawn this much bigger than the spec's TV size (14 px ticks, 17 px pin at 1080p are too small across a room)
+  var TEXT_BOOST = 1.6;
+  var COURSE_W = 1700, COURSE_MAX_SCALE = 2.5, COURSE_SETTLE_MS = 150, COURSE_FRAME_MS = 33, MIN_PX = 40;
+  var CYCLIST_H = 200, SUMMIT_MAX = 3, SUMMIT_PROMINENCE = 0.16, TAU = 6.2832, HALF_PI = 1.5708, BEACON_HZ = 1;
+  var FONT = '-apple-system, "Segoe UI", Roboto, sans-serif';
+  var LOOKS = {
+    ribbon: { ground: [[0, "#0a2740"], [0.25, "#143f6e"], [0.5, "#35409a"], [0.75, "#74408f"], [0.92, "#b2527f"], [1, "#e58a66"]],
+      wash: [0.16, 0], ridge: "zone", snow: 0.7, sky: [[0, "#060a1a"], [0.45, "#101847"], [0.78, "#38285f"], [1, "#7d4a78"]],
+      glow: "#ffb48a", curGlow: 0.34, curRim: 0.12 },
+    alpine: { ground: [[0, "#0a1322"], [0.5, "#1c2b47"], [1, "#4a6288"]],
+      wash: [0.24, 0], ridge: "light", snow: 1, sky: [[0, "#06111d"], [0.5, "#0f2c47"], [0.82, "#265673"], [1, "#6c97a6"]],
+      glow: "#bfe6ff", curGlow: 0.2, curRim: 0.5 },
+    stage: { ground: [[0, "#080e22"], [1, "#1c2754"]],
+      wash: [0.6, 0.1], ridge: "light", snow: 0, sky: [[0, "#060a1a"], [0.5, "#111a44"], [0.8, "#2c2660"], [1, "#6a4678"]],
+      glow: "#ff9fb0", curGlow: 0.2, curRim: 0.5 }
+  };
+  var WHITE = [255, 255, 255], SLATE = [52, 66, 118];
+  function hexRgb(h) { return [parseInt(h.substr(1, 2), 16), parseInt(h.substr(3, 2), 16), parseInt(h.substr(5, 2), 16)]; }
+  function mixc(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
+  function css(c, a) { return "rgba(" + Math.round(c[0]) + "," + Math.round(c[1]) + "," + Math.round(c[2]) + "," + (a === undefined ? 1 : a) + ")"; }
+  function zoneRgb(kind) { return hexRgb(COLORS[kind] || FALLBACK); }
+  function clock(s) { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ":" + (s % 60 < 10 ? "0" : "") + (s % 60); }
+  function smooth01(t) { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); }
+  // past (ridden) colours: desaturated toward slate blue, never toward black or grey
+  function dimmed(c) { var l = 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]; return mixc(mixc([l, l, l], c, 0.25), SLATE, 0.52); }
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  function hnoise(n, seed) { var r = Math.sin(n * 127.1 + seed * 311.7) * 43758.5453; return r - Math.floor(r); }
+  function vnoise(x, seed) { var i = Math.floor(x), f = smooth01(x - i); return hnoise(i, seed) * (1 - f) + hnoise(i + 1, seed) * f; }
+  function fbm(x, seed) { return vnoise(x, seed) * 0.62 + vnoise(x * 2.3 + 11, seed + 3) * 0.28 + vnoise(x * 5.1 + 29, seed + 7) * 0.10; }
+  function elevationAt(points, t) {
+    for (var i = 1; i < points.length; i++) {
+      if (t <= points[i].t_s) {
+        var a = points[i - 1], c = points[i], span = c.t_s - a.t_s;
+        return span <= 0 ? c.elevation : a.elevation + (c.elevation - a.elevation) * (t - a.t_s) / span;
+      }
+    }
+    return points.length ? points[points.length - 1].elevation : 0;
+  }
+  function partIndexAt(parts, t) { for (var i = parts.length - 1; i >= 0; i--) { if (t >= parts[i].start_s) { return i; } } return 0; }
+  function zoneColourAt(parts, t, tot) {
+    if (!parts.length) { return zoneRgb(""); }
+    var p = partIndexAt(parts, t), c = zoneRgb(parts[p].kind), bw = tot * 0.006;
+    var ds = t - parts[p].start_s, de = parts[p].start_s + parts[p].seconds - t;
+    if (ds < bw && p > 0) { c = mixc(zoneRgb(parts[p - 1].kind), c, 0.5 + 0.5 * smooth01(ds / bw)); }
+    else if (de < bw && p < parts.length - 1) { c = mixc(zoneRgb(parts[p + 1].kind), c, 0.5 + 0.5 * smooth01(de / bw)); }
+    return c;
+  }
+  function gaussSmooth(raw, sigma) {
+    var n = raw.length, r = Math.max(1, Math.ceil(sigma * 3)), k = [], i, j, out = [];
+    for (i = -r; i <= r; i++) { k.push(Math.exp(-(i * i) / (2 * sigma * sigma))); }
+    for (i = 0; i < n; i++) {
+      var acc = 0, wsum = 0;
+      for (j = -r; j <= r; j++) { acc += raw[clamp(i + j, 0, n - 1)] * k[j + r]; wsum += k[j + r]; }
+      out.push(acc / wsum);
+    }
+    return out;
+  }
+  // the geometry of one size: smooth elevation, the textured ridge the rider sits on, zone colour and light per column
+  function layout(model, W, H) {
+    var g = { W: W, H: H }, i, tot = Math.max(1, model.total);
+    g.tick = clamp(H * 0.085, 11, 20) * TEXT_BOOST; g.band = clamp(H * 0.05, 4, 12); g.floor = H - g.tick;
+    g.yLo = g.floor - g.band - H * 0.045; g.yHi = H * (H < 130 ? 0.2 : 0.21); g.R = g.yLo - g.yHi;
+    g.padX = H >= CYCLIST_H ? clamp(H * 0.12, 28, 40) : clamp(W * 0.012, 8, 16);
+    var M = clamp(Math.round(W / 2), 160, 700), raw = [];
+    for (i = 0; i < M; i++) { raw.push(clamp(elevationAt(model.profile, tot * i / (M - 1)), 0, 1)); }
+    var sm = gaussSmooth(raw, M * 0.0055), rlo = 1e9, rhi = -1e9, slo = 1e9, shi = -1e9;
+    for (i = 0; i < M; i++) { rlo = Math.min(rlo, raw[i]); rhi = Math.max(rhi, raw[i]); slo = Math.min(slo, sm[i]); shi = Math.max(shi, sm[i]); }
+    var e = [];
+    for (i = 0; i < M; i++) { e.push(shi > slo ? rlo + (sm[i] - slo) / (shi - slo) * (rhi - rlo) : sm[i]); }
+    g.M = M; g.e = e; g.emin = rlo; g.emax = rhi;
+    var amp = clamp(H * 0.011, 0, 3.6);
+    g.xs = []; g.ys = []; g.ys0 = []; g.zc = []; g.eh = [];
+    for (i = 0; i < M; i++) {
+      var u = i / (M - 1), n = (fbm(u * 60, 5) - 0.5) * 2 * amp * (0.35 + e[i]);
+      g.xs.push(g.padX + u * (W - 2 * g.padX)); g.ys0.push(g.yLo - e[i] * g.R); g.ys.push(g.yLo - e[i] * g.R + n);
+      g.eh.push(e[i]); g.zc.push(zoneColourAt(model.parts, tot * u, tot));
+    }
+    g.xs.unshift(0); g.ys0.unshift(g.ys0[0]); g.ys.unshift(g.ys[0]); g.zc.unshift(g.zc[0]); g.eh.unshift(g.eh[0]);
+    g.xs.push(W); g.ys0.push(g.ys0[g.ys0.length - 1]); g.ys.push(g.ys[g.ys.length - 1]); g.zc.push(g.zc[g.zc.length - 1]); g.eh.push(g.eh[g.eh.length - 1]);
+    g.L = [];
+    for (i = 0; i < g.xs.length; i++) {
+      var a = Math.max(0, i - 2), b = Math.min(g.xs.length - 1, i + 2);
+      g.L.push(clamp(-(g.ys0[b] - g.ys0[a]) / Math.max(1, g.xs[b] - g.xs[a]) * 1.1, -1, 1));
+    }
+    // summits: local maxima with enough prominence, tallest first, at most three, 12 % of the ride apart
+    var cand = [], w = Math.round(M * 0.06), j;
+    for (i = w; i < M - w; i++) {
+      var isMax = true, minL = 9, minR = 9;
+      for (j = -w; j <= w; j++) { if (e[i + j] > e[i]) { isMax = false; break; } }
+      if (!isMax) { continue; }
+      for (j = 0; j < M * 0.3 && i - j >= 0; j++) { minL = Math.min(minL, e[i - j]); }
+      for (j = 0; j < M * 0.3 && i + j < M; j++) { minR = Math.min(minR, e[i + j]); }
+      if (e[i] - Math.max(minL, minR) > SUMMIT_PROMINENCE) { cand.push(i); }
+    }
+    cand.sort(function (p, q) { return e[q] - e[p]; });
+    g.summits = [];
+    for (i = 0; i < cand.length && g.summits.length < SUMMIT_MAX; i++) {
+      var ok = true;
+      for (j = 0; j < g.summits.length; j++) { if (Math.abs(g.summits[j] - 1 - cand[i]) < M * 0.12) { ok = false; } }
+      if (ok) { g.summits.push(cand[i] + 1); }
+    }
+    g.peak = 0;
+    for (i = 1; i < M; i++) { if (e[i] > e[g.peak]) { g.peak = i; } }
+    g.peak += 1;
+    return g;
+  }
+  function ridgeY(g, x) {
+    var xs = g.xs, lo = 0, hi = xs.length - 1;
+    x = clamp(x, 0, g.W);
+    while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (xs[mid] <= x) { lo = mid; } else { hi = mid; } }
+    var span = xs[hi] - xs[lo];
+    return span <= 0 ? g.ys[lo] : g.ys[lo] + (g.ys[hi] - g.ys[lo]) * (x - xs[lo]) / span;
+  }
+  function xOfT(g, t, tot) { return g.padX + clamp(t / tot, 0, 1) * (g.W - 2 * g.padX); }
+  // strips snap to whole device pixels, so neighbours never overlap (no hairline seams) or leave gaps
+  function colX(g, i, scale) { return Math.floor(g.xs[i] * scale) / scale; }
+  function bitmap(W, H, scale) {
+    var c = document.createElement("canvas"); c.width = Math.max(1, Math.round(W * scale)); c.height = Math.max(1, Math.round(H * scale));
+    var x = c.getContext("2d"); x.scale(scale, scale); return { c: c, x: x };
+  }
+
+  function paintBackdrop(g, look, scale) {
+    var bm = bitmap(g.W, g.H, scale), x = bm.x, W = g.W, H = g.H, i, d = LOOKS[look];
+    var sky = x.createLinearGradient(0, 0, 0, g.floor);
+    for (i = 0; i < d.sky.length; i++) { sky.addColorStop(d.sky[i][0], d.sky[i][1]); }
+    x.fillStyle = sky; x.fillRect(0, 0, W, H);
+    var rnd = rng(7), stars = Math.round(W / 14);
+    for (i = 0; i < stars; i++) {
+      var sx = rnd() * W, sy = rnd() * g.floor * 0.5, sr = 0.4 + rnd() * (H > 200 ? 0.9 : 0.5);
+      x.fillStyle = "rgba(255,255,255," + (0.18 + rnd() * 0.4) + ")"; x.beginPath(); x.arc(sx, sy, sr, 0, TAU); x.fill();
+    }
+    var px = g.xs[g.peak], py = g.ys[g.peak] + g.R * 0.15, gr = Math.max(g.R * 1.1, W * 0.12), gc = hexRgb(d.glow);
+    var glow = x.createRadialGradient(px, py, 0, px, py, gr);
+    glow.addColorStop(0, css(gc, 0.34)); glow.addColorStop(0.45, css(gc, 0.1)); glow.addColorStop(1, css(gc, 0));
+    x.fillStyle = glow; x.fillRect(0, 0, W, H);
+    // two far ranges, shaped from the same course so they rhyme with it
+    var layers = [{ top: 0.04, seed: 21, shift: 0.31, k: 0.55, c: [86, 96, 160], a: 0.42 }, { top: 0.2, seed: 33, shift: 0.62, k: 0.5, c: [52, 64, 130], a: 0.62 }];
+    var haze = hexRgb(d.sky[d.sky.length - 1][1]), l;
+    for (l = 0; l < layers.length; l++) {
+      var L = layers[l], topY = g.yHi + L.top * g.R, steps = Math.round(W / 3);
+      x.beginPath(); x.moveTo(0, g.floor);
+      for (i = 0; i <= steps; i++) {
+        var u = i / steps, wv = (u * 0.85 + L.shift) % 2, pe = g.e[clamp(Math.round((wv > 1 ? 2 - wv : wv) * (g.M - 1)), 0, g.M - 1)]; // mirrored, so there is no cliff where it wraps
+        var val = clamp(L.k * pe + (1 - L.k) * fbm(u * 6 + L.shift * 9, L.seed) * 1.25, 0, 1);
+        x.lineTo(u * W, g.floor - (0.28 + 0.72 * val) * (g.floor - topY));
+      }
+      x.lineTo(W, g.floor); x.closePath();
+      var fg = x.createLinearGradient(0, topY, 0, g.floor);
+      fg.addColorStop(0, css(L.c, L.a)); fg.addColorStop(1, css(mixc(L.c, haze, 0.7), L.a * 0.6));
+      x.fillStyle = fg; x.fill();
+      x.strokeStyle = css(mixc(L.c, WHITE, 0.45), 0.16 + l * 0.06); x.lineWidth = 1; x.stroke();
+      var mist = x.createLinearGradient(0, g.floor - g.R * 0.6, 0, g.floor);
+      mist.addColorStop(0, css(haze, 0)); mist.addColorStop(1, css(haze, 0.32));
+      x.fillStyle = mist; x.fillRect(0, g.floor - g.R * 0.6, W, g.R * 0.6);
+    }
+    return bm;
+  }
+
+  function paintTerrain(g, model, look, dim, scale, terrain) {
+    var bm = bitmap(g.W, g.H, scale), x = bm.x, d = LOOKS[look], n = g.xs.length, i, W = g.W;
+    function C(c) { return dim ? dimmed(c) : c; }
+    x.save(); x.clip(terrain);
+    var span = g.floor - g.yHi, gr = x.createLinearGradient(0, g.yHi, 0, g.floor), stops = d.ground, k;
+    for (k = stops.length - 1; k >= 0; k--) { gr.addColorStop(clamp((g.yLo - stops[k][0] * g.R - g.yHi) / span, 0, 1), css(C(hexRgb(stops[k][1])))); }
+    gr.addColorStop(1, css(C(hexRgb(stops[0][1]))));
+    x.fillStyle = gr; x.fillRect(0, 0, W, g.floor);
+    var x0, x1, yy;
+    if (d.wash[0] > 0) {
+      for (i = 0; i < n - 1; i++) {
+        x0 = colX(g, i, scale); x1 = colX(g, i + 1, scale); if (x1 <= x0) { continue; }
+        yy = g.ys0[i];
+        var wg = x.createLinearGradient(0, yy, 0, g.floor), col = C(g.zc[i]);
+        wg.addColorStop(0, css(col, d.wash[0] * (dim ? 0.8 : 1))); wg.addColorStop(1, css(col, d.wash[1]));
+        x.fillStyle = wg; x.fillRect(x0, yy - 5, x1 - x0, g.floor - yy + 5);
+      }
+    }
+    for (i = 0; i < n - 1; i++) {
+      x0 = colX(g, i, scale); x1 = colX(g, i + 1, scale); if (x1 <= x0) { continue; }
+      var Lv = g.L[i], depth = (g.floor - g.ys0[i]) * 0.62, lg = x.createLinearGradient(0, g.ys0[i], 0, g.ys0[i] + depth);
+      if (Lv >= 0) { lg.addColorStop(0, "rgba(255,244,230," + (0.2 * Lv * (dim ? 0.45 : 1)) + ")"); lg.addColorStop(1, "rgba(255,244,230,0)"); }
+      else { lg.addColorStop(0, "rgba(4,6,18," + (0.34 * -Lv) + ")"); lg.addColorStop(1, "rgba(4,6,18,0)"); }
+      x.fillStyle = lg; x.fillRect(x0, g.ys0[i] - 5, x1 - x0, depth + 5);
+    }
+    if (d.snow > 0 && g.emax > 0.7) {
+      var th = g.emin + (g.emax - g.emin) * 0.8;
+      for (i = 0; i < n - 1; i++) {
+        var eh = g.eh[i];
+        if (eh <= th) { continue; }
+        var dp = ((eh - th) / (g.emax - th)) * g.R * 0.3 + (fbm(i * 0.06, 9) - 0.4) * g.R * 0.08;
+        x0 = colX(g, i, scale); x1 = colX(g, i + 1, scale); if (dp < 1 || x1 <= x0) { continue; }
+        var sg = x.createLinearGradient(0, g.ys0[i], 0, g.ys0[i] + dp), sc = mixc([232, 240, 255], [128, 150, 214], clamp(0.5 - g.L[i] * 0.5, 0, 1));
+        var sa = d.snow * (dim ? 0.3 : 1);
+        sg.addColorStop(0, css(sc, 0.95 * sa)); sg.addColorStop(0.6, css(sc, 0.5 * sa)); sg.addColorStop(1, css(sc, 0));
+        x.fillStyle = sg; x.fillRect(x0, g.ys0[i] - 5, x1 - x0, dp + 5);
+      }
+    }
+    x.restore();
+    x.lineJoin = "round"; x.lineCap = "round";
+    var rw = clamp(g.H * 0.016, 2, 5);
+    x.beginPath(); x.moveTo(g.xs[0], g.ys[0]);
+    for (i = 1; i < n; i++) { x.lineTo(g.xs[i], g.ys[i]); }
+    x.strokeStyle = d.ridge === "zone" ? "rgba(4,6,18,0.55)" : "rgba(4,6,18,0.35)"; x.lineWidth = rw + (d.ridge === "zone" ? 2.6 : 3); x.stroke();
+    for (i = 0; i < n - 1; i++) {
+      var zc = C(g.zc[i]);
+      x.beginPath(); x.moveTo(g.xs[i], g.ys[i]); x.lineTo(g.xs[i + 1], g.ys[i + 1]);
+      if (d.ridge === "zone") { x.strokeStyle = css(zc, dim ? 0.8 : 1); x.lineWidth = rw; }
+      else { x.strokeStyle = css(mixc(zc, WHITE, dim ? 0.25 : 0.55), dim ? 0.8 : 0.95); x.lineWidth = Math.max(1.2, rw * 0.55); }
+      x.stroke();
+    }
+    x.fillStyle = "rgba(7,10,20,0.9)"; x.fillRect(0, g.floor, W, g.H - g.floor);
+    // the base ribbon: one capsule per part, hard-edged so the zones stay countable
+    var by = g.floor - g.band, bh = g.band - 1;
+    x.fillStyle = "rgba(255,255,255,0.05)"; x.fillRect(0, by - 1, W, g.band + 1);
+    for (i = 0; i < model.parts.length; i++) {
+      var p = model.parts[i], bx0 = xOfT(g, p.start_s, model.total) + 1, bx1 = xOfT(g, p.start_s + p.seconds, model.total) - 1;
+      if (bx1 - bx0 < 1) { continue; }
+      var r = Math.min(bh / 2, (bx1 - bx0) / 2);
+      x.fillStyle = css(C(zoneRgb(p.kind)), dim ? 0.85 : 1);
+      x.beginPath(); x.moveTo(bx0 + r, by); x.lineTo(bx1 - r, by); x.arc(bx1 - r, by + bh / 2, bh / 2, -HALF_PI, HALF_PI);
+      x.lineTo(bx0 + r, by + bh); x.arc(bx0 + r, by + bh / 2, bh / 2, HALF_PI, HALF_PI * 3); x.closePath(); x.fill();
+    }
+    return bm;
+  }
+
+  function cyclist(x, px, py, s, ang, col) {
+    x.save(); x.translate(px, py); x.rotate(ang); x.translate(0, -0.55 * s);
+    x.lineCap = "round"; x.lineJoin = "round"; x.strokeStyle = "#fff"; x.fillStyle = "#fff"; x.lineWidth = Math.max(1.3, 0.13 * s);
+    x.shadowColor = css(col, 0.9); x.shadowBlur = s * 0.9;
+    function seg(a, b, c, d2) { x.beginPath(); x.moveTo(a * s, b * s); x.lineTo(c * s, d2 * s); x.stroke(); }
+    x.beginPath(); x.arc(-s, 0, 0.55 * s, 0, TAU); x.stroke();
+    x.beginPath(); x.arc(s, 0, 0.55 * s, 0, TAU); x.stroke();
+    seg(-1, 0, -0.15, 0); seg(-0.15, 0, -0.35, -0.75); seg(-0.35, -0.75, -1, 0); seg(-0.35, -0.75, 0.7, -0.7); seg(-0.15, 0, 0.7, -0.7); seg(0.7, -0.7, 1, 0);
+    x.beginPath(); x.moveTo(-0.4, -0.85); x.lineTo(0.3, -1.4); x.lineTo(0.72, -0.82); x.stroke();
+    x.beginPath(); x.moveTo(-0.4, -0.85); x.lineTo(0.2, -0.38); x.lineTo(0.02, 0.12); x.stroke();
+    x.beginPath(); x.arc(0.5, -1.72, 0.22 * s, 0, TAU); x.fill();
+    x.restore();
+  }
+  function strokeRidge(x, g, xa, xb, style, width) {
+    var i, started = false;
+    x.beginPath();
+    for (i = 0; i < g.xs.length; i++) {
+      if (g.xs[i] < xa - 1 || g.xs[i] > xb + 1) { continue; }
+      if (!started) { x.moveTo(xa, ridgeY(g, xa)); started = true; }
+      x.lineTo(g.xs[i], g.ys[i]);
+    }
+    if (!started) { return; }
+    x.lineTo(xb, ridgeY(g, xb));
+    x.lineJoin = "round"; x.lineCap = "round"; x.strokeStyle = style; x.lineWidth = width; x.stroke();
+  }
+
+  // the canvas of the course card, and what was built for it
+  var cv = { canvas: $("course"), ctx: null, panel: $("panel"), key: "", g: null, back: null, dim: null, lit: null, tmp: null, terrain: null, scale: 1,
+    pxW: 0, pxH: 0, pxAt: 0, lastDraw: 0, lastSig: "" };
+  cv.ctx = cv.canvas.getContext("2d");
+  var courseModel = null;
+  // the panel's real size in pixels; it changes with the window and with the lyrics band (which moves it): rebuilt once it settles
+  function measure() {
+    var dpr = window.devicePixelRatio || 1, w = Math.round(cv.panel.clientWidth * dpr), h = Math.round(cv.panel.clientHeight * dpr);
+    if (w !== cv.pxW || h !== cv.pxH) { cv.pxW = w; cv.pxH = h; cv.pxAt = Date.now(); }
+  }
+  if (window.ResizeObserver) { new ResizeObserver(measure).observe(cv.panel); }
+  window.addEventListener("resize", measure);
+
+  function buildCourse(look) {
+    var scale = Math.min(cv.pxW / COURSE_W, COURSE_MAX_SCALE), W = COURSE_W, H = Math.round(COURSE_W * cv.pxH / cv.pxW);
+    var g = layout(courseModel, W, H);
+    cv.canvas.width = Math.round(W * scale); cv.canvas.height = Math.round(H * scale);
+    var P = new Path2D();
+    P.moveTo(0, g.floor);
+    for (var i = 0; i < g.xs.length; i++) { P.lineTo(g.xs[i], g.ys[i]); }
+    P.lineTo(W, g.floor); P.closePath();
+    cv.g = g; cv.scale = scale; cv.terrain = P;
+    cv.back = paintBackdrop(g, look, scale);
+    cv.dim = paintTerrain(g, courseModel, look, true, scale, P);
+    cv.lit = paintTerrain(g, courseModel, look, false, scale, P);
+    cv.tmp = bitmap(W, H, scale);
+  }
+
+  // one frame: p = {look, summits, ridden (s), done, current, nextIx, pin (text), clock (s or null: static)}
+  function paintCourse(p) {
+    var g = cv.g, x = cv.ctx, W = g.W, H = g.H, sc = cv.scale, tot = courseModel.total, parts = courseModel.parts, d = LOOKS[p.look], i;
+    var ridden = clamp(p.ridden, 0, tot), xr = xOfT(g, ridden, tot), yr = ridgeY(g, xr), animated = p.clock !== null, t = p.clock || 0;
+    var cur = p.done ? parts.length - 1 : partIndexAt(parts, ridden), zc = zoneRgb(parts.length ? parts[cur].kind : "");
+    x.setTransform(sc, 0, 0, sc, 0, 0); x.clearRect(0, 0, W, H);
+    x.drawImage(cv.back.c, 0, 0, W, H);
+    x.drawImage(cv.dim.c, 0, 0, W, H);
+    if (!p.done) {
+      // the still-to-ride terrain fades in at the rider
+      var tm = cv.tmp, tx = tm.x, fade = clamp(W * 0.02, 10, 34);
+      tx.setTransform(1, 0, 0, 1, 0, 0); tx.clearRect(0, 0, tm.c.width, tm.c.height);
+      tx.drawImage(cv.lit.c, 0, 0);
+      tx.globalCompositeOperation = "destination-in";
+      var mg = tx.createLinearGradient((xr - fade * 0.25) * sc, 0, (xr + fade) * sc, 0);
+      mg.addColorStop(0, "rgba(0,0,0,0)"); mg.addColorStop(1, "rgba(0,0,0,1)");
+      tx.fillStyle = mg; tx.fillRect(0, 0, tm.c.width, tm.c.height);
+      tx.globalCompositeOperation = "source-over";
+      x.drawImage(tm.c, 0, 0, W, H);
+    }
+    var rw = clamp(H * 0.016, 2, 5), cp = p.done ? null : parts[cur];
+    if (cp) {
+      var px0 = xOfT(g, cp.start_s, tot), px1 = xOfT(g, cp.start_s + cp.seconds, tot);
+      x.save(); x.clip(cv.terrain);
+      var cg = x.createLinearGradient(0, g.yHi, 0, g.floor);
+      cg.addColorStop(0, css(zc, d.curGlow)); cg.addColorStop(1, css(zc, 0));
+      x.fillStyle = cg; x.fillRect(px0, 0, px1 - px0, g.floor);
+      x.restore();
+      strokeRidge(x, g, px0, px1, css(zc, 0.28), rw * 3);
+      strokeRidge(x, g, px0, px1, css(mixc(zc, WHITE, d.curRim), 1), d.ridge === "zone" ? rw : Math.max(1.4, rw * 0.7));
+    }
+    // the trail: a bright thread along the ridge that fades out behind the rider
+    var trailW = Math.min(xr, W * 0.28);
+    if (trailW > 4) {
+      var tg = x.createLinearGradient(xr - trailW, 0, xr, 0);
+      tg.addColorStop(0, "rgba(255,255,255,0)"); tg.addColorStop(1, "rgba(255,255,255,0.95)");
+      strokeRidge(x, g, xr - trailW, xr, tg, Math.max(1.4, H * 0.009));
+    }
+    // the next different part: dashed ridge, a halo that breathes, a pin with its name and the countdown
+    var pin = null, np = p.nextIx >= 0 ? parts[p.nextIx] : null;
+    if (np && p.pin) {
+      var nc = zoneRgb(np.kind), nx0 = xOfT(g, np.start_s, tot), nx1 = xOfT(g, np.start_s + np.seconds, tot);
+      var pulse = animated ? 0.5 + 0.5 * Math.sin(t * 2.4) : 0.6;
+      x.setLineDash([clamp(H * 0.035, 5, 10), clamp(H * 0.025, 4, 7)]);
+      strokeRidge(x, g, nx0, nx1, css(nc, 0.25 + 0.2 * pulse), rw * 3);
+      strokeRidge(x, g, nx0, nx1, css(mixc(nc, WHITE, 0.2), 1), Math.max(1.6, rw * 0.8));
+      x.setLineDash([]);
+      var fs = clamp(H * 0.058, 10, 19) * TEXT_BOOST, ph = fs * 1.7, stem = clamp(H * 0.05, 5, 14);
+      x.font = "700 " + fs + "px " + FONT; x.textAlign = "left"; x.textBaseline = "middle";
+      var pw = x.measureText(p.pin).width + fs * 1.5, ry = ridgeY(g, nx0), pxl = clamp(nx0 - fs * 0.75, 3, Math.max(3, W - pw - 3));
+      var hiY = ry, qx;
+      for (qx = pxl; qx <= pxl + pw; qx += 4) { hiY = Math.min(hiY, ridgeY(g, qx)); }
+      var lifted = hiY - stem * 0.6 - ph, py0 = lifted >= 2 ? lifted : 2, rr = ph / 2;
+      x.strokeStyle = css(nc, 0.9); x.lineWidth = 1.4;
+      x.beginPath(); x.moveTo(nx0, ry); x.lineTo(nx0, py0 + ph); x.stroke();
+      x.shadowColor = css(nc, 0.55); x.shadowBlur = fs * 0.7;
+      x.fillStyle = css(nc); x.beginPath();
+      x.moveTo(pxl + rr, py0); x.lineTo(pxl + pw - rr, py0); x.arc(pxl + pw - rr, py0 + rr, rr, -HALF_PI, HALF_PI);
+      x.lineTo(pxl + rr, py0 + ph); x.arc(pxl + rr, py0 + rr, rr, HALF_PI, HALF_PI * 3); x.closePath(); x.fill();
+      x.shadowBlur = 0;
+      pin = [pxl, py0, pw, ph];
+      x.fillStyle = "#06080f"; x.fillText(p.pin, pxl + fs * 0.75, py0 + ph / 2 + 0.5);
+      x.fillStyle = css(nc); x.beginPath(); x.arc(nx0, ry, Math.max(2.2, rw * 0.9), 0, TAU); x.fill();
+    }
+    // summit labels (a setting): a small triangle and the time, only when there is width
+    if (p.summits && W >= 500) {
+      var fs0 = clamp(H * 0.05, 10, 14) * TEXT_BOOST;
+      x.font = "600 " + fs0 + "px " + FONT; x.textAlign = "center"; x.textBaseline = "alphabetic";
+      for (i = 0; i < g.summits.length; i++) {
+        var si = g.summits[i], sx = g.xs[si], sy = g.ys[si], st = ((si - 1) / (g.M - 1)) * tot;
+        if (Math.abs(sx - xr) < 34 || (pin && sx + 20 > pin[0] && sx - 20 < pin[0] + pin[2] && sy - 28 < pin[1] + pin[3])) { continue; }
+        x.fillStyle = sx < xr ? "rgba(190,200,225,0.5)" : "rgba(255,255,255,0.9)";
+        x.beginPath(); x.moveTo(sx, sy - 5); x.lineTo(sx - 3.5, sy - 11); x.lineTo(sx + 3.5, sy - 11); x.closePath(); x.fill();
+        x.fillText(clock(st), sx, sy - 15);
+      }
+    }
+    // the rider: a "you are here" hairline to the ribbon, a still halo, then the marker: a dot on the ridge that blinks
+    // (1 s) inside an expanding beacon ring; calm = a steady dot with a still double ring. The cyclist rides above it.
+    x.strokeStyle = css(zc, 0.55); x.lineWidth = 1;
+    x.beginPath(); x.moveTo(xr, yr + 8); x.lineTo(xr, g.floor - g.band); x.stroke();
+    var hr = clamp(H * 0.13, 12, 36), hg = x.createRadialGradient(xr, yr, 0, xr, yr, hr);
+    hg.addColorStop(0, css(zc, 0.7)); hg.addColorStop(0.4, css(zc, 0.22)); hg.addColorStop(1, css(zc, 0));
+    x.fillStyle = hg; x.beginPath(); x.arc(xr, yr, hr, 0, TAU); x.fill();
+    var dr = clamp(H * 0.045, 4, 13), br = clamp(H * 0.28, 14, 70), ph = (t * BEACON_HZ) % 1, blink = animated ? 0.775 + 0.225 * Math.cos(TAU * ph) : 1;
+    x.lineWidth = Math.max(1.5, dr * 0.3);
+    if (animated) { x.strokeStyle = css(zc, 0.85 * Math.pow(1 - ph, 1.5)); x.beginPath(); x.arc(xr, yr, dr + (br - dr) * ph, 0, TAU); x.stroke(); }
+    else { x.strokeStyle = css(zc, 0.55); x.beginPath(); x.arc(xr, yr, dr * 2, 0, TAU); x.stroke(); x.strokeStyle = css(zc, 0.28); x.beginPath(); x.arc(xr, yr, dr * 3.2, 0, TAU); x.stroke(); }
+    x.globalAlpha = blink; x.fillStyle = css(zc); x.strokeStyle = "rgba(4,6,18,0.6)"; x.lineWidth = 1.5;
+    x.beginPath(); x.arc(xr, yr, dr, 0, TAU); x.fill(); x.stroke();
+    x.fillStyle = "#fff"; x.beginPath(); x.arc(xr, yr, dr * 0.5, 0, TAU); x.fill(); x.globalAlpha = 1;
+    if (H >= CYCLIST_H) { cyclist(x, xr, yr - dr - 3, clamp(H * 0.064, 8, 21), clamp(Math.atan2(ridgeY(g, xr + 9) - ridgeY(g, xr - 9), 18), -0.6, 0.6), zc); }
+    // time ticks
+    var steps = [60, 120, 300, 600, 900, 1200, 1800], step = 1800;
+    for (i = 0; i < steps.length; i++) { if (tot / steps[i] <= 9) { step = steps[i]; break; } }
+    var tf = clamp(H * 0.05, 9, 14) * TEXT_BOOST, ty = H - (g.tick - tf) / 2 - 1, tt;
+    x.font = "600 " + tf + "px " + FONT; x.textBaseline = "alphabetic"; x.fillStyle = "rgba(205,213,230,0.55)";
+    for (tt = 0; tt < tot; tt += step) {
+      if (tt > 0 && tot - tt < step * 0.5) { continue; }
+      x.textAlign = tt === 0 ? "left" : "center";
+      x.fillText(clock(tt), tt === 0 ? g.padX : xOfT(g, tt, tot), ty);
+    }
+    x.textAlign = "right"; x.fillText(clock(tot), W - g.padX, ty);
+  }
+
+  // the first later part whose kind differs from the current one: split parts of one kind are not "next"
+  function nextDifferent(f) {
+    var parts = f.parts || [], cur = f.ride.segment_index, kind = f.ride.kind;
+    for (var i = cur + 1; i < parts.length; i++) { if (parts[i].kind !== kind) { return i; } }
+    return -1;
+  }
+  var courseKey = "", built = { ck: "", sk: "" };
+  function drawCourse(f, seconds, done, nextIx) {
+    var points = f.profile || [], tot = points.length ? points[points.length - 1].t_s : 0, shown = tot > 0;
+    setS(el.panel, "display", shown ? "block" : "none");
+    if (!shown) { return; }
+    var key = points.length + ":" + tot + ":" + (f.parts ? f.parts.length : 0) + ":" + (f.parts && f.parts.length ? f.parts[f.parts.length - 1].kind : "");
+    if (key !== courseKey) { courseKey = key; courseModel = { profile: points, parts: f.parts || [], total: tot }; }
+    var look = LOOKS[f.course_look] ? f.course_look : "ribbon", summits = !!f.course_summits, now = Date.now();
+    if (!cv.pxW) { measure(); }
+    if (cv.pxW < MIN_PX || cv.pxH < MIN_PX) { return; }
+    // rebuild for a new course or look at once, for a new size once it settles (the lyrics band slides the card)
+    var ck = courseKey + "|" + look, sk = cv.pxW + "x" + cv.pxH;
+    if (!cv.g || ck !== built.ck || (sk !== built.sk && now - cv.pxAt >= COURSE_SETTLE_MS)) { built = { ck: ck, sk: sk }; buildCourse(look); }
+    var ni = done ? -1 : nextIx, np = ni >= 0 ? f.parts[ni] : null;
+    var pin = np ? (KIND_NAMES[np.kind] || "") + "  " + word("in") + " " + mmss(np.start_s * 1000 - seconds * 1000) : "";
+    // nothing moves by itself when calm (motion off, reduced, or paused): redraw only when what it shows changes
+    var calm = reduced || !f.playing || f.paused;
+    var sig = ck + "|" + built.sk + "|" + (summits ? 1 : 0) + "|" + (done ? "d" : f.ride.segment_index) + "|" + ni + "|" + Math.floor(seconds) + "|" + pin;
+    if (calm ? sig === cv.lastSig : now - cv.lastDraw < COURSE_FRAME_MS) { return; }
+    cv.lastSig = sig; cv.lastDraw = now;
+    paintCourse({ look: look, summits: summits, ridden: done ? tot : seconds, done: done, nextIx: ni, pin: pin, clock: calm ? null : now / 1000 });
+    setA(el.course, "aria-label", document.title + ", " + (f.text && f.text.segment ? f.text.segment + ", " : "") + clock(done ? tot : seconds) + " / " + clock(tot));
+  }
+
+  // ---- the song's lyrics: the server sends them once per song; the line is found here from the same position
+  // that drives the clock and the beat (the shift of the lyrics against the music comes with them)
+  var LYR_GRACE_MS = 3000, LYR_TAIL_MS = 4000, LYR_MS_PER_CHAR = 95, LYR_MIN_FILL_MS = 1500, LYR_PLAIN_MS = 210000;
+  var LYR_NOTE = "\u266A", LYR_FIT_STEPS = 2, LYR_FILL_STEP = 0.5;
+  var lyr = { on: false, seen: 0, k: "", f: "" };
+  // the last line before `idx` (step -1) or the first after it (step 1) that has words, looking two lines away
+  function lyrPick(lines, from, step) {
+    for (var k = 0; k < 2; k++) {
+      var line = lines[from + k * step];
+      if (line && line.text) { return line.text; }
+    }
+    return "";
+  }
+  // the line being sung: synced lyrics by their times, plain ones spread over the song's length
+  function lyrIndex(L, pos) {
+    var lines = L.lines, n = lines.length;
+    if (!L.synced) { return Math.min(n - 1, Math.floor(clamp(pos / (L.duration_ms > 0 ? L.duration_ms : LYR_PLAIN_MS), 0, 1) * n)); }
+    var eff = pos - (L.offset_ms || 0), a = 0, z = n;
+    while (a < z) { var mid = (a + z) >> 1; if (lines[mid].t_ms <= eff) { a = mid + 1; } else { z = mid; } }
+    return a - 1;
+  }
+  // `show` is false while something covers the stage (the 3-2-1)
+  function lyrics(L, pos, show) {
+    var have = !!(L && L.lines && L.lines.length), now = Date.now();
+    if (have) { lyr.seen = now; lyr.on = true; } else if (lyr.on && now - lyr.seen > LYR_GRACE_MS) { lyr.on = false; }
+    setLy(lyr.on);
+    setS(el.lyr, "opacity", lyr.on && show ? "" : "0");
+    if (!lyr.on) { return; }
+    var idx = -1, lines = have ? L.lines : [], text = "", fill = "";
+    if (have) {
+      idx = lyrIndex(L, pos);
+      text = idx >= 0 ? lines[idx].text : "";
+      if (L.synced && text) {
+        var eff = pos - (L.offset_ms || 0), t0 = lines[idx].t_ms;
+        var gap = idx + 1 < lines.length ? lines[idx + 1].t_ms - t0 : LYR_TAIL_MS;
+        var span = Math.max(1, Math.min(gap, Math.max(LYR_MIN_FILL_MS, text.length * LYR_MS_PER_CHAR)));
+        fill = (Math.round(clamp((eff - t0) / span, 0, 1) * 100 / LYR_FILL_STEP) * LYR_FILL_STEP) + "%";
+      }
+    }
+    var key = have ? L.song_key + ":" + idx : "-";
+    if (key !== lyr.k) {
+      lyr.k = key;
+      setT(el.lyP, have ? lyrPick(lines, idx - 1, -1) : "");
+      setT(el.lyC, text || LYR_NOTE);
+      setT(el.lyN, have ? lyrPick(lines, idx + 1, 1) : "");
+      fit(el.lyC, LYR_FIT_STEPS);
+      restart(el.lyC, "enter");
+      restart(el.lyN, "enter");
+    }
+    setA(el.lyC, "data-k", fill ? "1" : "0");
+    if (fill && lyr.f !== fill) { lyr.f = fill; el.lyC.style.setProperty("--f", fill); }
+  }
+  function setLy(on) {
+    var v = on ? "1" : "0";
+    if (body.getAttribute("data-ly") !== v) { body.setAttribute("data-ly", v); }
+  }
+
+  function setMode(m) {
+    if (body.getAttribute("data-mode") !== m) { body.setAttribute("data-mode", m); }
+    if (m !== "ride") { lyr.on = false; setLy(false); body.setAttribute("data-paused", "0"); setS(el.count, "display", "none"); setS(el.pausedMsg, "display", "none"); }
+  }
+
+  // the 3-2-1 digit showing now, from the cues listed at the sampled position and the time since
+  function countdownDigit(ride, pos) {
+    var cues = ride.cues || [], gone = pos - ride.pulse.song_position_ms;
+    for (var i = 0; i < cues.length; i++) {
+      var n = cues[i].kind === "countdown3" ? 3 : cues[i].kind === "countdown2" ? 2 : cues[i].kind === "countdown1" ? 1 : 0;
+      var due = cues[i].in_ms - gone;
+      if (n && due <= 0 && due > -1000) { return n; }
+    }
+    return 0;
+  }
+
+  var lastPart = "", dotsKey = "";
+  function summary(f) {
+    var ride = f.ride, parts = f.parts || [], i, sums = {}, order = [], totalS = 0;
+    setT($("statTime"), mmss(ride.total_s * 1000));
+    setT($("statParts"), String(ride.segment_count));
+    for (i = 0; i < parts.length; i++) {
+      if (!sums[parts[i].kind]) { sums[parts[i].kind] = 0; order.push(parts[i].kind); }
+      sums[parts[i].kind] += parts[i].seconds; totalS += parts[i].seconds;
+    }
+    var mix = "", legend = "";
+    order.sort(function (a, c) { return sums[c] - sums[a]; });
+    for (i = 0; i < order.length; i++) {
+      var hex = COLORS[order[i]] || FALLBACK;
+      mix += '<i style="width:' + (sums[order[i]] / Math.max(1, totalS) * 100).toFixed(2) + "%;background:" + hex + '"></i>';
+      if (i < 6) { legend += '<span><i style="background:' + hex + '"></i>' + (KIND_NAMES[order[i]] || "") + " " + mmss(sums[order[i]] * 1000) + "</span>"; }
+    }
+    setH($("mix"), mix); setH($("legend"), legend);
+  }
+
+  function render() {
+    if (!frame || !frame.ride) { tint(FALLBACK, FALLBACK); setMode("wait"); return; }
+    var ride = frame.ride;
+    if (body.className === "nt") { setTimeout(function () { body.className = ""; }, 120); }
+    if (ride.finished) {
+      tint("#3ddc97", "#3ddc97");
+      setMode("done");
+      summary(frame);
+      setT(el.clock, "");
+      drawCourse(frame, ride.total_s, true, -1);
+      return;
+    }
+    setMode("ride");
+    var color = COLORS[ride.kind] || FALLBACK, iv = ride.interval;
+    var zone = iv ? (iv.phase === "work" ? WORK : REST) : color;
+    tint(color, zone);
+    // a new part: what is on the left rises in again
+    var partKey = ride.segment_index + ":" + ride.kind;
+    if (partKey !== lastPart) { if (lastPart) { restart(el.nowTop, "enter"); } lastPart = partKey; }
+
+    // where we are in the ride: "3 / 12 parts" and one pip per part in its colour
+    setT(el.pipsCap, (ride.segment_index + 1) + " / " + ride.segment_count + " " + word("parts"));
+    var pk = ride.segment_count + ":" + (frame.parts ? frame.parts.length : 0);
+    if (pk !== el.pips._k) {
+      el.pips._k = pk; el.pips._c = -1;
+      var ph = "", pp = frame.parts || [];
+      for (var q = 0; q < pp.length; q++) { ph += '<i style="--p:' + (COLORS[pp[q].kind] || FALLBACK) + '"></i>'; }
+      el.pips.innerHTML = ph;
+    }
+    if (el.pips._c !== ride.segment_index) {
+      el.pips._c = ride.segment_index;
+      for (q = 0; q < el.pips.childNodes.length; q++) { el.pips.childNodes[q].className = q < ride.segment_index ? "done" : q === ride.segment_index ? "cur" : ""; }
+    }
+    var name = frame.text.segment || "";
+    setT(el.segment, name);
+    if (el.segment._f !== name) { el.segment._f = name; fit(el.segment, 3); }
+    var alternating = ride.position.kind === "alternating", standing = ride.position.kind !== "seated";
+    setH(el.position, (standing ? STANDING_ICON : SEATED_ICON) + "<span></span>");
+    el.position.lastChild.textContent = alternating ? word("hint") : frame.text.position;
+    setS(el.position, "color", standing ? "#ffc58a" : "#cfe3ff");
+
+    var rpm = String(ride.target_rpm);
+    setT(el.rpm, rpm);
+    el.rpm.className = rpm.length >= 3 ? "three" : "";
+    var same = ride.range.min_rpm === ride.range.max_rpm;
+    setT(el.rangeText, same ? "" : ride.range.min_rpm + "–" + ride.range.max_rpm);
+    setS(el.range, "display", same ? "none" : "block");
+    gauge(ride);
+    setT(el.phaseText, iv ? (iv.phase === "work" ? word("go") + "!" : word("rest")) : "");
+    setS(el.phase, "display", iv ? "block" : "none");
+
+    // effort: "Hard 7" -> the word and the number, ten rising bars
+    var eff = frame.text.effort || "", cut = eff.lastIndexOf(" ");
+    setT(el.effortWord, cut > 0 ? eff.slice(0, cut) : eff);
+    setH(el.effortNum, ride.effort + "<small>/10</small>");
+    for (var i = 0; i < bars.length; i++) { setS(bars[i], "background", i < ride.effort ? color : ""); }
+
+    // the clock of this part (the phase inside an interval) and how far through it we are
+    var pos = position(), gone = pos - ride.pulse.song_position_ms;
+    var segMs = Math.max(1, ride.segment_seconds * 1000), segLeft = segMs - pos;
+    var shown = iv ? Math.min(segLeft, iv.phase_remaining_s * 1000 - gone) : segLeft;
+    setT(el.timer, mmss(shown));
+    setT(el.round, iv ? word("round") + " " + iv.round + " / " + iv.rounds : word("left"));
+    setS(el.segBar, "display", iv ? "none" : "block");
+    setS(el.dots, "display", iv ? "flex" : "none");
+    setS(el.segFill, "width", clamp(100 - segLeft / segMs * 100, 0, 100).toFixed(1) + "%");
+    if (iv) {
+      var dk = String(iv.rounds);
+      if (dk !== dotsKey) { dotsKey = dk; var h = ""; for (var r = 0; r < iv.rounds; r++) { h += "<i></i>"; } el.dots.innerHTML = h; el.dots._d = ""; }
+      var state = String(iv.round);
+      if (el.dots._d !== state) {
+        el.dots._d = state;
+        for (r = 0; r < el.dots.childNodes.length; r++) { el.dots.childNodes[r].className = r + 1 < iv.round ? "done" : r + 1 === iv.round ? "cur" : ""; }
+      }
+    }
+    var elapsedMs = ride.elapsed_s * 1000 + gone, totalMs = Math.max(1, ride.total_s * 1000);
+    el.clock.innerHTML = "<b>" + mmss(Math.min(elapsedMs, totalMs)) + "</b>&nbsp;/&nbsp;" + mmss(totalMs);
+
+    // next: the first part of a different kind, or "keep going" when this kind runs to the end
+    var ni = nextDifferent(frame), np = ni >= 0 ? frame.parts[ni] : null;
+    var nc = np ? COLORS[np.kind] || FALLBACK : color;
+    if (el.nextCard._n !== nc) { el.nextCard._n = nc; el.nextCard.style.setProperty("--n", nc); el.nextCard.style.setProperty("--nr", rgb(nc)); body.style.setProperty("--n", nc); }
+    if (np) {
+      var nn = KIND_NAMES[np.kind] || "", immediate = ni === ride.segment_index + 1 && ride.next;
+      setT(el.nextName, nn);
+      var sub = word("in") + " " + mmss(np.start_s * 1000 - elapsedMs);
+      setT(el.nextSub, immediate ? ride.next.target_rpm + " " + word("rpm") + "  ·  " + sub : sub);
+      if (el.nextName._f !== nn) { el.nextName._f = nn; fit(el.nextName, 2); }
+    } else {
+      setT(el.nextName, word("keep"));
+      if (el.nextName._f !== "keep") { el.nextName._f = "keep"; fit(el.nextName, 2); }
+      setT(el.nextSub, "");
+    }
+    el.nextName.style.color = "";
+    var soon = !!(np && ni === ride.segment_index + 1 && ride.notice);
+    var cls = "abs r glass" + (soon ? " soon" : "");
+    if (el.nextCard.className !== cls) { el.nextCard.className = cls; }
+    drawCourse(frame, elapsedMs / 1000, false, ni);
+
+    // paused: dimmed ride and a word; counting down: dim overlay with the digit and what comes next
+    var paused = !!(frame.paused || !frame.playing);
+    body.setAttribute("data-paused", paused ? "1" : "0");
+    setS(el.pausedMsg, "display", paused ? "flex" : "none");
+    var digit = paused ? 0 : countdownDigit(ride, pos);
+    lyrics(frame.lyrics, pos, !digit);
+    if (digit && ride.next) {
+      var cc = COLORS[ride.next.kind] || "#fff";
+      if (el.count._d !== digit) {
+        el.count._d = digit;
+        el.count.style.setProperty("--c", cc); el.count.style.setProperty("--cr", rgb(cc));
+        el.countDigit.textContent = String(digit);
+        restart(el.countDigit, "digit");
+      }
+      el.countDigit.style.animation = reduced ? "none" : "";
+      var np2 = (frame.text.next || "").split(" · ");
+      setT(el.countName, np2[0]);
+      setT(el.countRpm, np2.slice(1).join(" · "));
+      setS(el.count, "display", "block");
+    } else {
+      el.count._d = 0;
+      setS(el.count, "display", "none");
+    }
+  }
+
+  // ---- the beat, computed from the grid and the position at display rate; three looks, calm with motion off
+  var lastDot = -1, dotSide = 0;
+  function beat() {
+    var ride = frame && frame.ride;
+    var running = ride && !ride.finished && ride.pulse.stroke_ms > 0 && frame.playing;
+    var style = (frame && frame.pulse_style) || "ring";
+    setS(el.pbar, "display", style === "bar" ? "block" : "none");
+    if (running) {
+      var p = ride.pulse, raw = (position() + shiftMs - p.first_beat_ms) / p.stroke_ms;
+      var phase = ((raw % 1) + 1) % 1, strokeIndex = Math.floor(raw);
+      var hit = Math.exp(-phase * 6);
+      if (reduced) {
+        // no scaling or glow: the target knob's halo steps between two brightnesses, at most MAX_DOT_PER_S times a second
+        var every = Math.max(1, Math.ceil(1000 / MAX_DOT_PER_S / p.stroke_ms));
+        if (strokeIndex !== lastDot && strokeIndex % every === 0) { lastDot = strokeIndex; dotSide = 1 - dotSide; }
+        setA(el.knobHalo, "opacity", dotSide ? "0.75" : "0.2");
+        setS(el.rpm, "transform", "none"); setS(el.aura, "opacity", "0"); setS(el.halo, "opacity", "0"); setS(el.flash, "opacity", "0");
+      } else if (style === "bar") {
+        setS(el.pbarFill, "width", (hit * 100).toFixed(1) + "%");
+        setS(el.rpm, "transform", "none"); setS(el.aura, "opacity", "0"); setS(el.halo, "opacity", "0");
+      } else if (style === "flash") {
+        // at most MAX_FLASH_PER_S, and never brighter than FLASH_ALPHA
+        var skip = Math.max(1, Math.ceil(1000 / MAX_FLASH_PER_S / p.stroke_ms));
+        var lit = strokeIndex % skip === 0;
+        setS(el.flash, "background", body._z || "#fff");
+        setS(el.flash, "opacity", lit ? (FLASH_ALPHA * hit).toFixed(3) : "0");
+        setS(el.rpm, "transform", "none"); setS(el.aura, "opacity", "0"); setS(el.halo, "opacity", "0");
+      } else {
+        el.rpm.style.transform = "scale(" + (1 + 0.04 * hit).toFixed(3) + ")";
+        el.aura.style.opacity = (0.85 * hit).toFixed(3);
+        el.halo.style.opacity = (0.4 * hit).toFixed(3);
+        el.halo.style.transform = "rotate(135deg) scale(" + (1 + 0.03 * hit).toFixed(3) + ")";
+        setS(el.flash, "opacity", "0");
+      }
+    } else {
+      setS(el.rpm, "transform", "none"); setS(el.aura, "opacity", "0"); setS(el.halo, "opacity", "0"); setS(el.flash, "opacity", "0");
+      setA(el.knobHalo, "opacity", "0.2");
+    }
+    var silent = Date.now() - (received || started) > STALE_MS;
+    setS(el.link, "background", silent ? "#8f2f2f" : "#2f8f4e");
+    setS(el.reconnect, "display", silent ? "flex" : "none");
+    render();
+    (window.requestAnimationFrame || function (f) { return setTimeout(f, 33); })(beat);
+  }
+  function poll() {
+    var sent = Date.now(), xhr = new XMLHttpRequest();
+    xhr.open("GET", "/ride.json?t=" + sent, true);
+    xhr.timeout = 3000;
+    xhr.onload = function () {
+      var back = Date.now();
+      try {
+        var json = JSON.parse(xhr.responseText);
+        offset = json.server_now_ms - (sent + back) / 2;
+        frame = json;
+        received = back;
+      } catch (e) { /* keep the last frame */ }
+    };
+    xhr.onloadend = function () { setTimeout(poll, POLL_MS); };
+    xhr.send();
+  }
+  try { if (navigator.wakeLock) { navigator.wakeLock.request("screen"); } } catch (e) { /* optional */ }
+  poll();
+  beat();
+})();
+</script>
+</body>
+</html>

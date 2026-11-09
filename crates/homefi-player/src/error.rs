@@ -15,3 +15,14 @@ pub enum PlayerError {
     #[error("resampler: {0}")]
     Resample(String),
 }
+
+impl From<homefi_core::audio::decode::DecodeError> for PlayerError {
+    fn from(e: homefi_core::audio::decode::DecodeError) -> Self {
+        use homefi_core::audio::decode::DecodeError as D;
+        match e {
+            D::Open(m) => Self::Open(m),
+            D::Unsupported(m) => Self::Unsupported(m),
+            D::Decode(m) => Self::Decode(m),
+        }
+    }
+}

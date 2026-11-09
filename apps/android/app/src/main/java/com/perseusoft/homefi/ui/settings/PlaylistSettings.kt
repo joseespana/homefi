@@ -127,6 +127,17 @@ internal fun PlaylistsSettings() {
             hint = stringResource(R.string.pl_set_prefer_library_hint),
         ) { set(s.copy(preferLibrary = it)) }
     }
+    SettingsGroup(title = stringResource(R.string.pl_set_tidal)) {
+        SwitchRow(
+            stringResource(R.string.pl_set_tidal_auto), s.tidalAutoSave,
+            hint = stringResource(R.string.pl_set_tidal_auto_hint),
+        ) { set(s.copy(tidalAutoSave = it)) }
+        RowDivider()
+        SwitchRow(
+            stringResource(R.string.pl_set_tidal_delete), s.tidalDeleteWith,
+            hint = stringResource(R.string.pl_set_tidal_delete_hint),
+        ) { set(s.copy(tidalDeleteWith = it)) }
+    }
 }
 
 /** A percentage slider in 5% steps: moves a local value while dragging, saves when let go. */
@@ -145,7 +156,7 @@ private fun PctSlider(label: Int, readout: Int, value: Int, hint: Int? = null, o
  * runs when it's let go, and the value the store holds (clamped by the core) comes back in [value].
  */
 @Composable
-private fun CountSlider(
+internal fun CountSlider(
     label: String,
     value: Int,
     range: IntRange,

@@ -7,6 +7,7 @@ import com.perseusoft.homefi.core.LocalPlaylist
 import com.perseusoft.homefi.core.findPlaylists
 import com.perseusoft.homefi.data.DownloadRepository
 import com.perseusoft.homefi.data.Storage
+import com.perseusoft.homefi.data.TvStorage
 import com.perseusoft.homefi.homefi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,7 +33,12 @@ data class LibraryState(
     val hasAccess: Boolean = false,
     /** `.m3u` playlists found in the library folders (tiddl makes these). */
     val playlists: List<LocalPlaylist> = emptyList(),
-)
+    /** Removable folders (a USB drive) the library knows that are not readable now: their songs show as unavailable. */
+    val missingRoots: List<String> = emptyList(),
+) {
+    /** The file lies on a drive that is not there at the moment. */
+    fun unavailable(path: String): Boolean = missingRoots.isNotEmpty() && TvStorage.isUnavailable(path, missingRoots)
+}
 
 data class Album(val key: String, val title: String, val artist: String, val year: UInt?, val tracks: List<LibraryTrack>) {
     val cover: EmbeddedCover get() = EmbeddedCover(tracks.first().path)
@@ -60,6 +66,10 @@ class LibraryRepository(
         scope.launch {
             downloads.state.map { it.isBusy }.distinctUntilChanged().drop(1).filter { !it }.collect { refresh() }
         }
+        // a USB drive comes or goes: its songs appear, or stay in the list marked unavailable
+        scope.launch {
+            context.homefi.volumes.volumes.map { v -> v.map { it.root.path } }.distinctUntilChanged().drop(1).collect { refresh() }
+        }
     }
 
     fun find(path: String): LibraryTrack? = byPath[path]
@@ -68,11 +78,19 @@ class LibraryRepository(
         scope.launch {
             mutex.withLock {
                 _state.update { it.copy(scanning = true, hasAccess = Storage.hasAudioReadAccess(context)) }
-                val roots = Storage.libraryRoots(context, context.homefi.settings.current.downloadDir).map(File::getAbsolutePath)
-                val tracks = engine.scanLibrary(roots)
+                val current = context.homefi.settings.current
+                // the TV's USB folders always count, even unplugged: the core keeps the songs it knew there
+                val removable = current.tv.libraryVolumes
+                val roots = (Storage.libraryRoots(context, current.downloadDir).map(File::getAbsolutePath) + removable).distinct()
+                val scanned = engine.scanLibrary(roots)
                 val playlists = withContext(Dispatchers.IO) { runCatching { findPlaylists(roots) }.getOrDefault(emptyList()) }
+                val missing = withContext(Dispatchers.IO) { TvStorage.missingRoots(removable) }
+                // the core leaves out the songs of a drive that is out; keep what was known so they show as unavailable (nothing is purged)
+                val found = scanned.mapTo(HashSet()) { it.path }
+                val offline = _state.value.tracks.filter { it.path !in found && TvStorage.isUnavailable(it.path, missing) }
+                val tracks = scanned + offline
                 byPath = tracks.associateBy { it.path }
-                _state.update { it.copy(tracks = tracks, playlists = playlists, scanning = false, scanned = true) }
+                _state.update { it.copy(tracks = tracks, playlists = playlists, scanning = false, scanned = true, missingRoots = missing) }
             }
         }
     }

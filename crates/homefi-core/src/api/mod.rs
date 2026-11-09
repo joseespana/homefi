@@ -218,11 +218,29 @@ impl TidalApi {
 
     /// Removes the item at `index` (0-based, playlist order).
     pub async fn remove_from_playlist(&self, uuid: &str, index: usize) -> Result<()> {
+        self.remove_many_from_playlist(uuid, &[index]).await
+    }
+
+    /// Removes the items at `indices` (0-based, playlist order) in one call: Tidal takes them
+    /// comma-separated. Keep each call to [`limits::PLAYLIST_ITEMS`] or fewer.
+    pub async fn remove_many_from_playlist(&self, uuid: &str, indices: &[usize]) -> Result<()> {
+        if indices.is_empty() {
+            return Ok(());
+        }
         let endpoint = format!("playlists/{uuid}");
         let etag = self.client.etag(&endpoint, &[self.cc()]).await?;
-        let items = format!("{endpoint}/items/{index}");
+        let list = indices.iter().map(usize::to_string).collect::<Vec<_>>().join(",");
+        let items = format!("{endpoint}/items/{list}");
         let params = [self.cc(), ("order", "INDEX".to_owned()), ("orderDirection", "ASC".to_owned())];
         self.client.send(Method::DELETE, false, &items, &params, &[], etag.as_deref()).await.map(drop)
+    }
+
+    /// Renames a playlist the user owns and sets its description.
+    pub async fn update_playlist(&self, uuid: &str, title: &str, description: &str) -> Result<()> {
+        let endpoint = format!("playlists/{uuid}");
+        let etag = self.client.etag(&endpoint, &[self.cc()]).await?;
+        let form = [("title", title.to_owned()), ("description", description.to_owned())];
+        self.client.send(Method::POST, false, &endpoint, &[self.cc()], &form, etag.as_deref()).await.map(drop)
     }
 
     pub async fn delete_playlist(&self, uuid: &str) -> Result<()> {

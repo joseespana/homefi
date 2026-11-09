@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App de Android TV: Listas, Sonido, Fiesta -->
+    <string name="tv_close">Cerrar</string>
+    <string name="tv_chat_type">Escribir</string>
+
+    <string name="tv_pl_sub">%1$d hechas por HomeFi</string>
+    <string name="tv_pl_tab_homefi">Hechas por HomeFi</string>
+    <string name="tv_pl_tab_tidal">Mi TIDAL</string>
+    <string name="tv_pl_new_title">Nueva con IA</string>
+    <string name="tv_pl_new_sub">Di lo que quieres</string>
+    <string name="tv_pl_on_tidal">En TIDAL</string>
+    <string name="tv_pl_not_found">%1$d sin encontrar</string>
+    <string name="tv_pl_more">Más</string>
+    <string name="tv_pl_understood">Lo que ha entendido la IA</string>
+    <string name="tv_pl_build_wait">Di algo primero y la IA construirá a partir de ello.</string>
+    <string name="tv_pl_open">Abrir</string>
+
+    <string name="tv_sound_sub">Presets, tus sonidos y la curva</string>
+    <string name="tv_sound_sub_out">Salida: %1$s</string>
+    <string name="tv_sound_tab_curve">Curva</string>
+    <string name="tv_sound_tab_assistant">Asistente</string>
+    <string name="tv_sound_on">Sonido activado</string>
+    <string name="tv_sound_off">Sonido desactivado</string>
+    <string name="tv_sound_flat_sub">Sin bandas: el sonido pasa sin tocar</string>
+    <string name="tv_sound_active">Activo</string>
+    <string name="tv_sound_bands">%1$d bandas</string>
+    <string name="tv_sound_apply">Usar este preset</string>
+    <string name="tv_sound_try">Probar en esta canción</string>
+    <string name="tv_sound_refine">Afinar con la IA</string>
+    <string name="tv_sound_stop">Parar</string>
+    <string name="tv_sound_keep">Guardar</string>
+    <string name="tv_sound_editing">Editando: %1$s</string>
+    <string name="tv_sound_shared_profile">Usa el perfil compartido</string>
+    <string name="tv_sound_rules_empty">Aún no hay sonidos. Pídele uno a la IA.</string>
+    <string name="tv_sound_hint_band">Banda</string>
+    <string name="tv_sound_hint_gain">Ganancia %1$s dB</string>
+    <string name="tv_sound_hint_done">Listo</string>
+    <string name="tv_sound_press_ok_add">Pulsa OK para añadir una banda</string>
+    <string name="tv_sound_press_ok_edit">OK: editar bandas</string>
+    <string name="tv_sound_no_band">Pulsa OK en la curva y usa izquierda y derecha para elegir una banda</string>
+    <string name="tv_sound_band_info">Banda %1$d de %2$d · %3$s · %4$s Hz · %5$s · Q %6$s</string>
+
+    <string name="tv_party_title">Fiesta · el centro está en esta tele</string>
+    <string name="tv_party_how">Misma Wi-Fi · abre HomeFi y toca Unirse</string>
+    <string name="tv_party_empty">Nadie se ha unido todavía. Escanea el código para empezar.</string>
+    <string name="tv_party_lan">En la tele solo Wi-Fi</string>
+    <string name="tv_party_start_body">Haz una fiesta con los altavoces de esta tele: los móviles se unen con el código QR, añaden canciones y, en modo fiesta, suenan a la vez.</string>
+    <string name="tv_party_join_title">Unirse a una fiesta</string>
+    <string name="tv_party_join_body">Las fiestas de esta Wi-Fi aparecen aquí. Elige una y escribe su código.</string>
+    <string name="tv_party_searching">Buscando fiestas en esta Wi-Fi…</string>
+    <string name="tv_party_nearby">En esta Wi-Fi</string>
+    <string name="tv_party_selected">Elegido</string>
+    <string name="tv_party_stream">Fiesta en streaming</string>
+    <string name="tv_party_auto_approve">Aprobar solas</string>
+    <string name="tv_party_end">Terminar fiesta</string>
+    <string name="tv_party_connected">Conectado</string>
+    <string name="tv_party_joined">Acaba de unirse</string>
+    <string name="tv_party_added">Añadió «%1$s»</string>
+    <string name="tv_party_play_here_on">Sonando en esta tele</string>
+    <string name="tv_party_play_here_off">No suena en esta tele</string>
+</resources>

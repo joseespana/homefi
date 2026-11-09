@@ -585,6 +585,26 @@ pub enum PlaylistOrigin {
     Concert { origin: ConcertOrigin },
     Party { origin: PartyOrigin },
     Chat { origin: ChatOrigin },
+    Ride { origin: RideOrigin },
+}
+
+/// An Exercise ride's playlist: the workout and the music wish it was built from.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct RideOrigin {
+    pub workout_id: String,
+    pub wish: crate::exercise::MusicWish,
+}
+
+impl From<pl::RideOrigin> for RideOrigin {
+    fn from(o: pl::RideOrigin) -> Self {
+        Self { workout_id: o.workout_id, wish: o.wish.into() }
+    }
+}
+
+impl From<RideOrigin> for pl::RideOrigin {
+    fn from(o: RideOrigin) -> Self {
+        Self { workout_id: o.workout_id, wish: o.wish.into() }
+    }
 }
 
 impl From<pl::PlaylistOrigin> for PlaylistOrigin {
@@ -593,6 +613,7 @@ impl From<pl::PlaylistOrigin> for PlaylistOrigin {
             pl::PlaylistOrigin::Concert(origin) => Self::Concert { origin: origin.into() },
             pl::PlaylistOrigin::Party(origin) => Self::Party { origin: origin.into() },
             pl::PlaylistOrigin::Chat(origin) => Self::Chat { origin: origin.into() },
+            pl::PlaylistOrigin::Ride(origin) => Self::Ride { origin: origin.into() },
         }
     }
 }
@@ -603,6 +624,7 @@ impl From<PlaylistOrigin> for pl::PlaylistOrigin {
             PlaylistOrigin::Concert { origin } => Self::Concert(origin.into()),
             PlaylistOrigin::Party { origin } => Self::Party(origin.into()),
             PlaylistOrigin::Chat { origin } => Self::Chat(origin.into()),
+            PlaylistOrigin::Ride { origin } => Self::Ride(origin.into()),
         }
     }
 }
@@ -620,6 +642,8 @@ pub struct HomePlaylist {
     pub unmatched: Vec<SongCandidate>,
     pub sources: Vec<SourceLink>,
     pub search_widget_html: Option<String>,
+    /// The copy in the user's TIDAL account; `None` until it's saved there.
+    pub tidal_uuid: Option<String>,
 }
 
 impl From<pl::HomePlaylist> for HomePlaylist {
@@ -636,6 +660,7 @@ impl From<pl::HomePlaylist> for HomePlaylist {
             unmatched: p.unmatched.into_iter().map(Into::into).collect(),
             sources: p.sources.into_iter().map(Into::into).collect(),
             search_widget_html: p.search_widget_html,
+            tidal_uuid: p.tidal_uuid,
         }
     }
 }
@@ -654,6 +679,7 @@ impl From<HomePlaylist> for pl::HomePlaylist {
             unmatched: p.unmatched.into_iter().map(Into::into).collect(),
             sources: p.sources.into_iter().map(Into::into).collect(),
             search_widget_html: p.search_widget_html,
+            tidal_uuid: p.tidal_uuid,
         }
     }
 }
@@ -676,6 +702,8 @@ pub struct PlaylistSettings {
     pub chat_curve: EnergyCurve,
     pub chat_allow_explicit: bool,
     pub chat_from_song: bool,
+    pub tidal_auto_save: bool,
+    pub tidal_delete_with: bool,
 }
 
 impl From<pl::PlaylistSettings> for PlaylistSettings {
@@ -697,6 +725,8 @@ impl From<pl::PlaylistSettings> for PlaylistSettings {
             chat_curve: s.chat_curve.into(),
             chat_allow_explicit: s.chat_allow_explicit,
             chat_from_song: s.chat_from_song,
+            tidal_auto_save: s.tidal_auto_save,
+            tidal_delete_with: s.tidal_delete_with,
         }
     }
 }
@@ -720,6 +750,8 @@ impl From<PlaylistSettings> for pl::PlaylistSettings {
             chat_curve: s.chat_curve.into(),
             chat_allow_explicit: s.chat_allow_explicit,
             chat_from_song: s.chat_from_song,
+            tidal_auto_save: s.tidal_auto_save,
+            tidal_delete_with: s.tidal_delete_with,
         }
     }
 }
@@ -790,6 +822,12 @@ pub struct LibraryRef {
     pub album: String,
     pub isrc: Option<String>,
     pub duration_ms: u64,
+    /// The file's `BPM` tag (Exercise mode matches songs to a cadence with it).
+    #[uniffi(default = None)]
+    pub bpm: Option<u16>,
+    /// The file's genre tag.
+    #[uniffi(default = "")]
+    pub genre: String,
 }
 
 impl From<LibraryRef> for pl::LibraryRef {
@@ -801,8 +839,43 @@ impl From<LibraryRef> for pl::LibraryRef {
             album: l.album,
             isrc: l.isrc,
             duration_ms: l.duration_ms,
+            bpm: l.bpm,
+            genre: l.genre,
         }
     }
+}
+
+/// What saving a playlist to TIDAL did.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct TidalSaveReport {
+    pub uuid: String,
+    /// Made now (first save, or the old copy was deleted on TIDAL).
+    pub created: bool,
+    pub saved: u32,
+    /// "Title · Artist" of the songs TIDAL doesn't have.
+    pub skipped: Vec<String>,
+    /// "Saved 24 songs to TIDAL · 2 aren't on TIDAL", in the language asked for.
+    pub summary: String,
+}
+
+impl TidalSaveReport {
+    fn new(report: pl::TidalSaveReport, lang: Lang) -> Self {
+        let summary = report.summary(lang);
+        Self {
+            uuid: report.uuid,
+            created: report.created,
+            saved: count(report.saved),
+            skipped: report.skipped,
+            summary,
+        }
+    }
+}
+
+/// A saved playlist after it was saved to TIDAL: the stored copy (with its `tidal_uuid`) and the report.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct TidalSaved {
+    pub playlist: HomePlaylist,
+    pub report: TidalSaveReport,
 }
 
 // ------------------------------------------------------------------ engine
@@ -903,10 +976,41 @@ impl HomefiEngine {
         Ok(self.playlist_store().save(&playlist.into())?)
     }
 
-    /// Removes HomeFi's own copy; library files and the Tidal account are never touched.
+    /// Removes HomeFi's own copy; library files are never touched (its TIDAL copy is deleted
+    /// apart, see [`home_playlist_delete_on_tidal`](Self::home_playlist_delete_on_tidal)).
     /// `false` = there was no such playlist.
     pub fn home_playlist_delete(&self, id: String) -> Result<bool> {
         Ok(self.playlist_store().remove(&id)?)
+    }
+
+    /// Deletes the copy of `playlist` in the user's TIDAL account (the "delete the TIDAL copy
+    /// too" setting). `false` when it had none or it was already gone.
+    pub async fn home_playlist_delete_on_tidal(self: Arc<Self>, playlist: HomePlaylist) -> Result<bool> {
+        crate::runtime::run(async move {
+            if playlist.tidal_uuid.is_none() {
+                return Ok(false);
+            }
+            let _ = self.session.refresh(600, false).await;
+            let api = self.session.api()?;
+            Ok(pl::delete_from_tidal(&api, &playlist.into()).await?)
+        })
+        .await
+    }
+
+    /// Saves the stored playlist `id` to the user's TIDAL account: created there the first
+    /// time, its items replaced after that so TIDAL matches HomeFi. Songs TIDAL doesn't have
+    /// are skipped and listed. `language` words the summary ("en" or "es").
+    pub async fn home_playlist_save_to_tidal(self: Arc<Self>, id: String, language: String) -> Result<TidalSaved> {
+        crate::runtime::run(async move {
+            let _ = self.session.refresh(600, false).await;
+            let api = self.session.api()?;
+            let (playlist, report) = pl::save_stored_to_tidal(&api, &self.playlist_store(), &id).await?;
+            Ok(TidalSaved {
+                playlist: playlist.into(),
+                report: TidalSaveReport::new(report, Lang::from_code(&language)),
+            })
+        })
+        .await
     }
 }
 
@@ -998,6 +1102,7 @@ mod tests {
             }],
             sources: vec![pl::SourceLink { url: "https://www.example.com/x".into(), title: "t".into() }],
             search_widget_html: Some("<div></div>".into()),
+            tidal_uuid: Some("0b1c2d3e".into()),
             ..pl::HomePlaylist::default()
         }
     }
@@ -1005,7 +1110,9 @@ mod tests {
     #[test]
     fn a_playlist_survives_the_round_trip() {
         let original = full_playlist();
-        let back = pl::HomePlaylist::from(HomePlaylist::from(original.clone()));
+        let mirrored = HomePlaylist::from(original.clone());
+        assert_eq!(mirrored.tidal_uuid.as_deref(), Some("0b1c2d3e"));
+        let back = pl::HomePlaylist::from(mirrored);
         assert_eq!(back, original);
         let tour = pl::PlaylistOrigin::Concert(pl::ConcertOrigin::default());
         assert_eq!(pl::PlaylistOrigin::from(PlaylistOrigin::from(tour.clone())), tour);
@@ -1084,6 +1191,24 @@ mod tests {
         assert_eq!(playlist_settings_from_json(playlist_settings_to_json(custom)), custom);
         assert_eq!(playlist_settings_from_json(r#"{"concert_shows":10}"#.into()).chat_minutes, 60);
         assert!(playlist_settings_from_json(r#"{"concert_shows":10}"#.into()).chat_from_song);
+    }
+
+    #[test]
+    fn tidal_settings_travel_and_default_off() {
+        let defaults = playlist_default_settings();
+        assert!(!defaults.tidal_auto_save && !defaults.tidal_delete_with);
+        let on = PlaylistSettings { tidal_auto_save: true, tidal_delete_with: true, ..defaults };
+        assert_eq!(playlist_settings_from_json(playlist_settings_to_json(on)), on);
+        assert!(!playlist_settings_from_json(r#"{"concert_shows":10}"#.into()).tidal_auto_save);
+    }
+
+    #[test]
+    fn the_tidal_report_is_worded() {
+        let core =
+            pl::TidalSaveReport { uuid: "u".into(), created: true, saved: 24, skipped: vec!["a".into(), "b".into()] };
+        let report = TidalSaveReport::new(core, Lang::Es);
+        assert_eq!((report.saved, report.skipped.len()), (24, 2));
+        assert_eq!(report.summary, "24 canciones guardadas en TIDAL · 2 no están en TIDAL");
     }
 
     #[test]

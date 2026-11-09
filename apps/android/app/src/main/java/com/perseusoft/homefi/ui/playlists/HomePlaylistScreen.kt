@@ -41,6 +41,7 @@ import kotlinx.coroutines.launch
 fun HomePlaylistScreen(id: String, onBack: () -> Unit, onDelete: (HomePlaylist) -> Unit, onChangeAnswers: (HomePlaylist) -> Unit) {
     val app = LocalContext.current.homefi
     val playlists by app.playlists.list.collectAsStateWithLifecycle()
+    val account by app.account.account.collectAsStateWithLifecycle()
     val playlist = playlists.firstOrNull { it.id == id } ?: return
     val vm: ConcertViewModel = viewModel(key = "playlist-$id")
     val ui by vm.ui.collectAsStateWithLifecycle()
@@ -82,6 +83,12 @@ fun HomePlaylistScreen(id: String, onBack: () -> Unit, onDelete: (HomePlaylist) 
                     rebuiltOnItsScreen -> R.string.pl_party_change_answers
                     else -> R.string.pl_search_again
                 },
+                // in the app scope: the save finishes even if the screen is left
+                onSaveToTidal = if (account != null) {
+                    { app.appScope.launch { app.playlists.saveToTidal(playlist.id) } }
+                } else {
+                    null
+                },
             ),
             showsOpen = showsOpen,
             onToggleShows = { showsOpen = !showsOpen },
@@ -90,8 +97,9 @@ fun HomePlaylistScreen(id: String, onBack: () -> Unit, onDelete: (HomePlaylist) 
 }
 
 /**
- * Removes [playlist] from HomeFi (its own file only) and offers "Undo", which saves it again.
- * Runs in the app scope: the screen that asked has usually left by the time the Snackbar shows.
+ * Removes [playlist] from HomeFi (its own file) and offers "Undo", which saves it again. Its
+ * TIDAL copy (when the setting says so) goes only once the delete wasn't undone. Runs in the app
+ * scope: the screen that asked has usually left by the time the Snackbar shows.
  */
 fun deleteWithUndo(app: HomefiApplication, host: SnackbarHostState, playlist: HomePlaylist) {
     app.appScope.launch {
@@ -103,6 +111,9 @@ fun deleteWithUndo(app: HomefiApplication, host: SnackbarHostState, playlist: Ho
             actionLabel = if (failure == null) app.getString(R.string.pl_undo) else null,
             duration = SnackbarDuration.Long,
         )
-        if (result == SnackbarResult.ActionPerformed) app.playlists.save(playlist)
+        when {
+            result == SnackbarResult.ActionPerformed -> app.playlists.save(playlist)
+            failure == null -> app.playlists.deleteTidalCopy(playlist)
+        }
     }
 }

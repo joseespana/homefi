@@ -205,7 +205,10 @@ Features:
   like this" starts from a song you like; "Get ready for a concert" builds an artist's tour set from the
   setlists of their latest shows, and "Make a party playlist" builds one from a few taps and an optional
   short chat. Every song is checked against your library and TIDAL, so songs the AI makes up are left
-  out. They're saved in HomeFi only, never in your TIDAL account. Settings → Playlists.
+  out. They're saved in HomeFi; "Save to TIDAL" also adds one to your TIDAL account, so it shows up
+  on every device signed in to it ("Update on TIDAL" makes that copy match again). Settings →
+  Playlists → Save to TIDAL can do it automatically and delete the TIDAL copy along with HomeFi's
+  (both off by default).
 - **Homefito** (also on the desktop): the mascot dances to the music; in mosh mode it grows long hair
   and headbangs on the beat. Settings → Mascot (hair, follow the beat, headbang strength).
 - **Picture-in-picture**: leaving the app while music plays keeps a small player on screen, with

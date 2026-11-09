@@ -89,6 +89,10 @@ fun EqCurve(
     onSelect: (Int) -> Unit = {},
     onDrag: ((index: Int, freqHz: Float, gainDb: Float) -> Unit)? = null,
     onDragEnd: () -> Unit = {},
+    /** Axis labels' size (the TV reads them from across the room). */
+    labelSp: Float = 10f,
+    /** Band points are drawn this many times bigger (1 on a phone). */
+    pointScale: Float = 1f,
 ) {
     val scheme = MaterialTheme.colorScheme
     val response = remember(profile, curve) { responseOf(curve ?: profile) }
@@ -102,7 +106,7 @@ fun EqCurve(
     val range by animateFloatAsState(max(12f, (peak + 3f).coerceAtMost(max(12f, maxRange))), LocalMotion.current.tween(250), label = "eq-range")
     val alpha by animateFloatAsState(if (dimmed) 0.4f else 1f, LocalMotion.current.tween(200), label = "eq-dim")
     val measurer = rememberTextMeasurer()
-    val labelStyle = TextStyle(color = scheme.onSurfaceVariant, fontSize = 10.sp)
+    val labelStyle = TextStyle(color = scheme.onSurfaceVariant, fontSize = labelSp.sp)
     val haptics = haptics()
     val latest by rememberUpdatedState(profile)
     val latestRange by rememberUpdatedState(range)
@@ -157,14 +161,14 @@ fun EqCurve(
         listOf(100f, 1_000f, 10_000f).forEach { hz ->
             val x = freqToFraction(hz) * w
             drawLine(scheme.outlineVariant, Offset(x, 0f), Offset(x, h), 1f)
-            drawText(measurer, formatHz(hz), Offset(x + 3.dp.toPx(), h - 14.dp.toPx()), labelStyle)
+            drawText(measurer, formatHz(hz), Offset(x + 3.dp.toPx(), h - (labelSp + 4f).dp.toPx()), labelStyle)
         }
         val step = if (range > 15f) 12f else 6f
         var db = -((range / step).toInt() * step)
         while (db <= range) {
             val y = gainToY(db, h, range)
             drawLine(if (db == 0f) scheme.outline else scheme.outlineVariant, Offset(0f, y), Offset(w, y), if (db == 0f) 1.5f else 1f)
-            if (db != 0f) drawText(measurer, "%+d".format(db.toInt()), Offset(3.dp.toPx(), y - 13.dp.toPx()), labelStyle)
+            if (db != 0f) drawText(measurer, "%+d".format(db.toInt()), Offset(3.dp.toPx(), y - (labelSp + 3f).dp.toPx()), labelStyle)
             db += step
         }
         if (behind != null) {
@@ -184,16 +188,16 @@ fun EqCurve(
         }
         drawPath(fill, Brush.verticalGradient(listOf(scheme.primary.copy(alpha = 0.22f * alpha), scheme.primary.copy(alpha = 0.04f * alpha))))
         drawPath(path, scheme.primary.copy(alpha = alpha), style = Stroke(2.5.dp.toPx(), cap = StrokeCap.Round))
-        if (showPoints) profile?.bands?.forEachIndexed { i, b -> drawPoint(b.freqHz, if (b.kind.hasGain()) b.gainDb else 0f, b.enabled, i == selected, w, h, range, scheme.primary, scheme.surface, alpha) }
+        if (showPoints) profile?.bands?.forEachIndexed { i, b -> drawPoint(b.freqHz, if (b.kind.hasGain()) b.gainDb else 0f, b.enabled, i == selected, w, h, range, scheme.primary, scheme.surface, alpha, pointScale) }
     }
 }
 
 private fun DrawScope.drawPoint(
     freq: Float, gain: Float, enabled: Boolean, selected: Boolean,
-    w: Float, h: Float, range: Float, color: Color, surface: Color, alpha: Float,
+    w: Float, h: Float, range: Float, color: Color, surface: Color, alpha: Float, scale: Float,
 ) {
     val c = Offset(freqToFraction(freq) * w, gainToY(gain, h, range))
-    val r = (if (selected) 9 else 6).dp.toPx()
+    val r = (if (selected) 9 else 6).dp.toPx() * scale
     if (selected) drawCircle(color.copy(alpha = 0.25f * alpha), r * 1.9f, c)
     drawCircle(if (enabled) color.copy(alpha = alpha) else surface, r, c)
     drawCircle(color.copy(alpha = alpha), r, c, style = Stroke(2.dp.toPx()))

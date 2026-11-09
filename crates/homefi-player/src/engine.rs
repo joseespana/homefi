@@ -18,9 +18,9 @@ use ringbuf::traits::{Observer, Producer};
 use serde::{Deserialize, Serialize};
 
 use crate::deck::{music_end, Deck, DeckFormat, Fade, FadeSpec, ResamplerQuality, SurroundMode};
-use crate::decoder::Source;
 use crate::error::{PlayerError, Result};
 use crate::output::{device_queries, find_device, Meters, Output, Shared};
+use homefi_core::audio::decode::Source;
 
 /// How often position updates are emitted while playing.
 const TICK: Duration = Duration::from_millis(250);
@@ -151,6 +151,7 @@ enum Command {
     Crossfade(CrossfadeSettings),
     Output(OutputOptions),
     Stop,
+    Park(bool),
     Shutdown,
 }
 
@@ -261,6 +262,12 @@ impl Player {
     }
     pub fn stop(&self) {
         self.send(Command::Stop)
+    }
+    /// Another engine owns the device (DJ mode): while parked this one closes its output and
+    /// stays silent whatever it is asked (a pick, a media key, a guest's song only move where it
+    /// will resume). Un-parking opens the device again on that spot, paused.
+    pub fn set_parked(&self, on: bool) {
+        self.send(Command::Park(on))
     }
     /// Equalizer settings: the profile for the device in use (or the default
     /// one) applies right away, gliding from the previous one.
@@ -383,6 +390,14 @@ struct Engine {
     sound_source: Option<SoundSource>,
     crossfade: CrossfadeSettings,
     output_options: OutputOptions,
+    /// Silent for another engine (see [`Player::set_parked`]).
+    parked: Option<Parked>,
+}
+
+/// Where a parked engine picks up again: position in `order` and ms into that track.
+#[derive(Debug, Default)]
+struct Parked {
+    resume: Option<(usize, u64)>,
 }
 
 impl Engine {
@@ -426,6 +441,7 @@ impl Engine {
             sound_source: None,
             crossfade: CrossfadeSettings::default(),
             output_options: OutputOptions::default(),
+            parked: None,
         }
     }
 
@@ -466,6 +482,9 @@ impl Engine {
                 if play {
                     self.start(pos, position_ms);
                 } else {
+                    if let Some(p) = &mut self.parked {
+                        p.resume = None;
+                    }
                     self.close();
                     self.decoding = Some(pos);
                     self.status = Status::Stopped;
@@ -572,6 +591,23 @@ impl Engine {
             Command::Stop => {
                 self.close();
                 self.status = Status::Stopped;
+            }
+            Command::Park(true) => {
+                if self.parked.is_none() {
+                    let resume = self.current_pos().map(|pos| (pos, self.position_ms()));
+                    self.close();
+                    self.decoding = resume.map(|(pos, _)| pos);
+                    self.status = Status::Stopped;
+                    self.parked = Some(Parked { resume });
+                }
+            }
+            Command::Park(false) => {
+                if let Some(Parked { resume: Some((pos, ms)) }) = self.parked.take() {
+                    if pos < self.order.len() {
+                        self.start(pos, ms);
+                        self.pause();
+                    }
+                }
             }
             Command::Shutdown => {}
         }
@@ -728,6 +764,13 @@ impl Engine {
     /// Starts `order[pos]` at `ms`, flushing whatever was buffered.
     fn start(&mut self, pos: usize, ms: u64) {
         self.close();
+        if let Some(parked) = &mut self.parked {
+            // the device belongs to another engine: only remember where to pick up
+            parked.resume = Some((pos, ms));
+            self.decoding = Some(pos);
+            self.status = Status::Stopped;
+            return;
+        }
         let mut pos = pos;
         // skip unplayable files (at most one full lap)
         for _ in 0..self.queue.len().max(1) {
@@ -1443,6 +1486,28 @@ mod tests {
         // the queue is changing: keep it until something plays
         assert!(!audition_over(Some(&a), None));
         assert!(!audition_over(None, Some(&ctx("/m/b.flac"))));
+    }
+
+    #[test]
+    fn a_parked_engine_never_opens_the_device_and_remembers_where_it_was() {
+        let (_tx, rx) = mpsc::channel();
+        let listener: Listener = Arc::new(|_: &Snapshot| {});
+        let mut e = Engine::new(rx, 0.5, None, listener, Default::default(), Default::default());
+        let queue = vec![PathBuf::from("/nowhere/a.flac"), PathBuf::from("/nowhere/b.flac")];
+        e.handle(Command::Park(true));
+        e.handle(Command::Load { queue, start: 1, position_ms: 42_000, play: true });
+        e.handle(Command::Play);
+        e.handle(Command::Toggle);
+        e.handle(Command::Seek(50_000));
+        assert!(e.output.is_none(), "no stream while another engine owns the device");
+        assert_eq!(e.status, Status::Stopped);
+        assert_eq!(e.parked.as_ref().and_then(|p| p.resume), Some((1, 50_000)));
+        assert_eq!(e.current_pos(), Some(1));
+        // un-parked, it tries that spot (the file is missing here, so it reports it and stops)
+        e.handle(Command::Park(false));
+        assert!(e.parked.is_none());
+        assert!(e.error.is_some());
+        assert_eq!(e.status, Status::Stopped);
     }
 
     #[test]

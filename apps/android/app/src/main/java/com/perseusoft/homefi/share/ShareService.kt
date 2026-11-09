@@ -16,7 +16,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import com.perseusoft.homefi.MainActivity
+import com.perseusoft.homefi.data.AppEntry
 import com.perseusoft.homefi.R
 
 /**
@@ -131,7 +131,7 @@ class ShareService : Service() {
 
         private fun notification(context: Context, title: String, text: String): Notification {
             val open = PendingIntent.getActivity(
-                context, 0, Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                context, 0, AppEntry.intent(context).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
                 PendingIntent.FLAG_IMMUTABLE,
             )
             val stop = PendingIntent.getService(

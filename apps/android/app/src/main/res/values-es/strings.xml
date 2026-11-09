@@ -713,4 +713,10 @@
     <string name="car_albums">Álbumes</string>
     <string name="car_artists">Artistas</string>
     <string name="car_songs">Canciones</string>
+    <string name="player_to_side">Volver al lado</string>
+    <string name="player_hide_side">Ocultar reproductor</string>
+    <string name="player_maximize">Pantalla completa</string>
+    <string name="side_player">Reproductor al lado en pantallas anchas</string>
+    <string name="side_player_hint">Automático en tablets y en horizontal: el reproductor queda a la derecha, a la medida de la pantalla, mientras navegas. También se quita desde el menú del reproductor.</string>
+    <string name="side_player_short">Reproductor al lado</string>
 </resources>

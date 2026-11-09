@@ -25,7 +25,7 @@ import java.io.IOException
  */
 @OptIn(UnstableApi::class)
 class TidalStreams(private val context: Context, private val scope: CoroutineScope) : ResolvingDataSource.Resolver {
-    private val dir = File(context.cacheDir, "stream").also { it.mkdirs() }
+    private val dir = File(context.cacheDir, STREAM_DIR).also { it.mkdirs() }
 
     private suspend fun fetch(id: String): String = context.homefi.engine.fetchStream(id, dir.absolutePath)
 
@@ -67,6 +67,8 @@ class TidalStreams(private val context: Context, private val scope: CoroutineSco
     }
 
     companion object {
+        /** Folder of the cache (inside the app's cache dir) the DJ decks fetch into as well. */
+        const val STREAM_DIR = "stream"
         private const val AHEAD = 2
         private const val MAX_BYTES: ULong = 2_147_483_648UL // 2 GB
     }

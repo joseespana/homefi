@@ -18,6 +18,11 @@ import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.perseusoft.homefi.core.parseLink
+import com.perseusoft.homefi.pair.TvPairLink
+import com.perseusoft.homefi.data.AppEntry
+import com.perseusoft.homefi.data.DeviceForm
+import com.perseusoft.homefi.data.FileExchange
+import com.perseusoft.homefi.tv.TvActivity
 import com.perseusoft.homefi.data.PlayerLayout
 import com.perseusoft.homefi.data.ThemeMode
 import com.perseusoft.homefi.ui.player.coverModel
@@ -57,6 +62,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // on a TV the D-pad app is the front door: hand everything over (a link, a file, the player)
+        if (homefi.deviceForm.mustHandOver(activityIsTv = false)) {
+            startActivity(Intent(intent).setClass(this, TvActivity::class.java))
+            finish()
+            return
+        }
         setContent {
             val settings by homefi.settings.settings.collectAsStateWithLifecycle()
             val themeDark = when (settings.theme) {
@@ -148,17 +159,26 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent?) {
         intent ?: return
-        if (intent.getBooleanExtra(EXTRA_OPEN_PLAYER, false)) {
+        if (intent.getBooleanExtra(AppEntry.EXTRA_OPEN_PLAYER, false)) {
             destinations.trySend(Destination.PLAYER)
             return
         }
         val data = intent.data
         when {
+            intent.action == Intent.ACTION_VIEW && data?.scheme == "homefi" && data.host == "tv" -> tvLink(intent.dataString)
             intent.action == Intent.ACTION_VIEW && data?.scheme == "homefi" -> joinLink(intent.dataString)
+            intent.action == Intent.ACTION_VIEW && data != null && data.scheme in LOCAL_SCHEMES && isHomefiFile(data, intent.type) ->
+                homefi.incoming.offer(data)
             intent.action == Intent.ACTION_VIEW && data != null && data.scheme in LOCAL_SCHEMES -> playFile(data, intent.type)
             intent.action == Intent.ACTION_SEND -> queueLink(intent.getStringExtra(Intent.EXTRA_TEXT))
             intent.action == Intent.ACTION_VIEW -> queueLink(intent.dataString)
         }
+    }
+
+    /** A `.homefiride` / `.homefidj` export, or JSON from a provider that hides the file name. */
+    private fun isHomefiFile(uri: Uri, type: String?): Boolean {
+        val name = uri.lastPathSegment.orEmpty().lowercase()
+        return name.endsWith(".$RIDE_EXT") || name.endsWith(".$SETUP_EXT") || type == FileExchange.MIME_JSON
     }
 
     /** "Open with HomeFi" from a file manager or another app. */
@@ -188,6 +208,16 @@ class MainActivity : ComponentActivity() {
             }.getOrNull()
         }
 
+    /** `homefi://tv?...` (the TV's QR, opened by the system camera): pairs that TV, sending the ride that runs now. */
+    private fun tvLink(link: String?) {
+        val pair = TvPairLink.parse(link)
+        if (pair == null) {
+            Toast.makeText(this, R.string.tv_pair_invalid, Toast.LENGTH_SHORT).show()
+            return
+        }
+        homefi.tvPairings.connect(pair)
+    }
+
     /** `homefi://join?...` from a scanned QR code: ask for the name, then join. */
     private fun joinLink(link: String?) {
         val hub = link?.let(homefi.share::parseLink)
@@ -216,7 +246,8 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
-        const val EXTRA_OPEN_PLAYER = "com.perseusoft.homefi.OPEN_PLAYER"
+        private const val RIDE_EXT = "homefiride"
+        private const val SETUP_EXT = "homefidj"
         private val LOCAL_SCHEMES = setOf("content", "file")
         private val LINK = Regex("""https?://\S*tidal\.com/\S+""")
     }

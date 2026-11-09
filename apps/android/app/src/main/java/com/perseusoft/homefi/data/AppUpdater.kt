@@ -120,9 +120,9 @@ class AppUpdater(private val context: Context, private val settings: SettingsSto
     fun skipPermission() = _state.update { it.copy(needsPermission = false) }
 
     /** "Update": downloads the APK, checks it, then opens Android's installer. */
-    fun download() {
+    fun download(installWhenReady: Boolean = true) {
         val release = _state.value.release ?: return
-        if (_state.value.status == UpdateStatus.READY) return install()
+        if (_state.value.status == UpdateStatus.READY) return if (installWhenReady) install() else Unit
         val url = release.apkUrl
         val sums = release.sha256sumsUrl
         if (url == null || sums == null) {
@@ -145,7 +145,7 @@ class AppUpdater(private val context: Context, private val settings: SettingsSto
                 prefs.edit().putString("verified", release.version).apply()
                 cleanUp(keep = target)
                 _state.update { it.copy(status = UpdateStatus.READY, downloaded = target.length(), total = target.length()) }
-                install()
+                if (installWhenReady) install()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 target.delete()
                 throw e
@@ -236,11 +236,16 @@ class AppUpdater(private val context: Context, private val settings: SettingsSto
     }
 
     /** "Allow from this source": the system page for HomeFi, then back to [install]. */
-    fun openInstallPermission() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    fun openInstallPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
         val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        runCatching { context.startActivity(intent) }
+        return runCatching { context.startActivity(intent) }.isSuccess
+    }
+
+    /** Debug builds only: shows [ui] as if the check had found it (to see the update screens without a release). */
+    fun preview(ui: UpdateUi) {
+        if (BuildConfig.DEBUG) _state.value = ui
     }
 
     /** The release page in the browser ("What's new" in full). */

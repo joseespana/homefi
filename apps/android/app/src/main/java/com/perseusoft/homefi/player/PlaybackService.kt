@@ -28,9 +28,10 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import kotlinx.coroutines.CoroutineScope
-import com.perseusoft.homefi.MainActivity
+import com.perseusoft.homefi.data.AppEntry
 import com.perseusoft.homefi.R
 import com.perseusoft.homefi.homefi
+import com.perseusoft.homefi.player.exercise.RideTvHost
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -47,6 +48,8 @@ class PlaybackService : MediaLibraryService() {
     private val scope = MainScope()
 
     private var crossfader: Crossfader? = null
+    /** Exercise mode's TV server: lives with this foreground service so it keeps serving with the screen off. */
+    private var rideTv: RideTvHost? = null
     /** The decks as the session sees them: with the lyric line while a car is connected. */
     private var carDecks: List<CarLyricsPlayer> = emptyList()
     /** Android Auto controllers connected now. */
@@ -54,6 +57,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
+        rideTv = RideTvHost(this).also(homefi.ride::attachTv)
         val streams = TidalStreams(this, scope)
         val attributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
@@ -103,7 +107,7 @@ class PlaybackService : MediaLibraryService() {
         val open = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_OPEN_PLAYER, true),
+            AppEntry.intent(this).putExtra(AppEntry.EXTRA_OPEN_PLAYER, true),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         carDecks = fader.decks.map { CarLyricsPlayer(it, homefi, scope) }
@@ -159,6 +163,11 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        rideTv?.let { host ->
+            homefi.ride.detachTv(host)
+            homefi.appScope.launch { host.stop() }
+        }
+        rideTv = null
         scope.cancel()
         session?.release()
         carDecks.forEach(CarLyricsPlayer::stopLyrics)

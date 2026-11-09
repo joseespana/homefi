@@ -6,13 +6,17 @@ mod ai;
 mod bundle_swap;
 mod commands;
 mod disc;
+mod dj;
+mod dj_setups;
 mod eq;
+mod exercise;
 mod media;
 mod playlists;
 mod settings;
 mod share;
 mod sound;
 mod stream;
+mod transfer;
 mod updater;
 mod whats_new;
 
@@ -158,6 +162,7 @@ fn main() {
         playlists::concert_cancel,
         playlists::home_playlists,
         playlists::home_playlist_save,
+        playlists::home_playlist_save_to_tidal,
         playlists::home_playlist_delete,
         playlists::party_default_brief,
         playlists::chat_default_brief,
@@ -197,6 +202,45 @@ fn main() {
         updater::update_dismiss,
         whats_new::whats_new_check,
         whats_new::whats_new_latest,
+        dj::dj_enable,
+        dj::dj_state,
+        dj::dj_load,
+        dj::dj_control,
+        dj::dj_overview,
+        dj::dj_keymap,
+        dj::dj_cached_bpm,
+        exercise::exercise_state,
+        exercise::exercise_presets,
+        exercise::exercise_ride_minutes,
+        exercise::exercise_default_request,
+        exercise::exercise_health_notice,
+        exercise::exercise_open,
+        exercise::exercise_reply,
+        exercise::exercise_close,
+        exercise::exercise_build,
+        exercise::exercise_cancel,
+        exercise::exercise_start,
+        exercise::exercise_stop,
+        exercise::exercise_tv,
+        exercise::exercise_monitors,
+        exercise::exercise_tv_window,
+        exercise::exercise_cue_wav,
+        exercise::exercise_rides,
+        exercise::exercise_ride_load,
+        exercise::exercise_ride_keep,
+        exercise::exercise_ride_rename,
+        exercise::exercise_ride_favorite,
+        exercise::exercise_ride_delete,
+        exercise::exercise_ride_export,
+        exercise::exercise_ride_import,
+        dj_setups::dj_setups,
+        dj_setups::dj_setup_save,
+        dj_setups::dj_setup_overwrite,
+        dj_setups::dj_setup_apply,
+        dj_setups::dj_setup_rename,
+        dj_setups::dj_setup_delete,
+        dj_setups::dj_setup_export,
+        dj_setups::dj_setup_import,
     ]);
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -253,6 +297,7 @@ fn main() {
                         let track = snapshot.current.and_then(|i| snapshot.queue.get(i)).and_then(|p| state.track(p));
                         media::update(&app, &snapshot, track.clone());
                         share::on_player(&app, &snapshot);
+                        exercise::on_player(&app, &snapshot);
                         updater::on_player(&app, &snapshot);
                         let _ = app.emit("player", PlayerView { snapshot, track });
                     })
@@ -265,6 +310,10 @@ fn main() {
             app.manage(ai::Ai::new(&app_dir));
             app.manage(playlists::Playlists::new(&app_dir));
             app.manage(disc::Disc::new());
+            app.manage(dj::Dj::default());
+            app.manage(exercise::Exercise::default());
+            app.manage(exercise::Rides::new(&app_dir));
+            app.manage(dj_setups::DjSetups::new(&app_dir));
 
             let (jobs_tx, jobs_rx) = tokio::sync::mpsc::unbounded_channel();
             app.manage(AppState {
@@ -312,6 +361,8 @@ fn main() {
         .run(|app, event| {
             // closing: the hub says goodbye to its guests, a guest deletes the party's songs
             if let tauri::RunEvent::Exit = event {
+                dj::shutdown(app);
+                exercise::shutdown(app);
                 share::shutdown(app);
                 app.state::<AppState>().flush_settings();
             }

@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Files: export / import (rides and DJ setups) -->
+    <string name="xfer_cant_open">Could not open that file.</string>
+    <string name="xfer_cant_save">Could not save the file there.</string>
+    <string name="xfer_too_big">That file is too big to be a HomeFi file.</string>
+    <string name="xfer_saved">File saved.</string>
+    <string name="xfer_share_title">Share with</string>
+    <string name="xfer_not_homefi">That is not a HomeFi ride or DJ setup file.</string>
+    <string name="xfer_cancel">Cancel</string>
+    <string name="xfer_delete">Delete</string>
+    <string name="xfer_this_file">this file</string>
+    <string name="xfer_open_ride">Add this ride?</string>
+    <string name="xfer_open_setup">Add this DJ setup?</string>
+    <string name="xfer_open_text">%1$s will be added to your saved items. Nothing else changes.</string>
+    <string name="xfer_add">Add</string>
+
+    <!-- My rides -->
+    <string name="rides_title">My rides</string>
+    <string name="rides_sub">Ride one again without asking the AI.</string>
+    <string name="rides_import">Import</string>
+    <string name="rides_empty">Your rides will show up here. Each one you build is saved by itself.</string>
+    <string name="rides_all">Show all (%1$d)</string>
+    <string name="rides_less">Show fewer</string>
+    <string name="rides_again">Ride again</string>
+    <string name="rides_more">More</string>
+    <string name="rides_keep">Keep</string>
+    <string name="rides_rename">Rename ride</string>
+    <string name="rides_rename_short">Rename</string>
+    <string name="rides_save">Save</string>
+    <string name="rides_save_file">Save to a file or Drive</string>
+    <string name="rides_share">Share</string>
+    <string name="rides_favorite">Mark as favorite</string>
+    <string name="rides_unfavorite">Remove from favorites</string>
+    <string name="rides_auto">Saved automatically</string>
+    <plurals name="rides_times">
+        <item quantity="one">Ridden %1$d time</item>
+        <item quantity="other">Ridden %1$d times</item>
+    </plurals>
+    <string name="rides_delete_title">Delete this ride?</string>
+    <string name="rides_delete_text">\"%1$s\" will be removed from My rides. Your music is not touched.</string>
+    <string name="rides_imported">Added \"%1$s\" to My rides.</string>
+    <string name="rides_saved_auto">Saved automatically</string>
+    <string name="rides_saved_kept">Saved in My rides</string>
+    <string name="ex_some_skipped">Some songs of this ride are not on this phone and were skipped.</string>
+    <string name="rides_set_history">Rides saved automatically</string>
+    <string name="rides_set_history_value">%1$d rides</string>
+    <string name="rides_set_history_hint">The oldest automatic rides are removed past this number. Kept rides and favorites are never removed.</string>
+
+    <!-- DJ layout and setups -->
+    <string name="djs_menu">More</string>
+    <string name="djs_edit_layout">Edit layout</string>
+    <string name="djs_edit">Edit</string>
+    <string name="djs_open">Open</string>
+    <string name="djs_setups">Setups</string>
+    <string name="djs_layout_hint">Move the parts of the DJ screen, hide the ones you do not use and pick the sound of each pad.</string>
+    <string name="djs_layout_sections">Screen</string>
+    <string name="djs_layout_pads">Pads</string>
+    <string name="djs_layout_pads_hint">Your phone plays four pads.</string>
+    <string name="djs_layout_reset">Back to the default layout</string>
+    <string name="djs_move_up">Move %1$s up</string>
+    <string name="djs_move_down">Move %1$s down</string>
+    <string name="djs_section_deck_a">Deck A</string>
+    <string name="djs_section_mixer">Mix and crossfader</string>
+    <string name="djs_section_deck_b">Deck B</string>
+    <string name="djs_section_sampler">Sampler pads</string>
+    <string name="djs_section_crate">Song picker</string>
+    <string name="djs_section_crate_open">Choose songs</string>
+    <string name="djs_setups_hint">A setup keeps your DJ options and layout under a name. Export it to use it on another phone, tablet or computer.</string>
+    <string name="djs_save_current">Save current as setup</string>
+    <string name="djs_empty">No setups yet. Save the DJ as it is now, or import one.</string>
+    <string name="djs_apply">Apply</string>
+    <string name="djs_overwrite">Replace with current</string>
+    <string name="djs_overwrite_title">Replace this setup?</string>
+    <string name="djs_overwrite_text">\"%1$s\" will keep the DJ options and layout you have now.</string>
+    <string name="djs_delete_title">Delete this setup?</string>
+    <string name="djs_delete_text">\"%1$s\" will be removed. Your DJ options stay as they are.</string>
+    <string name="djs_saved">Saved setup \"%1$s\".</string>
+    <string name="djs_updated">Updated setup \"%1$s\".</string>
+    <string name="djs_applied">Applied setup \"%1$s\".</string>
+    <string name="djs_imported">Added setup \"%1$s\".</string>
+    <string name="djs_set_layout_hint">Order of the DJ screen, which parts show and the pad sounds.</string>
+    <string name="djs_set_setups_hint">Save, apply, export and import named setups.</string>
+</resources>

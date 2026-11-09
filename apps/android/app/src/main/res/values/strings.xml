@@ -713,4 +713,10 @@
     <string name="car_albums">Albums</string>
     <string name="car_artists">Artists</string>
     <string name="car_songs">Songs</string>
+    <string name="player_to_side">Back to the side</string>
+    <string name="player_hide_side">Hide player</string>
+    <string name="player_maximize">Full screen</string>
+    <string name="side_player">Player beside the app on wide screens</string>
+    <string name="side_player_hint">Automatic on tablets and in landscape: the player sits on the right, sized to the screen, while you browse. Also turned off from the player\'s menu.</string>
+    <string name="side_player_short">Player beside the app</string>
 </resources>

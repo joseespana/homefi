@@ -12,16 +12,16 @@
 //! surround device is spread as the user picks ([`Player::set_output_options`]).
 
 mod deck;
-mod decoder;
+pub mod dj;
 mod engine;
 mod error;
 mod output;
 mod visual;
 
 pub use deck::{ResamplerQuality, SurroundMode};
-pub use decoder::Source;
 pub use engine::{Fading, Listener, OutputOptions, Player, RepeatMode, Snapshot, SoundSource, Status, StreamInfo};
 pub use error::{PlayerError, Result};
+pub use homefi_core::audio::decode::Source;
 pub use homefi_core::dsp::crossfade::{CrossfadeMode, CrossfadeSettings, FadeCurve};
 pub use output::{list_devices, OutputDevice};
 pub use visual::Visual;

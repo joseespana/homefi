@@ -57,6 +57,9 @@ data class SoundInput(
 class EqSlot internal constructor() {
     @Volatile private var input: SoundInput? = null
 
+    /** Filters computed by the caller for a sample rate (the DJ mixer's channel EQ); wins over [input]. */
+    @Volatile private var direct: ((sampleRate: Int) -> List<Biquad>)? = null
+
     /** Bumped on every change; unique across slots (see [EqRuntime.nextVersion]). */
     @Volatile var version: Int = 0
         private set
@@ -82,15 +85,21 @@ class EqSlot internal constructor() {
         version = EqRuntime.nextVersion()
     }
 
+    /** Runs [filters] instead of the sound layers (`null` goes back to them). A new version, so the processor glides. */
+    fun configureDirect(filters: ((sampleRate: Int) -> List<Biquad>)?) {
+        direct = filters
+        version = EqRuntime.nextVersion()
+    }
+
     /**
      * Coefficients for [sampleRate], five per stage (`b0 b1 b2 a1 a2`, `a0` = 1), or `null`
      * when nothing should run: the samples then pass untouched.
      * Called on the audio thread only when [version] or the rate changes.
      */
     internal fun coefficients(sampleRate: Int): DoubleArray? {
-        val p = input ?: return null
         if (sampleRate <= 0) return null
-        val stages = runCatching { p.biquads(sampleRate) }.getOrNull()
+        val stages = direct?.let { filters -> runCatching { filters(sampleRate) }.getOrNull() }
+            ?: input?.let { p -> runCatching { p.biquads(sampleRate) }.getOrNull() }
         if (stages.isNullOrEmpty()) return null
         val out = DoubleArray(stages.size * 5)
         stages.forEachIndexed { i, b ->

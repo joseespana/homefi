@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { foldLabels } from "../lib/foldLabels";
   import { sound } from "../lib/sound.svelte";
   import { item } from "../lib/motion";
   import { api, bumpCovers, errorText, on, type ArtworkProgress, type Track, type SourceContext, type TasteScope } from "../lib/api";
@@ -64,11 +65,11 @@
       <h1>{album.title || "Unknown album"}</h1>
       <div class="muted">{album.artist || "Unknown artist"}{album.year ? ` · ${album.year}` : ""} · {album.tracks.length} songs</div>
       <div><span class="badge">{album.tracks[0].quality}</span></div>
-      <div class="actions">
+      <div class="actions fold" use:foldLabels>
         <button class="btn primary" onclick={() => playAll(album.tracks, false, albumSource(album.title))}><Icon name="play" size={16} /> Play</button>
-        <button class="btn tonal" onclick={() => playAll(album.tracks, true, albumSource(album.title))}><Icon name="shuffle" size={16} /> Shuffle</button>
-        <button class="btn tonal" onclick={(e) => queueAll(e, album.title || "Unknown album", album.tracks, album.title ? { kind: "album", id: "", name: album.title } : undefined)}><Icon name="queue" size={16} /> Queue</button>
-        {#if album.title}<button class="btn tonal" aria-haspopup="menu" onclick={(e) => sound.openMenu(e, { kind: "album", id: "", name: album.title }, album.title)}><Icon name="soundwave" size={16} /> Sound</button>{/if}
+        <button class="btn tonal" title="Shuffle" onclick={() => playAll(album.tracks, true, albumSource(album.title))}><Icon name="shuffle" size={16} /> Shuffle</button>
+        <button class="btn tonal" title="Queue" onclick={(e) => queueAll(e, album.title || "Unknown album", album.tracks, album.title ? { kind: "album", id: "", name: album.title } : undefined)}><Icon name="queue" size={16} /> Queue</button>
+        {#if album.title}<button class="btn tonal" title="Sound" aria-haspopup="menu" onclick={(e) => sound.openMenu(e, { kind: "album", id: "", name: album.title }, album.title)}><Icon name="soundwave" size={16} /> Sound</button>{/if}
       </div>
     </div>
   </header>
@@ -80,10 +81,10 @@
       <h1>{artist.name || "Unknown artist"}</h1>
       <div class="muted">{artist.albums} albums · {artist.tracks.length} songs</div>
     </div>
-    <div class="actions">
+    <div class="actions fold" use:foldLabels>
       <button class="btn primary" onclick={() => playAll(artist.tracks)}><Icon name="play" size={16} /> Play</button>
-      <button class="btn tonal" onclick={() => playAll(artist.tracks, true)}><Icon name="shuffle" size={16} /> Shuffle</button>
-      <button class="btn tonal" onclick={(e) => queueAll(e, artist.name || "Unknown artist", artist.tracks)}><Icon name="queue" size={16} /> Queue</button>
+      <button class="btn tonal" title="Shuffle" onclick={() => playAll(artist.tracks, true)}><Icon name="shuffle" size={16} /> Shuffle</button>
+      <button class="btn tonal" title="Queue" onclick={(e) => queueAll(e, artist.name || "Unknown artist", artist.tracks)}><Icon name="queue" size={16} /> Queue</button>
     </div>
   </header>
   <TrackTable tracks={artist.tracks} />
@@ -95,7 +96,7 @@
         {tracks.length} songs{app.scanning ? " · scanning…" : ""}
       </div>
     </div>
-    <div class="actions">
+    <div class="actions fold" use:foldLabels>
       <div class="filter">
         <Icon name="search" size={16} />
         <input placeholder="Filter your music" bind:value={query} />
@@ -146,7 +147,7 @@
       <img src="/logo.svg" alt="" width="96" height="96" />
       <h2>No music yet</h2>
       <p class="muted">Download something from Tidal, or add the folders where you keep your music in Settings.</p>
-      <div class="actions">
+      <div class="actions fold" use:foldLabels>
         <button class="btn primary" onclick={() => (app.view = { name: "search" })}><Icon name="search" size={16} /> Search Tidal</button>
         <button class="btn tonal" onclick={() => (app.view = { name: "settings" })}><Icon name="folder" size={16} /> Music folders</button>
       </div>

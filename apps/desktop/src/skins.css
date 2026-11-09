@@ -1768,3 +1768,60 @@
   color: #fff;
   background: rgb(255 255 255 / 0.22);
 }
+
+/* ================================================================ DJ mode (docs/DJ_UI.md §7) */
+:root[data-skin="immersive"] {
+  --dj-wave-bg: rgb(11 21 34 / 0.6);
+}
+:root[data-skin="immersive"][data-mode="light"] {
+  --dj-wave-bg: rgb(232 241 244 / 0.6);
+}
+:root[data-skin="vinyl"] {
+  --dj-a: #d97706;
+  --dj-a-ink: #2a1505;
+  --dj-b: #e8695c;
+  --dj-b-ink: #2b0904;
+  --dj-wave-bg: #231810;
+  --dj-well: #1a110b;
+  --dj-band-low: #f2c48d;
+}
+:root[data-skin="studio"] {
+  --dj-a: #34d399;
+  --dj-a-ink: #04281b;
+  --dj-b: #fbbf24;
+  --dj-b-ink: #2b1d02;
+  --dj-wave-bg: #111316;
+  --dj-well: #0d0f11;
+  --dj-playhead: #e4e7ea;
+}
+:root[data-skin="retro_amp"] {
+  --dj-a: #35c235;
+  --dj-a-ink: #031503;
+  --dj-b: #e8c000;
+  --dj-b-ink: #1f1a00;
+  --dj-wave-bg: #000000;
+  --dj-well: #000000;
+  --dj-band-low: #35c235;
+  --dj-band-high: #9cff9c;
+}
+:root[data-skin="luna"] {
+  --dj-a: #255fc0;
+  --dj-a-ink: #ffffff;
+  --dj-b: #23773a;
+  --dj-b-ink: #ffffff;
+  --dj-mix-gradient: none;
+}
+:root[data-skin="aluminum"] {
+  --dj-a: #2a6bd0;
+  --dj-a-ink: #ffffff;
+  --dj-b: #6b7280;
+  --dj-b-ink: #ffffff;
+  --dj-mix-gradient: none;
+}
+:root[data-skin="web2000"] {
+  --dj-a: #a35a00;
+  --dj-a-ink: #ffffff;
+  --dj-b: #3f7a0e;
+  --dj-b-ink: #ffffff;
+  --dj-mix-gradient: none;
+}

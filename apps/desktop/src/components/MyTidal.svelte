@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { foldLabels } from "../lib/foldLabels";
   import { untrack } from "svelte";
   import { api, errorText, type Hit } from "../lib/api";
   import { app } from "../lib/state.svelte";
@@ -78,7 +79,7 @@
     <h1>My Tidal</h1>
     <div class="muted">{loading && !items.length ? "Loading…" : filter.trim() ? `${shown.length} of ${list?.total ?? 0} ${tab}` : `${list?.total ?? shown.length} ${tab}`}</div>
   </div>
-  <div class="actions">
+  <div class="actions fold" use:foldLabels>
     <div class="filter"><Icon name="search" size={16} /><input placeholder="Filter" bind:value={filter} /></div>
     <button class="icon-btn" title="Refresh" onclick={() => load(tab, true)} disabled={loading && !items.length}><Icon name="refresh" /></button>
     {#if tab === "playlists" && app.account}

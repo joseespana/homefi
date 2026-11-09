@@ -56,6 +56,10 @@ pub enum Error {
     #[error("{0}")]
     Playlist(String),
 
+    /// Exporting or importing a ride or a DJ setup failed; the text is already user-facing.
+    #[error("{0}")]
+    Export(String),
+
     /// An AI provider call failed (bad key, no credit, offline...).
     #[error(transparent)]
     Ai(#[from] crate::ai::AiError),
@@ -75,6 +79,11 @@ impl Error {
             Error::Http(e) => e.is_connect() || e.is_timeout(),
             _ => false,
         }
+    }
+
+    /// `true` when Tidal answered 404: the thing (a playlist, a track) isn't there.
+    pub fn is_not_found(&self) -> bool {
+        matches!(self, Error::Api { status: 404, .. })
     }
 
     /// `true` when the device code expired before the user approved it.

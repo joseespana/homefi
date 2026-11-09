@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Archivos: exportar / importar (recorridos y setups del DJ) -->
+    <string name="xfer_cant_open">No se pudo abrir ese archivo.</string>
+    <string name="xfer_cant_save">No se pudo guardar el archivo ahí.</string>
+    <string name="xfer_too_big">Ese archivo es demasiado grande para ser de HomeFi.</string>
+    <string name="xfer_saved">Archivo guardado.</string>
+    <string name="xfer_share_title">Compartir con</string>
+    <string name="xfer_not_homefi">Ese no es un archivo de recorrido o de setup de DJ de HomeFi.</string>
+    <string name="xfer_cancel">Cancelar</string>
+    <string name="xfer_delete">Borrar</string>
+    <string name="xfer_this_file">este archivo</string>
+    <string name="xfer_open_ride">¿Añadir este recorrido?</string>
+    <string name="xfer_open_setup">¿Añadir este setup de DJ?</string>
+    <string name="xfer_open_text">%1$s se añadirá a lo que tienes guardado. No cambia nada más.</string>
+    <string name="xfer_add">Añadir</string>
+
+    <!-- Mis recorridos -->
+    <string name="rides_title">Mis recorridos</string>
+    <string name="rides_sub">Repite uno sin pedírselo a la IA.</string>
+    <string name="rides_import">Importar</string>
+    <string name="rides_empty">Tus recorridos aparecerán aquí. Cada uno que armes se guarda solo.</string>
+    <string name="rides_all">Ver todos (%1$d)</string>
+    <string name="rides_less">Ver menos</string>
+    <string name="rides_again">Repetir</string>
+    <string name="rides_more">Más</string>
+    <string name="rides_keep">Conservar</string>
+    <string name="rides_rename">Renombrar recorrido</string>
+    <string name="rides_rename_short">Renombrar</string>
+    <string name="rides_save">Guardar</string>
+    <string name="rides_save_file">Guardar en un archivo o Drive</string>
+    <string name="rides_share">Compartir</string>
+    <string name="rides_favorite">Marcar como favorito</string>
+    <string name="rides_unfavorite">Quitar de favoritos</string>
+    <string name="rides_auto">Guardado automáticamente</string>
+    <plurals name="rides_times">
+        <item quantity="one">%1$d vez</item>
+        <item quantity="other">%1$d veces</item>
+    </plurals>
+    <string name="rides_delete_title">¿Borrar este recorrido?</string>
+    <string name="rides_delete_text">\"%1$s\" se quitará de Mis recorridos. Tu música no se toca.</string>
+    <string name="rides_imported">Se añadió \"%1$s\" a Mis recorridos.</string>
+    <string name="rides_saved_auto">Guardado automáticamente</string>
+    <string name="rides_saved_kept">Guardado en Mis recorridos</string>
+    <string name="ex_some_skipped">Algunas canciones de este recorrido no están en este teléfono y se omitieron.</string>
+    <string name="rides_set_history">Recorridos guardados automáticamente</string>
+    <string name="rides_set_history_value">%1$d recorridos</string>
+    <string name="rides_set_history_hint">Pasado este número se borran los recorridos automáticos más antiguos. Los conservados y los favoritos nunca se borran.</string>
+
+    <!-- Diseño y setups del DJ -->
+    <string name="djs_menu">Más</string>
+    <string name="djs_edit_layout">Editar diseño</string>
+    <string name="djs_edit">Editar</string>
+    <string name="djs_open">Abrir</string>
+    <string name="djs_setups">Setups</string>
+    <string name="djs_layout_hint">Mueve las partes de la pantalla del DJ, oculta las que no uses y elige el sonido de cada pad.</string>
+    <string name="djs_layout_sections">Pantalla</string>
+    <string name="djs_layout_pads">Pads</string>
+    <string name="djs_layout_pads_hint">Tu teléfono toca cuatro pads.</string>
+    <string name="djs_layout_reset">Volver al diseño por defecto</string>
+    <string name="djs_move_up">Subir %1$s</string>
+    <string name="djs_move_down">Bajar %1$s</string>
+    <string name="djs_section_deck_a">Deck A</string>
+    <string name="djs_section_mixer">Mezcla y crossfader</string>
+    <string name="djs_section_deck_b">Deck B</string>
+    <string name="djs_section_sampler">Pads del sampler</string>
+    <string name="djs_section_crate">Selector de canciones</string>
+    <string name="djs_section_crate_open">Elegir canciones</string>
+    <string name="djs_setups_hint">Un setup guarda las opciones y el diseño de tu DJ con un nombre. Expórtalo para usarlo en otro teléfono, tablet u ordenador.</string>
+    <string name="djs_save_current">Guardar lo actual como setup</string>
+    <string name="djs_empty">Aún no hay setups. Guarda el DJ como está ahora o importa uno.</string>
+    <string name="djs_apply">Aplicar</string>
+    <string name="djs_overwrite">Reemplazar con lo actual</string>
+    <string name="djs_overwrite_title">¿Reemplazar este setup?</string>
+    <string name="djs_overwrite_text">\"%1$s\" quedará con las opciones y el diseño del DJ que tienes ahora.</string>
+    <string name="djs_delete_title">¿Borrar este setup?</string>
+    <string name="djs_delete_text">\"%1$s\" se quitará. Tus opciones del DJ se quedan como están.</string>
+    <string name="djs_saved">Setup \"%1$s\" guardado.</string>
+    <string name="djs_updated">Setup \"%1$s\" actualizado.</string>
+    <string name="djs_applied">Setup \"%1$s\" aplicado.</string>
+    <string name="djs_imported">Se añadió el setup \"%1$s\".</string>
+    <string name="djs_set_layout_hint">Orden de la pantalla del DJ, qué partes se ven y el sonido de los pads.</string>
+    <string name="djs_set_setups_hint">Guarda, aplica, exporta e importa setups con nombre.</string>
+</resources>

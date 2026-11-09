@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Teléfono: Conectar a la TV (escanear el QR de la TV) -->
+    <string name="tv_connect">Conectar a la TV</string>
+    <string name="tv_connect_other">Conectar otra TV</string>
+    <string name="tv_forget">Olvidar TV</string>
+    <string name="tv_send_again">Enviar otra vez</string>
+    <string name="tv_paired">TV: %1$s · las rutas se abren ahí solas</string>
+    <string name="tv_paired_sending">TV: %1$s · enviando la ruta…</string>
+    <string name="tv_paired_unreachable">TV: %1$s · no responde (¿está encendida?)</string>
+    <string name="tv_pair_done">Conectado a %1$s. Tu próxima ruta se abrirá ahí sola.</string>
+    <string name="tv_pair_done_sent">Conectado a %1$s. Tu ruta se está abriendo ahí.</string>
+    <string name="tv_pair_refused">La TV no aceptó ese código. Mira el código en la TV y escanéalo otra vez.</string>
+    <string name="tv_pair_unreachable">No se pudo llegar a la TV. El teléfono y la TV deben estar en el mismo Wi-Fi.</string>
+    <string name="tv_pair_invalid">Ese no es un código de TV de HomeFi.</string>
+    <string name="tv_scan_title">Escanear la TV</string>
+    <string name="tv_scan_why">HomeFi usa la cámara solo para leer el código de tu TV. No se graba, guarda ni envía nada.</string>
+    <string name="tv_scan_denied">La cámara está desactivada para HomeFi. Permítela en los ajustes de la app para escanear la TV, o escanea el código con la cámara de tu teléfono.</string>
+    <string name="tv_scan_allow">Permitir la cámara</string>
+    <string name="tv_scan_settings">Abrir ajustes de la app</string>
+    <string name="tv_scan_no_camera">No se encontró cámara en este teléfono. Escanea el código con otro teléfono o escribe la dirección en la TV.</string>
+    <string name="tv_scan_hint">Apunta la cámara al código de tu TV (Entrenar)</string>
+
+    <!-- Teléfono: Pon HomeFi en tu TV -->
+    <string name="tv_install_title">Pon HomeFi en tu TV</string>
+    <string name="tv_install_row">Instalar HomeFi en una Google TV o Android TV</string>
+    <string name="tv_install_row_hint">Pasos con la app gratuita Downloader. Tras la primera instalación la TV se actualiza sola.</string>
+    <string name="tv_install_open">Ver pasos</string>
+    <string name="tv_install_close">Cerrar</string>
+    <string name="tv_install_intro">La forma más fácil, sin instalar nada desde un ordenador. Lee esto en el teléfono y escribe en la TV.</string>
+    <string name="tv_install_step1">En la TV, instala la app gratuita “Downloader” (búscala en Google Play Store o en Amazon Appstore).</string>
+    <string name="tv_install_step2">Abre Downloader y escribe esta dirección en su cuadro de URL; luego pulsa Ir:</string>
+    <string name="tv_install_step3">Elige Instalar. La primera vez la TV pide permitir que Downloader instale apps: permítelo.</string>
+    <string name="tv_install_step4">Abre HomeFi en la TV. En Entrenar muestra un código: escanéalo desde el teléfono (Entrenar → Conectar a la TV).</string>
+    <string name="tv_install_updates">Después de esta primera instalación, la TV actualiza HomeFi sola.</string>
+    <string name="tv_install_qr">La página de versiones, para abrirla en el teléfono</string>
+
+    <!-- TV: sección Entrenar esperando un teléfono -->
+    <string name="tv_train_title">Conecta tu teléfono</string>
+    <string name="tv_train_step1">En el teléfono abre HomeFi, Entrenar.</string>
+    <string name="tv_train_step2">Toca Conectar a la TV y apunta la cámara a este código. También sirve la cámara del teléfono.</string>
+    <string name="tv_train_step3">Empieza una ruta. Se abre aquí sola.</string>
+    <string name="tv_train_code">Código</string>
+    <string name="tv_train_looking">Buscando rutas en tu red…</string>
+    <string name="tv_train_paired">Emparejados: %1$s. Se conectan solos cuando empiezan una ruta.</string>
+    <string name="tv_train_just_paired">Emparejado con %1$s. Empieza una ruta en el teléfono.</string>
+    <string name="tv_train_forget">Olvidar teléfonos emparejados</string>
+    <string name="tv_train_no_network">Esta TV no está en una red. Conéctala al Wi-Fi o al cable.</string>
+</resources>

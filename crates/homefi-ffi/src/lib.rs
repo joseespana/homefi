@@ -22,7 +22,9 @@ use homefi_core::stream_cache;
 uniffi::setup_scaffolding!();
 
 mod ai;
+mod dj;
 mod eq;
+mod exercise;
 mod party;
 mod playlists;
 mod runtime;
@@ -167,6 +169,9 @@ pub struct LibraryTrack {
     /// Links the file to Tidal and to HomeFi playlists.
     #[uniffi(default = None)]
     pub isrc: Option<String>,
+    /// The file's `BPM` tag (Exercise mode matches songs to a cadence with it).
+    #[uniffi(default = None)]
+    pub bpm: Option<u16>,
 }
 
 impl From<library::TrackInfo> for LibraryTrack {
@@ -190,6 +195,7 @@ impl From<library::TrackInfo> for LibraryTrack {
             bitrate_kbps: t.bitrate_kbps,
             lossless: t.lossless,
             isrc: t.isrc,
+            bpm: t.bpm,
         }
     }
 }
@@ -512,6 +518,10 @@ pub struct DownloadSettings {
     pub template: Option<String>,
     /// Files are written (and looked up for `skip_existing`) below this directory.
     pub download_dir: String,
+    /// The job is refused when `download_dir`'s volume would keep less free than this many MB
+    /// (`0` turns the check off). Brought into `download::space::MIN_FREE_MB_RANGE`.
+    #[uniffi(default = 500)]
+    pub min_free_mb: u32,
 }
 
 #[derive(uniffi::Enum)]
@@ -966,6 +976,14 @@ impl HomefiEngine {
             let api = self.session.api()?;
 
             let download_dir = PathBuf::from(&settings.download_dir);
+            match homefi_core::download::space::check(&download_dir, settings.min_free_mb) {
+                Err(e @ homefi_core::download::space::SpaceError::NotEnough { .. }) => {
+                    return Err(homefi_core::Error::from(e).into());
+                }
+                // a volume that cannot be measured does not block: the write reports a real failure
+                Err(e) => tracing::warn!("{e}"),
+                Ok(_) => {}
+            }
             let mut opts = DownloadOptions::from_config(self.session.config());
             opts.download_dir = download_dir.clone();
             opts.scan_dir = download_dir.clone();

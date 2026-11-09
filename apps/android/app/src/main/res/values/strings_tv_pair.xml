@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Phone: Connect to TV (scan the TV's QR) -->
+    <string name="tv_connect">Connect to TV</string>
+    <string name="tv_connect_other">Connect another TV</string>
+    <string name="tv_forget">Forget TV</string>
+    <string name="tv_send_again">Send again</string>
+    <string name="tv_paired">TV: %1$s · rides open there by themselves</string>
+    <string name="tv_paired_sending">TV: %1$s · sending the ride…</string>
+    <string name="tv_paired_unreachable">TV: %1$s · not reachable (is it on?)</string>
+    <string name="tv_pair_done">Connected to %1$s. Your next ride opens there by itself.</string>
+    <string name="tv_pair_done_sent">Connected to %1$s. Your ride is opening there.</string>
+    <string name="tv_pair_refused">The TV did not accept that code. Look at the code on the TV and scan it again.</string>
+    <string name="tv_pair_unreachable">Could not reach the TV. Phone and TV must be on the same Wi-Fi.</string>
+    <string name="tv_pair_invalid">That is not a HomeFi TV code.</string>
+    <string name="tv_scan_title">Scan the TV</string>
+    <string name="tv_scan_why">HomeFi uses the camera only to read the code on your TV. Nothing is recorded, saved or sent.</string>
+    <string name="tv_scan_denied">The camera is off for HomeFi. Allow it in the app settings to scan the TV, or scan the code with your phone\'s own camera app.</string>
+    <string name="tv_scan_allow">Allow the camera</string>
+    <string name="tv_scan_settings">Open app settings</string>
+    <string name="tv_scan_no_camera">No camera found on this phone. Scan the code with another phone, or type the address on the TV.</string>
+    <string name="tv_scan_hint">Point the camera at the code on your TV (Train)</string>
+
+    <!-- Phone: Put HomeFi on your TV -->
+    <string name="tv_install_title">Put HomeFi on your TV</string>
+    <string name="tv_install_row">Install HomeFi on a Google TV or Android TV</string>
+    <string name="tv_install_row_hint">Steps with the free Downloader app. After the first install the TV updates itself.</string>
+    <string name="tv_install_open">Show steps</string>
+    <string name="tv_install_close">Close</string>
+    <string name="tv_install_intro">Easiest way, nothing to sideload from a computer. Read this on your phone, type on the TV.</string>
+    <string name="tv_install_step1">On the TV, install the free app “Downloader” (search for it in the Google Play Store or Amazon Appstore).</string>
+    <string name="tv_install_step2">Open Downloader and type this address in its URL box, then press Go:</string>
+    <string name="tv_install_step3">Choose Install. The first time, the TV asks to let Downloader install apps: allow it.</string>
+    <string name="tv_install_step4">Open HomeFi on the TV. In Train it shows a code: scan it from your phone (Train → Connect to TV).</string>
+    <string name="tv_install_updates">After this first install, the TV updates HomeFi by itself.</string>
+    <string name="tv_install_qr">The releases page, to open on your phone</string>
+
+    <!-- TV: Train section waiting for a phone -->
+    <string name="tv_train_title">Connect your phone</string>
+    <string name="tv_train_step1">On your phone open HomeFi, Train.</string>
+    <string name="tv_train_step2">Tap Connect to TV and point the camera at this code. The phone\'s own camera works too.</string>
+    <string name="tv_train_step3">Start a ride. It opens here by itself.</string>
+    <string name="tv_train_code">Code</string>
+    <string name="tv_train_looking">Looking for rides on your network…</string>
+    <string name="tv_train_paired">Paired: %1$s. They connect by themselves when they start a ride.</string>
+    <string name="tv_train_just_paired">Paired with %1$s. Start a ride on the phone.</string>
+    <string name="tv_train_forget">Forget paired phones</string>
+    <string name="tv_train_no_network">This TV is not on a network. Connect it to Wi-Fi or Ethernet.</string>
+</resources>

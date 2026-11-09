@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App de Android TV (tv/*): menú, acceso, inicio, reproductor, ambiente -->
+    <string name="tv_nav_home">Inicio</string>
+    <string name="tv_nav_library">Biblioteca</string>
+    <string name="tv_nav_search">Buscar</string>
+    <string name="tv_nav_tidal">TIDAL</string>
+    <string name="tv_nav_downloads">Descargas</string>
+    <string name="tv_nav_playlists">Listas</string>
+    <string name="tv_nav_sound">Sonido</string>
+    <string name="tv_nav_party">Fiesta</string>
+    <string name="tv_nav_train">Entrenar</string>
+    <string name="tv_nav_dj">Modo DJ</string>
+    <string name="tv_nav_settings">Ajustes</string>
+    <string name="tv_nav_badge_mouse">Necesita ratón</string>
+
+    <string name="tv_soon_tag">Próximamente</string>
+    <string name="tv_soon_title">%1$s llega pronto a tu tele</string>
+    <string name="tv_soon_body">Mientras tanto, usa HomeFi en el móvil o en el escritorio. Tu música y tu cuenta ya están aquí.</string>
+    <string name="tv_soon_back">Volver a Inicio</string>
+    <string name="tv_dj_need_mouse">El modo DJ necesita un ratón (USB o Bluetooth)</string>
+    <string name="tv_dj_need_mouse_body">Conecta un ratón y aparece aquí solo.</string>
+
+    <string name="tv_home_playing_now">Sonando ahora</string>
+    <string name="tv_home_last_played">Último que escuchaste</string>
+    <string name="tv_home_pick">Elige algo para escuchar</string>
+    <string name="tv_home_rows_sub">Canciones, álbumes y listas</string>
+    <string name="tv_np_open">Abrir reproductor</string>
+    <string name="tv_np_tab_lyrics">Letra</string>
+    <string name="tv_np_tab_mascot">Homifito</string>
+    <string name="tv_np_tab_visualizer">Visualizador</string>
+    <string name="tv_np_tab_queue">Cola</string>
+    <string name="tv_np_buffering">Cargando…</string>
+    <string name="tv_np_error">No se puede reproducir esta canción</string>
+    <string name="tv_np_nothing">No suena nada</string>
+    <string name="tv_np_seek_forward">+%1$d s</string>
+    <string name="tv_np_seek_back">−%1$d s</string>
+    <string name="tv_np_hint_ok">Reproducir / pausa</string>
+    <string name="tv_np_hint_lr">Anterior / siguiente · mantener salta %1$d s</string>
+    <string name="tv_np_hint_up">Panel</string>
+    <string name="tv_np_hint_down">Controles</string>
+    <string name="tv_np_hint_back">Cerrar</string>
+    <string name="tv_hint_ok_open">Abrir</string>
+    <string name="tv_hint_back_drawer">Menú</string>
+    <string name="tv_hint_ok_select">Elegir</string>
+    <string name="tv_hint_back_exit">Salir</string>
+    <string name="tv_out_hdmi">HDMI · mezcla del sistema</string>
+    <string name="tv_queue_count">%1$d canciones en la cola</string>
+
+    <string name="tv_amb_wake">Pulsa cualquier tecla para volver</string>
+    <string name="tv_amb_now">Sonando ahora</string>
+
+    <string name="tv_login_title">Inicia sesión en TIDAL desde tu móvil</string>
+    <string name="tv_login_body">Escanea el código, o abre %1$s en cualquier dispositivo y escribe:</string>
+    <string name="tv_login_scan">Apunta la cámara de tu móvil aquí</string>
+    <string name="tv_login_new">Pedir un código nuevo</string>
+    <string name="tv_login_starting">Pidiendo tu código…</string>
+    <string name="tv_login_expires">Caduca en %1$s · esperándote…</string>
+    <string name="tv_login_expired">El código ha caducado</string>
+    <string name="tv_login_accept">Lo entiendo</string>
+    <string name="tv_login_notice_title">Antes de conectar</string>
+    <string name="tv_notice">Uso personal y no comercial. Al continuar aceptas el aviso.</string>
+
+    <string name="tv_empty_title">Aún no hay nada</string>
+    <string name="tv_empty_body">Reproduce una canción de TIDAL o de tu biblioteca y aparece aquí.</string>
+    <string name="tv_empty_cta">Abrir la biblioteca</string>
+    <string name="tv_retry">Reintentar</string>
+
+    <!-- Actualizaciones en la tele -->
+    <string name="tv_update_now">Actualizar ahora</string>
+    <string name="tv_update_install_now">Instalar ahora</string>
+    <string name="tv_update_ready_hint">Descargada y comprobada. Pulsa OK y confirma una vez con Android. La música se para mientras se instala.</string>
+    <string name="tv_update_available_hint">Hay una versión nueva de HomeFi. Se descarga en segundo plano.</string>
+    <string name="tv_update_downloading_hint">Descargando en segundo plano. Puedes seguir escuchando.</string>
+    <string name="tv_perm_title">Permite que HomeFi instale sus actualizaciones</string>
+    <string name="tv_perm_lead">Android lo pide solo una vez. Después las actualizaciones se instalan con un solo OK.</string>
+    <string name="tv_perm_step1">Pulsa «Abrir ajustes».</string>
+    <string name="tv_perm_step2">Activa «Permitir desde esta fuente» para HomeFi.</string>
+    <string name="tv_perm_step3">Pulsa Atrás. La actualización sigue sola.</string>
+    <string name="tv_perm_path">Si la página no se abre: Ajustes → Aplicaciones → Seguridad y restricciones → Instalar aplicaciones desconocidas → HomeFi</string>
+    <string name="tv_perm_open">Abrir ajustes</string>
+    <string name="tv_perm_not_found">Esta tele no pudo abrir esa página. Sigue la ruta de arriba.</string>
+    <string name="tv_notes_scroll">Usa arriba y abajo para leer</string>
+    <string name="tv_ride_from">Entrenamiento de %1$s</string>
+    <string name="tv_ride_watch">Ver</string>
+    <string name="tv_ride_opening">Se abre en %1$d s</string>
+</resources>

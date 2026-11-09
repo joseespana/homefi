@@ -3,6 +3,8 @@
 import type { GuestView, HubView, Member, QueueItem, ShareSettings, ShareState, ShareTrack, PlayerState, Track } from "./api";
 import type { AiProviderId, AiSettings, AssistantTurn, EqProfile, EqUiSettings } from "./api";
 import { discMock } from "./mock-disc";
+import { djMock } from "./mock-dj";
+import { exerciseMock } from "./mock-exercise";
 import { eqMock } from "./mock-eq";
 import { playlistsMock } from "./mock-playlists";
 import { whatsNewMock } from "./mock-whats-new";
@@ -300,6 +302,8 @@ const handlers: Record<string, (args: any) => unknown> = {
   ...eqMock.handlers,
   ...playlistsMock.handlers,
   ...discMock.handlers,
+  ...djMock.handlers,
+  ...exerciseMock.handlers,
   ...whatsNewMock.handlers,
   ...soundMock.handlers(
     () => state.track,
@@ -472,8 +476,8 @@ const handlers: Record<string, (args: any) => unknown> = {
   rescan_library: () => tracks,
   player_state: () => state,
   play_tracks: ({ index }) => (setCurrent(index), (state = { ...state, status: "playing" })),
-  player_toggle: () => (state = { ...state, status: state.status === "playing" ? "paused" : "playing" }),
-  player_next: () => setCurrent((state.current ?? 0) + 1),
+  player_toggle: () => exerciseMock.control("toggle") || (state = { ...state, status: state.status === "playing" ? "paused" : "playing" }),
+  player_next: () => exerciseMock.control("next") || setCurrent((state.current ?? 0) + 1),
   player_previous: () => setCurrent((state.current ?? 0) - 1),
   player_jump: ({ index }) => setCurrent(index),
   player_seek: ({ ms }) => (state = { ...state, position_ms: ms }),
@@ -502,8 +506,8 @@ const handlers: Record<string, (args: any) => unknown> = {
   crossfade_set: ({ crossfade }: { crossfade: CrossfadeSettings }) => ((crossfadeMock = { ...crossfade, seconds: Math.min(12, Math.max(1, crossfade.seconds)) }), crossfadeMock),
   output_options_get: () => outputMock,
   output_options_set: ({ options }: { options: OutputOptions }) => ((outputMock = options), outputMock),
-  get_settings: () => ({ download_dir: "~/Music/homefi", library_dirs: ["~/Music"], quality: "max", embed_cover: true, embed_lyrics: false, skip_existing: true, volume: 0.72, output_device: null, room: { signal_chain: url.get("signal") !== "off", signal_style: (url.get("signal") === "detailed" ? "detailed" : "compact") as "compact", signal_animate: !url.has("still"), vu_meters: true, visualizer: true, halo: true, mascot: true, mascot_style: url.get("style") ?? "auto", mascot_dance: url.get("dance") ?? "auto", mascot_specials: (url.get("specials") ?? "sometimes") as "sometimes", mascot_limbs: "white", mascot_turns: (url.get("turns") ?? "all") as "all", mascot_size: Number(url.get("size") ?? 0), mascot_free: new URLSearchParams(location.search).has("float"), mascot_x: 0.85, mascot_y: 0.75, mascot_everywhere: false, mascot_hold: "menu" as const, mascot_dance_button: !url.has("nodancebtn"), mascot_temper: "normal", mascot_hair: (url.get("hair") ?? "auto") as "auto", mascot_follow_beat: !url.has("freebeat"), mascot_headbang: (url.get("bang") ?? "normal") as "normal", album_colors: true, layout: (url.get("layout") ?? "classic") as "classic", layout_everywhere: !url.has("roomonly"), immersive_shade: (url.get("shade") ?? "auto") as "auto", lyrics_mode: (url.get("lyrics") === "karaoke" ? "karaoke" : "normal") as "normal", lyrics_size: (url.get("lyricsize") ?? "medium") as "medium", lyrics_auto_open: url.has("lyrics"), lyrics_mascot: !url.has("nosinger"), lyrics_offset_ms: 0, motion: (url.get("motion") ?? "auto") as "auto", settings_width: (url.get("swidth") === "wide" ? "wide" : "comfortable") as "comfortable", player_buttons: (url.get("buttons") === "bottom" ? "bottom" : "top") as "top" }, theme: (new URLSearchParams(location.search).get("theme") ?? "system") as "system", recent_folders: [], progress_style: "wavy", progress_thickness: "medium", progress_animated: true, lazy_lists: !url.has("whole"), share: shareSettings, ai: aiSettings, eq: eqMock.settings(), eq_presets: eqPresets, eq_ui: eqUi, album_versions: albumVersions, crossfade: crossfadeMock, output: outputMock, updates: { auto_check: true, prereleases: false, install: "ask" as const, whats_new: true }, mini: { lyrics: url.has("minilyrics"), mascot: url.has("minimascot") }, last_seen_version: null, ...soundMock.settings(), ...playlistsMock.settings(), ...discMock.settings(), ...terms }),
-  set_settings: ({ settings }) => (settings.eq && eqMock.set(settings.eq), soundMock.setSettings(settings), (settings = { ...settings, ...playlistsMock.setSettings(settings), ...discMock.setSettings(settings) }), (state = { ...state, ...flagsFor(state.stream?.device ?? "WH-1000XM5") }), (aiSettings = settings.ai ?? aiSettings), (eqPresets = settings.eq_presets ?? eqPresets), (eqUi = settings.eq_ui ?? eqUi), (albumVersions = settings.album_versions ?? albumVersions), (crossfadeMock = settings.crossfade ?? crossfadeMock), (outputMock = settings.output ?? outputMock), (terms = { tidal_terms_accepted: settings.tidal_terms_accepted, tidal_terms_accepted_at: settings.tidal_terms_accepted_at }), emit("settings", settings), settings),
+  get_settings: () => ({ download_dir: "~/Music/homefi", library_dirs: ["~/Music"], quality: "max", embed_cover: true, embed_lyrics: false, skip_existing: true, volume: 0.72, output_device: null, room: { signal_chain: url.get("signal") !== "off", signal_style: (url.get("signal") === "detailed" ? "detailed" : "compact") as "compact", signal_animate: !url.has("still"), vu_meters: true, visualizer: true, halo: true, mascot: true, mascot_style: url.get("style") ?? "auto", mascot_dance: url.get("dance") ?? "auto", mascot_specials: (url.get("specials") ?? "sometimes") as "sometimes", mascot_limbs: "white", mascot_turns: (url.get("turns") ?? "all") as "all", mascot_size: Number(url.get("size") ?? 0), mascot_free: new URLSearchParams(location.search).has("float"), mascot_x: 0.85, mascot_y: 0.75, mascot_everywhere: false, mascot_hold: "menu" as const, mascot_dance_button: !url.has("nodancebtn"), mascot_temper: "normal", mascot_hair: (url.get("hair") ?? "auto") as "auto", mascot_follow_beat: !url.has("freebeat"), mascot_headbang: (url.get("bang") ?? "normal") as "normal", album_colors: true, layout: (url.get("layout") ?? "classic") as "classic", layout_everywhere: !url.has("roomonly"), immersive_shade: (url.get("shade") ?? "auto") as "auto", lyrics_mode: (url.get("lyrics") === "karaoke" ? "karaoke" : "normal") as "normal", lyrics_size: (url.get("lyricsize") ?? "medium") as "medium", lyrics_auto_open: url.has("lyrics"), lyrics_mascot: !url.has("nosinger"), lyrics_offset_ms: 0, motion: (url.get("motion") ?? "auto") as "auto", settings_width: (url.get("swidth") === "wide" ? "wide" : "comfortable") as "comfortable", player_buttons: (url.get("buttons") === "bottom" ? "bottom" : "top") as "top", side_player: !url.has("noside") }, theme: (new URLSearchParams(location.search).get("theme") ?? "system") as "system", recent_folders: [], progress_style: "wavy", progress_thickness: "medium", progress_animated: true, lazy_lists: !url.has("whole"), share: shareSettings, ai: aiSettings, eq: eqMock.settings(), eq_presets: eqPresets, eq_ui: eqUi, album_versions: albumVersions, crossfade: crossfadeMock, output: outputMock, updates: { auto_check: true, prereleases: false, install: "ask" as const, whats_new: true }, mini: { lyrics: url.has("minilyrics"), mascot: url.has("minimascot") }, last_seen_version: null, ...soundMock.settings(), ...playlistsMock.settings(), ...discMock.settings(), ...djMock.settings(), ...exerciseMock.settings(), ...terms }),
+  set_settings: ({ settings }) => (settings.eq && eqMock.set(settings.eq), soundMock.setSettings(settings), (settings = { ...settings, ...playlistsMock.setSettings(settings), ...discMock.setSettings(settings), ...djMock.setSettings(settings), ...exerciseMock.setSettings(settings) }), (state = { ...state, ...flagsFor(state.stream?.device ?? "WH-1000XM5") }), (aiSettings = settings.ai ?? aiSettings), (eqPresets = settings.eq_presets ?? eqPresets), (eqUi = settings.eq_ui ?? eqUi), (albumVersions = settings.album_versions ?? albumVersions), (crossfadeMock = settings.crossfade ?? crossfadeMock), (outputMock = settings.output ?? outputMock), (terms = { tidal_terms_accepted: settings.tidal_terms_accepted, tidal_terms_accepted_at: settings.tidal_terms_accepted_at }), emit("settings", settings), settings),
   // ?nolyrics: none (an instrumental); ?plainlyrics: not synced; ?lyricserror: Tidal fails; ?lyricswait: never answers
   lyrics: async () => {
     if (url.has("lyricswait")) await new Promise(() => {});
@@ -513,6 +517,9 @@ const handlers: Record<string, (args: any) => unknown> = {
     return mockLyrics(url.has("plainlyrics"));
   },
   "plugin:window|set_theme": () => null,
+  // the save / open dialogs answer a file in a Google Drive folder, so export and import can be tried
+  "plugin:dialog|save": ({ options }: { options?: { defaultPath?: string } }) => `/Users/me/Google Drive/My Drive/${options?.defaultPath ?? "HomeFi file"}`,
+  "plugin:dialog|open": ({ options }: { options?: { filters?: { extensions: string[] }[] } }) => `/Users/me/Google Drive/My Drive/shared.${options?.filters?.[0]?.extensions[0] ?? "homefi"}`,
   mini_player: () => null,
   mini_ready: () => null,
   mini_resize: () => null,
@@ -675,7 +682,7 @@ w.__TAURI_INTERNALS__ = {
       listeners.set(args.event, [...(listeners.get(args.event) ?? []), args.handler]);
       return args.handler;
     }
-    if (cmd.startsWith("plugin:")) return null;
+    if (cmd.startsWith("plugin:")) return handlers[cmd]?.(args ?? {}) ?? null;
     const h = handlers[cmd];
     if (!h) throw `mock: no handler for ${cmd}`;
     // ?slow keeps catalog / library calls pending, to see the loading states
@@ -684,6 +691,8 @@ w.__TAURI_INTERNALS__ = {
   },
 };
 discMock.start(emit);
+djMock.start(emit);
+exerciseMock.start(emit);
 // ?whitecover: a nearly white album (black-and-white artwork), to check text over light covers
 w.__HOMEFI_MOCK_COVER__ = url.has("whitecover")
   ? () =>

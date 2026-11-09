@@ -250,9 +250,7 @@ fn byte(v: f32) -> u8 {
 impl HubSession {
     /// Starts the hub on the configured port and wires it to the player.
     pub async fn start(app: &AppHandle, party: bool, code: Option<String>) -> Result<Arc<Self>, String> {
-        let state = app.state::<AppState>();
-        let s = state.settings().share;
-        let (tx, rx) = mpsc::unbounded_channel();
+        let s = app.state::<AppState>().settings().share;
         let mut config = homefi_core::share::HubConfig::new(super::session_name(&s), super::display_name(&s));
         config.host_color = s.color.clone();
         config.code = match code {
@@ -263,10 +261,24 @@ impl HubSession {
         config.bind = std::net::SocketAddr::from(([0, 0, 0, 0], s.port));
         config.permissions = s.permissions();
         config.stream_audio = party;
+        Self::start_with(app, config, party, s.announce_lan).await
+    }
+
+    /// Starts the hub with a ready config (a ride's listen-only hub, see `exercise`). `party`: the
+    /// song playing is served to guests; `announce`: shown to the LAN's `_homefi._tcp` browsers.
+    pub async fn start_with(
+        app: &AppHandle,
+        config: homefi_core::share::HubConfig,
+        party: bool,
+        announce: bool,
+    ) -> Result<Arc<Self>, String> {
+        let state = app.state::<AppState>();
+        let port = config.bind.port();
+        let (tx, rx) = mpsc::unbounded_channel();
         let host = Arc::new(DesktopHost { app: app.clone(), tx: tx.clone() });
         let hub = Hub::start(config, host).await.map_err(|e| match e {
             homefi_core::Error::Io(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
-                format!("Port {} is in use (another HomeFi?). Pick another one in Settings.", s.port)
+                format!("Port {port} is in use (another HomeFi?). Pick another one in Settings.")
             }
             e => crate::commands::err(e),
         })?;
@@ -284,7 +296,7 @@ impl HubSession {
             tasks: Mutex::new(Vec::new()),
         });
         let share = app.state::<Share>();
-        if s.announce_lan {
+        if announce {
             share.discovery.announce(&session.info.session_name, &super::computer_name(), session.info.port);
         }
         // the hub decides the order of what comes next

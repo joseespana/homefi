@@ -18,6 +18,9 @@ class PlaylistQueue(
 ) {
     /** The queue position of entry [entryIndex], or null when that entry has nothing to play. */
     fun startOf(entryIndex: Int): Int? = itemIndexOfEntry.getOrNull(entryIndex)?.takeIf { it >= 0 }
+
+    /** The playlist entry that queue item [itemIndex] plays (the reverse of [startOf]), or null. */
+    fun entryOfItem(itemIndex: Int): Int? = itemIndexOfEntry.indexOf(itemIndex).takeIf { it >= 0 }
 }
 
 /**

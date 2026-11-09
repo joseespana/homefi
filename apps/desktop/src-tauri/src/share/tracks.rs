@@ -245,6 +245,7 @@ mod tests {
             lossless: true,
             quality: String::new(),
             isrc: None,
+            bpm: None,
         }
     }
 

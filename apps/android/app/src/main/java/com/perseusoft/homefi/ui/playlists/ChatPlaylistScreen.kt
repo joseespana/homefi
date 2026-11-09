@@ -123,7 +123,7 @@ private fun BriefSummary(text: String) {
 
 /** "Sad 90s in English · 1 h · Steady · Explicit allowed"; "Not set yet" while the AI has no title. */
 @Composable
-private fun chatSummary(brief: ChatBrief): String {
+internal fun chatSummary(brief: ChatBrief): String {
     val title = brief.title.ifBlank { stringResource(R.string.pl_chat_summary_unset) }
     val explicit = stringResource(if (brief.allowExplicit) R.string.pl_party_explicit_summary_allow else R.string.pl_party_explicit_summary_avoid)
     return listOf(title, partyLength(brief.minutes.toInt()), curveLabel(brief.curve), explicit).joinToString(" · ")

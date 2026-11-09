@@ -123,6 +123,27 @@ pub async fn for_file(api: Option<&TidalApi>, path: &Path) -> Result<Option<Lyri
     Ok(None)
 }
 
+/// Lyrics of what plays, by whichever it has: a file's own first (signed out works), then Tidal's by track id,
+/// then Tidal's for the file's ISRC. `None` when nothing has them. Tidal answers come from the client's disk cache
+/// when they were fetched before.
+pub async fn for_track(api: Option<&TidalApi>, track_id: Option<i64>, path: Option<&Path>) -> Result<Option<Lyrics>> {
+    if let Some(own) = path.map(Path::to_path_buf) {
+        if let Some(found) = tokio::task::spawn_blocking(move || local(&own)).await.unwrap_or_default() {
+            return Ok(Some(found));
+        }
+    }
+    if let Some(id) = track_id {
+        return match api {
+            Some(api) => tidal(api, id).await,
+            None => Ok(None),
+        };
+    }
+    match (path, api) {
+        (Some(path), Some(api)) => for_file(Some(api), path).await,
+        _ => Ok(None),
+    }
+}
+
 /// The ISRC in a file's tags.
 fn isrc_in(file: &lofty::file::TaggedFile) -> Option<String> {
     file.tags()

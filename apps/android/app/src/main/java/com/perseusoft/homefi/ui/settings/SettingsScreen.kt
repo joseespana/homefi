@@ -2,7 +2,9 @@ package com.perseusoft.homefi.ui.settings
 
 import com.perseusoft.homefi.ui.AiIcon
 import com.perseusoft.homefi.ui.haptics
+import androidx.compose.material.icons.automirrored.rounded.DirectionsBike
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Headphones
 import com.perseusoft.homefi.ui.theme.SkinHeading
 import com.perseusoft.homefi.ui.theme.fixedDark
 import com.perseusoft.homefi.ui.ConfirmDialog
@@ -248,6 +250,32 @@ private enum class SettingsPage(val title: Int, val icon: ImageVector, val secti
             R.string.pl_set_party, R.string.pl_set_party_minutes, R.string.pl_set_party_curve,
             R.string.pl_set_party_explicit, R.string.pl_set_party_per_artist,
             R.string.pl_set_chat, R.string.pl_set_chat_explicit, R.string.pl_set_chat_from_song, R.string.pl_set_chat_from_song_keywords,
+            R.string.pl_set_tidal, R.string.pl_set_tidal_auto, R.string.pl_set_tidal_delete, R.string.pl_set_tidal_keywords,
+        ),
+    ),
+    DJ(
+        R.string.dj_set_title,
+        Icons.Rounded.Headphones,
+        SettingsSection.SOUND,
+        listOf(
+            R.string.dj_title, R.string.dj_keywords, R.string.dj_set_entry, R.string.dj_set_simple, R.string.dj_set_tips,
+            R.string.dj_set_waveform_colors, R.string.dj_set_beat_grid, R.string.dj_set_sync_load, R.string.dj_set_mix_length,
+            R.string.dj_set_bass_swap, R.string.dj_set_quantize, R.string.dj_set_tempo_range, R.string.dj_key_lock,
+            R.string.dj_set_curve, R.string.dj_set_load_target, R.string.dj_set_auto_gain, R.string.dj_set_eq_boost,
+            R.string.dj_sampler, R.string.dj_set_sampler_volume, R.string.dj_set_pads, R.string.dj_set_memory,
+        ),
+    ),
+    EXERCISE(
+        R.string.ex_set_title,
+        Icons.AutoMirrored.Rounded.DirectionsBike,
+        SettingsSection.SOUND,
+        listOf(
+            R.string.ex_title, R.string.ex_keywords, R.string.ex_set_entry, R.string.ex_set_beginner, R.string.ex_set_style,
+            R.string.ex_set_minutes, R.string.ex_set_sources, R.string.ex_set_tolerance, R.string.ex_set_half_time,
+            R.string.ex_set_double_time, R.string.ex_set_explicit, R.string.ex_set_budget, R.string.ex_set_cues,
+            R.string.ex_set_cue_volume, R.string.ex_set_countdown, R.string.ex_set_notice, R.string.ex_set_click,
+            R.string.ex_set_pulse, R.string.ex_set_offset, R.string.ex_set_keep_on, R.string.ex_set_course_look, R.string.ex_set_course_summits, R.string.ex_set_tv, R.string.ex_set_tv_lyrics, R.string.ex_tv_audio,
+            R.string.ex_set_port, R.string.ex_set_health, R.string.ex_set_always_dark, R.string.ex_set_haptics,
         ),
     ),
     AI(
@@ -370,6 +398,8 @@ fun SettingsScreen(loggedIn: Boolean, onLogin: () -> Unit, onLoggedOut: () -> Un
             SettingsPage.SOUND -> soundSummary()
             SettingsPage.PLAYBACK -> playbackSummary()
             SettingsPage.PLAYLISTS -> playlistsSummary()
+            SettingsPage.DJ -> djSummary()
+            SettingsPage.EXERCISE -> exerciseSummary()
             SettingsPage.AI -> aiSummary(settings.ai)
             SettingsPage.SHARING ->
                 "${stringResource(settings.share.network.label())} · ${app.share.sessionName(settings.share)}"
@@ -451,6 +481,8 @@ private fun PageBody(
         SettingsPage.SOUND -> SoundSettings()
         SettingsPage.PLAYBACK -> PlaybackSettings()
         SettingsPage.PLAYLISTS -> PlaylistsSettings()
+        SettingsPage.DJ -> DjSettingsPage()
+        SettingsPage.EXERCISE -> ExerciseSettingsPage()
         SettingsPage.AI -> AiSettingsSection()
         SettingsPage.SHARING -> ShareSettingsSection()
         SettingsPage.ABOUT -> AboutSettings()
@@ -932,6 +964,7 @@ private fun AboutSettings() {
     }
     UpdateSettingsSection()
     WhatsNewSettings()
+    TvInstallSettings()
     SettingsGroup(title = stringResource(R.string.tidal_terms_title)) {
         Text(
             stringResource(R.string.tidal_terms),
@@ -946,6 +979,24 @@ private fun AboutSettings() {
                 stringResource(R.string.tidal_terms_accepted_on, date)
             } else {
                 stringResource(R.string.tidal_terms_not_accepted)
+            },
+        )
+    }
+}
+
+/** Settings → About → Put HomeFi on your TV: the helper's steps, the URL and the QR (also linked from Train). */
+@Composable
+private fun TvInstallSettings() {
+    var open by rememberSaveable { mutableStateOf(false) }
+    if (open) com.perseusoft.homefi.ui.tvpair.TvInstallDialog { open = false }
+    SettingsGroup(title = stringResource(R.string.tv_install_title)) {
+        SettingRow(
+            label = stringResource(R.string.tv_install_row),
+            hint = stringResource(R.string.tv_install_row_hint),
+            trailing = {
+                androidx.compose.material3.FilledTonalButton(onClick = { open = true }, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(stringResource(R.string.tv_install_open))
+                }
             },
         )
     }
@@ -1277,6 +1328,12 @@ private fun LyricsSettings() {
             stringResource(R.string.lyrics_mascot), settings.lyricsMascot,
             hint = stringResource(R.string.lyrics_mascot_hint),
         ) { v -> app.settings.update { it.copy(lyricsMascot = v) } }
+    }
+    SettingsGroup {
+        SwitchRow(
+            stringResource(R.string.side_player), settings.sidePlayer,
+            hint = stringResource(R.string.side_player_hint),
+        ) { v -> app.settings.update { it.copy(sidePlayer = v) } }
     }
     SettingsGroup {
         SwitchRow(

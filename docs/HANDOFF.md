@@ -264,6 +264,15 @@ los visuales. Probado en la Mac con jack a 96 kHz y Bluetooth a 44.1.
   `party::song_wish(SongSeed, lang)` (Tauri `chat_song_wish`, FFI `chatSongWish`)
   arma el primer mensaje y la UI lo envía sola. Ajuste `chat_from_song` (true).
 - **Sin probar en vivo**: que cada proveedor llame `set_playlist`.
+- Guardar en TIDAL: `HomePlaylist.tidal_uuid` (la copia en la cuenta). Core
+  `playlist::save_to_tidal` (resuelve cada entrada: `tidal_id`, si no ISRC, si no título+artista
+  con el umbral del resolver; crea la playlist, o si existe la renombra y reemplaza sus ítems de a
+  100; 404 = se creó de nuevo) y `save_stored_to_tidal` (una a la vez, guarda el uuid aunque falle a
+  medias). `PlaylistStore::save` conserva el `tidal_uuid` del disco si la copia que llega no lo trae.
+  Ajustes `tidal_auto_save` y `tidal_delete_with` (ambos false). Tauri
+  `home_playlist_save_to_tidal`, evento `home-playlist-tidal` del guardado automático; FFI
+  `homePlaylistSaveToTidal`, `homePlaylistDeleteOnTidal` (Android borra la copia en TIDAL solo si
+  no se deshizo el borrado). **Sin probar en vivo** contra TIDAL (solo wiremock).
 
 ### Discos: extraer CD de audio (solo escritorio)
 - Crate `crates/homefi-disc` (miembro del workspace, solo escritorio): transportes propios en Rust

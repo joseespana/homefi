@@ -10,8 +10,8 @@ use homefi_core::dsp::crossfade::{gains, FadeCurve, SILENCE_THRESHOLD};
 use rubato::{Resampler as _, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 use serde::{Deserialize, Serialize};
 
-use crate::decoder::Source;
 use crate::error::{PlayerError, Result};
+use homefi_core::audio::decode::Source;
 
 /// Resampler input chunk (frames).
 pub(crate) const RESAMPLE_CHUNK: usize = 1024;
@@ -372,7 +372,7 @@ impl Deck {
             Ok(None) => false,
             Err(e) => {
                 self.ended = true;
-                return Err(e);
+                return Err(e.into());
             }
         };
         // the real channel count is only known after the first packet of some formats
@@ -717,10 +717,17 @@ mod tests {
     #[test]
     fn surround_devices_cost_about_the_same_cpu_as_stereo() {
         let input = vec![0.25f32; 2 * 44_100 * 3];
+        // the best of three runs: a busy machine (other tests, emulators) only ever adds time,
+        // so the minimum is the cost without the noise
         let time = |f: &mut dyn FnMut()| {
-            let t = std::time::Instant::now();
-            f();
-            t.elapsed()
+            (0..3)
+                .map(|_| {
+                    let t = std::time::Instant::now();
+                    f();
+                    t.elapsed()
+                })
+                .min()
+                .unwrap_or_default()
         };
         let mut sink = Vec::with_capacity(8 * 48_000 * 4);
         let stereo_then_map = time(&mut || {

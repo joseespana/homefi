@@ -7,6 +7,77 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Added
+- HomeFi for Android TV and Google TV (first part). The same app shows a TV interface on a TV:
+  sign in to TIDAL with a QR or a code, Home, your library, search (on-screen keyboard, voice
+  where the TV has it), your TIDAL collection, downloads to the TV or a USB drive (paused when
+  the drive is pulled out), a full-screen player with lyrics and karaoke, an ambient mode while
+  music plays, and updates by itself. Playlists, Sound and Party on the TV come next.
+- Rides on the TV without typing anything: the TV shows a QR, the phone scans it once, and from
+  then on every ride opens on the TV by itself. The ride screen on the TV was redesigned and can
+  show the song's lyrics in time with the music (a setting). "Put HomeFi on your TV" in the
+  phone's settings explains how to install it with the free Downloader app.
+- Saved rides: every ride you build is saved by itself, so you can ride it again without asking
+  the AI; keep, rename, favourite, delete, and export or import them as files (to a folder,
+  Google Drive or anything the share menu offers).
+- DJ mode setups: rearrange or hide the sections, choose the sound on each sampler pad, rebind
+  the keys, and save it all as named setups you can export and load on another computer, phone
+  or tablet.
+- Exercise: the AI favours the well-known songs of the bands and songs you name.
+- Exercise: a new course mountain on the ride screen, setup, preview, summary and the TV. Height and ground colour show
+  effort, the zone is a thin line on the ridge and a ribbon at the base, with a cyclist, a pin for the next part and
+  summit glow. Settings: Course look (Ribbon, Alpine, Stage) and Summit times.
+- DJ mode: Homifito DJ. The little house with headphones stands behind his own booth (two turntables, a
+  mixer, speakers and lights) and mixes with you: he bobs on the beat, scratches, reaches for the crossfader
+  during a mix, cheers on air horns, jumps on drops and lifts one headphone cup while the other deck is
+  cued. Off, Booth or Big stage, above or below the decks, with optional Homifito colours for the whole
+  board; the button in the DJ top bar turns him on and off. He follows Look → Motion.
+- DJ mode works on narrow windows: no more "make the window wider". The board lays itself out by its own
+  width (decks side by side with the mixer under them, or stacked, the sampler wrapping).
+- Exercise mode, starting with indoor cycling (desktop and Android). Pick how long (10 to 90
+  minutes), a style (first ride, easy, classic, intervals) and the music of the day: one genre or a
+  mix, plus a sentence for the AI. HomeFi builds the ride with songs whose beat matches the pedaling
+  (checked by BPM from the file, TIDAL or its own analysis) and shows the target RPM, a pulse on the
+  beat, effort, seated or standing, the time left, what's next and the whole class as a mountain.
+  Sounds count you in and mark the changes. On a TV: a fullscreen window on the desktop, any TV
+  browser by its address, or the new HomeFi app for Android TV and Chromecast with Google TV, which
+  finds the ride on its own and can play the music too (or leave it on the phone, for headphones).
+- The sidebar folds what doesn't fit into a "More" menu on short windows, and page headers fold
+  their secondary buttons into icons on narrow windows instead of breaking the labels.
+- Player beside the app on wide screens. On a tablet or a phone in landscape the player sits on
+  the right while you browse, with a button for full screen (and one back to the side). On a wide
+  desktop window, "Now playing" shows in a column on the right: the cover, the song, its actions
+  and what comes next; its button opens the full room. Automatic: it measures the screen and sizes
+  itself. To remove it, a switch in the player's menu on Android, the side player button on the
+  desktop, or Settings on both.
+- Save HomeFi's playlists to TIDAL (desktop and Android). A playlist made with AI, for a party or
+  for a concert gets a "Save to TIDAL" button: it's added to your TIDAL account, so it shows up on
+  every device signed in to it. Afterwards "Update on TIDAL" makes that copy match HomeFi's again
+  (same songs, same order). Songs from your library are found on TIDAL by ISRC or by title and
+  artist; the ones TIDAL doesn't have are left out and listed. Settings → Playlists → Save to TIDAL
+  can save them automatically and delete the TIDAL copy when you delete the playlist in HomeFi
+  (both off by default).
+- Android: simple DJ mode. Two decks with the song's waveform, Cue / Play / Sync, one-tap "Mix to B"
+  (or A) that fades over 8, 16 or 32 beats lined up on the beat with the bass swapped, a crossfader,
+  an EQ and filter sheet, four sampler pads (you pick which of the eight sounds) and, in the full
+  view, tempo with "keep the pitch", hot cues and loops. Songs come from your library, the queue or
+  TIDAL. Everything is a setting (Settings → DJ), and the Simple view is the default.
+- Desktop: DJ mode, made for the mouse. Two decks with a zoomed, scrolling waveform (beat grid,
+  hot cues, loop) and the whole song at a glance (click to jump, drag to scrub), Cue / Play / Sync,
+  a mixer with three-band EQ and kill, filter, trim, channel faders with meters and a crossfader
+  with Smooth / Linear / Cut curves, and a big "Mix to B" (or A) that brings the other song in on the
+  beat over 8, 16 or 32 beats with the bass swapped. Eight synthesized sampler pads, hot cues, loops,
+  a tempo fader with nudge buttons, and a crate to drag songs from your library or a TIDAL search
+  onto a deck. Starts in the Simple view (Sync on, the pro controls hidden; "Show all controls"
+  brings them back), with a first-mix card. Every knob and fader drags up and down (Shift for fine),
+  takes the wheel and resets on double-click; keyboard shortcuts are optional and can be changed.
+  While DJ mode is on the normal player pauses (it comes back where it was) and a song you play
+  anywhere in the app goes to the free deck, a question or the crate, as you choose. Everything is a
+  setting (Settings → DJ), including the DJ button in the sidebar. DJ mode is never bit-perfect; a
+  shared session or party shows nothing playing while it is on.
+- Mini player (PiP): volume. Point at the speaker for a slider, or use the wheel or ↑ ↓; a click
+  still mutes.
+
 ## [1.5.8] - 2026-11-06
 
 ### Fixed

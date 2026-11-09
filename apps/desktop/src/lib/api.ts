@@ -32,6 +32,7 @@ const SLOW = new Set([
   "party_reply",
   "party_build",
   "home_playlists",
+  "home_playlist_save_to_tidal",
   "disc_open",
   "disc_identify",
 ]);
@@ -296,6 +297,8 @@ export interface RoomSettings {
   settings_width: SettingsWidth;
   /** Lyrics, queue and mini player in a bar above the content, or in the player bar. */
   player_buttons: PlayerButtonsPlace;
+  /** On a wide window the song playing sits in a column on the right (sized to the window) while you browse. */
+  side_player?: boolean;
 }
 
 export type PlayerButtonsPlace = "top" | "bottom";
@@ -389,6 +392,10 @@ export interface Settings {
   updates: UpdateSettings;
   /** What the mini player adds to its bar (Settings → Listening room). */
   mini: MiniSettings;
+  /** DJ mode (Settings → DJ); snake_case inside, the same JSON as Android. Older files lack it. */
+  dj?: import("./dj-api").DjSettings;
+  /** Exercise mode (Settings → Exercise); snake_case inside, the same JSON as Android. Older files lack it. */
+  exercise?: import("./exercise-api").ExerciseSettings;
   /** The version that ran last: the backend owns it (`set_settings` keeps the stored value). */
   last_seen_version: string | null;
 }
@@ -1167,7 +1174,27 @@ export interface HomePlaylist {
   sources: SourceLink[];
   /** Gemini only: Google's Search Suggestions HTML, shown with the grounded result. */
   search_widget_html: string | null;
+  /** The copy saved in the user's TIDAL account; missing/null until it's saved there. */
+  tidal_uuid?: string | null;
 }
+/** What saving a HomeFi playlist to TIDAL did (src-tauri/src/playlists.rs). */
+export interface TidalSaveReport {
+  uuid: string;
+  /** Made now (first save, or the old copy was deleted on TIDAL). */
+  created: boolean;
+  saved: number;
+  /** "Title · Artist" of the songs TIDAL doesn't have. */
+  skipped: string[];
+  /** "Saved 24 songs to TIDAL · 2 aren't on TIDAL". */
+  summary: string;
+}
+export interface TidalSaved {
+  /** As stored now, with its `tidal_uuid`. */
+  playlist: HomePlaylist;
+  report: TidalSaveReport;
+}
+/** How an automatic save to TIDAL went (event `home-playlist-tidal`). */
+export type TidalSyncEvent = ({ kind: "saved" } & TidalSaved) | { kind: "failed"; id: string; message: string };
 export interface ConcertRequest {
   artist: string;
   shows: number;
@@ -1213,6 +1240,10 @@ export interface PlaylistSettings {
   chat_allow_explicit: boolean;
   /** Offer “Playlist like this” in song menus (default true). */
   chat_from_song: boolean;
+  /** Saving a HomeFi playlist also saves it to the TIDAL account (default false). */
+  tidal_auto_save: boolean;
+  /** Deleting a HomeFi playlist also deletes its TIDAL copy (default false). */
+  tidal_delete_with: boolean;
 }
 /** Slider ranges (the core clamps again at use). */
 export const CONCERT_SHOWS_RANGE = { min: 3, max: 15 } as const;
@@ -1246,6 +1277,8 @@ export const DEFAULT_PLAYLIST_SETTINGS: PlaylistSettings = {
   chat_curve: "steady",
   chat_allow_explicit: true,
   chat_from_song: true,
+  tidal_auto_save: false,
+  tidal_delete_with: false,
 };
 
 // ---------------------------------------------------------------- discs (src-tauri/src/disc.rs, crates/homefi-disc)
@@ -1634,7 +1667,10 @@ export const api = {
   },
   discCancel: () => invoke<void>("disc_cancel"),
   discEject: (drive: string) => invoke<void>("disc_eject", { drive }),
-  homePlaylistSave: (playlist: HomePlaylist) => invoke<void>("home_playlist_save", { playlist }),
+  /** Answers the playlist as stored (it keeps a TIDAL copy the given one didn't know about). */
+  homePlaylistSave: (playlist: HomePlaylist) => invoke<HomePlaylist>("home_playlist_save", { playlist }),
+  /** "Save to TIDAL" / "Update on TIDAL": creates or replaces its copy in the TIDAL account. */
+  homePlaylistSaveToTidal: (id: string, language: "en" | "es") => invoke<TidalSaved>("home_playlist_save_to_tidal", { id, language }),
   homePlaylistDelete: (id: string) => invoke<boolean>("home_playlist_delete", { id }),
   /** Which providers have a key saved. */
   aiKeyStatus: () => invoke<Record<AiProviderId, boolean>>("ai_key_status"),
@@ -1724,6 +1760,7 @@ export const on = {
   shareNearby: (f: (list: Nearby[]) => void): Promise<UnlistenFn> => listen<Nearby[]>("share-nearby", (e) => f(e.payload)),
   update: (f: (v: UpdateView) => void): Promise<UnlistenFn> => listen<UpdateView>("update", (e) => f(e.payload)),
   disc: (f: (e: DiscEvent) => void): Promise<UnlistenFn> => listen<DiscEvent>("disc", (e) => f(e.payload)),
+  homePlaylistTidal: (f: (e: TidalSyncEvent) => void): Promise<UnlistenFn> => listen<TidalSyncEvent>("home-playlist-tidal", (e) => f(e.payload)),
 };
 
 const isWindows = navigator.userAgent.includes("Windows");

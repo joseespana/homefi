@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::concert::{ConcertMode, ConcertShow, ConcertThresholds};
 use crate::dsp::taste::SourceContext;
+use crate::exercise::MusicWish;
 use crate::party::{ChatBrief, PartyBrief};
 
 pub const PLAYLIST_FORMAT_VERSION: u32 = 1;
@@ -114,6 +115,15 @@ pub struct ChatOrigin {
     pub built_ms: u64,
 }
 
+/// An Exercise ride: the workout and the music wish it was built from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct RideOrigin {
+    /// `Workout::id` of the ride's plan.
+    pub workout_id: String,
+    pub wish: MusicWish,
+}
+
 /// How the playlist was made. Other kinds can be added later.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -121,6 +131,7 @@ pub enum PlaylistOrigin {
     Concert(ConcertOrigin),
     Party(PartyOrigin),
     Chat(ChatOrigin),
+    Ride(RideOrigin),
 }
 
 impl Default for PlaylistOrigin {
@@ -147,6 +158,9 @@ pub struct HomePlaylist {
     pub sources: Vec<SourceLink>,
     /// Google's Search Suggestions HTML, shown with a grounded result.
     pub search_widget_html: Option<String>,
+    /// The copy saved in the user's TIDAL account (see [`super::save_to_tidal`]); `None`
+    /// until it is saved there.
+    pub tidal_uuid: Option<String>,
 }
 
 impl Default for HomePlaylist {
@@ -163,6 +177,7 @@ impl Default for HomePlaylist {
             unmatched: Vec::new(),
             sources: Vec::new(),
             search_widget_html: None,
+            tidal_uuid: None,
         }
     }
 }
@@ -177,10 +192,11 @@ impl HomePlaylist {
         SourceContext::new(PLAYLIST_KIND, self.id.clone(), self.name.clone())
     }
 
-    /// "Search again": keep `old`'s id and creation time.
+    /// "Search again": keep `old`'s id, creation time and TIDAL copy.
     pub fn keep_identity_of(&mut self, old: &HomePlaylist) {
         self.id = old.id.clone();
         self.created_ms = old.created_ms;
+        self.tidal_uuid = old.tidal_uuid.clone();
     }
 }
 
@@ -228,7 +244,7 @@ mod tests {
       ],
       "unmatched": [ { "title": "Some Jam", "artist": "Korn", "tag": "sometimes", "note": "Played in 2 of 8 shows" } ],
       "sources": [ { "url": "https://www.example.com/korn-2026-10-24", "title": "Korn live in Mexico City" } ],
-      "search_widget_html": null
+      "search_widget_html": null, "tidal_uuid": "0b1c2d3e-aaaa-bbbb-cccc-1234567890ab"
     }"#;
 
     #[test]
@@ -261,6 +277,7 @@ mod tests {
         let playlist: HomePlaylist = serde_json::from_str(json).unwrap();
         assert_eq!(playlist.version, PLAYLIST_FORMAT_VERSION);
         assert!(playlist.sources.is_empty() && playlist.search_widget_html.is_none());
+        assert!(playlist.tidal_uuid.is_none(), "not saved to TIDAL");
     }
 
     #[test]
@@ -274,7 +291,7 @@ mod tests {
                            "curve": "arc", "allow_explicit": true, "notes": "" },
                 "provider_id": "anthropic", "model": "claude-sonnet-5-5", "built_ms": 1793640000000u64
             },
-            "entries": [], "unmatched": [], "sources": [], "search_widget_html": null
+            "entries": [], "unmatched": [], "sources": [], "search_widget_html": null, "tidal_uuid": null
         });
         let playlist: HomePlaylist = serde_json::from_value(json.clone()).unwrap();
         let PlaylistOrigin::Party(origin) = &playlist.origin else { panic!("a party") };
@@ -294,7 +311,7 @@ mod tests {
                            "curve": "steady", "allow_explicit": true },
                 "provider_id": "anthropic", "model": "claude-sonnet-5-5", "built_ms": 1793640000000u64
             },
-            "entries": [], "unmatched": [], "sources": [], "search_widget_html": null
+            "entries": [], "unmatched": [], "sources": [], "search_widget_html": null, "tidal_uuid": null
         });
         let playlist: HomePlaylist = serde_json::from_value(json.clone()).unwrap();
         let PlaylistOrigin::Chat(origin) = &playlist.origin else { panic!("a chat playlist") };
@@ -303,11 +320,36 @@ mod tests {
     }
 
     #[test]
+    fn a_ride_playlist_round_trips_and_old_files_are_unaffected() {
+        let json = serde_json::json!({
+            "version": 1, "id": "p3", "name": "Ride", "description": "",
+            "created_ms": 1, "updated_ms": 1,
+            "origin": { "kind": "ride", "workout_id": "w1",
+                        "wish": { "genres": ["rock", "metal"], "mix": true, "sentence": "90s" } },
+            "entries": [], "unmatched": [], "sources": [], "search_widget_html": null, "tidal_uuid": null
+        });
+        let playlist: HomePlaylist = serde_json::from_value(json.clone()).unwrap();
+        let PlaylistOrigin::Ride(origin) = &playlist.origin else { panic!("a ride") };
+        assert_eq!(origin.wish.genres, ["rock", "metal"]);
+        assert_eq!(serde_json::to_value(&playlist).unwrap(), json);
+        // a ride written by a future version with fewer fields still reads
+        let lean: PlaylistOrigin = serde_json::from_str(r#"{"kind":"ride"}"#).unwrap();
+        assert_eq!(lean, PlaylistOrigin::Ride(RideOrigin::default()));
+    }
+
+    #[test]
     fn identity_and_source() {
-        let old = HomePlaylist { id: "p1".into(), name: "Old".into(), created_ms: 7, ..HomePlaylist::default() };
+        let old = HomePlaylist {
+            id: "p1".into(),
+            name: "Old".into(),
+            created_ms: 7,
+            tidal_uuid: Some("u1".into()),
+            ..HomePlaylist::default()
+        };
         let mut fresh = HomePlaylist { id: "p2".into(), name: "New".into(), created_ms: 9, ..HomePlaylist::default() };
         fresh.keep_identity_of(&old);
         assert_eq!((fresh.id.as_str(), fresh.created_ms), ("p1", 7));
+        assert_eq!(fresh.tidal_uuid.as_deref(), Some("u1"), "a rebuild updates the same TIDAL copy");
         let ctx = fresh.source_context();
         assert!(ctx.is("playlist") && ctx.id == "p1" && ctx.name == "New");
     }

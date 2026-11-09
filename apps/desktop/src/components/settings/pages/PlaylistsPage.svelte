@@ -115,3 +115,18 @@
   <SwitchRow label="“Made by HomeFi” on Playlists" checked={pl.home_section} onchange={(on) => save({ home_section: on })} />
   <SwitchRow label="Play my own copies first" hint="Songs in your library play from the file instead of streaming." checked={pl.prefer_library} onchange={(on) => save({ prefer_library: on })} />
 </SettingsGroup>
+
+<SettingsGroup title="Save to TIDAL" description="A playlist saved to TIDAL shows up on every device signed in to your TIDAL account. Songs TIDAL doesn't have are left out.">
+  <SwitchRow
+    label="Save to TIDAL automatically"
+    hint="Playlists you save in HomeFi are added to your TIDAL account, and kept the same when you change them."
+    checked={pl.tidal_auto_save}
+    onchange={(on) => save({ tidal_auto_save: on })}
+  />
+  <SwitchRow
+    label="Delete the TIDAL copy too"
+    hint="Deleting a playlist in HomeFi also deletes the copy HomeFi saved in your TIDAL account."
+    checked={pl.tidal_delete_with}
+    onchange={(on) => save({ tidal_delete_with: on })}
+  />
+</SettingsGroup>

@@ -62,6 +62,8 @@ pub struct TrackView {
     /// `FLAC · 24-bit / 96 kHz`
     pub quality: String,
     pub isrc: Option<String>,
+    /// The file's `BPM` tag, when it has one.
+    pub bpm: Option<u16>,
 }
 
 impl From<TrackInfo> for TrackView {
@@ -83,6 +85,7 @@ impl From<TrackInfo> for TrackView {
             bit_depth: t.bit_depth,
             lossless: t.lossless,
             isrc: t.isrc,
+            bpm: t.bpm,
         }
     }
 }
@@ -726,20 +729,8 @@ pub async fn lyrics(
 ) -> CmdResult<Option<homefi_core::lyrics::Lyrics>> {
     // signed out still finds a file's own lyrics
     let api = state.api().ok();
-    // the file's own lyrics (an .lrc, its tags) are read on a blocking thread
-    let own = match path.clone() {
-        Some(p) => tokio::task::spawn_blocking(move || homefi_core::lyrics::local(Path::new(&p))).await.map_err(err)?,
-        None => None,
-    };
-    if own.is_some() {
-        return Ok(own);
-    }
-    if let Some(id) = track_id.and_then(|id| id.parse::<i64>().ok()) {
-        let Some(api) = api else { return Ok(None) };
-        return homefi_core::lyrics::tidal(&api, id).await.map_err(err);
-    }
-    let (Some(path), Some(_)) = (path, api.as_ref()) else { return Ok(None) };
-    homefi_core::lyrics::for_file(api.as_ref(), Path::new(&path)).await.map_err(err)
+    let id = track_id.and_then(|id| id.parse::<i64>().ok());
+    homefi_core::lyrics::for_track(api.as_ref(), id, path.as_deref().map(Path::new)).await.map_err(err)
 }
 
 fn kind_of(kind: &str) -> CmdResult<homefi_core::resource::ResourceKind> {
@@ -1152,6 +1143,10 @@ pub fn play_tracks(
     source: Option<homefi_core::dsp::SourceContext>,
 ) {
     let state = app.state::<AppState>();
+    // DJ mode on: the song goes to a deck (or the crate), not the parked player
+    if crate::dj::take_file(&app, &paths, index) {
+        return;
+    }
     // sharing: the chosen song plays now, the rest joins the shared queue
     if crate::share::host_play_files(&app, &paths, index) {
         return;
@@ -1182,6 +1177,9 @@ pub fn play_tidal(
     shuffle: bool,
     source: Option<homefi_core::dsp::SourceContext>,
 ) {
+    if crate::dj::take_tidal(&app, &items, index) {
+        return;
+    }
     if crate::share::host_play_tidal(&app, &items, index) {
         return;
     }
@@ -1499,6 +1497,7 @@ pub async fn set_settings(app: AppHandle, settings: DesktopSettings) -> CmdResul
         s.disc = s.disc.clone().sanitized();
     })?;
     crate::share::on_settings(&app, &before, &saved);
+    crate::dj::on_settings(&app, &before.dj, &saved.dj);
     if before.eq != saved.eq {
         crate::eq::apply(&app, &saved.eq);
     }

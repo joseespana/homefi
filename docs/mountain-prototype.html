@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HomeFi course mountain - prototype</title>
+<!--
+  Standalone prototype of the exercise course profile ("the mountain"). No assets, plain JS + canvas 2D,
+  ES5-style code that runs in Chrome 113 (Android TV WebView). Spec: docs/MOUNTAIN.md.
+  Three directions (A Ribbon, B Alpine, C Stage); the data shape is the real one:
+    profile [{t_s, elevation 0..1}], parts [{kind, start_s, seconds}], elapsed_s, total_s.
+  URL hash for screenshots: #dir=A|B|C&ride=0|1|2&p=0..1&size=all|tv|desktop|phone&summits=1&motion=0
+-->
+<style>
+  html, body { margin: 0; background: #070a12; color: #cdd5e6; font: 14px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { padding: 16px 20px 40px; }
+  #bar { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin-bottom: 14px; }
+  #bar b { color: #fff; margin-right: 4px; }
+  #bar button { font: inherit; color: #cdd5e6; background: #151b2b; border: 1px solid #2a3350; border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  #bar button[aria-pressed="true"] { background: #2b3a73; border-color: #6e86ff; color: #fff; }
+  #bar button:focus-visible, #bar input:focus-visible { outline: 2px solid #8fa4ff; outline-offset: 2px; }
+  #bar input[type=range] { width: 220px; }
+  .row { margin: 0 0 18px; }
+  .row h2 { margin: 0 0 6px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #7f8bab; }
+  .glass { position: relative; border-radius: 16px; overflow: hidden; background: rgba(14,18,28,.72);
+    border: 1px solid rgba(255,255,255,.08); box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+  .glass canvas { display: block; }
+  .tv canvas { width: 1700px; height: 300px; }
+  .desktop canvas { width: 700px; height: 160px; }
+  .phone canvas { width: 360px; height: 96px; }
+  .tv, .desktop, .phone { display: inline-block; vertical-align: top; }
+  .row.small { display: inline-block; margin-right: 26px; }
+  #hint { color: #7f8bab; font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="bar" data-bar>
+  <span><b>Direction</b>
+    <button data-dir="A" aria-pressed="true">A Ribbon</button>
+    <button data-dir="B" aria-pressed="false">B Alpine</button>
+    <button data-dir="C" aria-pressed="false">C Stage</button></span>
+  <span><b>Ride</b>
+    <button data-ride="0" aria-pressed="false">Easy 20</button>
+    <button data-ride="1" aria-pressed="true">Classic 45</button>
+    <button data-ride="2" aria-pressed="false">Intervals 30</button></span>
+  <span><label><b>Progress</b> <input id="prog" type="range" min="0" max="1000" value="380" aria-label="Ride progress"></label>
+    <button id="play" aria-pressed="false">Play</button></span>
+  <span><label><input id="sum" type="checkbox"> Summit labels</label>
+    <label><input id="mot" type="checkbox" checked> Motion</label></span>
+  <span id="hint"></span>
+</div>
+<div id="stage"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- data ----------
+  var ZONES = { warm_up: "#5eb1ff", seated_flat: "#3ddc97", seated_climb: "#ffc233", standing_climb: "#ff8a3d",
+    jumps: "#b983ff", sprint: "#ff4d70", recovery: "#2fd6c4", cool_down: "#9aa8ff" };
+  var NAMES = { warm_up: "Warm-up", seated_flat: "Seated flat", seated_climb: "Seated climb", standing_climb: "Standing climb",
+    jumps: "Jumps", sprint: "Sprint", recovery: "Recovery", cool_down: "Cool-down" };
+  // climb per minute of each kind, used only to fake the profile here (the real one comes from the core)
+  var SLOPE = { warm_up: 0.035, seated_flat: 0.004, seated_climb: 0.075, standing_climb: 0.11, jumps: 0.035,
+    sprint: 0.16, recovery: -0.13, cool_down: -0.09 };
+  var RIDES = [
+    { name: "Easy 20", parts: [["warm_up", 180], ["seated_flat", 300], ["seated_climb", 240], ["recovery", 90], ["seated_climb", 180], ["cool_down", 210]] },
+    { name: "Classic 45", parts: [["warm_up", 300], ["seated_flat", 300], ["seated_climb", 360], ["recovery", 120], ["standing_climb", 300],
+      ["seated_flat", 180], ["jumps", 180], ["recovery", 120], ["standing_climb", 360], ["sprint", 60], ["recovery", 180], ["cool_down", 240]] },
+    { name: "Intervals 30", parts: [["warm_up", 300], ["sprint", 60], ["recovery", 120], ["sprint", 60], ["recovery", 120], ["sprint", 60], ["recovery", 120],
+      ["sprint", 60], ["recovery", 120], ["sprint", 60], ["recovery", 120], ["standing_climb", 240], ["recovery", 120], ["sprint", 60], ["cool_down", 180]] }
+  ];
+  function makeRide(def) {
+    var parts = [], t = 0, i;
+    for (i = 0; i < def.parts.length; i++) { parts.push({ kind: def.parts[i][0], start_s: t, seconds: def.parts[i][1] }); t += def.parts[i][1]; }
+    var pts = [], v = 0.1, STEP = 15, pi = 0, s, lo = 1e9, hi = -1e9;
+    for (s = 0; s <= t; s += STEP) {
+      while (pi < parts.length - 1 && s >= parts[pi].start_s + parts[pi].seconds) { pi++; }
+      var k = parts[pi].kind, osc = k === "jumps" ? 0.05 * Math.sin(s / 30 * 2 * Math.PI) : 0;
+      pts.push({ t_s: s, raw: v + osc });
+      v = Math.max(0, v + SLOPE[k] * STEP / 60);
+    }
+    for (i = 0; i < pts.length; i++) { lo = Math.min(lo, pts[i].raw); hi = Math.max(hi, pts[i].raw); }
+    var profile = [];
+    for (i = 0; i < pts.length; i++) { profile.push({ t_s: pts[i].t_s, elevation: 0.05 + 0.95 * (pts[i].raw - lo) / (hi - lo) }); }
+    return { name: def.name, profile: profile, parts: parts, total_s: t };
+  }
+  for (var ri = 0; ri < RIDES.length; ri++) { RIDES[ri] = makeRide(RIDES[ri]); }
+
+  // ---------- small helpers ----------
+  function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+  function hex(h) { return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]; }
+  function mix(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
+  function css(c, a) { return "rgba(" + Math.round(c[0]) + "," + Math.round(c[1]) + "," + Math.round(c[2]) + "," + (a === undefined ? 1 : a) + ")"; }
+  function mmss(s) { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2); }
+  // strips snap to whole pixels, so neighbours never overlap (no hairline seams) or leave gaps
+  function colX(g, i) { return Math.floor(g.xs[i]); }
+  function smooth01(t) { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); }
+  var ZC = {}; for (var zk in ZONES) { ZC[zk] = hex(ZONES[zk]); }
+  var WHITE = [255, 255, 255], INK = [8, 11, 24];
+  // past = same colour, desaturated and sunk towards the ink of the card
+  function dimmed(c) {
+    var l = 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
+    return mix(mix([l, l, l], c, 0.25), [52, 66, 118], 0.52);
+  }
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  function hnoise(n, seed) { var r = Math.sin(n * 127.1 + seed * 311.7) * 43758.5453; return r - Math.floor(r); }
+  function vnoise(x, seed) { var i = Math.floor(x), f = smooth01(x - i); return hnoise(i, seed) * (1 - f) + hnoise(i + 1, seed) * f; }
+  function fbm(x, seed) { return vnoise(x, seed) * 0.62 + vnoise(x * 2.3 + 11, seed + 3) * 0.28 + vnoise(x * 5.1 + 29, seed + 7) * 0.10; }
+
+  // direction presets: what the ground, the wash, the ridge and the snow do
+  var DIRS = {
+    A: { name: "Ribbon", ground: [[0, "#0a2740"], [0.25, "#143f6e"], [0.5, "#35409a"], [0.75, "#74408f"], [0.92, "#b2527f"], [1, "#e58a66"]],
+      wash: [0.16, 0], ridge: "zone", snow: 0.7, sky: [[0, "#060a1a"], [0.45, "#101847"], [0.78, "#38285f"], [1, "#7d4a78"]], glow: "#ffb48a" },
+    B: { name: "Alpine", ground: [[0, "#0a1322"], [0.5, "#1c2b47"], [1, "#4a6288"]],
+      wash: [0.24, 0], ridge: "light", snow: 1, sky: [[0, "#06111d"], [0.5, "#0f2c47"], [0.82, "#265673"], [1, "#6c97a6"]], glow: "#bfe6ff" },
+    C: { name: "Stage", ground: [[0, "#080e22"], [1, "#1c2754"]],
+      wash: [0.6, 0.1], ridge: "light", snow: 0, sky: [[0, "#060a1a"], [0.5, "#111a44"], [0.8, "#2c2660"], [1, "#6a4678"]], glow: "#ff9fb0" }
+  };
+
+  // ---------- geometry: smoothed elevation, positions, zone colour per sample ----------
+  function gaussSmooth(raw, sigma) {
+    var n = raw.length, r = Math.ceil(sigma * 3), k = [], sum = 0, i, j, out = new Array(n);
+    for (i = -r; i <= r; i++) { var w = Math.exp(-(i * i) / (2 * sigma * sigma)); k.push(w); sum += w; }
+    for (i = 0; i < n; i++) {
+      var acc = 0, wsum = 0;
+      for (j = -r; j <= r; j++) { var q = clamp(i + j, 0, n - 1); acc += raw[q] * k[j + r]; wsum += k[j + r]; }
+      out[i] = acc / wsum;
+    }
+    return out;
+  }
+  function elevationAt(points, t) {
+    for (var i = 1; i < points.length; i++) {
+      if (t <= points[i].t_s) {
+        var a = points[i - 1], c = points[i], span = c.t_s - a.t_s;
+        return span <= 0 ? c.elevation : a.elevation + (c.elevation - a.elevation) * (t - a.t_s) / span;
+      }
+    }
+    return points.length ? points[points.length - 1].elevation : 0;
+  }
+  function partIndexAt(parts, t) {
+    for (var i = parts.length - 1; i >= 0; i--) { if (t >= parts[i].start_s) { return i; } }
+    return 0;
+  }
+  // zone colour at time t: each boundary is a short smoothstep blend so washes and ridges never show seams
+  function zoneColourAt(parts, t, total) {
+    var p = partIndexAt(parts, t), c = ZC[parts[p].kind] || ZC.warm_up, bw = total * 0.006;
+    var ds = t - parts[p].start_s, de = parts[p].start_s + parts[p].seconds - t;
+    if (ds < bw && p > 0) { c = mix(ZC[parts[p - 1].kind] || c, c, 0.5 + 0.5 * smooth01(ds / bw)); }
+    else if (de < bw && p < parts.length - 1) { c = mix(ZC[parts[p + 1].kind] || c, c, 0.5 + 0.5 * smooth01(de / bw)); }
+    return c;
+  }
+
+  function layout(ride, W, H, summitsOn) {
+    var g = { W: W, H: H }, i;
+    g.tick = clamp(H * 0.085, 11, 20);
+    g.band = clamp(H * 0.05, 4, 12);
+    g.floor = H - g.tick;
+    g.yLo = g.floor - g.band - H * 0.045;
+    g.yHi = H * (H < 130 ? 0.2 : 0.21);
+    g.R = g.yLo - g.yHi;
+    g.padX = H >= 200 ? clamp(H * 0.12, 28, 40) : clamp(W * 0.012, 8, 16); // room for the cyclist at both ends
+    var M = clamp(Math.round(W / 2), 160, 700), total = ride.total_s, raw = [], u;
+    for (i = 0; i < M; i++) { raw.push(elevationAt(ride.profile, total * i / (M - 1))); }
+    var sm = gaussSmooth(raw, M * 0.0055);
+    // gaussian smoothing shaves the summits: stretch back to the data's own range
+    var rlo = 1e9, rhi = -1e9, slo = 1e9, shi = -1e9;
+    for (i = 0; i < M; i++) { rlo = Math.min(rlo, raw[i]); rhi = Math.max(rhi, raw[i]); slo = Math.min(slo, sm[i]); shi = Math.max(shi, sm[i]); }
+    var e = [];
+    for (i = 0; i < M; i++) { e.push(shi > slo ? rlo + (sm[i] - slo) / (shi - slo) * (rhi - rlo) : sm[i]); }
+    g.M = M; g.e = e; g.emax = rhi; g.emin = rlo;
+    // rock texture: tiny, seeded, a bit stronger up high; it is part of the ridge so the rider rides on it
+    var amp = clamp(H * 0.011, 0, 3.6);
+    g.xs = []; g.ys = []; g.ys0 = []; g.zc = []; g.eh = [];
+    for (i = 0; i < M; i++) {
+      u = i / (M - 1);
+      g.xs.push(g.padX + u * (W - 2 * g.padX));
+      var n = (fbm(u * 60, 5) - 0.5) * 2 * amp * (0.35 + e[i]);
+      g.ys0.push(g.yLo - e[i] * g.R);
+      g.ys.push(g.yLo - e[i] * g.R + n);
+      g.eh.push(e[i]);
+      g.zc.push(zoneColourAt(ride.parts, total * u, total));
+    }
+    // flat run-outs to the card edges, so the terrain is edge to edge
+    g.xs.unshift(0); g.ys0.unshift(g.ys0[0]); g.ys.unshift(g.ys[0]); g.zc.unshift(g.zc[0]); g.eh.unshift(g.eh[0]);
+    g.xs.push(W); g.ys0.push(g.ys0[g.ys0.length - 1]); g.ys.push(g.ys[g.ys.length - 1]); g.zc.push(g.zc[g.zc.length - 1]); g.eh.push(g.eh[g.eh.length - 1]);
+    // light: ridge rising to the right faces the sun at the left
+    g.L = [];
+    for (i = 0; i < g.xs.length; i++) {
+      var a = Math.max(0, i - 2), b = Math.min(g.xs.length - 1, i + 2), sl = (g.ys0[b] - g.ys0[a]) / Math.max(1, g.xs[b] - g.xs[a]);
+      g.L.push(clamp(-sl * 1.1, -1, 1));
+    }
+    // summits: local maxima with enough prominence, tallest first, at most three, not too close
+    g.summits = [];
+    var cand = [], w = Math.round(M * 0.06), j;
+    for (i = w; i < M - w; i++) {
+      var isMax = true, minL = 9, minR = 9;
+      for (j = -w; j <= w; j++) { if (e[i + j] > e[i]) { isMax = false; break; } }
+      if (!isMax) { continue; }
+      for (j = 0; j < M * 0.3 && i - j >= 0; j++) { minL = Math.min(minL, e[i - j]); }
+      for (j = 0; j < M * 0.3 && i + j < M; j++) { minR = Math.min(minR, e[i + j]); }
+      if (e[i] - Math.max(minL, minR) > 0.16) { cand.push(i); }
+    }
+    cand.sort(function (a, b) { return e[b] - e[a]; });
+    for (i = 0; i < cand.length && g.summits.length < 3; i++) {
+      var ok = true; for (j = 0; j < g.summits.length; j++) { if (Math.abs(g.summits[j] - cand[i]) < M * 0.12) { ok = false; } }
+      if (ok) { g.summits.push(cand[i]); }
+    }
+    g.peak = 0; for (i = 1; i < M; i++) { if (e[i] > e[g.peak]) { g.peak = i; } }
+    g.peak += 1; // into the extended arrays
+    return g;
+  }
+  function ridgeY(g, x) {
+    var xs = g.xs, lo = 0, hi = xs.length - 1;
+    x = clamp(x, 0, g.W);
+    while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (xs[mid] <= x) { lo = mid; } else { hi = mid; } }
+    var span = xs[hi] - xs[lo];
+    return span <= 0 ? g.ys[lo] : g.ys[lo] + (g.ys[hi] - g.ys[lo]) * (x - xs[lo]) / span;
+  }
+  function xOfT(g, t, total) { return g.padX + clamp(t / total, 0, 1) * (g.W - 2 * g.padX); }
+
+  // ---------- bitmaps (rebuilt only when the course, size or look changes) ----------
+  function bitmap(W, H, dpr) {
+    var c = document.createElement("canvas"); c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
+    var x = c.getContext("2d"); x.scale(dpr, dpr); return { c: c, x: x };
+  }
+  function rampAt(stops, e) {
+    for (var i = 1; i < stops.length; i++) { if (e <= stops[i][0]) { var a = stops[i - 1], b = stops[i]; return mix(hex(a[1]), hex(b[1]), (e - a[0]) / (b[0] - a[0])); } }
+    return hex(stops[stops.length - 1][1]);
+  }
+
+  function paintBackdrop(g, dir, dpr) {
+    var bm = bitmap(g.W, g.H, dpr), x = bm.x, W = g.W, H = g.H, i, d = DIRS[dir];
+    var sky = x.createLinearGradient(0, 0, 0, g.floor);
+    for (i = 0; i < d.sky.length; i++) { sky.addColorStop(d.sky[i][0], d.sky[i][1]); }
+    x.fillStyle = sky; x.fillRect(0, 0, W, H);
+    // a few stars, only where there is room
+    var rnd = rng(7), stars = Math.round(W / 14);
+    for (i = 0; i < stars; i++) {
+      var sx = rnd() * W, sy = rnd() * g.floor * 0.5, sr = 0.4 + rnd() * (H > 200 ? 0.9 : 0.5);
+      x.fillStyle = "rgba(255,255,255," + (0.18 + rnd() * 0.4) + ")"; x.beginPath(); x.arc(sx, sy, sr, 0, 6.2832); x.fill();
+    }
+    // the glow behind the summit
+    var px = g.xs[g.peak], py = g.ys[g.peak], gr = Math.max(g.R * 1.1, W * 0.12);
+    var glow = x.createRadialGradient(px, py + g.R * 0.15, 0, px, py + g.R * 0.15, gr);
+    glow.addColorStop(0, css(hex(d.glow), 0.34)); glow.addColorStop(0.45, css(hex(d.glow), 0.1)); glow.addColorStop(1, css(hex(d.glow), 0));
+    x.fillStyle = glow; x.fillRect(0, 0, W, H);
+    // two far ranges, fainter and hazier with distance, shaped from the same course so they rhyme with it
+    var layers = [{ top: 0.04, seed: 21, shift: 0.31, k: 0.55, c: [86, 96, 160], a: 0.42 }, { top: 0.2, seed: 33, shift: 0.62, k: 0.5, c: [52, 64, 130], a: 0.62 }];
+    var l, topY, haze = hex(d.sky[d.sky.length - 1][1]);
+    for (l = 0; l < layers.length; l++) {
+      var L = layers[l]; topY = g.yHi + L.top * g.R;
+      x.beginPath(); x.moveTo(0, g.floor);
+      var steps = Math.round(W / 3);
+      for (i = 0; i <= steps; i++) {
+        var u = i / steps, pe = g.e[clamp(Math.round(((u * 0.85 + L.shift) % 1) * (g.M - 1)), 0, g.M - 1)];
+        var val = clamp(L.k * pe + (1 - L.k) * fbm(u * 6 + L.shift * 9, L.seed) * 1.25, 0, 1);
+        x.lineTo(u * W, g.floor - (0.28 + 0.72 * val) * (g.floor - topY));
+      }
+      x.lineTo(W, g.floor); x.closePath();
+      var fg = x.createLinearGradient(0, topY, 0, g.floor);
+      fg.addColorStop(0, css(L.c, L.a)); fg.addColorStop(1, css(mix(L.c, haze, 0.7), L.a * 0.6));
+      x.fillStyle = fg; x.fill();
+      // the lit edge of the far range
+      x.strokeStyle = css(mix(L.c, WHITE, 0.45), 0.16 + l * 0.06); x.lineWidth = 1; x.stroke();
+      // mist between the layers
+      var mist = x.createLinearGradient(0, g.floor - g.R * 0.6, 0, g.floor);
+      mist.addColorStop(0, css(haze, 0)); mist.addColorStop(1, css(haze, 0.32));
+      x.fillStyle = mist; x.fillRect(0, g.floor - g.R * 0.6, W, g.R * 0.6);
+    }
+    return bm;
+  }
+
+  // the near terrain; dim = the "already ridden" version
+  function paintTerrain(g, ride, dir, dim, dpr) {
+    var bm = bitmap(g.W, g.H, dpr), x = bm.x, d = DIRS[dir], n = g.xs.length, i, W = g.W;
+    function C(c) { return dim ? dimmed(c) : c; }
+    var P = new Path2D();
+    P.moveTo(0, g.floor);
+    for (i = 0; i < n; i++) { P.lineTo(g.xs[i], g.ys[i]); }
+    P.lineTo(W, g.floor); P.closePath();
+    g.terrain = P;
+    x.save(); x.clip(P);
+    // 1) ground, by elevation: cool at the foot, warm on the summits (A) or a calm slate (B, C)
+    var span = g.floor - g.yHi, gr = x.createLinearGradient(0, g.yHi, 0, g.floor), stops = d.ground, k;
+    for (k = stops.length - 1; k >= 0; k--) {
+      var ye = g.yLo - stops[k][0] * g.R, off = clamp((ye - g.yHi) / span, 0, 1);
+      gr.addColorStop(off, css(C(hex(stops[k][1]))));
+    }
+    gr.addColorStop(1, css(C(hex(stops[0][1]))));
+    x.fillStyle = gr; x.fillRect(0, 0, W, g.floor);
+    // 2) the zone washes the slope, strongest at the ridge and fading to the foot
+    if (d.wash[0] > 0) {
+      for (i = 0; i < n - 1; i++) {
+        var yy = g.ys0[i], x0 = g.xs[i], x1 = g.xs[i + 1], col = C(g.zc[i]);
+        var wg = x.createLinearGradient(0, yy, 0, g.floor);
+        wg.addColorStop(0, css(col, d.wash[0] * (dim ? 0.8 : 1))); wg.addColorStop(1, css(col, d.wash[1]));
+        x0 = colX(g, i); x1 = colX(g, i + 1); if (x1 <= x0) { continue; }
+        x.fillStyle = wg; x.fillRect(x0, yy - 5, x1 - x0, g.floor - yy + 5);
+      }
+    }
+    // 3) sun from the left: slopes that rise to the right catch light, the others sink
+    for (i = 0; i < n - 1; i++) {
+      var Lv = g.L[i], yy2 = g.ys0[i], depth = (g.floor - yy2) * 0.62, lg = x.createLinearGradient(0, yy2, 0, yy2 + depth);
+      if (Lv >= 0) { lg.addColorStop(0, "rgba(255,244,230," + (0.2 * Lv * (dim ? 0.45 : 1)) + ")"); lg.addColorStop(1, "rgba(255,244,230,0)"); }
+      else { lg.addColorStop(0, "rgba(4,6,18," + (0.34 * -Lv) + ")"); lg.addColorStop(1, "rgba(4,6,18,0)"); }
+      var lx0 = colX(g, i), lx1 = colX(g, i + 1); if (lx1 <= lx0) { continue; }
+      x.fillStyle = lg; x.fillRect(lx0, yy2 - 5, lx1 - lx0, depth + 5);
+    }
+    // 4) snow on the high ground
+    if (d.snow > 0 && g.emax > 0.7) {
+      var th = g.emin + (g.emax - g.emin) * 0.8;
+      for (i = 0; i < n - 1; i++) {
+        var eh = g.eh[i];
+        if (eh <= th) { continue; }
+        var dp = ((eh - th) / (g.emax - th)) * g.R * 0.3 + (fbm(i * 0.06, 9) - 0.4) * g.R * 0.08;
+        if (dp < 1) { continue; }
+        var sg = x.createLinearGradient(0, g.ys0[i], 0, g.ys0[i] + dp), sc = mix([232, 240, 255], [128, 150, 214], clamp(0.5 - g.L[i] * 0.5, 0, 1));
+        var sa = d.snow * (dim ? 0.3 : 1);
+        sg.addColorStop(0, css(sc, 0.95 * sa)); sg.addColorStop(0.6, css(sc, 0.5 * sa)); sg.addColorStop(1, css(sc, 0));
+        var sx0 = colX(g, i), sx1 = colX(g, i + 1); if (sx1 <= sx0) { continue; }
+        x.fillStyle = sg; x.fillRect(sx0, g.ys0[i] - 5, sx1 - sx0, dp + 5);
+      }
+    }
+    x.restore();
+    // 5) the ridge: dark under-line for contrast, then zone colour (A) or a lit rim over a zone glow (B, C)
+    x.lineJoin = "round"; x.lineCap = "round";
+    var rw = clamp(g.H * 0.016, 2, 5);
+    function ridgePath(a, b) { x.beginPath(); x.moveTo(g.xs[a], g.ys[a]); for (var q = a + 1; q <= b; q++) { x.lineTo(g.xs[q], g.ys[q]); } }
+    if (d.ridge === "zone") {
+      ridgePath(0, n - 1); x.strokeStyle = "rgba(4,6,18,0.55)"; x.lineWidth = rw + 2.6; x.stroke();
+    } else {
+      ridgePath(0, n - 1); x.strokeStyle = "rgba(4,6,18,0.35)"; x.lineWidth = rw + 3; x.stroke();
+    }
+    for (i = 0; i < n - 1; i++) {
+      var zc = C(g.zc[i]);
+      x.beginPath(); x.moveTo(g.xs[i], g.ys[i]); x.lineTo(g.xs[i + 1], g.ys[i + 1]);
+      if (d.ridge === "zone") { x.strokeStyle = css(zc, dim ? 0.8 : 1); x.lineWidth = rw; }
+      else { x.strokeStyle = css(mix(zc, WHITE, dim ? 0.25 : 0.55), dim ? 0.8 : 0.95); x.lineWidth = Math.max(1.2, rw * 0.55); }
+      x.stroke();
+    }
+    // the tick strip is a calm footer, not sky
+    x.fillStyle = "rgba(7,10,20,0.9)"; x.fillRect(0, g.floor, W, g.H - g.floor);
+    // 6) the base ribbon: one capsule per part, hard-edged so the zones stay countable
+    var by = g.floor - g.band, bh = g.band - 1;
+    x.fillStyle = "rgba(255,255,255,0.05)"; x.fillRect(0, by - 1, W, g.band + 1);
+    for (i = 0; i < ride.parts.length; i++) {
+      var p = ride.parts[i], bx0 = xOfT(g, p.start_s, ride.total_s) + 1, bx1 = xOfT(g, p.start_s + p.seconds, ride.total_s) - 1;
+      if (bx1 - bx0 < 1) { continue; }
+      var bc = C(ZC[p.kind] || ZC.warm_up), r = Math.min(bh / 2, (bx1 - bx0) / 2);
+      x.fillStyle = css(bc, dim ? 0.85 : 1);
+      x.beginPath(); x.moveTo(bx0 + r, by); x.lineTo(bx1 - r, by); x.arc(bx1 - r, by + bh / 2, bh / 2, -1.5708, 1.5708);
+      x.lineTo(bx0 + r, by + bh); x.arc(bx0 + r, by + bh / 2, bh / 2, 1.5708, 4.7124); x.closePath(); x.fill();
+    }
+    return bm;
+  }
+
+  // ---------- the cyclist glyph (only when there is room) ----------
+  function cyclist(x, px, py, s, ang, col) {
+    x.save(); x.translate(px, py); x.rotate(ang); x.translate(0, -0.55 * s);
+    x.lineCap = "round"; x.lineJoin = "round"; x.strokeStyle = "#fff"; x.fillStyle = "#fff"; x.lineWidth = Math.max(1.3, 0.13 * s);
+    x.shadowColor = css(col, 0.9); x.shadowBlur = s * 0.9;
+    function L(a, b, c, d2) { x.beginPath(); x.moveTo(a * s, b * s); x.lineTo(c * s, d2 * s); x.stroke(); }
+    x.beginPath(); x.arc(-s, 0, 0.55 * s, 0, 6.2832); x.stroke();
+    x.beginPath(); x.arc(s, 0, 0.55 * s, 0, 6.2832); x.stroke();
+    L(-1, 0, -0.15, 0); L(-0.15, 0, -0.35, -0.75); L(-0.35, -0.75, -1, 0); L(-0.35, -0.75, 0.7, -0.7); L(-0.15, 0, 0.7, -0.7); L(0.7, -0.7, 1, 0);
+    x.beginPath(); x.moveTo(-0.4, -0.85); x.lineTo(0.3, -1.4); x.lineTo(0.72, -0.82); x.stroke();
+    x.beginPath(); x.moveTo(-0.4, -0.85); x.lineTo(0.2, -0.38); x.lineTo(0.02, 0.12); x.stroke();
+    x.beginPath(); x.arc(0.5, -1.72, 0.22 * s, 0, 6.2832); x.fill();
+    x.restore();
+  }
+
+  // ---------- one card ----------
+  function Card(host, canvas) {
+    this.canvas = canvas; this.ctx = canvas.getContext("2d"); this.key = ""; this.g = null;
+  }
+  Card.prototype.build = function (S) {
+    var W = this.canvas.clientWidth, H = this.canvas.clientHeight, dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var key = [W, H, dpr, S.dir, S.rideIx].join("|");
+    if (key === this.key) { return; }
+    this.key = key; this.dpr = dpr; this.W = W; this.H = H;
+    this.canvas.width = Math.round(W * dpr); this.canvas.height = Math.round(H * dpr);
+    var ride = RIDES[S.rideIx], g = layout(ride, W, H);
+    this.g = g;
+    this.back = paintBackdrop(g, S.dir, dpr);
+    this.dim = paintTerrain(g, ride, S.dir, true, dpr);
+    this.lit = paintTerrain(g, ride, S.dir, false, dpr);
+    this.tmp = bitmap(W, H, dpr);
+  };
+  Card.prototype.draw = function (S, now) {
+    this.build(S);
+    var g = this.g, ride = RIDES[S.rideIx], x = this.ctx, W = this.W, H = this.H, dpr = this.dpr, i;
+    var total = ride.total_s, el = clamp(S.elapsed, 0, total), cur = partIndexAt(ride.parts, el), parts = ride.parts;
+    var pin = null, nextIx = -1; for (i = cur + 1; i < parts.length; i++) { if (parts[i].kind !== parts[cur].kind) { nextIx = i; break; } }
+    var xr = xOfT(g, el, total), yr = ridgeY(g, xr), zc = ZC[parts[cur].kind], t = (now || 0) / 1000;
+    x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, W, H);
+    x.drawImage(this.back.c, 0, 0, W, H);
+    x.drawImage(this.dim.c, 0, 0, W, H);
+    // the lit (still to ride) terrain, with a soft edge at the rider
+    var tm = this.tmp, tx = tm.x, fade = clamp(W * 0.02, 10, 34);
+    tx.setTransform(1, 0, 0, 1, 0, 0); tx.clearRect(0, 0, tm.c.width, tm.c.height);
+    tx.drawImage(this.lit.c, 0, 0);
+    tx.globalCompositeOperation = "destination-in";
+    var mg = tx.createLinearGradient((xr - fade * 0.25) * dpr, 0, (xr + fade) * dpr, 0);
+    mg.addColorStop(0, "rgba(0,0,0,0)"); mg.addColorStop(1, "rgba(0,0,0,1)");
+    tx.fillStyle = mg; tx.fillRect(0, 0, tm.c.width, tm.c.height);
+    tx.globalCompositeOperation = "source-over";
+    x.drawImage(tm.c, 0, 0, W, H);
+
+    // the current part: its slope glows in its own colour, and its stretch of ridge is thicker
+    var p = parts[cur], px0 = xOfT(g, p.start_s, total), px1 = xOfT(g, p.start_s + p.seconds, total);
+    var d = DIRS[S.dir], rw = clamp(H * 0.016, 2, 5);
+    x.save(); x.clip(g.terrain);
+    var cg = x.createLinearGradient(0, g.yHi, 0, g.floor);
+    cg.addColorStop(0, css(zc, S.dir === "A" ? 0.34 : 0.2)); cg.addColorStop(1, css(zc, 0));
+    x.fillStyle = cg; x.fillRect(px0, 0, px1 - px0, g.floor);
+    x.restore();
+    this.stroke(x, g, px0, px1, css(zc, 0.28), rw * 3);
+    this.stroke(x, g, px0, px1, css(mix(zc, WHITE, S.dir === "A" ? 0.12 : 0.5), 1), d.ridge === "zone" ? rw : Math.max(1.4, rw * 0.7));
+
+    // the trail: a bright thread along the ridge that fades out behind the rider
+    var trailW = Math.min(xr, W * 0.28);
+    if (trailW > 4) {
+      var tg = x.createLinearGradient(xr - trailW, 0, xr, 0);
+      tg.addColorStop(0, "rgba(255,255,255,0)"); tg.addColorStop(1, "rgba(255,255,255,0.95)");
+      this.stroke(x, g, xr - trailW, xr, tg, Math.max(1.4, H * 0.009));
+    }
+
+    // the next different part: dashed bright ridge over it, a pin with the name and the countdown
+    if (nextIx >= 0) {
+      var np = parts[nextIx], nc = ZC[np.kind], nx0 = xOfT(g, np.start_s, total), nx1 = xOfT(g, np.start_s + np.seconds, total);
+      var pulse = S.motion ? 0.5 + 0.5 * Math.sin(t * 2.4) : 0.6;
+      x.setLineDash([clamp(H * 0.035, 5, 10), clamp(H * 0.025, 4, 7)]);
+      this.stroke(x, g, nx0, nx1, css(nc, 0.25 + 0.2 * pulse), rw * 3);
+      this.stroke(x, g, nx0, nx1, css(mix(nc, WHITE, 0.2), 1), Math.max(1.6, rw * 0.8));
+      x.setLineDash([]);
+      var label = NAMES[np.kind] + "  " + (H < 130 ? "" : "in ") + mmss(np.start_s - el);
+      var fs = clamp(H * 0.058, 10, 19), ph = fs * 1.7, stem = clamp(H * 0.05, 5, 14);
+      x.font = "700 " + fs + "px -apple-system, Roboto, sans-serif"; x.textAlign = "left"; x.textBaseline = "middle";
+      var tw = x.measureText(label).width, pw = tw + fs * 1.5, ry = ridgeY(g, nx0);
+      var pxl = clamp(nx0 - fs * 0.75, 3, W - pw - 3);
+      // lift the pin above every ridge point under it, so it never hides the climb it names
+      var hiY = ry, qx;
+      for (qx = pxl; qx <= pxl + pw; qx += 4) { hiY = Math.min(hiY, ridgeY(g, qx)); }
+      var above = hiY - stem * 0.6 - ph >= 2, py0 = above ? hiY - stem * 0.6 - ph : Math.max(2, Math.min(hiY - stem * 0.6 - ph, ry - ph - 2));
+      if (!above) { py0 = 2; }
+      x.strokeStyle = css(nc, 0.9); x.lineWidth = 1.4;
+      x.beginPath(); x.moveTo(nx0, ry); x.lineTo(nx0, py0 + ph); x.stroke();
+      x.shadowColor = css(nc, 0.55); x.shadowBlur = fs * 0.7;
+      x.fillStyle = css(nc); x.beginPath();
+      var rr = ph / 2; x.moveTo(pxl + rr, py0); x.lineTo(pxl + pw - rr, py0); x.arc(pxl + pw - rr, py0 + rr, rr, -1.5708, 1.5708);
+      x.lineTo(pxl + rr, py0 + ph); x.arc(pxl + rr, py0 + rr, rr, 1.5708, 4.7124); x.closePath(); x.fill();
+      x.shadowBlur = 0;
+      pin = [pxl, py0, pw, ph];
+      x.fillStyle = "#06080f"; x.fillText(label, pxl + fs * 0.75, py0 + ph / 2 + 0.5);
+      x.fillStyle = css(nc); x.beginPath(); x.arc(nx0, ry, Math.max(2.2, rw * 0.9), 0, 6.2832); x.fill();
+    }
+
+    // summit labels (optional): a pin and the time, only when there is width
+    if (S.summits && W >= 500) {
+      var fs0 = clamp(H * 0.05, 10, 14);
+      x.font = "600 " + fs0 + "px -apple-system, Roboto, sans-serif"; x.textAlign = "center"; x.textBaseline = "alphabetic";
+      for (i = 0; i < g.summits.length; i++) {
+        var si = g.summits[i] + 1, sx = g.xs[si], sy = g.ys[si], st = (g.summits[i] / (g.M - 1)) * total;
+        if (Math.abs(sx - xr) < 34 || (pin && sx + 20 > pin[0] && sx - 20 < pin[0] + pin[2] && sy - 28 < pin[1] + pin[3])) { continue; }
+        x.fillStyle = sx < xr ? "rgba(190,200,225,0.5)" : "rgba(255,255,255,0.9)";
+        x.beginPath(); x.moveTo(sx, sy - 5); x.lineTo(sx - 3.5, sy - 11); x.lineTo(sx + 3.5, sy - 11); x.closePath(); x.fill();
+        x.fillText(mmss(st), sx, sy - 15);
+      }
+    }
+
+    // guide from the rider down to the ribbon
+    x.strokeStyle = css(zc, 0.4); x.lineWidth = 1; x.setLineDash([2, 3]);
+    x.beginPath(); x.moveTo(xr, yr + 8); x.lineTo(xr, g.floor - g.band); x.stroke(); x.setLineDash([]);
+
+    // the rider: halo, then a cyclist (room) or a ringed dot (small)
+    var pr = S.motion ? 0.5 + 0.5 * Math.sin(t * 3) : 0.5, hr = clamp(H * 0.13, 12, 36) * (0.9 + 0.2 * pr);
+    var hg = x.createRadialGradient(xr, yr, 0, xr, yr, hr);
+    hg.addColorStop(0, css(zc, 0.7)); hg.addColorStop(0.4, css(zc, 0.22)); hg.addColorStop(1, css(zc, 0));
+    x.fillStyle = hg; x.beginPath(); x.arc(xr, yr, hr, 0, 6.2832); x.fill();
+    if (H >= 200) {
+      var ang = clamp(Math.atan2(ridgeY(g, xr + 9) - ridgeY(g, xr - 9), 18), -0.6, 0.6);
+      cyclist(x, xr, yr + 1, clamp(H * 0.064, 8, 21), ang, zc);
+    } else {
+      var dr = clamp(H * 0.04, 3.4, 7);
+      x.fillStyle = "#fff"; x.strokeStyle = css(zc); x.lineWidth = Math.max(2, dr * 0.5);
+      x.beginPath(); x.arc(xr, yr, dr, 0, 6.2832); x.fill(); x.stroke();
+    }
+
+    // time ticks
+    var steps = [60, 120, 300, 600, 900, 1200, 1800], step = 1800;
+    for (i = 0; i < steps.length; i++) { if (total / steps[i] <= (W < 450 ? 4 : 9)) { step = steps[i]; break; } }
+    var tf = clamp(H * 0.05, 9, 14);
+    x.font = "600 " + tf + "px -apple-system, Roboto, sans-serif"; x.textBaseline = "alphabetic";
+    for (var tt = 0; tt < total; tt += step) {
+      if (tt > 0 && total - tt < step * 0.5) { continue; }
+      var tx2 = xOfT(g, tt, total);
+      x.fillStyle = "rgba(205,213,230,0.55)"; x.textAlign = tt === 0 ? "left" : "center";
+      x.fillText(mmss(tt), tt === 0 ? g.padX : tx2, H - (g.tick - tf) / 2 - 1);
+    }
+    x.textAlign = "right"; x.fillText(mmss(total), W - g.padX, H - (g.tick - tf) / 2 - 1);
+  };
+  Card.prototype.stroke = function (x, g, xa, xb, style, width) {
+    var i, n = g.xs.length, started = false;
+    x.beginPath();
+    for (i = 0; i < n; i++) {
+      if (g.xs[i] < xa - 1 || g.xs[i] > xb + 1) { continue; }
+      if (!started) { x.moveTo(xa, ridgeY(g, xa)); started = true; }
+      x.lineTo(g.xs[i], g.ys[i]);
+    }
+    if (!started) { return; }
+    x.lineTo(xb, ridgeY(g, xb));
+    x.lineJoin = "round"; x.lineCap = "round"; x.strokeStyle = style; x.lineWidth = width; x.stroke();
+  };
+
+  // ---------- page ----------
+  var S = { dir: "A", rideIx: 1, elapsed: 0, summits: false, motion: true, playing: false };
+  var SIZES = [["tv", "TV band 1700 x 300"], ["desktop", "Desktop preview card 700 x 160"], ["phone", "Phone 360 x 96 dp"]];
+  var stage = document.getElementById("stage"), cards = {}, hint = document.getElementById("hint");
+  var hash = {}; location.hash.replace(/^#/, "").split("&").forEach(function (kv) { var a = kv.split("="); if (a[0]) { hash[a[0]] = a[1]; } });
+  var want = hash.size || "all";
+  if (hash.bar === "0") { document.getElementById("bar").style.display = "none"; document.body.style.padding = "8px"; }
+  SIZES.forEach(function (sz) {
+    if (want !== "all" && want !== sz[0]) { return; }
+    var row = document.createElement("div"); row.className = "row" + (sz[0] === "tv" ? "" : " small");
+    var h = document.createElement("h2"); h.textContent = sz[1];
+    var box = document.createElement("div"); box.className = "glass " + sz[0];
+    var cv = document.createElement("canvas"); cv.setAttribute("role", "img");
+    box.appendChild(cv); row.appendChild(h); row.appendChild(box); stage.appendChild(row);
+    cards[sz[0]] = { canvas: cv, card: new Card(box, cv) };
+  });
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce) { S.motion = false; document.getElementById("mot").checked = false; }
+  if (hash.dir && DIRS[hash.dir]) { S.dir = hash.dir; }
+  if (hash.ride) { S.rideIx = clamp(parseInt(hash.ride, 10) || 0, 0, 2); }
+  if (hash.summits === "1") { S.summits = true; document.getElementById("sum").checked = true; }
+  if (hash.motion === "0") { S.motion = false; document.getElementById("mot").checked = false; }
+  var prog = document.getElementById("prog");
+  if (hash.p) { prog.value = String(Math.round(parseFloat(hash.p) * 1000)); }
+
+  function labelCanvases() {
+    var r = RIDES[S.rideIx], cur = partIndexAt(r.parts, S.elapsed);
+    for (var k in cards) { cards[k].canvas.setAttribute("aria-label", "Course profile, " + r.name + " minutes, " + NAMES[r.parts[cur].kind] + " now, " + mmss(S.elapsed) + " of " + mmss(r.total_s)); }
+    hint.textContent = r.name + " | " + NAMES[r.parts[cur].kind] + " " + mmss(S.elapsed) + " / " + mmss(r.total_s);
+  }
+  var dirty = true;
+  function render(now) { for (var k in cards) { cards[k].card.draw(S, now); } labelCanvases(); }
+  function frame(now) {
+    if (S.playing) { S.elapsed = (S.elapsed + 0.4 * 6) % RIDES[S.rideIx].total_s; prog.value = String(Math.round(S.elapsed / RIDES[S.rideIx].total_s * 1000)); dirty = true; }
+    if (dirty || S.motion) { render(now); dirty = false; }
+    setTimeout(function () { requestAnimationFrame(frame); }, S.motion || S.playing ? 33 : 120);
+  }
+  function syncElapsed() { S.elapsed = prog.value / 1000 * RIDES[S.rideIx].total_s; dirty = true; }
+  function pressed(sel, attr, val) { Array.prototype.forEach.call(document.querySelectorAll(sel), function (b) { b.setAttribute("aria-pressed", String(b.getAttribute(attr) === String(val))); }); }
+  Array.prototype.forEach.call(document.querySelectorAll("[data-dir]"), function (b) { b.addEventListener("click", function () { S.dir = b.getAttribute("data-dir"); pressed("[data-dir]", "data-dir", S.dir); dirty = true; }); });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-ride]"), function (b) { b.addEventListener("click", function () { S.rideIx = +b.getAttribute("data-ride"); pressed("[data-ride]", "data-ride", S.rideIx); syncElapsed(); }); });
+  prog.addEventListener("input", syncElapsed);
+  document.getElementById("play").addEventListener("click", function () { S.playing = !S.playing; this.setAttribute("aria-pressed", String(S.playing)); this.textContent = S.playing ? "Pause" : "Play"; });
+  document.getElementById("sum").addEventListener("change", function () { S.summits = this.checked; dirty = true; });
+  document.getElementById("mot").addEventListener("change", function () { S.motion = this.checked; dirty = true; });
+  pressed("[data-dir]", "data-dir", S.dir); pressed("[data-ride]", "data-ride", S.rideIx);
+  syncElapsed();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

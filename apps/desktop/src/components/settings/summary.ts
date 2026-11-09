@@ -1,5 +1,7 @@
 // The one line about a page under its name in the page list and in the page header.
 import { DEFAULT_PLAYLIST_SETTINGS, discSettingsOf, partyLength, type Settings } from "../../lib/api";
+import { djSettingsOf } from "../../lib/dj-api";
+import { STYLE_INFO, exerciseSettingsOf } from "../../lib/exercise-api";
 import { formatLabel } from "../../lib/disc.svelte";
 import { LAYOUTS, fixedTheme, layoutOf, skinOf } from "../../lib/layouts";
 import { share } from "../../lib/share.svelte";
@@ -32,6 +34,14 @@ export function summaryOf(id: PageId, s: Settings): string {
       const xf = s.crossfade?.mode === "on" ? `Crossfade ${s.crossfade.seconds} s` : "Gapless";
       const sur = s.output?.surround && s.output.surround !== "frontOnly" ? ` · ${s.output.surround === "upmix" ? "upmix" : "all speakers"}` : "";
       return `${xf}${sur}${s.output?.resampler === "fast" ? " · fast resampler" : ""}`;
+    }
+    case "dj": {
+      const d = djSettingsOf(s);
+      return `${d.simple_view ? "Simple view" : "All controls"} · mix ${d.auto_mix_beats} beats${d.sync_on_load ? " · auto sync" : ""}`;
+    }
+    case "exercise": {
+      const x = exerciseSettingsOf(s);
+      return `${STYLE_INFO[x.default_preset].name} · ${x.ride_minutes} min${x.beginner_mode ? " · beginner mode" : ""}${x.tv_enabled ? " · TV" : ""}`;
     }
     case "playlists": {
       const pl = { ...DEFAULT_PLAYLIST_SETTINGS, ...s.playlists };

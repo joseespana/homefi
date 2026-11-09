@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dj_homifito_desc">Homifito DJ: la mascota tras su cabina, moviéndose con la música</string>
+    <string name="dj_homifito_toggle">Homifito DJ</string>
+    <string name="dj_homifito_toggle_off">Mandar a Homifito a casa</string>
+    <string name="dj_homifito_toggle_on">Homifito DJ: mezcla contigo tras su propia cabina</string>
+    <string name="dj_homifito_group">Homifito DJ</string>
+    <string name="dj_homifito_size">Tamaño</string>
+    <string name="dj_homifito_size_off">Apagado</string>
+    <string name="dj_homifito_size_booth">Cabina</string>
+    <string name="dj_homifito_size_big">Grande</string>
+    <string name="dj_homifito_place">Dónde se pone</string>
+    <string name="dj_homifito_place_top">Arriba</string>
+    <string name="dj_homifito_place_bottom">Abajo</string>
+    <string name="dj_homifito_look">Colores de Homifito</string>
+    <string name="dj_homifito_look_hint">Toda la mesa DJ con sus colores: menta la bandeja A, rosa la B, ondas azul marino. Funciona en claro y oscuro.</string>
+    <string name="dj_homifito_hint">Rebota con el ritmo, hace scratch, busca el crossfader y celebra con los pads. Sigue el ajuste de Movimiento. En pantallas bajas el tamaño Grande pasa a Cabina, y con el móvil de lado se esconde para dejar sitio a los controles.</string>
+</resources>

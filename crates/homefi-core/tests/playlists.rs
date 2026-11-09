@@ -169,6 +169,7 @@ fn library_with_studio_isrc() -> LibraryIndex {
         album: "Follow the Leader".into(),
         isrc: Some("ussm19800100".into()),
         duration_ms: 255_000,
+        ..LibraryRef::default()
     }])
 }
 

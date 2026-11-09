@@ -101,6 +101,16 @@ data class GuestUi(
     val roundTripMs: Long? = null,
 )
 
+/**
+ * An Exercise ride's hub: guests (the TV) only listen, with the ride's one-time [code] instead of the
+ * user's sharing settings, and it is not announced to other phones.
+ */
+data class RideHubTerms(
+    val code: String,
+    val sessionName: String,
+    val permissions: com.perseusoft.homefi.core.SharePermissions,
+)
+
 /** A discreet line on the hub ("Ana added …"); disappears by itself. */
 data class ShareNotice(val id: Long, val text: String, val color: String?)
 
@@ -169,7 +179,7 @@ class ShareManager(private val app: HomefiApplication) {
 
     // ------------------------------------------------------------------ hub
 
-    fun startHub(party: Boolean, mode: ShareNetworkMode) {
+    fun startHub(party: Boolean, mode: ShareNetworkMode, ride: RideHubTerms? = null) {
         val now = _hub.value
         if (now.running || now.starting || isGuest) return
         _hub.value = HubUi(starting = true, party = party)
@@ -187,23 +197,26 @@ class ShareManager(private val app: HomefiApplication) {
                 network = host.start(mode, groupName, groupPass)
                 started = startShareHub(
                     HubSettings(
-                        sessionName = sessionName(s),
+                        sessionName = ride?.sessionName ?: sessionName(s),
                         hostName = displayName(s),
                         hostColor = s.color,
-                        code = if (s.fixedCode) s.code.filter(Char::isDigit) else "",
+                        code = ride?.code ?: if (s.fixedCode) s.code.filter(Char::isDigit) else "",
                         port = s.port.coerceIn(0, 65535).toUShort(),
                         advertiseHost = network.host,
-                        permissions = s.permissions(),
+                        permissions = ride?.permissions ?: s.permissions(),
                         streamAudio = party,
                     ),
                     HubHost(app, this@ShareManager),
                 )
                 val info = started.info()
-                host.announce(info.sessionName, info.port.toInt(), alsoLan = s.announceLan, bluetooth = s.bluetooth)
+                // a ride's hub is for its TV only: the code travels in the ride's own TV page, not on the radio
+                if (ride == null) host.announce(info.sessionName, info.port.toInt(), alsoLan = s.announceLan, bluetooth = s.bluetooth)
                 shareHub = started
                 _hub.value = HubUi(running = true, party = party, info = info, qr = qrPayload(info, network), network = network, state = started.state())
                 withContext(Dispatchers.Main) {
                     attach(started)
+                    // the TV plays the music: this phone stays silent (its cues still sound)
+                    if (ride != null) setHubPlayHere(false)
                     ShareService.onStopRequested = { stopHub() }
                     ShareService.start(app, app.getString(R.string.sharing_service_hub, info.sessionName), hubServiceText())
                 }

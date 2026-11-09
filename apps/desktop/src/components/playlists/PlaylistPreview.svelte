@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { foldLabels } from "../../lib/foldLabels";
   // A playlist HomeFi made: the draft just built, or a saved one. The songs with how often
   // the artist plays them, the ones that weren't found, the shows they came from, and the
-  // actions (play, queue with Sounds, sources, save / search again / delete).
-  import { formatTime, type HomePlaylist } from "../../lib/api";
+  // actions (play, queue with Sounds, sources, save / search again / delete, save to TIDAL).
+  import { DEFAULT_PLAYLIST_SETTINGS, formatTime, type HomePlaylist } from "../../lib/api";
   import { isChat, isConcert, playable, playlists, requestOf } from "../../lib/playlists.svelte";
   import { app } from "../../lib/state.svelte";
   import Cover from "../Cover.svelte";
@@ -48,12 +49,28 @@
   const showMode = $derived(origin?.mode.kind === "show" ? origin.mode.show_id : null);
   let sourcesOpen = $state(false);
 
+  // TIDAL: the copy in the account (if any), what the settings do with it, and the last save of this playlist
+  const tidalUuid = $derived(playlist.tidal_uuid ?? null);
+  const tidalReady = $derived(!!playlists.sources?.tidal);
+  const tidalSettings = $derived({ ...DEFAULT_PLAYLIST_SETTINGS, ...app.settings?.playlists });
+  const tidalStatus = $derived(playlists.tidal?.id === playlist.id ? playlists.tidal : null);
+  const tidalSaving = $derived(tidalStatus?.state === "saving");
+  const savedNote = $derived(
+    tidalUuid ? "Saved in HomeFi and in your TIDAL account." : tidalReady ? "Saved in HomeFi only. “Save to TIDAL” adds it to your TIDAL account." : "Saved in HomeFi only.",
+  );
+  const draftNote = $derived(
+    tidalSettings.tidal_auto_save && tidalReady ? "Not saved yet. Saving keeps it in HomeFi and adds it to your TIDAL account." : "Not saved yet. Saving keeps it in HomeFi only; nothing is added to your TIDAL account.",
+  );
+
   const dateLabel = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 
   async function remove() {
+    const withTidal = tidalSettings.tidal_delete_with && !!tidalUuid;
     const ok = await app.confirm({
       title: `Delete “${playlist.name}”?`,
-      text: "It's removed from HomeFi only; your music and your Tidal account aren't touched.",
+      text: withTidal
+        ? "It's removed from HomeFi and its copy in your TIDAL account is deleted too. Your music isn't touched."
+        : "It's removed from HomeFi only; your music and your TIDAL account aren't touched.",
       confirmLabel: "Delete playlist",
       danger: true,
     });
@@ -71,7 +88,7 @@
       {#if popular}<span class="not-real"><Icon name="alert" size={15} /> Not the real setlist</span>{/if}
       <div class="muted">{playlist.description}</div>
       <div class="muted">{playlist.entries.length} songs · {minutes} min</div>
-      <div class="actions">
+      <div class="actions fold" use:foldLabels>
         <button class="btn primary" disabled={!canPlay || blocked} onclick={() => playlists.play(playlist)}><Icon name="play" size={16} /> Play</button>
         <button class="btn tonal" disabled={!canPlay || blocked} onclick={() => playlists.play(playlist, 0, true)}><Icon name="shuffle" size={16} /> Shuffle</button>
         <button class="btn tonal" disabled={!canPlay} onclick={(e) => app.openQueueMenu(e, playlist.name, (next) => playlists.queue(playlist, next), { kind: "playlist", id: playlist.id, name: playlist.name })}>
@@ -81,7 +98,7 @@
           <button class="btn tonal" onclick={() => (sourcesOpen = true)}><Icon name="external" size={16} /> Sources</button>
         {/if}
       </div>
-      <div class="actions">
+      <div class="actions fold" use:foldLabels>
         {#if saved}
           {#if concert}
             <button class="btn tonal" disabled={playlists.building} onclick={() => playlists.build(requestOf(concert), concert.id)}><Icon name="refresh" size={16} /> Search again</button>
@@ -90,13 +107,35 @@
           {:else if rebuildable}
             <button class="btn tonal" onclick={() => (app.view = { name: "party", replace: playlist.id })}><Icon name="edit" size={16} /> Change answers</button>
           {/if}
+          {#if tidalReady}
+            <button class="btn tonal" disabled={tidalSaving} aria-busy={tidalSaving} onclick={() => playlists.saveToTidal(playlist)}>
+              <Icon name={tidalUuid ? "refresh" : "save"} size={16} />
+              {tidalSaving ? "Saving to TIDAL…" : tidalUuid ? "Update on TIDAL" : "Save to TIDAL"}
+            </button>
+            {#if tidalUuid}
+              <button class="btn tonal" onclick={() => (app.view = { name: "tidal-item", kind: "playlist", id: tidalUuid, back: app.view })}><Icon name="external" size={16} /> Open in TIDAL</button>
+            {/if}
+          {/if}
           <button class="btn tonal" onclick={remove}><Icon name="trash" size={16} /> Delete playlist</button>
         {:else}
           <button class="btn primary" onclick={onsave}><Icon name="check" size={16} /> Save playlist</button>
           <button class="btn tonal" onclick={ondiscard}>Discard</button>
         {/if}
       </div>
-      <div class="muted small">{saved ? "Saved in HomeFi only. Nothing is added to your Tidal account." : "Not saved yet. Saving keeps it in HomeFi only; nothing is added to your Tidal account."}</div>
+      <div class="muted small">{saved ? savedNote : draftNote}</div>
+      {#if tidalStatus?.state === "saved"}
+        <div class="small tidal-done" role="status"><Icon name="check" size={14} /> {tidalStatus.summary}</div>
+        {#if tidalStatus.skipped.length}
+          <details class="small muted">
+            <summary>Not on TIDAL ({tidalStatus.skipped.length})</summary>
+            <ul>
+              {#each tidalStatus.skipped as name, i (i)}<li>{name}</li>{/each}
+            </ul>
+          </details>
+        {/if}
+      {:else if tidalStatus?.state === "failed"}
+        <div class="small error" role="alert">Couldn't save to TIDAL: {tidalStatus.message}</div>
+      {/if}
     </div>
   </header>
 
@@ -194,6 +233,16 @@
   }
   .small {
     font-size: 12.5px;
+  }
+  .tidal-done {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--accent-text);
+  }
+  details.small ul {
+    margin: 4px 0 0;
+    padding-left: 18px;
   }
   .not-real {
     align-self: flex-start;

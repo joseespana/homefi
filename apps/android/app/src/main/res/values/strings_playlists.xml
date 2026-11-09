@@ -148,4 +148,17 @@
     <string name="pl_set_chat_from_song">“Playlist like this” in song menus</string>
     <string name="pl_set_chat_from_song_hint">Make an AI playlist from a song you found</string>
     <string name="pl_set_chat_from_song_keywords">Playlist like this, similar songs, song menu, AI, from a song</string>
+    <string name="pl_tidal_save">Save to TIDAL</string>
+    <string name="pl_tidal_update">Update on TIDAL</string>
+    <string name="pl_tidal_saving">Saving to TIDAL…</string>
+    <string name="pl_tidal_failed">Couldn\'t save to TIDAL: %1$s</string>
+    <string name="pl_tidal_not_there">Not on TIDAL (%1$d)</string>
+    <string name="pl_in_homefi_and_tidal">Saved in HomeFi and in your TIDAL account.</string>
+    <string name="pl_delete_confirm_tidal">Delete “%s”? It\'s removed from HomeFi and its copy in your TIDAL account is deleted too. Your music isn\'t touched.</string>
+    <string name="pl_set_tidal">Save to TIDAL</string>
+    <string name="pl_set_tidal_auto">Save to TIDAL automatically</string>
+    <string name="pl_set_tidal_auto_hint">Playlists you save in HomeFi are added to your TIDAL account, so they show up on every device, and kept the same when you change them.</string>
+    <string name="pl_set_tidal_delete">Delete the TIDAL copy too</string>
+    <string name="pl_set_tidal_delete_hint">Deleting a playlist in HomeFi also deletes the copy HomeFi saved in your TIDAL account.</string>
+    <string name="pl_set_tidal_keywords">TIDAL, account, sync, upload, every device, copy, automatic</string>
 </resources>

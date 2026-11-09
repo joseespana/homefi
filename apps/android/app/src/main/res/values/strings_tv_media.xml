@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android TV app: Playlists, Sound, Party -->
+    <string name="tv_close">Close</string>
+    <string name="tv_chat_type">Type</string>
+
+    <string name="tv_pl_sub">%1$d made by HomeFi</string>
+    <string name="tv_pl_tab_homefi">Made by HomeFi</string>
+    <string name="tv_pl_tab_tidal">My TIDAL</string>
+    <string name="tv_pl_new_title">New with AI</string>
+    <string name="tv_pl_new_sub">Say what you want</string>
+    <string name="tv_pl_on_tidal">On TIDAL</string>
+    <string name="tv_pl_not_found">%1$d not found</string>
+    <string name="tv_pl_more">More</string>
+    <string name="tv_pl_understood">What the AI understood</string>
+    <string name="tv_pl_build_wait">Say something first and the AI will build from it.</string>
+    <string name="tv_pl_open">Open</string>
+
+    <string name="tv_sound_sub">Presets, your sounds and the curve</string>
+    <string name="tv_sound_sub_out">Output: %1$s</string>
+    <string name="tv_sound_tab_curve">Curve</string>
+    <string name="tv_sound_tab_assistant">Assistant</string>
+    <string name="tv_sound_on">Sound on</string>
+    <string name="tv_sound_off">Sound off</string>
+    <string name="tv_sound_flat_sub">No bands: the sound goes through untouched</string>
+    <string name="tv_sound_active">Active</string>
+    <string name="tv_sound_bands">%1$d bands</string>
+    <string name="tv_sound_apply">Use this preset</string>
+    <string name="tv_sound_try">Try on this song</string>
+    <string name="tv_sound_refine">Refine with the AI</string>
+    <string name="tv_sound_stop">Stop</string>
+    <string name="tv_sound_keep">Keep</string>
+    <string name="tv_sound_editing">Editing: %1$s</string>
+    <string name="tv_sound_shared_profile">Uses the shared profile</string>
+    <string name="tv_sound_rules_empty">No sounds yet. Ask the AI for one.</string>
+    <string name="tv_sound_hint_band">Band</string>
+    <string name="tv_sound_hint_gain">Gain %1$s dB</string>
+    <string name="tv_sound_hint_done">Done</string>
+    <string name="tv_sound_press_ok_add">Press OK to add a band</string>
+    <string name="tv_sound_press_ok_edit">OK: edit bands</string>
+    <string name="tv_sound_no_band">Press OK on the curve, then use left and right to pick a band</string>
+    <string name="tv_sound_band_info">Band %1$d of %2$d · %3$s · %4$s Hz · %5$s · Q %6$s</string>
+
+    <string name="tv_party_title">Party · hub on this TV</string>
+    <string name="tv_party_how">Same Wi-Fi · open HomeFi, tap Join</string>
+    <string name="tv_party_empty">Nobody has joined yet. Scan the code to start.</string>
+    <string name="tv_party_lan">Wi-Fi only on a TV</string>
+    <string name="tv_party_start_body">Host a party with this TV’s speakers: phones join with the QR code, add songs and, in party mode, play along.</string>
+    <string name="tv_party_join_title">Join a party</string>
+    <string name="tv_party_join_body">Parties on this Wi-Fi show up here. Pick one and type its code.</string>
+    <string name="tv_party_searching">Looking for parties on this Wi-Fi…</string>
+    <string name="tv_party_nearby">On this Wi-Fi</string>
+    <string name="tv_party_selected">Selected</string>
+    <string name="tv_party_stream">Party stream</string>
+    <string name="tv_party_auto_approve">Auto-approve</string>
+    <string name="tv_party_end">End party</string>
+    <string name="tv_party_connected">Connected</string>
+    <string name="tv_party_joined">Just joined</string>
+    <string name="tv_party_added">Added “%1$s”</string>
+    <string name="tv_party_play_here_on">Playing on this TV</string>
+    <string name="tv_party_play_here_off">Not playing on this TV</string>
+</resources>

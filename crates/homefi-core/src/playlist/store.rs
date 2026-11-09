@@ -70,13 +70,36 @@ impl PlaylistStore {
         Ok(serde_json::from_slice(&std::fs::read(self.path_of(id))?)?)
     }
 
+    /// Writes `playlist`. A copy that doesn't know its TIDAL twin (one a screen held from
+    /// before it was saved there) keeps the `tidal_uuid` on disk, so the next save to TIDAL
+    /// updates that copy instead of making a second one.
     pub fn save(&self, playlist: &HomePlaylist) -> Result<()> {
         if !valid_id(&playlist.id) {
             return Err(Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid playlist id")));
         }
-        let bytes = serde_json::to_vec_pretty(playlist)?;
+        let known_uuid =
+            if playlist.tidal_uuid.is_none() { self.load(&playlist.id).ok().and_then(|p| p.tidal_uuid) } else { None };
+        let bytes = match known_uuid {
+            Some(uuid) => serde_json::to_vec_pretty(&HomePlaylist { tidal_uuid: Some(uuid), ..playlist.clone() })?,
+            None => serde_json::to_vec_pretty(playlist)?,
+        };
         crate::paths::write_atomic(&self.path_of(&playlist.id), &bytes)?;
         Ok(())
+    }
+
+    /// Records (or forgets, with `None`) the TIDAL copy of a stored playlist, leaving the rest
+    /// as it is on disk now. `false` when the playlist isn't stored anymore.
+    pub fn set_tidal_uuid(&self, id: &str, uuid: Option<String>) -> Result<bool> {
+        let Ok(mut stored) = self.load(id) else {
+            return Ok(false);
+        };
+        if stored.tidal_uuid == uuid {
+            return Ok(true);
+        }
+        stored.tidal_uuid = uuid;
+        let bytes = serde_json::to_vec_pretty(&stored)?;
+        crate::paths::write_atomic(&self.path_of(id), &bytes)?;
+        Ok(true)
     }
 
     /// The file of an existing playlist (so a desktop can move it to the Trash).

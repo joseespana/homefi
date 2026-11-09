@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HomeFi Exercise - static mock-up</title>
+<style>
+/* Static mock-up of docs/EXERCISE_UI.md. Base tokens copied from apps/desktop/src/app.css (classic).
+   Zone tokens (--z-*) are the new ones. Open in Chrome at >= 1500 px wide. Sample data only. */
+:root,[data-mode="dark"]{
+  --bg:#0a121d;--sidebar:#0c1522;--surface:#111c2b;--surface-2:#172436;--surface-3:#203047;--border:#203047;
+  --text:#eef6fb;--muted:#9db2c4;--faint:#7a90a4;--primary:#67e3f5;--primary-strong:#22c5dd;--on-primary:#042b33;
+  --danger:#f87171;--warn:#fbbf24;--ok:#4ade80;--warn-bg:rgb(251 191 36/.12);--warn-border:rgb(251 191 36/.45);
+  --shadow:0 12px 32px rgb(0 0 0/.45);
+  --r-xs:6px;--r-sm:10px;--r-md:14px;--r-lg:20px;--r-pill:999px;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Arial,sans-serif;--font-mono:ui-monospace,Menlo,monospace;
+  /* zones, dark: text/fill on dark surfaces >= 4.5:1; --z-ink is the text on a filled zone */
+  --z-warm:#60a5fa;--z-flat:#4ade80;--z-climb:#fbbf24;--z-stand:#fb923c;--z-jumps:#c084fc;--z-sprint:#fb7185;--z-recov:#2dd4bf;--z-cool:#a5b4fc;
+  --z-ink:#06121a;--track:#2a3547;
+  color-scheme:dark;
+}
+[data-mode="light"]{
+  --bg:#f7fbfc;--sidebar:#eef5f7;--surface:#fff;--surface-2:#edf4f6;--surface-3:#e1ecef;--border:#dbe7eb;
+  --text:#0b1e3a;--muted:#4c6276;--faint:#6b7f91;--primary:#0e7490;--primary-strong:#155e75;--on-primary:#fff;
+  --danger:#dc2626;--warn:#92400e;--ok:#15803d;--warn-bg:rgb(217 119 6/.12);--warn-border:rgb(217 119 6/.45);
+  --shadow:0 12px 32px rgb(11 30 58/.16);
+  --z-warm:#1d4ed8;--z-flat:#15803d;--z-climb:#b45309;--z-stand:#c2410c;--z-jumps:#7e22ce;--z-sprint:#be123c;--z-recov:#0f766e;--z-cool:#4338ca;
+  --z-ink:#fff;--track:#cbd8de;
+  color-scheme:light;
+}
+[data-mode]{color:var(--text)}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);font:14px/1.35 var(--font);padding-bottom:60px}
+button,input{font:inherit;color:inherit}button{cursor:pointer}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+svg.i{width:1.2em;height:1.2em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.sr{position:absolute;left:-9999px}
+/* page toolbar (not part of the app) */
+.tool{position:sticky;top:0;z-index:50;background:#000;color:#eee;display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px;align-items:center}
+.tool button{background:#222;border:1px solid #444;border-radius:8px;padding:6px 12px;color:#eee}
+.tool button.on{background:#67e3f5;color:#042b33;border-color:transparent}
+.tool .sp{flex:1}
+.scr{display:none;padding:16px 12px}.scr.on{display:block}
+.scr>h2{margin:0 0 10px;font-size:13px;color:var(--muted);font-weight:600}
+/* desktop window */
+.win{width:1440px;height:900px;border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden;display:grid;grid-template-columns:72px 1fr;background:var(--bg);position:relative}
+.rail{background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 0}
+.rail .it{width:48px;height:48px;border-radius:var(--r-sm);display:grid;place-items:center;color:var(--muted);position:relative}
+.rail .it.on{background:var(--surface-3);color:var(--primary)}
+.rail .it .dot{position:absolute;right:8px;top:8px;width:8px;height:8px;border-radius:50%;background:var(--z-flat)}
+.pg{padding:20px 24px;min-width:0;overflow:hidden;position:relative}
+.pg h1{margin:0 0 4px;font-size:22px}.sub{color:var(--muted);margin:0 0 16px}
+.btn{min-height:44px;min-width:44px;padding:0 16px;border-radius:var(--r-sm);border:1px solid var(--border);background:var(--surface-2);display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:600}
+.btn:hover{background:var(--surface-3)}
+.btn.pri{background:var(--primary);color:var(--on-primary);border-color:transparent}
+.btn.big{min-height:56px;padding:0 28px;font-size:16px;border-radius:var(--r-pill)}
+.btn.dng{border-color:var(--danger);color:var(--danger)}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px}
+.card small{display:block}
+.card h3{margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.chip{min-height:40px;padding:0 16px;border-radius:var(--r-pill);border:1px solid var(--border);background:var(--surface-2);display:inline-flex;align-items:center;gap:6px;font-weight:600}
+.chip[aria-pressed=true]{background:var(--primary);color:var(--on-primary);border-color:transparent}
+.chip[aria-pressed=true]::before{content:"\2713";font-weight:800}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:var(--r-pill);overflow:hidden;background:var(--surface-2)}
+.seg button{border:0;background:none;min-height:44px;padding:0 16px;font-weight:600}
+.seg button[aria-checked=true]{background:var(--primary);color:var(--on-primary)}
+.tag{display:inline-flex;align-items:center;gap:4px;min-height:24px;padding:0 10px;border-radius:var(--r-pill);font-size:12px;font-weight:700;background:var(--surface-3);color:var(--muted);white-space:nowrap}
+.tag.ok{background:rgb(74 222 128/.16);color:var(--ok)}.tag.warn{background:var(--warn-bg);color:var(--warn)}.tag.ai{background:rgb(167 139 250/.22);color:#d9ccff}
+[data-mode=light] .tag.ai{background:rgb(109 40 217/.12);color:#5b21b6}
+.zone{--c:var(--z-warm)}.zone.warm{--c:var(--z-warm)}.zone.flat{--c:var(--z-flat)}.zone.climb{--c:var(--z-climb)}.zone.stand{--c:var(--z-stand)}
+.zone.jumps{--c:var(--z-jumps)}.zone.sprint{--c:var(--z-sprint)}.zone.recov{--c:var(--z-recov)}.zone.cool{--c:var(--z-cool)}
+.dotz{width:12px;height:12px;border-radius:50%;background:var(--c);flex:none}
+.zt{color:var(--c)}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px}
+.row{display:flex;align-items:center;gap:10px}.sp{flex:1}
+.lbl{font-size:13px;color:var(--muted);font-weight:600;margin:0 0 8px;display:block}
+.big-n{font-size:56px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;height:44px;accent-color:var(--primary)}
+.styles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.style{border:2px solid var(--border);border-radius:var(--r-md);background:var(--surface-2);padding:10px;text-align:left;display:flex;flex-direction:column;gap:6px}
+.style[aria-checked=true]{border-color:var(--primary);background:var(--surface-3)}
+.style b{font-size:15px}.style span{font-size:12px;color:var(--muted)}
+.style svg{width:100%;height:44px}
+.field{width:100%;min-height:48px;border-radius:var(--r-sm);border:1px solid var(--border);background:var(--surface-2);padding:0 14px}
+/* mountain */
+.mtn{position:relative;width:100%}
+.mtn svg{display:block;width:100%;height:100%}
+.mtn .ridge{fill:none;stroke:var(--text);stroke-width:2.5;vector-effect:non-scaling-stroke;stroke-linejoin:round;opacity:.85}
+.mtn .seg-p{vector-effect:non-scaling-stroke}
+.mtn .mk{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;background:#fff;border:5px solid var(--c,var(--primary));box-shadow:0 0 0 3px rgb(0 0 0/.35),0 0 14px var(--c,var(--primary))}
+.mtn .flag{position:absolute;transform:translate(-50%,-100%);background:var(--surface-3);border:1px solid var(--c);color:var(--text);border-radius:var(--r-pill);padding:2px 10px;font-size:12px;font-weight:700;white-space:nowrap}
+.mtn .tick{position:absolute;bottom:0;width:1px;height:6px;background:var(--faint)}
+/* pulse (period comes from --stroke: 60000 / rpm) */
+.pulse{position:relative;display:grid;place-items:center}
+.pulse .ring{position:absolute;inset:0;border-radius:50%;border:12px solid var(--c);box-shadow:0 0 0 0 var(--c);animation:beat var(--stroke,706ms) ease-out infinite}
+.pulse .glow{position:absolute;inset:0;border-radius:50%;background:var(--c);opacity:0;animation:glow var(--stroke,706ms) ease-out infinite}
+@keyframes beat{0%{transform:scale(1.07)}60%,100%{transform:scale(1)}}
+@keyframes glow{0%{opacity:.34}70%,100%{opacity:0}}
+[data-motion=off] .pulse .ring,[data-motion=off] .pulse .glow{animation:none}
+@media (prefers-reduced-motion:reduce){.pulse .ring,.pulse .glow{animation:none}}
+.eff{display:flex;gap:6px}.eff i{width:22px;height:34px;border-radius:5px;background:var(--track)}.eff i.on{background:var(--c)}
+.bar{height:8px;border-radius:var(--r-pill);background:var(--track);overflow:hidden}.bar>i{display:block;height:100%;background:var(--primary)}
+/* ride desktop */
+.pg>div:only-child{height:100%}
+.ride{display:grid;grid-template-rows:auto 1fr auto;height:100%;gap:12px}
+.rtop{display:flex;align-items:center;gap:10px}
+.zchip{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 18px;border-radius:var(--r-pill);background:var(--c);color:var(--z-ink);font-size:20px;font-weight:800}
+.pospill{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 16px;border-radius:var(--r-pill);border:2px solid var(--c);font-weight:700;font-size:16px}
+.rmain{display:grid;grid-template-columns:300px 1fr 340px;align-items:center;gap:12px;min-height:0}
+.rpmwrap{width:380px;height:380px;margin:0 auto}
+.rpm{font-size:150px;font-weight:900;line-height:1;color:var(--c);font-variant-numeric:tabular-nums}
+.rpmu{font-weight:700;letter-spacing:.14em;color:var(--muted);font-size:18px}
+.timer{font-size:96px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;font-family:var(--font)}
+.next{border:2px dashed var(--c);border-radius:var(--r-md);padding:12px 14px}
+.next small{color:var(--muted);text-transform:uppercase;letter-spacing:.1em;font-weight:700}
+.song{display:flex;align-items:center;gap:10px;min-width:0}
+.cov{width:44px;height:44px;border-radius:var(--r-xs);background:linear-gradient(135deg,var(--c,#1d4ed8),#0b1522);flex:none}
+.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ov{position:absolute;inset:0;background:rgb(5 10 18/.78);display:grid;place-items:center;z-index:5}
+.dlg{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:24px;box-shadow:var(--shadow);width:460px}
+/* plan rows */
+.plan{display:grid;grid-template-columns:14px 160px 70px 80px 70px minmax(0,1fr) 230px 36px;gap:12px;align-items:center;padding:8px 10px;border-radius:var(--r-sm)}
+.plan:hover{background:var(--surface-2)}
+.plan.head{font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+/* tv */
+.tvbox{width:1190px;height:670px;overflow:hidden;border:1px solid #333;border-radius:6px}
+.tv{width:1920px;height:1080px;transform:scale(.62);transform-origin:0 0;position:relative;background:#05070a;color:#f4f7fb;font-family:"Helvetica Neue",Arial,sans-serif;overflow:hidden}
+.tv .a{position:absolute}
+.tv .seg{font-size:104px;font-weight:800;line-height:1;border:0;background:none;display:block;overflow:visible}
+.tv .pos{font-size:54px;font-weight:700;padding:4px 28px;border-radius:99px;background:#1b2330;color:#cfe3ff;display:inline-flex;gap:14px;align-items:center}
+.tv .mk{width:46px;height:46px;margin:-23px 0 0 -23px;border-width:10px}.tv .flag{font-size:34px;padding:6px 22px}
+/* phone */
+.phones{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+.phone{width:360px;height:640px;border:8px solid #000;border-radius:28px;overflow:hidden;background:var(--bg);position:relative;display:flex;flex-direction:column}
+.phone .ph{padding:12px 14px;flex:1;overflow:hidden;display:flex;flex-direction:column;gap:10px;min-height:0}
+.phone .tabs{height:64px;border-top:1px solid var(--border);display:flex;background:var(--sidebar)}
+.phone .tabs div{flex:1;display:grid;place-items:center;font-size:11px;color:var(--muted);align-content:center}
+.phone .tabs div.on{color:var(--primary);font-weight:700}
+.pcap{font-size:11px;color:var(--muted);margin:6px 0 0}
+.tbtn{min-height:56px;min-width:56px;border-radius:var(--r-pill)}
+/* settings */
+.sets{max-width:820px}.sets section{margin-bottom:14px}
+.srow{display:flex;align-items:center;gap:12px;min-height:52px;border-top:1px solid var(--border)}
+.srow:first-of-type{border-top:0}.srow small{display:block;color:var(--muted)}
+.sw{width:46px;height:28px;border-radius:99px;background:var(--track);position:relative;flex:none}.sw::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff}
+.sw.on{background:var(--primary)}.sw.on::after{left:21px}
+</style>
+</head>
+<body data-mode="dark">
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="seated" viewBox="0 0 24 24"><circle cx="8" cy="5" r="2"/><path d="M8 8l2 5h5l3 5M8 8l-2 6 4 4"/></symbol>
+<symbol id="standing" viewBox="0 0 24 24"><circle cx="12" cy="4" r="2"/><path d="M12 7v6M12 13l-3 7M12 13l3 7M8 9l4-2 4 2"/></symbol>
+<symbol id="bike" viewBox="0 0 24 24"><circle cx="6" cy="16" r="3.5"/><circle cx="18" cy="16" r="3.5"/><path d="M6 16l4-7h5l3 7M10 9l3 7M9 6h3"/></symbol>
+<symbol id="pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+<symbol id="play" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></symbol>
+<symbol id="skip" viewBox="0 0 24 24"><path d="M5 4l10 8-10 8zM19 5v14"/></symbol>
+<symbol id="stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+<symbol id="tvi" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+<symbol id="gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></symbol>
+<symbol id="note" viewBox="0 0 24 24"><path d="M9 18V5l11-2v13M9 18a3 3 0 11-6 0 3 3 0 016 0zM20 16a3 3 0 11-6 0 3 3 0 016 0z"/></symbol>
+</defs></svg>
+
+<div class="tool">
+  <b>Exercise mock-up</b>
+  <button data-s="setup" class="on">1 Setup</button><button data-s="build">2 Building</button><button data-s="preview">3 Preview</button>
+  <button data-s="ride">4 Ride</button><button data-s="paused">5 Paused</button><button data-s="done">6 Finished</button>
+  <button data-s="tv">7 TV</button><button data-s="phone">8 Phone</button><button data-s="settings">9 Settings</button><button data-s="notice">10 Notice</button>
+  <span class="sp"></span>
+  <button id="mode">Light / Dark</button><button id="motion">Motion: on</button>
+</div>
+
+<!-- 1 SETUP -->
+<section class="scr on" id="s-setup"><h2>Desktop, Exercise, setup (1440 x 900, classic)</h2>
+<div class="win"><div class="rail" data-rail></div>
+<div class="pg">
+  <h1>Exercise</h1><p class="sub">Choose how long, what kind of ride and what you want to hear. HomeFi builds the ride and the music.</p>
+  <div class="grid2">
+   <div style="display:flex;flex-direction:column;gap:14px">
+    <div class="card"><h3>Length</h3>
+      <div class="row"><span class="big-n">30</span><span style="font-size:20px;color:var(--muted);font-weight:700">min</span><span class="sp"></span>
+        <div class="chips"><button class="chip" aria-pressed="false">20</button><button class="chip" aria-pressed="true">30</button><button class="chip" aria-pressed="false">45</button><button class="chip" aria-pressed="false">60</button></div></div>
+      <input type="range" min="10" max="90" step="5" value="30" aria-label="Ride length in minutes">
+      <div class="row" style="color:var(--muted);font-size:12px"><span>10</span><span class="sp"></span><span>90 min</span></div>
+    </div>
+    <div class="card"><h3>Style</h3><div class="styles" role="radiogroup" aria-label="Ride style" id="styles"></div></div>
+    <div class="card"><h3>Music</h3>
+      <span class="lbl">Genres for today (pick one or more)</span>
+      <div class="chips" id="genres"></div>
+      <div class="row" style="margin-top:12px"><span class="sw on"></span><div><b>Mix the genres</b><small style="color:var(--muted)">Each genre goes where its tempo fits: fast for sprints, heavy for climbs, calm for warm-up.</small></div></div>
+      <span class="lbl" style="margin-top:14px">Or tell the AI in a sentence (optional)</span>
+      <input class="field" value="Classic rock for the climbs, something heavy for the sprints" aria-label="Music wish">
+      <div class="row" style="margin-top:8px"><span class="tag ai">AI on: your OpenAI key</span><span style="color:var(--muted);font-size:12px">Without AI, the genres alone pick the songs.</span></div>
+    </div>
+   </div>
+   <div style="display:flex;flex-direction:column;gap:14px">
+    <div class="card"><h3>Your ride</h3>
+      <div class="mtn" style="height:120px" data-mtn="easy"></div>
+      <p style="margin:10px 0 2px;font-size:18px;font-weight:700">30 min · Easy · Rock + Metal</p>
+      <p class="sub" style="margin:0">Warm-up, 2 climbs, jumps, 1 short interval block, cool-down. Cadence 60 to 110, effort up to 8.</p>
+    </div>
+    <div class="card"><h3>Where to watch</h3>
+      <div class="seg" role="radiogroup" aria-label="TV"><button role="radio" aria-checked="false">No TV</button><button role="radio" aria-checked="true">TV window</button><button role="radio" aria-checked="false">TV app / browser</button></div>
+      <span class="lbl" style="margin-top:12px">Music plays</span>
+      <div class="seg" role="radiogroup" aria-label="TV audio"><button role="radio" aria-checked="true">Here (headphones)</button><button role="radio" aria-checked="false">On the TV</button></div>
+      <p style="color:var(--muted);font-size:12px;margin:10px 0 0">TV window opens on the second screen: Display 2, fullscreen.</p>
+    </div>
+    <button class="btn pri big">Build my ride</button>
+    <p style="text-align:center;color:var(--muted);font-size:12px;margin:0">Takes about 20 to 30 seconds.</p>
+   </div>
+  </div>
+</div></div></section>
+
+<!-- 2 BUILDING -->
+<section class="scr" id="s-build"><h2>Building (progress; the mountain draws itself as the plan firms up)</h2>
+<div class="win"><div class="rail" data-rail></div><div class="pg">
+  <h1>Building your ride</h1><p class="sub">30 min · Easy · Rock + Metal</p>
+  <div class="card" style="max-width:900px">
+    <div class="mtn" style="height:150px;opacity:.55" data-mtn="easy" data-cur="-1"></div>
+    <div style="margin:16px 0;display:grid;gap:10px" aria-live="polite">
+      <div class="row"><span class="tag ok">Done</span><b>Searching songs</b><span class="sp"></span><span style="color:var(--muted)">64 candidates</span></div>
+      <div class="row"><span class="tag ok">Done</span><b>Finding them on TIDAL and in your library</b><span class="sp"></span><span style="color:var(--muted)">41 found</span></div>
+      <div class="row"><span class="tag warn">Now</span><b>Checking the tempo</b><span class="sp"></span><span style="color:var(--muted)">Song 7 of 12</span></div>
+      <div class="bar" role="progressbar" aria-valuenow="58" aria-valuemin="0" aria-valuemax="100" aria-label="Building"><i style="width:58%"></i></div>
+      <div class="row"><span class="tag">Next</span><span style="color:var(--muted)">Matching songs to each part of the ride</span></div>
+    </div>
+    <div class="row"><button class="btn">Cancel</button><span class="sp"></span><span style="color:var(--muted);font-size:12px">You can leave this screen; the build keeps going.</span></div>
+  </div>
+</div></div></section>
+
+<!-- 3 PREVIEW -->
+<section class="scr" id="s-preview"><h2>Preview of the plan</h2>
+<div class="win"><div class="rail" data-rail></div><div class="pg">
+  <div class="row"><div><h1>Your ride is ready</h1><p class="sub" style="margin:0">30 min · Easy · Rock + Metal · 8 songs</p></div><span class="sp"></span>
+    <button class="btn">Change setup</button><button class="btn">Rebuild</button><button class="btn pri big">Start ride</button></div>
+  <div class="card" style="margin:14px 0"><div class="mtn" style="height:160px" data-mtn="easy" data-cur="-1" data-labels="1"></div></div>
+  <div class="card" style="padding:8px">
+    <div class="plan head"><span></span><span>Part</span><span>Time</span><span>Pedal</span><span>Effort</span><span>Song</span><span>Beat</span><span></span></div>
+    <div id="plan"></div>
+  </div>
+  <div class="row" style="margin-top:10px"><span class="tag warn">Note</span><span style="color:var(--muted)">No song fit 64 RPM exactly for the standing climb, so one at 62 RPM was picked. You can pick another.</span></div>
+</div></div></section>
+
+<!-- 4 RIDE -->
+<section class="scr" id="s-ride"><h2>Ride (mid seated climb, desktop)</h2>
+<div class="win"><div class="rail" data-rail></div><div class="pg"><div id="ridedesk"></div></div></div></section>
+
+<!-- 5 PAUSED -->
+<section class="scr" id="s-paused"><h2>Paused</h2>
+<div class="win"><div class="rail" data-rail></div><div class="pg"><div id="ridedesk2"></div>
+  <div class="ov"><div class="dlg" style="text-align:center"><h1 style="margin:0 0 6px">Paused</h1><p class="sub">The music and the timer are stopped.<br>Seated climb · 2:10 left</p>
+   <div class="row" style="justify-content:center"><button class="btn pri big"><svg class="i"><use href="#play"/></svg>Resume</button><button class="btn dng">End ride</button></div></div></div>
+</div></div></section>
+
+<!-- 6 FINISHED -->
+<section class="scr" id="s-done"><h2>Finished summary</h2>
+<div class="win"><div class="rail" data-rail></div><div class="pg">
+  <div style="max-width:880px;margin:20px auto;text-align:center">
+   <h1 style="font-size:34px">Ride complete. Nice work!</h1><p class="sub">Easy · Rock + Metal</p>
+   <div class="card"><div class="mtn" style="height:130px" data-mtn="easy" data-cur="99"></div>
+    <div class="row" style="justify-content:space-around;margin-top:16px">
+     <div><div class="big-n">30:00</div><div class="sub" style="margin:0">Time</div></div>
+     <div><div class="big-n">8</div><div class="sub" style="margin:0">Songs</div></div>
+     <div><div class="big-n">2</div><div class="sub" style="margin:0">Climbs</div></div>
+     <div><div class="big-n">1</div><div class="sub" style="margin:0">Sprint block</div></div></div></div>
+   <p style="color:var(--muted)">This is a guide for effort, not a medical measurement.</p>
+   <div class="row" style="justify-content:center"><button class="btn pri big">Ride again</button><button class="btn">Same ride, new songs</button><button class="btn">Done</button></div>
+  </div></div></div></section>
+
+<!-- 7 TV -->
+<section class="scr" id="s-tv"><h2>TV, 1920 x 1080 (scaled to 62 percent here). Always dark.</h2>
+<div class="tvbox" data-mode="dark"><div class="tv" id="tvfull"></div></div>
+<h2 style="margin-top:18px">TV, interval work phase (GO!, round 3 of 4)</h2>
+<div class="tvbox" data-mode="dark"><div class="tv" id="tvsprint"></div></div></section>
+
+<!-- 8 PHONE -->
+<section class="scr" id="s-phone"><h2>Android phone, 360 x 640 dp (SR35 720 x 1280). Left to right: setup, ride, ride in dark with next climb warning, preview.</h2>
+<div class="phones">
+ <div><div class="phone"><div class="ph" style="overflow:auto">
+   <div class="row"><b style="font-size:20px">Train</b></div>
+   <div class="card" style="padding:12px"><h3>Length</h3><div class="row"><span class="big-n" style="font-size:44px">30</span><span style="color:var(--muted)">min</span><span class="sp"></span>
+     <button class="tbtn btn" aria-label="Less">-</button><button class="tbtn btn" aria-label="More">+</button></div>
+     <input type="range" min="10" max="90" step="5" value="30"></div>
+   <div class="card" style="padding:12px"><h3>Style</h3><div class="chips"><button class="chip" aria-pressed="false" style="min-height:48px">First ride</button><button class="chip" aria-pressed="true" style="min-height:48px">Easy</button><button class="chip" aria-pressed="false" style="min-height:48px">Classic</button><button class="chip" aria-pressed="false" style="min-height:48px">Intervals</button></div></div>
+   <div class="card" style="padding:12px"><h3>Music today</h3><div class="chips"><button class="chip" aria-pressed="true" style="min-height:48px">Rock</button><button class="chip" aria-pressed="true" style="min-height:48px">Metal</button><button class="chip" aria-pressed="false" style="min-height:48px">Pop</button><button class="chip" aria-pressed="false" style="min-height:48px">Dance</button><button class="chip" aria-pressed="false" style="min-height:48px">Latin</button></div></div>
+   <button class="btn pri big" style="width:100%;flex:none">Build my ride</button>
+  </div><div class="tabs"><div>Library</div><div>Search</div><div class="on">Train</div><div>Downloads</div><div>Settings</div></div></div><p class="pcap">Setup (scrolls; Build button pinned at the bottom in the real screen)</p></div>
+ <div><div class="phone" data-mode="dark" id="ph-ride"></div><p class="pcap">Ride, always dark by default</p></div>
+ <div><div class="phone" data-mode="dark" id="ph-ride2"></div><p class="pcap">Ride, change in 10 s (next climb banner)</p></div>
+ <div><div class="phone"><div class="ph">
+   <div class="row"><b style="font-size:18px">Your ride</b><span class="sp"></span><span class="tag">8 songs</span></div>
+   <div class="card" style="padding:10px"><div class="mtn" style="height:90px" data-mtn="easy" data-cur="-1"></div></div>
+   <div id="pplan" style="overflow:hidden;display:grid;gap:4px"></div>
+   <button class="btn pri big" style="width:100%;flex:none">Start ride</button>
+  </div></div><p class="pcap">Preview</p></div>
+</div></section>
+
+<!-- 9 SETTINGS -->
+<section class="scr" id="s-settings"><h2>Settings, page "Exercise"</h2>
+<div class="win"><div class="rail" data-rail></div><div class="pg"><div class="sets"><h1>Exercise</h1><p class="sub">Everything about rides. Same options on Android.</p>
+ <section class="card"><h3>Ride</h3>
+  <div class="srow"><div class="sp"><b>Show Exercise in the sidebar</b></div><span class="sw on"></span></div>
+  <div class="srow"><div class="sp"><b>Beginner mode</b><small>Gentler cadence and effort, short sprints, standing never too slow.</small></div><span class="sw on"></span></div>
+  <div class="srow"><div class="sp"><b>Default style</b></div><div class="seg"><button aria-checked="true">First ride</button><button>Easy</button><button>Classic</button><button>Intervals</button></div></div>
+  <div class="srow"><div class="sp"><b>Default length</b></div><b>30 min</b></div></section>
+ <section class="card"><h3>Music</h3>
+  <div class="srow"><div class="sp"><b>Pick songs from</b></div><div class="seg"><button aria-checked="true">Library first</button><button>TIDAL first</button><button>Library only</button></div></div>
+  <div class="srow"><div class="sp"><b>Tempo tolerance</b><small>How far a song's beat may be from the target cadence.</small></div><b>4 RPM</b></div>
+  <div class="srow"><div class="sp"><b>Allow half-time</b><small>A 170 BPM song can set an 85 RPM pace.</small></div><span class="sw on"></span></div>
+  <div class="srow"><div class="sp"><b>Allow double-time</b></div><span class="sw"></span></div>
+  <div class="srow"><div class="sp"><b>Allow explicit songs</b></div><span class="sw on"></span></div>
+  <div class="srow"><div class="sp"><b>Tempo check budget</b><small>Songs HomeFi may analyze per ride. Higher is slower but fits better.</small></div><b>12</b></div></section>
+ <section class="card"><h3>Cues and beat</h3>
+  <div class="srow"><div class="sp"><b>Sounds for changes</b></div><span class="sw on"></span></div>
+  <div class="srow"><div class="sp"><b>Cue volume</b></div><b>80%</b></div>
+  <div class="srow"><div class="sp"><b>Countdown before a change</b></div><b>3 s</b></div>
+  <div class="srow"><div class="sp"><b>Next-part notice</b></div><b>10 s</b></div>
+  <div class="srow"><div class="sp"><b>Click on the beat</b></div><span class="sw"></span></div>
+  <div class="srow"><div class="sp"><b>Beat pulse</b></div><div class="seg"><button aria-checked="true">Ring</button><button>Bar</button><button>Flash</button></div></div>
+  <div class="srow"><div class="sp"><b>Pulse offset</b><small>Move it if you use Bluetooth speakers.</small></div><b>0 ms</b></div></section>
+ <section class="card"><h3>Screen and TV</h3>
+  <div class="srow"><div class="sp"><b>Always dark during a ride</b></div><span class="sw on"></span></div>
+  <div class="srow"><div class="sp"><b>Keep the screen on</b></div><span class="sw on"></span></div>
+  <div class="srow"><div class="sp"><b>TV</b></div><span class="sw on"></span></div>
+  <div class="srow"><div class="sp"><b>Music plays</b></div><div class="seg"><button>On the TV</button><button aria-checked="true">Here</button></div></div>
+  <div class="srow"><div class="sp"><b>TV window on</b></div><b>Display 2</b></div>
+  <div class="srow"><div class="sp"><b>TV port</b></div><b>47801</b></div>
+  <div class="srow"><div class="sp"><b>Health notice</b></div><button class="btn">Show it again</button></div></section>
+</div></div></div></section>
+
+<!-- 10 NOTICE -->
+<section class="scr" id="s-notice"><h2>Health notice (once, before the first ride)</h2>
+<div class="win"><div class="rail" data-rail></div><div class="pg"><div class="ov" style="background:rgb(5 10 18/.6)"><div class="dlg">
+  <h1 style="font-size:20px;margin:0 0 8px">Before your first ride</h1>
+  <p style="font-size:15px;margin:0 0 14px">HomeFi suggests a pace and an effort, it does not measure your body or give medical advice. Listen to yourself, and stop if you feel pain, dizziness or shortness of breath. If in doubt, check with a doctor.</p>
+  <div class="row"><span class="sp"></span><button class="btn pri" style="min-height:48px">I understand</button></div></div></div></div></div></section>
+
+<script>
+(function(){
+  var $=function(s,r){return (r||document).querySelector(s)},$$=function(s,r){return [].slice.call((r||document).querySelectorAll(s))};
+  var Z={warm:'Warm-up',flat:'Seated flat',climb:'Seated climb',stand:'Standing climb',jumps:'Jumps',sprint:'Sprints',recov:'Recovery',cool:'Cool-down'};
+  // sample ride: kind, seconds, from/to elevation 0..1, target rpm, effort, position, song, artist, bpm, ratio
+  var S=[
+   ['warm',300,.1,.25,88,3,'seated','Everlong','Foo Fighters',176,'half'],
+   ['flat',240,.3,.3,92,5,'seated','Back in Black','AC/DC',92,'1:1'],
+   ['climb',300,.3,.7,70,7,'seated','Run to the Hills','Iron Maiden',140,'half'],
+   ['jumps',180,.55,.55,84,6,'alternating','Highway to Hell','AC/DC',168,'half'],
+   ['recov',120,.5,.3,85,3,'seated','Paranoid','Black Sabbath',170,'half'],
+   ['sprint',240,.5,.5,110,8,'seated','Ace of Spades','Motorhead',110,'1:1'],
+   ['stand',240,.6,.95,64,8,'standing','Enter Sandman','Metallica',124,'half'],
+   ['cool',180,.5,.05,76,2,'seated','Hallowed Be Thy Name','Iron Maiden',76,'1:1']];
+  var TOT=S.reduce(function(a,s){return a+s[1]},0);
+  function pts(){var p=[],t=0;S.forEach(function(s,i){var n=s[0]=='sprint'?8:1;
+    for(var k=0;k<=n;k++){var e=s[0]=='sprint'?(k%2?.72:.5):s[2]+(s[3]-s[2])*k/n;p.push([t+s[1]*k/n,e,i])}t+=s[1]});return p}
+  var P=pts();
+  function elev(t){for(var i=1;i<P.length;i++)if(t<=P[i][0]){var a=P[i-1],b=P[i];return a[1]+(b[1]-a[1])*(t-a[0])/((b[0]-a[0])||1)}return P[P.length-1][1]}
+  // mountain: every segment is a polygon in its zone colour (past dim, current full, future tinted), ridge on top, marker + flag
+  function mtn(el,o){
+    var W=1000,H=100,cur=+el.dataset.cur,t=o.t,labels=el.dataset.labels,svg='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" role="img" aria-label="Course profile: '+(Z[S[cur<0?0:cur>7?7:cur][0]])+'">';
+    var x=function(s){return (s/TOT*W).toFixed(1)},y=function(e){return (H-6-e*(H-22)).toFixed(1)},t0=0,ridge='';
+    S.forEach(function(s,i){var seg=P.filter(function(p){return p[2]==i}),d='M'+x(t0)+','+(H),first=true;
+      var start=i?P.filter(function(p){return p[2]==i-1}).slice(-1)[0]:null;
+      var list=(start?[start]:[]).concat(seg.slice(i?1:0));
+      list.forEach(function(p){d+=' L'+x(p[0])+','+y(p[1]);});
+      d+=' L'+x(t0+s[1])+','+H+' Z';
+      var op=cur<0?.42:(i<cur?.5:i==cur?1:.38);
+      svg+='<path class="seg-p zone '+s[0]+'" d="'+d+'" fill="var(--c)" fill-opacity="'+op+'"'+(i==cur+1&&cur>=0&&o.next?' stroke="var(--c)" stroke-width="2" stroke-dasharray="5 4"':'')+'/>';
+      t0+=s[1]});
+    ridge=P.map(function(p,i){return (i?'L':'M')+x(p[0])+','+y(p[1])}).join(' ');
+    svg+='<path class="ridge" d="'+ridge+'"/></svg>';
+    var h=svg;
+    if(cur>=0&&cur<8){var ts=t,mx=(ts/TOT*100),my=((+y(elev(ts)))/H*100),c=S[cur][0];
+      h+='<div class="mk zone '+c+'" style="left:'+mx+'%;top:'+my+'%"></div>';
+      if(o.next){var ns=S.slice(0,cur+1).reduce(function(a,s){return a+s[1]},0),nx=S[cur+1];
+        h+='<div class="flag zone '+nx[0]+'" style="left:'+((ns+nx[1]/2)/TOT*100)+'%;top:'+(((+y(Math.max(nx[2],nx[3])))/H*100)-2)+'%">'+Z[nx[0]]+' in '+mmss(ns-ts)+' · '+nx[4]+' RPM</div>'}}
+    if(labels){var a=0;S.forEach(function(s,i){h+='<div class="tick" style="left:'+(a/TOT*100)+'%"></div>';a+=s[1]})}
+    el.innerHTML=h}
+  function mmss(s){s=Math.max(0,Math.round(s));return Math.floor(s/60)+':'+('0'+s%60).slice(-2)}
+  function ico(n,c){return '<svg class="i" style="'+(c||'')+'"><use href="#'+n+'"/></svg>'}
+  var posI=function(p){return p=='standing'?'standing':'seated'},posT=function(p){return p=='standing'?'Standing':p=='alternating'?'Seated, stand on the beat':'Seated'};
+  var effW=function(e){return e<=2?'Very easy':e<=4?'Comfortable':e<=6?'Steady':e<=8?'Hard':'All out'};
+  function effBars(n,sz){var h='<div class="eff"'+(sz?' style="gap:'+sz[0]+'px"':'')+'>';for(var i=0;i<10;i++)h+='<i class="'+(i<n?'on':'')+'"'+(sz?' style="width:'+sz[1]+'px;height:'+sz[2]+'px"':'')+'></i>';return h+'</div>'}
+  // sets of each screen
+  $$('[data-rail]').forEach(function(r){var it=[['note','Listening room'],['note','Albums'],['note','Songs'],['gear','Playlists'],['gear','Sound'],['gear','My Tidal'],['bike','Exercise']];
+    var on=r.closest('.scr').id!='s-settings'||0;
+    r.innerHTML=it.map(function(x,i){return '<div class="it '+(i==6?'on':'')+'" title="'+x[1]+'">'+ico(i==6?'bike':x[0])+(i==6&&r.closest('#s-ride,#s-paused')?'<span class="dot"></span>':'')+'</div>'}).join('')});
+  var easy=$$('[data-mtn]');
+  $('#styles').innerHTML=[['First ride','20 min, gentle'],['Easy','Climbs and jumps'],['Classic','Two climbs, intervals'],['Intervals','Sprints and rests']].map(function(s,i){
+    var d=[[.1,.3,.3,.5,.3,.05],[.1,.3,.7,.55,.95,.05],[.1,.6,.3,.9,.4,.95,.05],[.1,.5,.7,.5,.7,.5,.7,.05]][i],p='M0,44';d.forEach(function(e,k){p+=' L'+(k/(d.length-1)*100)+','+(40-e*34)});p+=' L100,44Z';
+    return '<button class="style" role="radio" aria-checked="'+(i==1)+'"><svg viewBox="0 0 100 44" preserveAspectRatio="none"><path d="'+p+'" fill="var(--primary)" fill-opacity=".5" stroke="var(--primary)" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg><b>'+s[0]+'</b><span>'+s[1]+'</span></button>'}).join('');
+  $('#genres').innerHTML=['Rock','Metal','Pop','Dance','Hip-hop','Latin','Funk','80s','Indie','Punk','Any'].map(function(g,i){return '<button class="chip" aria-pressed="'+(i<2)+'">'+g+'</button>'}).join('');
+  $('#plan').innerHTML=S.map(function(s,i){
+    var fit=s[10]=='half'?'half-time':'1:1',err=i==6?'+2':'0',w=i==6;
+    return '<div class="plan zone '+s[0]+'"><span class="dotz"></span><b>'+Z[s[0]]+'</b><span>'+mmss(s[1])+'</span><span>'+s[4]+' RPM</span><span>'+s[5]+'/10</span>'+
+    '<div class="song"><div class="cov zone '+s[0]+'"></div><div style="min-width:0"><div class="ell"><b>'+s[7]+'</b></div><div class="ell" style="color:var(--muted)">'+s[8]+'</div></div></div>'+
+    '<span class="tag '+(w?'warn':'ok')+'" title="BPM, how it maps to RPM">'+s[9]+' BPM · '+fit+' → '+Math.round(s[10]=='half'?s[9]/2:s[9])+(w?' (off by 2)':' ok')+'</span>'+
+    '<button class="btn" style="min-height:36px;min-width:36px;padding:0" aria-label="Another song for '+Z[s[0]]+'" title="Another song">'+ico('note')+'</button></div>'}).join('');
+  $('#pplan').innerHTML=S.slice(0,6).map(function(s){return '<div class="row zone '+s[0]+'" style="min-height:48px"><span class="dotz"></span><div style="min-width:0;flex:1"><div class="ell"><b>'+Z[s[0]]+'</b> · '+mmss(s[1])+' · '+s[4]+' RPM</div><div class="ell" style="color:var(--muted);font-size:12px">'+s[7]+' · '+s[8]+'</div></div><span class="tag ok">'+s[9]+'</span></div>'}).join('');
+
+  function rideDesk(i,t){var s=S[i],c=s[0],rem=s[1]-(t-S.slice(0,i).reduce(function(a,x){return a+x[1]},0));
+    return '<div class="ride zone '+c+'"><div class="rtop"><span class="zchip">'+ico('bike')+Z[c]+'</span><span class="pospill">'+ico(posI(s[6]))+posT(s[6])+'</span><span class="sp"></span>'+
+     '<div class="song" style="width:300px"><div class="cov zone '+c+'"></div><div style="min-width:0"><div class="ell"><b>'+s[7]+'</b></div><div class="ell" style="color:var(--muted)">'+s[8]+'</div></div></div>'+
+     '<button class="btn" aria-label="TV: connected" title="TV window is open">'+ico('tvi')+'TV</button><button class="btn pri" aria-label="Pause" style="width:56px;min-height:56px;border-radius:50%">'+ico('pause')+'</button><button class="btn" aria-label="Skip to next part" title="Skip to next part">'+ico('skip')+'</button><button class="btn dng" aria-label="End ride" title="End ride (hold 1 second)">'+ico('stop')+'End</button></div>'+
+     '<div class="rmain"><div><span class="lbl">Effort</span>'+effBars(s[5])+'<div style="font-size:28px;font-weight:800;margin-top:10px">'+effW(s[5])+' '+s[5]+'</div><div style="color:var(--muted);margin-top:6px">Turn the resistance until it feels '+effW(s[5]).toLowerCase()+'.</div></div>'+
+     '<div class="pulse rpmwrap" style="--stroke:'+Math.round(60000/s[4]*(s[10]=='half'?1:1))+'ms"><div class="glow"></div><div class="ring"></div><div style="text-align:center"><div class="rpm">'+s[4]+'</div><div class="rpmu">RPM</div><div style="color:var(--muted);margin-top:4px">'+(s[4]-4)+' to '+(s[4]+4)+'</div></div></div>'+
+     '<div><span class="lbl">Time left in this part</span><div class="timer">'+mmss(rem)+'</div><div class="next" style="margin-top:14px"><small>Next</small><div style="font-size:22px;font-weight:800" class="zone '+S[i+1][0]+' zt">'+Z[S[i+1][0]]+'</div><div>'+S[i+1][4]+' RPM · '+posT(S[i+1][6])+' · effort '+S[i+1][5]+'</div></div></div></div>'+
+     '<div class="card" style="padding:12px 16px 10px"><div class="mtn" style="height:250px" id="mt'+i+'"></div><div class="row" style="margin-top:8px"><span style="font-variant-numeric:tabular-nums;font-weight:700">'+mmss(t)+'</span><div class="bar sp"><i style="width:'+(t/TOT*100)+'%;background:var(--c)"></i></div><span style="color:var(--muted);font-variant-numeric:tabular-nums">'+mmss(TOT)+'</span></div></div></div>'}
+  var T=600+120; // elapsed in the 3rd segment
+  $('#ridedesk').innerHTML=rideDesk(2,T);var m=$('#mt2');m.dataset.cur=2;mtn(m,{t:T,next:true});
+  $('#ridedesk2').innerHTML=rideDesk(2,T);$('#ridedesk2 .pulse').style.setProperty('--stroke','60000s');
+  var m2=$('#ridedesk2 .mtn');m2.dataset.cur=2;mtn(m2,{t:T,next:true});
+  // phone ride
+  function phRide(i,t,warn){var s=S[i],c=s[0],rem=s[1]-(t-S.slice(0,i).reduce(function(a,x){return a+x[1]},0)),n=S[i+1];
+    return '<div class="ph zone '+c+'" style="gap:8px;padding:12px"><div class="row"><span class="zchip" style="min-height:40px;font-size:15px;white-space:nowrap;padding:0 12px">'+Z[c]+'</span><span class="pospill" style="min-height:40px;font-size:13px;padding:0 10px;white-space:nowrap">'+ico(posI(s[6]))+posT(s[6]).split(',')[0]+'</span><span class="sp"></span><span class="timer" style="font-size:40px">'+mmss(rem)+'</span></div>'+
+     (warn?'<div class="next zone '+n[0]+'" style="background:var(--surface);padding:8px 12px"><b class="zt">'+Z[n[0]]+' in '+Math.max(1,Math.round(rem))+' s</b> · '+n[4]+' RPM · '+posT(n[6])+'</div>':'')+
+     '<div class="pulse" style="width:250px;height:250px;margin:2px auto;--stroke:'+Math.round(60000/s[4])+'ms"><div class="glow"></div><div class="ring" style="border-width:9px"></div><div style="text-align:center"><div class="rpm" style="font-size:96px">'+s[4]+'</div><div class="rpmu" style="font-size:14px">RPM</div></div></div>'+
+     '<div class="row"><div class="sp">'+effBars(s[5],[4,16,24])+'</div><b style="font-size:20px">'+effW(s[5])+' '+s[5]+'</b></div>'+
+     '<div class="mtn" style="height:130px" id="pm'+i+(warn?'w':'')+'"></div>'+
+     '<div class="row" style="flex:none"><button class="btn tbtn" aria-label="End ride (hold)" style="min-width:56px">'+ico('stop')+'</button><button class="btn pri tbtn" aria-label="Pause" style="flex:1;font-size:18px;min-height:64px">'+ico('pause')+'Pause</button><button class="btn tbtn" aria-label="Skip">'+ico('skip')+'</button></div></div>'}
+  $('#ph-ride').innerHTML=phRide(2,T,false);var a=$('#pm2');a.dataset.cur=2;mtn(a,{t:T,next:false});
+  $('#ph-ride2').innerHTML=phRide(2,T+110,true);var b=$('#pm2w');b.dataset.cur=2;mtn(b,{t:T+110,next:true});
+  // TV
+  function tv(i,t,o){o=o||{};var s=S[i],c=s[0],rem=s[1]-(t-S.slice(0,i).reduce(function(a,x){return a+x[1]},0)),n=S[i+1],sp=c=='sprint';
+    return '<div class="zone '+c+'" style="position:absolute;inset:0">'+
+    '<div class="a" style="left:96px;top:56px"><div class="seg zt">'+Z[c]+'</div><div style="height:18px"></div><span class="pos">'+ico(posI(s[6]),'width:1em;height:1em')+posT(s[6])+'</span></div>'+
+    '<div class="a" style="right:96px;top:30px;text-align:right"><div style="font-size:200px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums">'+mmss(rem)+'</div>'+(sp?'<div style="font-size:56px;color:#9fb0c6">Round 3 / 4</div>':'<div style="font-size:48px;color:#9fb0c6">left in this part</div>')+'</div>'+
+    '<div class="pulse a" style="left:690px;top:170px;width:540px;height:540px;--stroke:'+Math.round(60000/s[4])+'ms"><div class="glow"></div><div class="ring" style="border-width:16px;border-color:var(--c)"></div>'+
+    (sp?'<div class="a" style="top:-88px;left:0;right:0;text-align:center;font-size:84px;font-weight:900;letter-spacing:.08em;color:#ff5a4f">GO!</div>':'')+
+    '<div style="text-align:center"><div style="font-size:'+(s[4]>=100?270:340)+'px;font-weight:900;line-height:1;color:var(--c);font-variant-numeric:tabular-nums">'+s[4]+'</div><div style="font-size:60px;font-weight:700;color:#9fb0c6;letter-spacing:.12em">RPM</div></div></div>'+
+    '<div class="a" style="left:96px;top:480px"><div style="display:flex;gap:10px">'+[1,2,3,4,5,6,7,8,9,10].map(function(k){return '<i style="width:34px;height:64px;border-radius:7px;background:'+(k<=s[5]?'var(--c)':'#2a3547')+'"></i>'}).join('')+'</div><div style="font-size:64px;font-weight:700;margin-top:14px">'+effW(s[5])+' '+s[5]+'</div></div>'+
+    '<div class="a" style="right:96px;top:440px;text-align:right;max-width:640px"><div style="font-size:44px;color:#9fb0c6;letter-spacing:.12em">NEXT</div><div class="zone '+n[0]+'" style="font-size:72px;font-weight:800;color:var(--c)">'+Z[n[0]]+'</div><div style="font-size:48px;color:#cfd8e6">'+n[4]+' RPM · '+posT(n[6]).split(',')[0]+'</div></div>'+
+    (o.count?'<div class="a" style="inset:0;background:rgb(5 7 10/.82);display:grid;place-items:center"><div style="text-align:center"><div style="font-size:420px;font-weight:900;line-height:1;color:var(--c)">3</div><div style="font-size:84px;font-weight:800" class="zone '+n[0]+' zt">'+Z[n[0]]+' · '+n[4]+' RPM</div></div></div>':'')+
+    '<div class="a" style="left:96px;right:96px;bottom:92px;height:260px"><div class="mtn" style="height:100%" id="tvm'+(o.id||'')+'"></div></div>'+
+    '<div class="a" style="left:96px;right:96px;bottom:34px;height:20px;background:#121923;border-radius:10px;overflow:hidden"><div style="width:'+(t/TOT*100)+'%;height:100%;background:var(--c)"></div></div>'+
+    '<div class="a" style="left:96px;bottom:60px;font-size:40px;color:#9fb0c6;display:none">'+s[7]+'</div>'+
+    '<div class="a" style="right:30px;top:20px;width:20px;height:20px;border-radius:50%;background:#2f8f4e" title="connected"></div></div>'}
+  var f=$('#tvfull');f.innerHTML=tv(2,T,{id:'a'});var q=$('#tvma');q.dataset.cur=2;mtn(q,{t:T,next:true});
+  var t2=$('#tvsprint'),ts=S.slice(0,5).reduce(function(a,x){return a+x[1]},0)+100;t2.innerHTML=tv(5,ts,{id:'b'});var q2=$('#tvmb');q2.dataset.cur=5;mtn(q2,{t:ts,next:true});
+  // static mountains
+  easy.forEach(function(el){if(!el.innerHTML){var c=el.dataset.cur===undefined?-1:+el.dataset.cur;el.dataset.cur=c;mtn(el,{t:c>=0&&c<8?T:0})}});
+  // chrome
+  $$('.tool [data-s]').forEach(function(b){b.onclick=function(){$$('.tool [data-s]').forEach(function(x){x.classList.toggle('on',x==b)});$$('.scr').forEach(function(s){s.classList.toggle('on',s.id=='s-'+b.dataset.s)})}});
+  $('#mode').onclick=function(){document.body.dataset.mode=document.body.dataset.mode=='dark'?'light':'dark'};
+  $('#motion').onclick=function(){var off=document.body.dataset.motion!='off';document.body.dataset.motion=off?'off':'on';this.textContent='Motion: '+(off?'off':'on')};
+  $$('.chip').forEach(function(c){c.onclick=function(){c.setAttribute('aria-pressed',c.getAttribute('aria-pressed')!='true')}});
+})();
+</script>
+</body>
+</html>

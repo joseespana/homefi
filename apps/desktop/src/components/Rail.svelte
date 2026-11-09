@@ -2,7 +2,10 @@
   import { tick } from "svelte";
   import { disc } from "../lib/disc.svelte";
   import { share } from "../lib/share.svelte";
+  import { dj } from "../lib/dj.svelte";
+  import { exercise } from "../lib/exercise.svelte";
   import { app, type View } from "../lib/state.svelte";
+  import { pop } from "../lib/motion";
   import Icon from "./Icon.svelte";
 
   const base: { view: View["name"]; label: string; icon: string }[] = [
@@ -17,7 +20,11 @@
     { view: "downloads", label: "Downloads", icon: "download" },
   ];
   // the Disc item follows the "Disc item in the sidebar" setting (a disc in, always or never)
-  const items = $derived(disc.railVisible ? [...base.slice(0, -1), { view: "disc" as const, label: "Disc", icon: "cd" }, ...base.slice(-1)] : base);
+  const withDisc = $derived(disc.railVisible ? [...base.slice(0, -1), { view: "disc" as const, label: "Disc", icon: "cd" }, ...base.slice(-1)] : base);
+  // DJ follows "DJ in the sidebar" (Settings → DJ); it stays while DJ mode is on
+  const withDj = $derived(dj.settings.show_entry || dj.on ? [...withDisc.slice(0, 6), { view: "dj" as const, label: dj.on ? "DJ · on" : "DJ", icon: "dj" }, ...withDisc.slice(6)] : withDisc);
+  // Exercise follows "Show Exercise in the sidebar" (Settings → Exercise), after Downloads; it stays while a ride or a build goes on
+  const items = $derived(exercise.settings.show_entry || exercise.busy ? [...withDj, { view: "exercise" as const, label: exercise.riding ? "Exercise · ride" : exercise.busy ? "Exercise · building" : "Exercise", icon: "bike" }] : withDj);
 
   const active = (name: string) =>
     app.view.name === name ||
@@ -46,6 +53,52 @@
     });
   });
 
+  // A short window: the places that don't fit fold into a "More" button at the end of the list,
+  // whose menu opens beside the rail. Measured from the rail itself, so every skin's sizes count.
+  let fit = $state(Infinity);
+  let bottom = $state<HTMLElement>();
+  $effect(() => {
+    if (!rail) return;
+    const measure = () => {
+      const firstItem = rail?.querySelector<HTMLElement>(".item");
+      if (!rail || !firstItem || !bottom) return;
+      const gap = parseFloat(getComputedStyle(rail).rowGap) || 0;
+      const pitch = firstItem.offsetHeight + gap;
+      const room = rail.clientHeight - firstItem.offsetTop - bottom.offsetHeight - gap;
+      fit = Math.max(1, Math.floor((room + gap) / pitch));
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(rail);
+    measure();
+    return () => ro.disconnect();
+  });
+  // all of them when they fit; otherwise one place less, for the More button
+  const shown = $derived(fit >= items.length ? items : items.slice(0, Math.max(0, fit - 1)));
+  const folded = $derived(items.slice(shown.length));
+  const foldedActive = $derived(folded.some((i) => active(i.view)));
+  const foldedBusy = $derived(folded.some((i) => busy(i.view)));
+
+  let more = $state<{ y: number } | null>(null);
+  let moreBtn = $state<HTMLElement>();
+  function toggleMore() {
+    hide();
+    if (more) return (more = null);
+    const r = moreBtn!.getBoundingClientRect();
+    // the menu grows up from the button when it's low in the window
+    more = { y: Math.min(r.top, window.innerHeight - 16 - folded.length * 40 - 12) };
+  }
+  // the folded list changed under an open menu (window resized): it closes rather than lie
+  $effect(() => {
+    folded.length;
+    more = null;
+  });
+
+  function go(view: View["name"]) {
+    more = null;
+    app.view = (view === "tidal" ? { name: "tidal", tab: "playlists" } : { name: view }) as View;
+  }
+  const busy = (view: string) => (view === "downloads" && app.busy) || (view === "disc" && disc.ripping) || (view === "dj" && dj.on) || (view === "exercise" && exercise.busy);
+
   const tidalLabel = $derived(app.account ? `Tidal · ${app.account.countryCode}` : "Connect Tidal");
   const shareLabel = $derived(
     share.sharing ? `Sharing · ${share.hub.guests.length} guests` : share.inRoom ? `In ${share.guest.session_name}` : "Share or join music",
@@ -58,11 +111,11 @@
   <button class="logo" onclick={() => (app.view = { name: "room" })} aria-label="HomeFi">
     <img src="/logo.svg" alt="" width="42" height="42" />
   </button>
-  {#each items as item}
+  {#each shown as item}
     <button
       class="item"
       class:active={active(item.view)}
-      onclick={() => (app.view = (item.view === "tidal" ? { name: "tidal", tab: "playlists" } : { name: item.view }) as View)}
+      onclick={() => go(item.view)}
       aria-label={item.label}
       onmouseenter={(e) => show(e, item.label)}
       onmouseleave={hide}
@@ -70,10 +123,29 @@
       onblur={hide}
     >
       <Icon name={item.icon} size={20} />
-      {#if (item.view === "downloads" && app.busy) || (item.view === "disc" && disc.ripping)}<span class="dot"></span>{/if}
+      {#if busy(item.view)}<span class="dot"></span>{/if}
     </button>
   {/each}
+  {#if folded.length}
+    <button
+      class="item"
+      class:active={foldedActive || !!more}
+      bind:this={moreBtn}
+      onclick={toggleMore}
+      aria-label="More places"
+      aria-haspopup="menu"
+      aria-expanded={!!more}
+      onmouseenter={(e) => !more && show(e, foldedActive ? `More · ${folded.find((i) => active(i.view))?.label}` : "More")}
+      onmouseleave={hide}
+      onfocus={(e) => !more && show(e, "More")}
+      onblur={hide}
+    >
+      <Icon name="more" size={20} />
+      {#if foldedBusy}<span class="dot"></span>{/if}
+    </button>
+  {/if}
   <div class="spacer"></div>
+  <div class="bottom" bind:this={bottom}>
   <button
     class="item"
     class:active={app.view.name === "guest" || share.panelOpen}
@@ -101,7 +173,21 @@
   >
     <span class="tidal" class:on={!!app.account}><svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true"><path d="M6 6h10v2.5h-3.75V16h-2.5V8.5H6z" /></svg></span>
   </button>
+  </div>
 </nav>
+{#if more}
+  <button class="scrim" aria-label="Close" tabindex="-1" onclick={() => (more = null)}></button>
+  <div class="more-menu" role="menu" aria-label="More places" style:top="{more.y}px" transition:pop={{ origin: "top left", y: 0 }}>
+    {#each folded as item}
+      <button role="menuitem" class:on={active(item.view)} onclick={() => go(item.view)}>
+        <Icon name={item.icon} size={17} />
+        <span>{item.label}</span>
+        {#if busy(item.view)}<span class="mdot"></span>{/if}
+      </button>
+    {/each}
+  </div>
+{/if}
+<svelte:window onkeydown={(e) => more && e.key === "Escape" && (more = null)} />
 {#if tip}<div class="tip" role="tooltip" style:top="{tip.y}px">{tip.text}</div>{/if}
 
 <style>
@@ -113,8 +199,8 @@
     gap: 6px;
     padding: 0 0 14px;
     min-height: 0;
-    overflow-y: auto;
-    scrollbar-width: none;
+    /* places that don't fit fold into "More" instead of scrolling */
+    overflow: hidden;
     background: var(--glass);
     border-right: 1px solid var(--glass-border);
     backdrop-filter: blur(24px) saturate(1.3);
@@ -220,6 +306,65 @@
   }
   .spacer {
     flex: 1;
+  }
+  .bottom {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: inherit;
+    flex: none;
+  }
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 49;
+    background: transparent;
+    cursor: default;
+  }
+  .more-menu {
+    position: fixed;
+    left: 84px;
+    z-index: 50;
+    min-width: 190px;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    border-radius: var(--r-md);
+    background: color-mix(in srgb, var(--surface) 82%, transparent);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(24px) saturate(1.4);
+    box-shadow: var(--shadow);
+  }
+  .more-menu button {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 38px;
+    padding: 0 12px;
+    border-radius: var(--r-sm);
+    color: var(--muted);
+    font-size: 13.5px;
+    text-align: left;
+    transition: background 0.15s, color 0.15s;
+  }
+  .more-menu button:hover,
+  .more-menu button:focus-visible {
+    background: var(--glass-strong);
+    color: var(--text);
+  }
+  .more-menu button.on {
+    background: color-mix(in srgb, var(--room-accent) 22%, transparent);
+    color: var(--accent-text);
+  }
+  .mdot {
+    margin-left: auto;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--room-accent);
+    animation: pulse 1.2s infinite;
   }
   .tidal {
     width: 26px;

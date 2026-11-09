@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en" data-skin="classic" data-mode="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HomeFi DJ - static mock-up (dark, classic)</title>
+<style>
+/* Static mock-up of docs/DJ_UI.md. Tokens copied from apps/desktop/src/app.css (dark classic). */
+:root{
+  --bg:#0a121d;--sidebar:#0c1522;--surface:#111c2b;--surface-2:#172436;--surface-3:#203047;--border:#203047;
+  --text:#eef6fb;--muted:#9db2c4;--faint:#647a8e;--primary:#67e3f5;--primary-strong:#22c5dd;--on-primary:#042b33;
+  --danger:#f87171;--warn:#fbbf24;--ok:#4ade80;--shadow:0 12px 32px rgb(0 0 0/.45);
+  --r-xs:6px;--r-sm:10px;--r-md:14px;--r-lg:20px;--r-pill:999px;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Arial,sans-serif;--font-mono:ui-monospace,Menlo,monospace;
+  --hw-top:#2c3b4c;--hw-bottom:#1a2534;
+  /* DJ tokens (new) */
+  --dj-a:#38bdf8;--dj-b:#f472b6;--dj-a-ink:#042b3f;--dj-b-ink:#3b0620;
+  --dj-wave-bg:#0b1522;--dj-playhead:#fff;--dj-beat:rgb(255 255 255/.14);--dj-bar:rgb(255 255 255/.3);
+  --dj-hit:48px;--dj-gap:12px;--dj-deck-h:96px;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{overflow-y:auto;background:radial-gradient(1200px 600px at 50% -10%,#10304a 0%,var(--bg) 60%);color:var(--text);font:14px/1.35 var(--font);overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.app{display:grid;grid-template-columns:72px 1fr;min-height:100vh}
+.rail{background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 0}
+.rail i{width:44px;height:44px;border-radius:var(--r-sm);display:grid;place-items:center;color:var(--muted);font-style:normal;font-size:18px}
+.rail i.on{background:var(--surface-3);color:var(--primary)}
+.dj{display:grid;grid-template-rows:auto 1fr auto;min-width:0;min-height:100vh;padding:var(--dj-gap);gap:var(--dj-gap)}
+/* header */
+.bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.bar h1{font-size:18px;margin:0 6px 0 0}
+.badge{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 12px;border-radius:var(--r-pill);background:rgb(251 191 36/.12);border:1px solid rgb(251 191 36/.45);color:var(--warn);font-size:12px;font-weight:600}
+.badge b{width:8px;height:8px;border-radius:50%;background:var(--warn)}
+.sp{flex:1}
+.btn{min-height:40px;min-width:40px;padding:0 14px;border-radius:var(--r-sm);border:1px solid var(--border);background:var(--surface-2);display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.btn:hover{background:var(--surface-3)}
+.btn.on{background:var(--primary);color:var(--on-primary);border-color:transparent}
+/* stage */
+.stage{display:grid;grid-template-columns:minmax(0,1fr) clamp(250px,22vw,320px) minmax(0,1fr);gap:var(--dj-gap);min-height:0}
+.deck,.mixer{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:12px;display:flex;flex-direction:column;gap:10px;min-height:0;min-width:0;position:relative}
+.deck{--c:var(--dj-a);--ci:var(--dj-a-ink);box-shadow:inset 0 3px 0 var(--c)}
+.deck.b{--c:var(--dj-b);--ci:var(--dj-b-ink)}
+.dh{display:flex;gap:12px;align-items:center}
+.letter{width:36px;height:36px;border-radius:var(--r-sm);background:var(--c);color:var(--ci);font-weight:800;display:grid;place-items:center;font-size:18px;flex:none}
+.cover{width:64px;height:64px;border-radius:var(--r-sm);flex:none;background:linear-gradient(135deg,var(--c),#1d4ed8 70%,#0b1522);box-shadow:var(--shadow)}
+.meta{min-width:0;flex:1}
+.meta .t{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta .a{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bpm{text-align:right;font-family:var(--font-mono);flex:none}
+.bpm .n{font-size:26px;font-weight:700;line-height:1}
+.bpm .u{font-size:11px;color:var(--muted)}
+.tm{font-family:var(--font-mono);font-size:12px;color:var(--muted);display:flex;gap:10px;align-items:center}
+.tm .sync{padding:2px 8px;border-radius:var(--r-pill);background:var(--c);color:var(--ci);font-weight:700;font-size:11px}
+.waves{display:flex;flex-direction:column;gap:6px}
+.wz,.wo{position:relative;background:var(--dj-wave-bg);border-radius:var(--r-sm);overflow:hidden;border:1px solid var(--border);cursor:grab}
+.wz{height:var(--dj-deck-h)}.wo{height:48px;cursor:pointer}
+canvas{display:block;width:100%;height:100%}
+.ph{position:absolute;top:0;bottom:0;width:2px;background:var(--dj-playhead);box-shadow:0 0 8px var(--c)}
+.wz .ph{left:50%}
+.wo .ph{width:2px}
+.wo .tick{position:absolute;top:0;bottom:0;width:3px;border-radius:2px}
+.wo .loop{position:absolute;top:0;bottom:0;background:rgb(255 255 255/.16);border-inline:2px solid var(--c)}
+.hint{position:absolute;right:8px;top:6px;font-size:11px;color:var(--faint);pointer-events:none}
+.row{display:flex;gap:10px;align-items:stretch}
+.tp{display:flex;gap:10px}
+.tp .big{height:56px;min-width:84px;flex:1;border-radius:var(--r-md);border:1px solid var(--border);background:linear-gradient(var(--hw-top),var(--hw-bottom));font-weight:700;font-size:15px;letter-spacing:.04em;display:flex;align-items:center;justify-content:center;gap:8px}
+.tp .big:hover{border-color:var(--c)}
+.tp .big.play{background:var(--c);color:var(--ci);border-color:transparent;flex:1.4}
+.tp .big.sync.on{box-shadow:inset 0 0 0 2px var(--c);color:var(--c)}
+.tp small{font-weight:500;font-size:10px;opacity:.7;letter-spacing:0}
+.pads{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.hc{height:var(--dj-hit);border-radius:var(--r-sm);border:1px solid var(--border);background:var(--surface-2);display:flex;align-items:center;justify-content:center;gap:6px;font-weight:700;position:relative}
+.hc i{font-style:normal;color:var(--faint);font-weight:500;font-size:11px;position:absolute;top:3px;left:7px}
+.hc.set{background:color-mix(in srgb,var(--h) 26%,var(--surface-2));border-color:var(--h);color:var(--text)}
+.hc.set::after{content:"";position:absolute;left:8px;right:8px;bottom:5px;height:3px;border-radius:2px;background:var(--h)}
+.hc.empty{color:var(--faint);border-style:dashed}
+.loops{display:flex;gap:6px;align-items:center}
+.loops .btn{flex:1;min-height:44px;padding:0 6px;font-weight:700}
+.loops .lbl{font-size:11px;color:var(--muted);width:42px;flex:none}
+.side{display:flex;flex-direction:column;align-items:center;gap:6px;width:64px;flex:none}
+.deck.b .main{order:2}.deck.b .side{order:1}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px}
+.inner{display:flex;gap:10px;min-height:0;flex:1}
+.fader{position:relative;width:44px;flex:1;min-height:110px;touch-action:none;cursor:ns-resize}
+.fader::before{content:"";position:absolute;left:50%;top:6px;bottom:6px;width:6px;margin-left:-3px;border-radius:3px;background:#05101a;box-shadow:inset 0 0 0 1px var(--border)}
+.fader .fill{position:absolute;left:50%;width:6px;margin-left:-3px;background:var(--c,var(--primary));border-radius:3px;opacity:.9}
+.fader .cap{position:absolute;left:50%;width:40px;height:28px;margin-left:-20px;border-radius:var(--r-xs);background:linear-gradient(var(--hw-top),var(--hw-bottom));border:1px solid #4a6078;box-shadow:0 3px 8px rgb(0 0 0/.5)}
+.fader .cap::after{content:"";position:absolute;left:6px;right:6px;top:50%;height:2px;background:var(--c,var(--primary));margin-top:-1px}
+.fader:hover .cap{border-color:var(--c,var(--primary))}
+.fader .mid{position:absolute;left:8px;right:8px;top:50%;height:1px;background:var(--faint)}
+.pct{font-family:var(--font-mono);font-size:12px;color:var(--text)}
+.mini{display:flex;gap:4px;width:100%}
+.mini .btn{flex:1;min-width:0;min-height:36px;padding:0;font-size:12px}
+.cap-t{font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em}
+/* mixer */
+.mixer{align-items:stretch}
+.mixer h2{margin:0;font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em;text-align:center}
+.eqs{display:grid;grid-template-columns:1fr 40px 1fr;gap:6px 4px;align-items:center}.eqs label{text-align:center;font-size:11px;color:var(--muted)}.eqs .kn{flex-direction:row;justify-content:center;gap:4px}.eqs .knob{width:40px;height:40px}.eqs .knob::after{top:4px;height:12px;transform-origin:50% 16px}
+.eqrow{display:contents}
+.kn{display:flex;flex-direction:column;align-items:center;gap:3px}
+.knob{width:52px;height:52px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#3d5068,#16212f 70%);border:1px solid #4a6078;position:relative;box-shadow:0 4px 10px rgb(0 0 0/.5);cursor:ns-resize}
+.knob::after{content:"";position:absolute;left:50%;top:5px;width:3px;height:16px;margin-left:-1.5px;border-radius:2px;background:var(--primary);transform-origin:50% 21px;transform:rotate(var(--r,0deg))}
+.knob:hover{border-color:var(--primary)}
+.kn label{font-size:11px;color:var(--muted)}
+.kill{min-height:28px;padding:0 10px;border-radius:var(--r-pill);border:1px solid var(--border);background:var(--surface-2);font-size:10px;font-weight:700}
+.kill.on{background:var(--danger);color:#2b0505;border-color:transparent}
+.chs{display:grid;grid-template-columns:1fr 1fr;gap:10px;flex:1;min-height:110px}
+.ch{display:flex;gap:6px;justify-content:center;--c:var(--dj-a)}
+.ch.b{--c:var(--dj-b)}
+.vu{width:12px;border-radius:3px;background:#05101a;position:relative;overflow:hidden;box-shadow:inset 0 0 0 1px var(--border);align-self:stretch;margin:6px 0}
+.vu i{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(0deg,var(--ok) 0 60%,var(--warn) 60% 85%,var(--danger) 85%);height:var(--h)}
+.vu i{clip-path:none}
+.xf{padding-top:8px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:6px}
+.xfr{position:relative;height:48px;cursor:ew-resize}
+.xfr::before{content:"";position:absolute;left:6px;right:6px;top:50%;height:6px;margin-top:-3px;border-radius:3px;background:linear-gradient(90deg,var(--dj-a),#1b2a3b 50%,var(--dj-b));opacity:.9}
+.xfr .cap{position:absolute;top:50%;left:50%;width:30px;height:42px;margin:-21px 0 0 -15px;border-radius:var(--r-xs);background:linear-gradient(var(--hw-top),var(--hw-bottom));border:1px solid #4a6078;box-shadow:0 3px 8px rgb(0 0 0/.5)}
+.xfr .cap::after{content:"";position:absolute;left:50%;top:6px;bottom:6px;width:2px;margin-left:-1px;background:var(--primary)}
+.curve{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:var(--r-pill);overflow:hidden}
+.seg button{border:0;background:transparent;min-height:32px;padding:0 10px;font-size:12px;color:var(--muted)}
+.seg button.on{background:var(--surface-3);color:var(--text)}
+.master{display:flex;align-items:center;gap:10px;justify-content:center}
+/* sampler + crate */
+.low{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--dj-gap)}
+.sampler{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:10px 12px;display:flex;gap:10px;align-items:center;min-width:0}
+.sampler h2{margin:0;font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em;width:62px;flex:none}
+.sp8{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:8px;flex:1}
+.sp8 button{height:60px;border-radius:var(--r-md);border:1px solid var(--border);background:linear-gradient(var(--hw-top),var(--hw-bottom));display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-weight:600;font-size:12px;position:relative;overflow:hidden}
+.sp8 button:hover{border-color:var(--primary)}
+.sp8 button span{font-size:18px;line-height:1}
+.sp8 button kbd{position:absolute;top:3px;left:6px;font:500 10px var(--font-mono);color:var(--faint)}
+.sp8 button.play{border-color:var(--primary);animation:pad .6s ease-out infinite}
+@keyframes pad{0%{box-shadow:0 0 0 0 rgb(103 227 245/.6);background:var(--primary);color:var(--on-primary)}100%{box-shadow:0 0 0 14px rgb(103 227 245/0)}}
+.crate{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);width:clamp(300px,30vw,440px);padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-height:0}
+.crate .top{display:flex;gap:8px;align-items:center}
+.search{flex:1;min-height:40px;border-radius:var(--r-pill);border:1px solid var(--border);background:var(--surface-2);padding:0 14px;color:var(--muted);display:flex;align-items:center}
+.tr{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 6px;border-radius:var(--r-sm)}
+.tr:hover{background:var(--surface-2)}
+.tr .c{width:32px;height:32px;border-radius:var(--r-xs);background:var(--surface-3);flex:none}
+.tr .tt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tr .tt small{display:block;color:var(--muted)}
+.tr .ab{display:flex;gap:4px}
+.tr .ab button{width:36px;height:36px;border-radius:var(--r-xs);border:1px solid var(--border);background:var(--surface-2);font-weight:800}
+.tr .ab .a{color:var(--dj-a)}.tr .ab .b{color:var(--dj-b)}
+.tr .ab button:hover{background:var(--surface-3)}
+.tr .bp{font:12px var(--font-mono);color:var(--muted)}
+/* states demo */
+.empty-d{border:2px dashed var(--border);border-radius:var(--r-sm);display:grid;place-items:center;color:var(--muted);height:100%;text-align:center;gap:4px;padding:8px}
+.pend{position:absolute;inset:0;display:grid;place-items:center;background:rgb(11 21 34/.78);color:var(--muted);font-size:13px}
+.pend::after{content:"";position:absolute;left:0;bottom:0;height:3px;width:40%;background:var(--c);animation:sweep 1.4s var(--e,ease-in-out) infinite}
+@keyframes sweep{0%{left:-40%}100%{left:100%}}
+.mixbtn{min-height:56px;border-radius:var(--r-pill);border:0;background:linear-gradient(90deg,var(--dj-a),var(--dj-b));color:#101820;font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 6px 18px rgb(0 0 0/.4)}
+.mixbtn:hover{filter:brightness(1.1)}
+.mixlen{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted)}
+.help{font-size:11px;color:var(--faint);text-align:center}
+.mixprog{height:6px;border-radius:3px;background:#05101a;overflow:hidden}.mixprog i{display:block;height:100%;width:35%;background:linear-gradient(90deg,var(--dj-a),var(--dj-b))}
+.grp{border:1px solid var(--border);border-radius:var(--r-md);padding:6px;display:flex;flex-direction:column;gap:6px}
+.grp summary{font-size:11px;color:var(--muted);cursor:pointer;min-height:28px;display:flex;align-items:center}
+@media (max-width:1180px){.hide-s{display:none}}
+@media (max-width:1180px){.low{grid-template-columns:1fr}.crate{width:auto}.hide-s{display:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+.dh{flex-wrap:nowrap}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="rail" aria-label="Main"><i>&#9835;</i><i>&#9906;</i><i class="on" aria-current="page">&#9678;</i><i>&#9881;</i></nav>
+  <main class="dj" aria-label="DJ mode">
+    <header class="bar">
+      <h1>DJ</h1>
+      <span class="badge" title="DJ mode mixes two songs, so audio is not bit-perfect."><b></b>DJ mode on: not bit-perfect</span>
+      <span class="sp"></span>
+      <div class="master" aria-label="Master"><span class="cap-t">Master</span>
+        <div class="knob" style="--r:40deg;width:44px;height:44px" role="slider" tabindex="0" aria-label="Master volume" aria-valuenow="80" title="Master volume 80% (wheel, drag, double-click resets)"></div>
+        <div class="vu" style="width:84px;height:10px;margin:0"><i style="--h:100%;height:100%;width:72%;right:auto;background:linear-gradient(90deg,var(--ok) 0 60%,var(--warn) 60% 85%,var(--danger) 85%)"></i></div>
+      </div>
+      <button class="btn" title="Keyboard shortcuts (?)">&#8984; Shortcuts</button>
+      <button class="btn on" aria-pressed="true" title="Hide or show the crate (C)">Crate</button>
+      <button class="btn" title="Back to the normal player">Exit DJ</button>
+    </header>
+
+    <section class="stage">
+      <!-- DECK A -->
+      <article class="deck a" aria-label="Deck A">
+        <div class="dh">
+          <div class="letter">A</div><div class="cover" role="img" aria-label="Cover"></div>
+          <div class="meta"><div class="t">Midnight City</div><div class="a">M83 &middot; Hurry Up, We're Dreaming</div></div>
+          <div class="bpm"><div class="n">105.0</div><div class="u">BPM</div></div>
+        </div>
+        <div class="inner">
+          <div class="main">
+            <div class="tm"><span>01:12</span><span>-02:48</span><span class="sp"></span><span class="sync">SYNCED</span><span>+1.2%</span></div>
+            <div class="waves">
+              <div class="wz" title="Drag to nudge or scrub. Wheel zooms."><canvas data-wz="a"></canvas><div class="ph"></div><span class="hint hide-s">drag = scrub &middot; wheel = zoom</span></div>
+              <div class="wo" title="Click to jump"><canvas data-wo="a"></canvas>
+                <div class="loop" style="left:44%;width:6%"></div>
+                <div class="tick" style="left:8%;background:#f87171"></div><div class="tick" style="left:22%;background:#fbbf24"></div><div class="tick" style="left:61%;background:#4ade80"></div>
+                <div class="ph" style="left:30%"></div></div>
+            </div>
+            <div class="tp">
+              <button class="big" title="Cue (hold to preview) - Q">CUE<small>Q</small></button>
+              <button class="big play" title="Play / pause - W">&#9654; PLAY<small>W</small></button>
+              <button class="big sync on" aria-pressed="true" title="Sync tempo and beat to the other deck - E">SYNC<small>E</small></button>
+            </div>
+            <div class="pads" role="group" aria-label="Hot cues, deck A">
+              <button class="hc set" style="--h:#f87171"><i>1</i>Intro</button>
+              <button class="hc set" style="--h:#fbbf24"><i>2</i>Drop</button>
+              <button class="hc set" style="--h:#4ade80"><i>3</i>Break</button>
+              <button class="hc empty"><i>4</i>+</button>
+              <button class="hc empty"><i>5</i>+</button><button class="hc empty"><i>6</i>+</button><button class="hc empty"><i>7</i>+</button><button class="hc empty"><i>8</i>+</button>
+            </div>
+            <div class="loops" role="group" aria-label="Loops, deck A">
+              <span class="lbl">Loop</span><button class="btn">1</button><button class="btn">2</button><button class="btn on">4</button><button class="btn">8</button>
+              <button class="btn" title="Loop in">In</button><button class="btn" title="Loop out">Out</button><button class="btn" title="Exit loop">Exit</button>
+            </div>
+          </div>
+          <div class="side">
+            <span class="cap-t">Tempo</span>
+            <div class="fader" role="slider" tabindex="0" aria-label="Tempo, deck A" aria-valuenow="1.2" style="--c:var(--dj-a)"><div class="mid"></div><div class="fill" style="top:44%;height:6%"></div><div class="cap" style="top:calc(44% - 14px)"></div></div>
+            <span class="pct">+1.2%</span>
+            <div class="mini"><button class="btn" title="Pitch bend down (hold)">&minus;</button><button class="btn" title="Pitch bend up (hold)">+</button></div>
+            <div class="mini"><button class="btn" title="Reset tempo to 0 (double-click the fader too)">0</button><button class="btn" title="Range: 8%, 16%, 50%">&plusmn;8</button></div>
+          </div>
+        </div>
+      </article>
+
+      <!-- MIXER -->
+      <section class="mixer" aria-label="Mixer">
+        <h2>Mixer</h2>
+        <div class="eqs"><div class="kn"><div class="knob" style="--r:0deg" role="slider" tabindex="0" aria-label="Trim, deck A"></div></div><label title="Volume going in">Trim</label><div class="kn"><div class="knob" style="--r:0deg" role="slider" tabindex="0" aria-label="Trim, deck B"></div></div><div class="kn"><div class="knob" style="--r:25deg" role="slider" tabindex="0" aria-label="High, deck A"></div><button class="kill" aria-pressed="false" title="Silence this band">KILL</button></div><label title="Treble">High</label><div class="kn"><div class="knob" style="--r:-20deg" role="slider" tabindex="0" aria-label="High, deck B"></div><button class="kill" aria-pressed="false" title="Silence this band">KILL</button></div><div class="kn"><div class="knob" style="--r:0deg" role="slider" tabindex="0" aria-label="Mid, deck A"></div><button class="kill" aria-pressed="false" title="Silence this band">KILL</button></div><label title="Voice">Mid</label><div class="kn"><div class="knob" style="--r:0deg" role="slider" tabindex="0" aria-label="Mid, deck B"></div><button class="kill" aria-pressed="false" title="Silence this band">KILL</button></div><div class="kn"><div class="knob" style="--r:-60deg" role="slider" tabindex="0" aria-label="Low, deck A"></div><button class="kill on" aria-pressed="true" title="Silence this band">KILL</button></div><label title="Bass">Low</label><div class="kn"><div class="knob" style="--r:0deg" role="slider" tabindex="0" aria-label="Low, deck B"></div><button class="kill" aria-pressed="false" title="Silence this band">KILL</button></div><div class="kn"><div class="knob" style="--r:0deg;border-color:var(--dj-a)" role="slider" tabindex="0" aria-label="Filter, deck A"></div></div><label title="Sweep">Filter</label><div class="kn"><div class="knob" style="--r:35deg;border-color:var(--dj-b)" role="slider" tabindex="0" aria-label="Filter, deck B"></div></div></div>
+        <div class="chs">
+          <div class="ch"><div class="fader" role="slider" tabindex="0" aria-label="Channel volume, deck A"><div class="fill" style="top:12%;bottom:6px"></div><div class="cap" style="top:calc(12% - 8px)"></div></div><div class="vu"><i style="--h:68%;height:68%"></i></div></div>
+          <div class="ch b"><div class="vu"><i style="--h:40%;height:40%"></i></div><div class="fader" role="slider" tabindex="0" aria-label="Channel volume, deck B"><div class="fill" style="top:30%;bottom:6px"></div><div class="cap" style="top:calc(30% - 8px)"></div></div></div>
+        </div>
+        <div class="xf" style="border-top:0;padding-top:0">
+          <button class="mixbtn" title="Smoothly fades from deck A to deck B over the beat: crossfader and bass swap, lined up for you.">Mix to B &#10140;</button>
+          <div class="mixlen"><span>Mix length</span><div class="seg" role="radiogroup" aria-label="Mix length in beats"><button role="radio" aria-checked="false">8</button><button role="radio" aria-checked="true" class="on">16</button><button role="radio" aria-checked="false">32</button></div></div>
+          <div class="mixprog" role="progressbar" aria-label="Mix progress" aria-valuenow="35"><i></i></div>
+          
+        </div>
+        <div class="xf">
+          <div class="xfr" role="slider" tabindex="0" aria-label="Crossfader" aria-valuenow="0" title="Crossfader (drag; Z / M nudge; double-click centers)"><div class="cap"></div></div>
+          <div class="curve"><span class="cap-t">Curve</span>
+            <div class="seg" role="radiogroup" aria-label="Crossfader curve"><button role="radio" aria-checked="true" class="on">Smooth</button><button role="radio" aria-checked="false">Linear</button><button role="radio" aria-checked="false">Cut</button></div></div>
+        </div>
+      </section>
+
+      <!-- DECK B (analysis pending) -->
+      <article class="deck b" aria-label="Deck B">
+        <div class="dh">
+          <div class="letter">B</div><div class="cover" role="img" aria-label="Cover"></div>
+          <div class="meta"><div class="t">Dreams</div><div class="a">Fleetwood Mac &middot; Rumours</div></div>
+          <div class="bpm"><div class="n">120.0</div><div class="u">BPM</div></div>
+        </div>
+        <div class="inner">
+          <div class="main">
+            <div class="tm"><span>00:00</span><span>-04:17</span><span class="sp"></span><span>-0.8%</span></div>
+            <div class="waves">
+              <div class="wz"><canvas data-wz="b"></canvas><div class="pend" style="--c:var(--dj-b)">Finding the beat&hellip;</div></div>
+              <div class="wo"><canvas data-wo="b"></canvas><div class="ph" style="left:0"></div></div>
+            </div>
+            <div class="tp">
+              <button class="big" title="Cue - I">CUE<small>I</small></button>
+              <button class="big play" title="Play / pause - O">&#9654; PLAY<small>O</small></button>
+              <button class="big sync" aria-pressed="false" title="Sync - P">SYNC<small>P</small></button>
+            </div>
+            <div class="pads" role="group" aria-label="Hot cues, deck B">
+              <button class="hc empty"><i>1</i>+</button><button class="hc empty"><i>2</i>+</button><button class="hc empty"><i>3</i>+</button><button class="hc empty"><i>4</i>+</button>
+              <button class="hc empty"><i>5</i>+</button><button class="hc empty"><i>6</i>+</button><button class="hc empty"><i>7</i>+</button><button class="hc empty"><i>8</i>+</button>
+            </div>
+            <div class="loops" role="group" aria-label="Loops, deck B">
+              <span class="lbl">Loop</span><button class="btn">1</button><button class="btn">2</button><button class="btn">4</button><button class="btn">8</button>
+              <button class="btn">In</button><button class="btn">Out</button><button class="btn">Exit</button>
+            </div>
+          </div>
+          <div class="side">
+            <span class="cap-t">Tempo</span>
+            <div class="fader" role="slider" tabindex="0" aria-label="Tempo, deck B" style="--c:var(--dj-b)"><div class="mid"></div><div class="fill" style="top:50%;height:4%"></div><div class="cap" style="top:calc(54% - 14px)"></div></div>
+            <span class="pct">-0.8%</span>
+            <div class="mini"><button class="btn">&minus;</button><button class="btn">+</button></div>
+            <div class="mini"><button class="btn">0</button><button class="btn">&plusmn;8</button></div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="low">
+      <div class="sampler" aria-label="Sampler">
+        <h2>Sampler</h2>
+        <div class="sp8">
+          <button><kbd>1</kbd><span>&#128226;</span>Air horn</button>
+          <button class="play"><kbd>2</kbd><span>&#128680;</span>Siren</button>
+          <button><kbd>3</kbd><span>&#10024;</span>Laser</button>
+          <button><kbd>4</kbd><span>&#9194;</span>Rewind</button>
+          <button><kbd>5</kbd><span>&#128165;</span>Drop</button>
+          <button><kbd>6</kbd><span>&#128191;</span>Scratch</button>
+          <button><kbd>7</kbd><span>&#128200;</span>Riser</button>
+          <button><kbd>8</kbd><span>&#129345;</span>Hit</button>
+        </div>
+      </div>
+      <aside class="crate" aria-label="Crate">
+        <div class="top"><div class="search">Search your library or TIDAL</div><div class="seg"><button class="on">Library</button><button>TIDAL</button><button>Queue</button></div></div>
+        <div class="tr" draggable="true"><div class="c"></div><div class="tt">Titanium<small>David Guetta</small></div><span class="bp">126</span><div class="ab"><button class="a" title="Load on deck A">A</button><button class="b" title="Load on deck B">B</button></div></div>
+        <div class="tr"><div class="c"></div><div class="tt">Get Lucky<small>Daft Punk</small></div><span class="bp">116</span><div class="ab"><button class="a">A</button><button class="b">B</button></div></div>
+      </aside>
+    </section>
+  </main>
+</div>
+<script>
+// Draws the fake waveforms (deterministic). The real app draws from DjAnalysis.overview.
+function rnd(i){const x=Math.sin(i*127.1+311.7)*43758.5453;return x-Math.floor(x)}
+function draw(c,zoom,color,seed){
+  const r=c.getBoundingClientRect(),d=devicePixelRatio||1;c.width=r.width*d;c.height=r.height*d;
+  const g=c.getContext('2d');g.scale(d,d);const W=r.width,H=r.height,n=Math.floor(W/(zoom?3:2));
+  for(let i=0;i<n;i++){
+    const t=i/n,env=.35+.55*Math.abs(Math.sin(t*(zoom?18:9)+seed))*(.6+.4*rnd(i+seed*50));
+    const x=i*(W/n),w=W/n-1;
+    const low=env*.9,mid=env*.6*rnd(i+3),hi=env*.35*rnd(i+9);
+    const mk=(h,col)=>{g.fillStyle=col;g.fillRect(x,H/2-h*H/2,w,h*H)};
+    mk(low,'#f97316aa');mk(mid,color+'cc');mk(hi,'#ffffffaa');
+  }
+  if(zoom){g.fillStyle='rgba(255,255,255,.14)';for(let x=(W/2)%48;x<W;x+=48)g.fillRect(x,0,1,H);g.fillStyle='rgba(255,255,255,.3)';for(let x=(W/2)%192;x<W;x+=192)g.fillRect(x,0,2,H)}
+}
+function all(){
+  document.querySelectorAll('canvas').forEach(c=>{
+    const b=c.dataset.wz||c.dataset.wo, col=b==='a'?'#38bdf8':'#f472b6';
+    draw(c,!!c.dataset.wz,col,b==='a'?1:4);
+  });
+}
+all();addEventListener('resize',all);
+</script>
+</body>
+</html>

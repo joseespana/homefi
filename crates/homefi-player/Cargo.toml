@@ -8,15 +8,15 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-homefi-core.workspace = true
+homefi-core = { workspace = true, features = ["decode"] }
 cpal.workspace = true
 rand.workspace = true
 ringbuf.workspace = true
 rubato.workspace = true
 serde.workspace = true
-symphonia.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+serde_json.workspace = true
 tempfile.workspace = true

@@ -1,4 +1,4 @@
-//! File decoding with symphonia: FLAC, ALAC, WAV, AIFF, MP3, AAC, Vorbis, ...
+//! File decoding with symphonia (shared by the desktop player and the DJ engine): FLAC, ALAC, WAV, AIFF, MP3, AAC, Vorbis, ...
 
 use std::fs::File;
 use std::path::Path;
@@ -12,7 +12,18 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use symphonia::core::units::{Time, TimeBase};
 
-use crate::error::{PlayerError, Result};
+/// Why a file could not be opened or decoded (front ends map it to their own error).
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum DecodeError {
+    #[error("could not open {0}")]
+    Open(String),
+    #[error("unsupported file: {0}")]
+    Unsupported(String),
+    #[error("decoding failed: {0}")]
+    Decode(String),
+}
+
+pub type Result<T, E = DecodeError> = std::result::Result<T, E>;
 
 /// An open audio file producing interleaved `f32` samples.
 pub struct Source {
@@ -31,12 +42,12 @@ pub struct Source {
 
 impl Source {
     pub fn open(path: &Path) -> Result<Self> {
-        let file = File::open(path).map_err(|e| PlayerError::Open(format!("{}: {e}", path.display())))?;
+        let file = File::open(path).map_err(|e| DecodeError::Open(format!("{}: {e}", path.display())))?;
         let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
         // symphonia can't decode FLAC inside MP4 (Tidal Hi-Res): remux it in memory first
         if matches!(ext.as_deref(), Some("m4a" | "mp4")) {
-            let data = std::fs::read(path).map_err(|e| PlayerError::Open(format!("{}: {e}", path.display())))?;
-            if let Ok(Some(flac)) = homefi_core::remux::flac_from_mp4_bytes(&data) {
+            let data = std::fs::read(path).map_err(|e| DecodeError::Open(format!("{}: {e}", path.display())))?;
+            if let Ok(Some(flac)) = crate::remux::flac_from_mp4_bytes(&data) {
                 let cursor = std::io::Cursor::new(flac);
                 return Self::open_stream(
                     MediaSourceStream::new(Box::new(cursor), Default::default()),
@@ -61,19 +72,19 @@ impl Source {
                 &FormatOptions { enable_gapless: true, ..Default::default() },
                 &MetadataOptions::default(),
             )
-            .map_err(|e| PlayerError::Unsupported(format!("{}: {e}", path.display())))?;
+            .map_err(|e| DecodeError::Unsupported(format!("{}: {e}", path.display())))?;
         let format = probed.format;
 
         let track = format
             .tracks()
             .iter()
             .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-            .ok_or_else(|| PlayerError::Unsupported(format!("{}: no audio track", path.display())))?;
+            .ok_or_else(|| DecodeError::Unsupported(format!("{}: no audio track", path.display())))?;
         let params = track.codec_params.clone();
 
         let decoder = symphonia::default::get_codecs()
             .make(&params, &DecoderOptions::default())
-            .map_err(|e| PlayerError::Unsupported(format!("{}: {e}", path.display())))?;
+            .map_err(|e| DecodeError::Unsupported(format!("{}: {e}", path.display())))?;
 
         let codec = symphonia::default::get_codecs()
             .get_codec(params.codec)
@@ -105,6 +116,12 @@ impl Source {
 
     /// Next chunk of interleaved samples, `None` at the end of the file.
     pub fn next_chunk(&mut self) -> Result<Option<&[f32]>> {
+        Ok(self.next_chunk_with_channels()?.map(|(samples, _)| samples))
+    }
+
+    /// Like [`Source::next_chunk`], with the channel count of that chunk (known for sure only once
+    /// a packet is decoded).
+    pub fn next_chunk_with_channels(&mut self) -> Result<Option<(&[f32], u16)>> {
         loop {
             let packet = match self.format.next_packet() {
                 Ok(p) => p,
@@ -113,7 +130,7 @@ impl Source {
                     self.decoder.reset();
                     continue;
                 }
-                Err(e) => return Err(PlayerError::Decode(e.to_string())),
+                Err(e) => return Err(DecodeError::Decode(e.to_string())),
             };
             if packet.track_id() != self.track_id {
                 continue;
@@ -130,14 +147,14 @@ impl Source {
                         slot => slot.insert(SampleBuffer::new(needed, spec)),
                     };
                     buf.copy_interleaved_ref(decoded);
-                    return Ok(Some(self.samples.as_ref().expect("buffer set").samples()));
+                    return Ok(Some((self.samples.as_ref().expect("buffer set").samples(), self.channels)));
                 }
                 // a corrupt packet: skip it, keep playing
                 Err(SymError::DecodeError(e)) => {
                     tracing::debug!("decode error (skipped): {e}");
                     continue;
                 }
-                Err(e) => return Err(PlayerError::Decode(e.to_string())),
+                Err(e) => return Err(DecodeError::Decode(e.to_string())),
             }
         }
     }
@@ -148,7 +165,7 @@ impl Source {
         let seeked = self
             .format
             .seek(SeekMode::Accurate, SeekTo::Time { time, track_id: Some(self.track_id) })
-            .map_err(|e| PlayerError::Decode(format!("seek: {e}")))?;
+            .map_err(|e| DecodeError::Decode(format!("seek: {e}")))?;
         self.decoder.reset();
         let reached = match self.time_base {
             Some(tb) => {

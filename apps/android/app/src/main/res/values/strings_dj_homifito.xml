@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dj_homifito_desc">Homifito DJ: the mascot behind his booth, moving with the music</string>
+    <string name="dj_homifito_toggle">Homifito DJ</string>
+    <string name="dj_homifito_toggle_off">Send Homifito home</string>
+    <string name="dj_homifito_toggle_on">Homifito DJ: he mixes with you behind his own booth</string>
+    <string name="dj_homifito_group">Homifito DJ</string>
+    <string name="dj_homifito_size">Size</string>
+    <string name="dj_homifito_size_off">Off</string>
+    <string name="dj_homifito_size_booth">Booth</string>
+    <string name="dj_homifito_size_big">Big</string>
+    <string name="dj_homifito_place">Where he stands</string>
+    <string name="dj_homifito_place_top">Top</string>
+    <string name="dj_homifito_place_bottom">Bottom</string>
+    <string name="dj_homifito_look">Homifito colours</string>
+    <string name="dj_homifito_look_hint">The whole DJ board in his colours: mint deck A, pink deck B, navy waveforms. Works in light and dark.</string>
+    <string name="dj_homifito_hint">He bobs on the beat, scratches, reaches for the crossfader and cheers on the pads. Follows the Motion setting. On short screens Big shrinks to the booth, and on a phone on its side he hides to leave room for the controls.</string>
+</resources>

@@ -117,7 +117,7 @@ impl Error {
             Error::Template(_) | Error::Config(_) => Problem::Settings,
             Error::Share(_) => Problem::Worded,
             Error::AutoEq(_) => Problem::Worded,
-            Error::Playlist(_) => Problem::Worded,
+            Error::Playlist(_) | Error::Export(_) => Problem::Worded,
             Error::Ai(_) => Problem::Worded,
         }
     }
@@ -160,7 +160,7 @@ impl Error {
             }
             Problem::Worded => match self {
                 Error::Share(m) => m.clone(),
-                Error::AutoEq(m) | Error::Playlist(m) => m.clone(),
+                Error::AutoEq(m) | Error::Playlist(m) | Error::Export(m) => m.clone(),
                 Error::Ai(e) => e.humane_in(lang),
                 e => e.to_string(),
             },

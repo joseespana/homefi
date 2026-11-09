@@ -42,6 +42,11 @@ pub struct PlaylistSettings {
     pub chat_allow_explicit: bool,
     /// "Playlist like this" in song menus and the player (opens the chat from a song).
     pub chat_from_song: bool,
+    /// A playlist HomeFi saves is also saved to the TIDAL account (new ones are created there,
+    /// edits of one already there update it).
+    pub tidal_auto_save: bool,
+    /// Deleting a HomeFi playlist also deletes its copy in the TIDAL account.
+    pub tidal_delete_with: bool,
 }
 
 impl Default for PlaylistSettings {
@@ -63,6 +68,8 @@ impl Default for PlaylistSettings {
             chat_curve: EnergyCurve::Steady,
             chat_allow_explicit: true,
             chat_from_song: true,
+            tidal_auto_save: false,
+            tidal_delete_with: false,
         }
     }
 }
@@ -108,7 +115,8 @@ mod tests {
             "prefer_library": true, "search_budget": 5, "skip_tape": true,
             "covers_original_artist": true, "show_sources": true, "home_section": true,
             "party_minutes": 120, "party_curve": "arc", "party_allow_explicit": true, "party_max_per_artist": 3,
-            "chat_minutes": 60, "chat_curve": "steady", "chat_allow_explicit": true, "chat_from_song": true
+            "chat_minutes": 60, "chat_curve": "steady", "chat_allow_explicit": true, "chat_from_song": true,
+            "tidal_auto_save": false, "tidal_delete_with": false
         });
         assert_eq!(json, expected);
     }
@@ -150,6 +158,15 @@ mod tests {
         assert!(s.chat_from_song, "old files get the song entry");
         let off: PlaylistSettings = serde_json::from_str(r#"{"chat_from_song":false}"#).unwrap();
         assert!(!off.chat_from_song);
+    }
+
+    #[test]
+    fn tidal_settings_are_off_by_default_and_travel() {
+        let s: PlaylistSettings = serde_json::from_str(r#"{"chat_from_song":false}"#).unwrap();
+        assert!(!s.tidal_auto_save && !s.tidal_delete_with, "old files never write to TIDAL");
+        let on: PlaylistSettings =
+            serde_json::from_str(r#"{"tidal_auto_save":true,"tidal_delete_with":true}"#).unwrap();
+        assert!(on.clamped().tidal_auto_save && on.clamped().tidal_delete_with);
     }
 
     #[test]

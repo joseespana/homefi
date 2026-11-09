@@ -235,6 +235,7 @@ fn fresh_playlist(
         unmatched: arranged.unmatched,
         sources,
         search_widget_html,
+        tidal_uuid: None,
     }
 }
 

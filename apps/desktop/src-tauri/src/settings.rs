@@ -91,6 +91,9 @@ pub struct RoomSettings {
     /// Where lyrics, queue and the mini player sit: `top` (a bar above the
     /// content, freeing the player bar) or `bottom` (in the player bar).
     pub player_buttons: String,
+    /// On a wide window the song playing sits in a column on the right while
+    /// you browse, sized to the window; its button opens the full room.
+    pub side_player: bool,
 }
 
 impl Default for RoomSettings {
@@ -131,6 +134,7 @@ impl Default for RoomSettings {
             motion: "auto".into(),
             settings_width: "comfortable".into(),
             player_buttons: PLAYER_BUTTONS_TOP.into(),
+            side_player: true,
         }
     }
 }
@@ -428,6 +432,14 @@ pub struct DesktopSettings {
     /// back to the defaults.
     #[serde(deserialize_with = "homefi_disc::lenient_disc")]
     pub disc: homefi_disc::DiscSettings,
+    /// DJ mode: the same JSON (snake_case) as Android's; an unreadable section falls back to
+    /// the defaults, values out of range are clamped.
+    #[serde(deserialize_with = "homefi_core::dj::settings::lenient_dj")]
+    pub dj: homefi_core::dj::DjSettings,
+    /// Exercise mode (indoor cycling): the same JSON (snake_case) as Android's; an unreadable
+    /// section falls back to the defaults, values out of range are clamped.
+    #[serde(deserialize_with = "homefi_core::exercise::lenient_exercise")]
+    pub exercise: homefi_core::exercise::ExerciseSettings,
     /// The version whose notes were last decided (shown or skipped). Owned by the
     /// backend: `set_settings` keeps the stored value, so a stale UI copy can't reset it.
     pub last_seen_version: Option<String>,
@@ -488,6 +500,8 @@ impl Default for DesktopSettings {
             updates: UpdateSettings::default(),
             mini: MiniSettings::default(),
             disc: Default::default(),
+            dj: Default::default(),
+            exercise: Default::default(),
             last_seen_version: None,
         }
     }
@@ -572,6 +586,7 @@ mod tests {
         assert_eq!(old.room.lyrics_offset_ms, 0);
         assert_eq!(old.room.motion, "auto");
         assert_eq!(old.room.settings_width, "comfortable");
+        assert!(old.room.side_player);
     }
 
     #[test]
@@ -731,6 +746,13 @@ mod tests {
         assert_eq!(bad.playlists, Default::default());
         let wild: DesktopSettings = serde_json::from_str(r#"{"playlists":{"concert_shows":99}}"#).unwrap();
         assert_eq!(wild.playlists.clamped().concert_shows, 15);
+        assert!(
+            !old.playlists.tidal_auto_save && !old.playlists.tidal_delete_with,
+            "TIDAL is never written by default"
+        );
+        let on: DesktopSettings =
+            serde_json::from_str(r#"{"playlists":{"tidal_auto_save":true,"tidal_delete_with":true}}"#).unwrap();
+        assert!(on.playlists.tidal_auto_save && on.playlists.tidal_delete_with);
     }
 
     #[test]
@@ -751,6 +773,49 @@ mod tests {
         let json = serde_json::to_value(&wild).unwrap();
         assert_eq!(json["disc"]["watchSeconds"], 30);
         assert_eq!(json["disc"]["sources"]["musicbrainz"], false);
+    }
+
+    #[test]
+    fn dj_settings_default_clamp_and_survive_bad_data() {
+        use homefi_core::dj::{DjLatency, DjSettings, LoadTarget};
+        let old: DesktopSettings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(old.dj, DjSettings::default());
+        assert!(old.dj.simple_view && old.dj.sync_on_load && old.dj.show_entry, "beginner first");
+        let bad: DesktopSettings = serde_json::from_str(r#"{"dj":"loud"}"#).unwrap();
+        assert_eq!(bad.dj, DjSettings::default());
+        let wild: DesktopSettings = serde_json::from_str(
+            r#"{"dj":{"tempo_range_pct":500,"latency":"low","load_target":"crate","auto_mix_beats":20,"simple_view":false}}"#,
+        )
+        .unwrap();
+        assert_eq!(wild.dj.tempo_range_pct, 50.0);
+        assert_eq!(wild.dj.latency, DjLatency::Low);
+        assert_eq!(wild.dj.load_target, LoadTarget::Crate);
+        assert_eq!(wild.dj.auto_mix_beats, 16);
+        assert!(!wild.dj.simple_view);
+        // what the screen reads back keeps the snake_case keys
+        let json = serde_json::to_value(&wild).unwrap();
+        assert_eq!(json["dj"]["load_target"], "crate");
+        assert_eq!(json["dj"]["show_tips"], true);
+    }
+
+    #[test]
+    fn exercise_settings_default_clamp_and_survive_bad_data() {
+        use homefi_core::exercise::{ExerciseSettings, TvAudio};
+        let old: DesktopSettings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(old.exercise, ExerciseSettings::default());
+        let bad: DesktopSettings = serde_json::from_str(r#"{"exercise":"loud"}"#).unwrap();
+        assert_eq!(bad.exercise, ExerciseSettings::default());
+        let wild: DesktopSettings = serde_json::from_str(
+            r#"{"exercise":{"ride_minutes":400,"tv_port":80,"tv_audio":"phone","tv_enabled":true}}"#,
+        )
+        .unwrap();
+        assert_eq!(wild.exercise.ride_minutes, 90);
+        assert_eq!(wild.exercise.tv_port, 1024);
+        assert_eq!(wild.exercise.tv_audio, TvAudio::Phone);
+        assert!(wild.exercise.tv_enabled && wild.exercise.beginner_mode, "missing fields keep their defaults");
+        let json = serde_json::to_value(&wild).unwrap();
+        assert_eq!(json["exercise"]["tv_audio"], "phone");
+        assert_eq!(json["exercise"]["tv_window_fullscreen"], true);
     }
 
     fn loaded(json: &str) -> DesktopSettings {

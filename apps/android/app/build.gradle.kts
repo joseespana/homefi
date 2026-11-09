@@ -184,7 +184,13 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons)
+    // the TV UI (phase 1+): focus visuals, drawer, TV buttons and cards; `tv-foundation` is deliberately not added
+    implementation(libs.androidx.tv.material)
     implementation(libs.zxing.core)
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.coil.compose)
     implementation(libs.coil.network)
@@ -194,4 +200,5 @@ dependencies {
     implementation(variantOf(libs.jna) { artifactType("aar") })
     debugImplementation(libs.androidx.compose.ui.tooling)
     testImplementation(libs.junit)
+    testImplementation(libs.org.json)
 }

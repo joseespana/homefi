@@ -1,6 +1,7 @@
 //! HomeFi playlists ("Get ready for a concert", `src/lib/api.ts`): thin commands over
-//! `homefi_core::concert` and `PlaylistStore`. Every rule lives in the core; nothing
-//! here writes to the Tidal account.
+//! `homefi_core::concert` and `PlaylistStore`. Every rule lives in the core. The TIDAL
+//! account is written only to save a HomeFi playlist there (the button, or the
+//! "save to TIDAL automatically" setting) and to delete that copy (its own setting).
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -11,10 +12,12 @@ use homefi_core::humane::{self, Lang};
 use homefi_core::party::{
     self, ChatBrief, PartyBrief, PartyBuilt, PartyContext, PartyProgress, PartySession, PartyTurn, SongSeed,
 };
-use homefi_core::playlist::{HomePlaylist, LibraryIndex, LibraryRef, PlaylistStore};
+use homefi_core::playlist::{
+    delete_from_tidal, save_stored_to_tidal, HomePlaylist, LibraryIndex, LibraryRef, PlaylistStore, TidalSaveReport,
+};
 use serde::Serialize;
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{watch, Mutex as AsyncMutex};
 
 use crate::commands::{err, AppState, TrackView};
@@ -34,8 +37,13 @@ impl Playlists {
         Self { store: PlaylistStore::in_app_dir(app_dir), cancel: Mutex::new(None), party: AsyncMutex::new(None) }
     }
 
+    /// The playlist store (the Exercise ride saves its playlist here).
+    pub(crate) fn store(&self) -> &PlaylistStore {
+        &self.store
+    }
+
     /// Registers a new running job, cancelling the one before it.
-    fn begin(&self) -> watch::Receiver<bool> {
+    pub(crate) fn begin(&self) -> watch::Receiver<bool> {
         let (tx, rx) = watch::channel(false);
         if let Some(previous) = self.cancel.lock().unwrap().replace(tx) {
             let _ = previous.send(true);
@@ -44,14 +52,14 @@ impl Playlists {
     }
 
     /// Clears the switch, unless a newer job already took its place.
-    fn finish(&self, rx: &watch::Receiver<bool>) {
+    pub(crate) fn finish(&self, rx: &watch::Receiver<bool>) {
         let mut slot = self.cancel.lock().unwrap();
         if slot.as_ref().is_some_and(|tx| tx.subscribe().same_channel(rx)) {
             *slot = None;
         }
     }
 
-    fn cancel(&self) {
+    pub(crate) fn cancel(&self) {
         if let Some(tx) = self.cancel.lock().unwrap().as_ref() {
             let _ = tx.send(true);
         }
@@ -78,7 +86,7 @@ pub struct ConcertSources {
 }
 
 /// The library as the core's resolver wants it.
-fn library_refs(tracks: &[TrackView]) -> Vec<LibraryRef> {
+pub(crate) fn library_refs(tracks: &[TrackView]) -> Vec<LibraryRef> {
     tracks
         .iter()
         .map(|t| LibraryRef {
@@ -88,11 +96,13 @@ fn library_refs(tracks: &[TrackView]) -> Vec<LibraryRef> {
             album: t.album.clone(),
             isrc: t.isrc.clone(),
             duration_ms: t.duration_ms,
+            bpm: t.bpm,
+            genre: t.genre.clone(),
         })
         .collect()
 }
 
-fn cancelled_text() -> String {
+pub(crate) fn cancelled_text() -> String {
     match humane::language() {
         Lang::Es => "cancelado".into(),
         Lang::En => "cancelled".into(),
@@ -100,7 +110,7 @@ fn cancelled_text() -> String {
 }
 
 /// Resolves when `true` is sent; pends forever if the switch is dropped unused.
-async fn cancelled(mut rx: watch::Receiver<bool>) {
+pub(crate) async fn cancelled(mut rx: watch::Receiver<bool>) {
     loop {
         if *rx.borrow_and_update() {
             return;
@@ -344,23 +354,90 @@ pub async fn home_playlists(app: AppHandle) -> CmdResult<Vec<HomePlaylist>> {
     tauri::async_runtime::spawn_blocking(move || dir.list()).await.map_err(err)
 }
 
-#[tauri::command]
-pub async fn home_playlist_save(app: AppHandle, playlist: HomePlaylist) -> CmdResult<()> {
+/// Event with the outcome of an automatic save to TIDAL (the screen updates the playlist).
+pub const TIDAL_SYNC_EVENT: &str = "home-playlist-tidal";
+
+/// What a save to TIDAL did, with its summary in words.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct TidalSaveView {
+    #[serde(flatten)]
+    pub report: TidalSaveReport,
+    /// "Saved 24 songs to TIDAL · 2 aren't on TIDAL".
+    pub summary: String,
+}
+
+/// The stored playlist after a save to TIDAL (it now has its `tidal_uuid`) and the report.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct TidalSaved {
+    pub playlist: HomePlaylist,
+    pub report: TidalSaveView,
+}
+
+/// [`TIDAL_SYNC_EVENT`]'s payload.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TidalSyncView {
+    Saved(Box<TidalSaved>),
+    Failed { id: String, message: String },
+}
+
+async fn save_to_tidal(app: &AppHandle, id: &str, lang: Lang) -> CmdResult<TidalSaved> {
+    let api = app.state::<AppState>().api().map_err(err)?;
     let store = app.state::<Playlists>().store.clone();
-    tauri::async_runtime::spawn_blocking(move || store.save(&playlist)).await.map_err(err)?.map_err(err)
+    let (playlist, report) = save_stored_to_tidal(&api, &store, id).await.map_err(err)?;
+    let summary = report.summary(lang);
+    Ok(TidalSaved { playlist, report: TidalSaveView { report, summary } })
+}
+
+/// Saves HomeFi's copy and answers it as stored (a copy that didn't know its TIDAL twin gets
+/// it back). With "save to TIDAL automatically" on (and TIDAL signed in) it is then saved to
+/// TIDAL in the background; [`TIDAL_SYNC_EVENT`] tells how that went.
+#[tauri::command]
+pub async fn home_playlist_save(app: AppHandle, playlist: HomePlaylist) -> CmdResult<HomePlaylist> {
+    let store = app.state::<Playlists>().store.clone();
+    let id = playlist.id.clone();
+    let stored = tauri::async_runtime::spawn_blocking(move || -> homefi_core::Result<HomePlaylist> {
+        store.save(&playlist)?;
+        Ok(store.load(&playlist.id).unwrap_or(playlist))
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)?;
+    let state = app.state::<AppState>();
+    if state.settings().playlists.tidal_auto_save && state.api().is_ok() {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let view = match save_to_tidal(&app, &id, humane::language()).await {
+                Ok(saved) => TidalSyncView::Saved(Box::new(saved)),
+                Err(message) => TidalSyncView::Failed { id, message },
+            };
+            let _ = app.emit(TIDAL_SYNC_EVENT, view);
+        });
+    }
+    Ok(stored)
+}
+
+/// "Save to TIDAL" / "Update on TIDAL" on a stored playlist (`language`: "en" or "es").
+#[tauri::command]
+pub async fn home_playlist_save_to_tidal(app: AppHandle, id: String, language: String) -> CmdResult<TidalSaved> {
+    save_to_tidal(&app, &id, Lang::from_code(&language)).await
 }
 
 /// Moves the playlist's JSON to the system Trash (never a hard delete); `false` when unknown.
+/// With "delete the TIDAL copy too" on, its copy in the TIDAL account is deleted as well
+/// (best effort: HomeFi's copy goes even when TIDAL can't be reached).
 #[tauri::command]
 pub async fn home_playlist_delete(app: AppHandle, id: String) -> CmdResult<bool> {
     let store = app.state::<Playlists>().store.clone();
-    tauri::async_runtime::spawn_blocking(move || -> CmdResult<bool> {
+    let delete_on_tidal = app.state::<AppState>().settings().playlists.tidal_delete_with;
+    let (removed, stored) = tauri::async_runtime::spawn_blocking(move || -> CmdResult<(bool, Option<HomePlaylist>)> {
         let Some(file) = store.file_path(&id) else {
-            return Ok(false);
+            return Ok((false, None));
         };
+        let stored = if delete_on_tidal { store.load(&id).ok() } else { None };
         match trash::delete(&file) {
-            Ok(()) => Ok(true),
-            Err(_) if !file.exists() => Ok(false),
+            Ok(()) => Ok((true, stored)),
+            Err(_) if !file.exists() => Ok((false, None)),
             Err(e) => {
                 tracing::warn!("could not move {} to the trash: {e}", file.display());
                 Err(err(e))
@@ -368,7 +445,17 @@ pub async fn home_playlist_delete(app: AppHandle, id: String) -> CmdResult<bool>
         }
     })
     .await
-    .map_err(err)?
+    .map_err(err)??;
+    if let Some(playlist) = stored.filter(|p| p.tidal_uuid.is_some()) {
+        let deleted = match app.state::<AppState>().api() {
+            Ok(api) => delete_from_tidal(&api, &playlist).await.map(drop),
+            Err(e) => Err(e),
+        };
+        if let Err(e) = deleted {
+            tracing::warn!("could not delete the TIDAL copy of {}: {e}", playlist.id);
+        }
+    }
+    Ok(removed)
 }
 
 #[cfg(test)]
@@ -394,6 +481,7 @@ mod tests {
             lossless: true,
             quality: "FLAC".into(),
             isrc: Some("USSM19400123".into()),
+            bpm: Some(96),
         };
         let refs = library_refs(&[track]);
         assert_eq!(
@@ -405,6 +493,8 @@ mod tests {
                 album: "Korn".into(),
                 isrc: Some("USSM19400123".into()),
                 duration_ms: 259_000,
+                bpm: Some(96),
+                genre: String::new(),
             }]
         );
     }
@@ -454,6 +544,18 @@ mod tests {
             chat_song_wish(seed, "en".into()),
             "A playlist like “Hotel California” by Eagles (1976): same style, era and mood. Start with it."
         );
+    }
+
+    #[test]
+    fn tidal_sync_json_shape() {
+        let report = TidalSaveReport { uuid: "u".into(), created: true, saved: 2, skipped: vec!["X · Y".into()] };
+        let view = TidalSaveView { summary: report.summary(Lang::En), report };
+        assert_eq!(
+            serde_json::to_value(&view).unwrap(),
+            serde_json::json!({"uuid":"u","created":true,"saved":2,"skipped":["X · Y"],"summary":"Saved 2 songs to TIDAL · 1 isn't on TIDAL"})
+        );
+        let failed = TidalSyncView::Failed { id: "p1".into(), message: "m".into() };
+        assert_eq!(serde_json::to_string(&failed).unwrap(), r#"{"kind":"failed","id":"p1","message":"m"}"#);
     }
 
     #[tokio::test]

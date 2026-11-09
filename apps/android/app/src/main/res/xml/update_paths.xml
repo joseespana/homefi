@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The downloaded update (cache/updates/HomeFi-<version>.apk), handed to Android's installer -->
 <paths>
+    <!-- a ride or DJ setup handed to the share sheet (cache/exports/<name>.homefiride) -->
+    <cache-path name="exports" path="exports/" />
     <cache-path name="updates" path="updates/" />
 </paths>

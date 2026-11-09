@@ -13,6 +13,19 @@ import com.perseusoft.homefi.core.eqSettingsFromJson
 import com.perseusoft.homefi.core.eqSettingsToJson
 import com.perseusoft.homefi.core.LoudnessSettings
 import com.perseusoft.homefi.core.CrossfadeSettings
+import com.perseusoft.homefi.core.DjSettings
+import com.perseusoft.homefi.core.ExerciseSettings
+import com.perseusoft.homefi.core.exerciseDefaultSettings
+import com.perseusoft.homefi.core.exerciseSettingsClamped
+import com.perseusoft.homefi.core.exerciseSettingsFromJson
+import com.perseusoft.homefi.core.exerciseSettingsToJson
+import com.perseusoft.homefi.core.DjSection
+import com.perseusoft.homefi.core.DjSectionKind
+import com.perseusoft.homefi.core.SfxKind
+import com.perseusoft.homefi.core.djDefaultSettings
+import com.perseusoft.homefi.core.djSettingsClamped
+import com.perseusoft.homefi.core.djSettingsFromJson
+import com.perseusoft.homefi.core.djSettingsToJson
 import com.perseusoft.homefi.core.PlaylistSettings
 import com.perseusoft.homefi.core.playlistDefaultSettings
 import com.perseusoft.homefi.core.playlistSettingsClamped
@@ -217,6 +230,9 @@ data class AppSettings(
     /** The player layout skins the whole app (bars, lists, settings...), not only the player. */
     val layoutEverywhere: Boolean = true,
     val immersiveShade: ImmersiveShade = ImmersiveShade.AUTO,
+    /** On wide screens (tablets, landscape) the player sits beside the app instead of over it;
+     *  its width follows the screen. */
+    val sidePlayer: Boolean = true,
     val progressStyle: ProgressStyle = ProgressStyle.WAVY,
     val progressThickness: ProgressThickness = ProgressThickness.MEDIUM,
     val progressAnimated: Boolean = true,
@@ -273,8 +289,26 @@ data class AppSettings(
     val carSongs: Boolean = true,
     /** The line being sung shows in the car's player, under the title. */
     val carLyrics: Boolean = true,
+    /** The DJ button in the top bar (DJ mode itself stays one tap away in Settings). */
+    val djEntry: Boolean = true,
+    /** The size the DJ top bar's Homifito button turns back on: the big stage (true) or the booth. */
+    val djHomifitoBig: Boolean = false,
+    /** Simple view: no tempo fader, hot cues, loops or trim, only Sync and Mix. */
+    val djSimpleView: Boolean = true,
+    /** The "Your first mix" card on the DJ screen. */
+    val djShowTips: Boolean = true,
+    /** A mix swaps the bass: the outgoing song's bass leaves as the incoming one's arrives. */
+    val djBassSwap: Boolean = true,
+    /** Tempo changes keep the pitch (otherwise faster = higher, like vinyl). */
+    val djKeyLock: Boolean = true,
+    /** The sound of every pad ([DJ_LAYOUT_PADS], like the core's layout); the phone plays the first [DJ_PADS]. */
+    val djPads: List<SfxKind> = DEFAULT_DJ_PADS,
+    /** DJ screen sections in screen order (hidden ones keep their place); the core's layout rules. */
+    val djSections: List<DjSection> = emptyList(),
     val share: ShareSettings = ShareSettings(),
     val ai: AiSettings = AiSettings(),
+    /** HomeFi on a TV (Android TV / Google TV); both forms keep it. */
+    val tv: TvSettings = TvSettings(),
     /** "How does it sound?" button in the player (it stays in the player's menu either way). */
     val soundReactButton: Boolean = true,
     /** The signal badge names the active layers ("Warm and airy") instead of "Sound". */
@@ -323,6 +357,21 @@ const val TIDAL_TERMS_VERSION = 1
 val LYRICS_OFFSET_RANGE = -2000..2000
 const val LYRICS_OFFSET_STEP = 100
 
+/** Pads on the Android DJ screen (the core has eight sounds; which four is a setting). */
+const val DJ_PADS = 4
+
+/** Pads a layout stores (the desktop shows eight; a phone plays the first [DJ_PADS]). */
+const val DJ_LAYOUT_PADS = 8
+val DEFAULT_DJ_PADS = listOf(
+    SfxKind.AIR_HORN, SfxKind.SIREN, SfxKind.REWIND, SfxKind.DROP,
+    SfxKind.LASER, SfxKind.SCRATCH, SfxKind.RISER, SfxKind.HIT,
+)
+private const val DJ_SETTINGS_KEY = "dj_settings"
+private const val EXERCISE_SETTINGS_KEY = "exercise_settings"
+
+/** SharedPreferences key of the TV settings JSON ([TvSettings]; lenient, so old data never breaks it). */
+private const val TV_SETTINGS_KEY = "tv_settings"
+
 /** SharedPreferences key of the playlist settings JSON (shared shape with the desktop). */
 private const val PLAYLIST_SETTINGS_KEY = "playlist_settings"
 
@@ -361,6 +410,7 @@ class SettingsStore(context: Context) {
             ?: PlayerLayout.CLASSIC,
         layoutEverywhere = prefs.getBoolean("layout_everywhere", true),
         immersiveShade = enumPref("immersive_shade", ImmersiveShade.AUTO),
+        sidePlayer = prefs.getBoolean("side_player", true),
         progressStyle = prefs.getString("progress_style", null)
             ?.let { runCatching { ProgressStyle.valueOf(it) }.getOrNull() }
             ?: ProgressStyle.WAVY,
@@ -413,8 +463,17 @@ class SettingsStore(context: Context) {
         carArtists = prefs.getBoolean("car_artists", true),
         carSongs = prefs.getBoolean("car_songs", true),
         carLyrics = prefs.getBoolean("car_lyrics", true),
+        djEntry = prefs.getBoolean("dj_entry", true),
+        djHomifitoBig = prefs.getBoolean("dj_homifito_big", false),
+        djSimpleView = prefs.getBoolean("dj_simple_view", true),
+        djShowTips = prefs.getBoolean("dj_show_tips", true),
+        djBassSwap = prefs.getBoolean("dj_bass_swap", true),
+        djKeyLock = prefs.getBoolean("dj_key_lock", true),
+        djPads = loadPads(),
+        djSections = loadSections(),
         pipMascot = prefs.getBoolean("pip_mascot", false),
         share = loadShare(),
+        tv = TvSettings.fromJson(prefs.getString(TV_SETTINGS_KEY, null)),
         ai = AiSettings(
             provider = prefs.getString("ai_provider", "").orEmpty(),
             models = stringMap("ai_models"),
@@ -447,6 +506,20 @@ class SettingsStore(context: Context) {
         val o = JSONObject(prefs.getString(key, null) ?: return emptyMap())
         o.keys().asSequence().associateWith { o.getString(it) }
     }.getOrDefault(emptyMap())
+
+    /** Every pad's sound; anything unreadable or missing falls back to the default pad. */
+    private fun loadPads(): List<SfxKind> {
+        val saved = prefs.getString("dj_pads", null)?.split(",").orEmpty()
+        return List(DJ_LAYOUT_PADS) { i -> saved.getOrNull(i)?.let { n -> runCatching { SfxKind.valueOf(n) }.getOrNull() } ?: DEFAULT_DJ_PADS[i] }
+    }
+
+    /** The saved section order; [djLayout] lets the core complete it. */
+    private fun loadSections(): List<DjSection> =
+        prefs.getString("dj_sections", null)?.split(",").orEmpty().mapNotNull { item ->
+            val (name, flag) = item.split(":").takeIf { it.size == 2 } ?: return@mapNotNull null
+            val kind = runCatching { DjSectionKind.valueOf(name) }.getOrNull() ?: return@mapNotNull null
+            DjSection(kind, flag == "1")
+        }
 
     private inline fun <reified E : Enum<E>> enumPref(key: String, default: E): E =
         prefs.getString(key, null)?.let { runCatching { enumValueOf<E>(it) }.getOrNull() } ?: default
@@ -516,6 +589,7 @@ class SettingsStore(context: Context) {
             .putString("player_layout", next.playerLayout.name)
             .putBoolean("layout_everywhere", next.layoutEverywhere)
             .putString("immersive_shade", next.immersiveShade.name)
+            .putBoolean("side_player", next.sidePlayer)
             .putString("progress_style", next.progressStyle.name)
             .putString("progress_thickness", next.progressThickness.name)
             .putBoolean("progress_animated", next.progressAnimated)
@@ -547,8 +621,17 @@ class SettingsStore(context: Context) {
             .putBoolean("car_artists", next.carArtists)
             .putBoolean("car_songs", next.carSongs)
             .putBoolean("car_lyrics", next.carLyrics)
+            .putBoolean("dj_entry", next.djEntry)
+            .putBoolean("dj_homifito_big", next.djHomifitoBig)
+            .putBoolean("dj_simple_view", next.djSimpleView)
+            .putBoolean("dj_show_tips", next.djShowTips)
+            .putBoolean("dj_bass_swap", next.djBassSwap)
+            .putBoolean("dj_key_lock", next.djKeyLock)
+            .putString("dj_pads", next.djPads.joinToString(",") { it.name })
+            .putString("dj_sections", next.djSections.joinToString(",") { "${it.kind.name}:${if (it.visible) 1 else 0}" })
             .putBoolean("pip_mascot", next.pipMascot)
             .putShare(next.share)
+            .putString(TV_SETTINGS_KEY, next.tv.clamped().toJson())
             .putString("ai_provider", next.ai.provider)
             .putString("ai_models", JSONObject(next.ai.models).toString())
             .putString("ai_base_urls", JSONObject(next.ai.baseUrls).toString())
@@ -611,6 +694,8 @@ class SettingsStore(context: Context) {
 
     /** The user accepted the current personal-use notice. */
     fun acceptTerms() = update { it.copy(tidalTermsAccepted = TIDAL_TERMS_VERSION, tidalTermsAcceptedAt = System.currentTimeMillis()) }
+
+    fun updateTv(transform: (TvSettings) -> TvSettings) = update { it.copy(tv = transform(it.tv).clamped()) }
 
     fun updateAi(transform: (AiSettings) -> AiSettings) = update { it.copy(ai = transform(it.ai)) }
 
@@ -709,6 +794,35 @@ class SettingsStore(context: Context) {
         val clamped = runCatching { playlistSettingsClamped(value) }.getOrDefault(value)
         _playlists.value = clamped
         runCatching { playlistSettingsToJson(clamped) }.onSuccess { prefs.edit().putString(PLAYLIST_SETTINGS_KEY, it).apply() }
+    }
+
+    // ------------------------------------------------------------------ DJ
+
+    private val _dj = MutableStateFlow(
+        prefs.getString(DJ_SETTINGS_KEY, null)?.let { runCatching { djSettingsFromJson(it) }.getOrNull() } ?: djDefaultSettings(),
+    )
+    /** The DJ options the core owns (defaults and ranges live there), as the desktop's `dj` JSON. */
+    val dj: StateFlow<DjSettings> = _dj.asStateFlow()
+
+    fun setDj(value: DjSettings) {
+        val clamped = runCatching { djSettingsClamped(value) }.getOrDefault(value)
+        _dj.value = clamped
+        runCatching { djSettingsToJson(clamped) }.onSuccess { prefs.edit().putString(DJ_SETTINGS_KEY, it).apply() }
+    }
+
+    // ------------------------------------------------------------ Exercise
+
+    private val _exercise = MutableStateFlow(
+        prefs.getString(EXERCISE_SETTINGS_KEY, null)?.let { runCatching { exerciseSettingsFromJson(it) }.getOrNull() }
+            ?: exerciseDefaultSettings(),
+    )
+    /** The Exercise options the core owns (defaults and ranges live there), as the desktop's `exercise` JSON. */
+    val exercise: StateFlow<ExerciseSettings> = _exercise.asStateFlow()
+
+    fun setExercise(value: ExerciseSettings) {
+        val clamped = runCatching { exerciseSettingsClamped(value) }.getOrDefault(value)
+        _exercise.value = clamped
+        runCatching { exerciseSettingsToJson(clamped) }.onSuccess { prefs.edit().putString(EXERCISE_SETTINGS_KEY, it).apply() }
     }
 
     /** Shortcut for the share section. */

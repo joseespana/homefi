@@ -1,5 +1,9 @@
 package com.perseusoft.homefi.ui
 
+import com.perseusoft.homefi.ui.player.SidePlayer
+import com.perseusoft.homefi.ui.player.SIDE_PLAYER_MIN_SCREEN_DP
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.platform.LocalConfiguration
 import com.perseusoft.homefi.player.EqPanel
 import com.perseusoft.homefi.ui.eq.AssistantScreen
 import com.perseusoft.homefi.ui.eq.OutputCurveEditor
@@ -10,6 +14,8 @@ import com.perseusoft.homefi.data.PlayerButtons
 import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.rounded.Groups
 import com.perseusoft.homefi.ui.sound.SoundScreen
+import com.perseusoft.homefi.ui.dj.DjScreen
+import androidx.compose.material.icons.rounded.Headphones
 
 import com.perseusoft.homefi.ui.haptics
 import android.Manifest
@@ -36,6 +42,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.automirrored.rounded.DirectionsBike
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -104,9 +111,17 @@ enum class Tab(val label: Int, val icon: ImageVector) {
     HOME(R.string.home_title, Icons.Rounded.Home),
     LIBRARY(R.string.tab_library, Icons.Rounded.LibraryMusic),
     SEARCH(R.string.tab_search, Icons.Rounded.Search),
+    /** Exercise mode; hidden from the bar when its `show_entry` setting is off. */
+    TRAIN(R.string.ex_tab, Icons.AutoMirrored.Rounded.DirectionsBike),
     DOWNLOADS(R.string.tab_downloads, Icons.Rounded.Download),
     SETTINGS(R.string.tab_settings, Icons.Rounded.Settings),
 }
+
+/**
+ * The side player's width, measured from the screen: about a third of it, never narrower than
+ * a phone's player (320 dp) nor so wide the app on the left gets cramped (440 dp).
+ */
+private fun sidePlayerWidth(screenWidthDp: Int) = (screenWidthDp * 0.32f).dp.coerceIn(320.dp, 440.dp)
 
 /** What the content area shows: a destination, or the login in its place. */
 private data class Screen(val tab: Tab, val login: Boolean)
@@ -135,8 +150,24 @@ fun HomefiRoot(destinations: Flow<Destination>) {
     val scope = rememberCoroutineScope()
     val roomPlayer = remember(app.share) { GuestPlayer(app.share, loggedIn = app.account.account, scope = scope) }
     val ownPlayer = playerSource()
-    val openPlayer = { if (app.share.guest.value.status == GuestStatus.CONNECTED) app.share.openGuest(true) else playerOpen = true }
+    // a wide screen (tablet, landscape) keeps the player beside the app, Spotify-like; the
+    // full-screen player is then the "maximized" one
+    val wide = settings.sidePlayer && LocalConfiguration.current.screenWidthDp >= SIDE_PLAYER_MIN_SCREEN_DP
+    var sideHidden by rememberSaveable { mutableStateOf(false) }
+    val openPlayer = {
+        when {
+            app.share.guest.value.status == GuestStatus.CONNECTED -> app.share.openGuest(true)
+            wide && sideHidden -> sideHidden = false
+            else -> playerOpen = true
+        }
+    }
     val joinRequest by app.share.joinRequest.collectAsStateWithLifecycle()
+    // the DJ screen shows while the session is open (it survives rotation and the notification's tap)
+    val djOpen by app.dj.isOpen.collectAsStateWithLifecycle()
+    val exercise by app.settings.exercise.collectAsStateWithLifecycle()
+    val rideUi by app.ride.ui.collectAsStateWithLifecycle()
+    val rideOpen by app.ride.isOpen.collectAsStateWithLifecycle()
+    val riding = rideUi is com.perseusoft.homefi.player.exercise.RideUi.Riding
     val skin = LocalSkin.current
 
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -168,9 +199,12 @@ fun HomefiRoot(destinations: Flow<Destination>) {
 
     val motion = LocalMotion.current
     val nowPlayingShown = playerOpen && !inRoom && playing.current != null
+    val sideShown = wide && !sideHidden && !playerOpen && !inRoom && playing.current != null
     val body: @Composable () -> Unit = {
     Box(Modifier.fillMaxSize()) {
+      Row(Modifier.fillMaxSize()) {
         Scaffold(
+            modifier = Modifier.weight(1f),
             topBar = {
                 Column {
                 val bar = skin.topBar
@@ -188,6 +222,9 @@ fun HomefiRoot(destinations: Flow<Destination>) {
                     },
                     actions = {
                         // one Sound control; in a room the Groups icon mirrors the desktop's sharing status
+                        if (settings.djEntry) {
+                            IconButton(onClick = app.dj::open) { Icon(Icons.Rounded.Headphones, stringResource(R.string.dj_title)) }
+                        }
                         if (settings.playerButtons == PlayerButtons.TOP) SoundButton(remote = false)
                         if (inRoom) {
                             IconButton(onClick = { app.share.openGuest(true) }) {
@@ -213,7 +250,10 @@ fun HomefiRoot(destinations: Flow<Destination>) {
             bottomBar = {
                 Column {
                     // its cover steps aside while a full-screen panel shows it (and grows into it)
-                    MiniPlayer(source = if (inRoom) roomPlayer else ownPlayer, onOpen = openPlayer, coverShown = !nowPlayingShown && !guestOpen)
+                    // the side player already shows the song: no bar for it here
+                    AnimatedVisibility(visible = !sideShown, enter = motion.reveal(), exit = motion.conceal()) {
+                        MiniPlayer(source = if (inRoom) roomPlayer else ownPlayer, onOpen = openPlayer, coverShown = !nowPlayingShown && !guestOpen)
+                    }
                     val bar = skin.navBar
                     NavigationBar(
                         containerColor = if (bar == null) NavigationBarDefaults.containerColor else Color.Transparent,
@@ -231,7 +271,7 @@ fun HomefiRoot(destinations: Flow<Destination>) {
                             )
                         }
                         val haptics = haptics()
-                        Tab.entries.filter { it != Tab.HOME }.forEach { t ->
+                        Tab.entries.filter { it != Tab.HOME && (it != Tab.TRAIN || exercise.showEntry) }.forEach { t ->
                             NavigationBarItem(
                                 selected = tab == t,
                                 onClick = {
@@ -239,7 +279,9 @@ fun HomefiRoot(destinations: Flow<Destination>) {
                                     tab = t
                                 },
                                 icon = {
-                                    if (t == Tab.DOWNLOADS && downloads.isBusy) {
+                                    if (t == Tab.TRAIN && riding) {
+                                        BadgedBox(badge = { Badge() }) { Icon(t.icon, null) }
+                                    } else if (t == Tab.DOWNLOADS && downloads.isBusy) {
                                         BadgedBox(badge = { Badge { Text("${downloads.active.size}") } }) { Icon(t.icon, null) }
                                     } else {
                                         Icon(t.icon, null)
@@ -271,7 +313,8 @@ fun HomefiRoot(destinations: Flow<Destination>) {
             ) { shown ->
                 when {
                     shown.login -> LoginScreen(onLoggedIn = { if (!app.account.isLoggedIn) app.account.refresh() })
-                    shown.tab == Tab.HOME -> HomeScreen()
+                    shown.tab == Tab.HOME -> HomeScreen(onTrain = { tab = Tab.TRAIN })
+                    shown.tab == Tab.TRAIN -> com.perseusoft.homefi.ui.exercise.TrainScreen()
                     shown.tab == Tab.LIBRARY -> LibraryScreen()
                     shown.tab == Tab.SEARCH -> SearchScreen(onQueued = { tab = Tab.DOWNLOADS })
                     shown.tab == Tab.DOWNLOADS -> DownloadsScreen()
@@ -284,14 +327,46 @@ fun HomefiRoot(destinations: Flow<Destination>) {
             }
         }
 
+        // the player beside the app, a share of the width (a setting), never narrower than a phone
+        AnimatedVisibility(
+            visible = sideShown,
+            enter = motion.sideEnter(),
+            exit = motion.sideExit(),
+        ) {
+            SidePlayer(
+                onHide = { sideHidden = true },
+                onMaximize = { playerOpen = true },
+                modifier = Modifier.width(sidePlayerWidth(LocalConfiguration.current.screenWidthDp)).fillMaxHeight(),
+            )
+        }
+      }
+
         AnimatedVisibility(
             visible = nowPlayingShown,
             enter = motion.panelEnter(),
             exit = motion.panelExit(),
         ) {
             CompositionLocalProvider(LocalCoverVisibility provides this) {
-                NowPlayingScreen(onClose = { playerOpen = false })
+                NowPlayingScreen(onClose = { playerOpen = false }, docked = wide && !sideHidden)
             }
+        }
+
+        // DJ mode: two decks over everything else (the normal player is paused meanwhile)
+        AnimatedVisibility(
+            visible = djOpen,
+            enter = motion.panelEnter(),
+            exit = motion.panelExit(),
+        ) {
+            Box(Modifier.fillMaxSize().clickable(enabled = false) {}) { DjScreen(onClose = app.dj::close) }
+        }
+
+        // Exercise: the ride (and its summary) over everything, always dark
+        AnimatedVisibility(
+            visible = rideOpen,
+            enter = motion.panelEnter(),
+            exit = motion.panelExit(),
+        ) {
+            Box(Modifier.fillMaxSize().clickable(enabled = false) {}) { com.perseusoft.homefi.ui.exercise.RideOverlay() }
         }
 
         // a guest's remote for someone else's hub
@@ -347,6 +422,9 @@ fun HomefiRoot(destinations: Flow<Destination>) {
         // what a reaction changed, with Undo, over everything (the player included)
         val soundSnackbar = remember { SnackbarHostState() }
         SoundNotices(soundSnackbar)
+        // rides and DJ setups: saved, imported, a refused file
+        NoteNotices(soundSnackbar)
+        IncomingFileDialog()
         SnackbarHost(soundSnackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 72.dp))
 
         // the hub's discreet notices, over every screen

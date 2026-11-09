@@ -215,7 +215,22 @@ button:focus-visible {
   padding: 0 16px;
   border-radius: var(--r-pill);
   font-weight: 600;
+  /* a label never breaks in two: the row folds the buttons instead (below) */
+  white-space: nowrap;
   transition: filter 0.15s, background 0.15s;
+}
+
+/* A page header on a narrow content area: the secondary buttons fold into round icons (their
+   name shows on hover), Play keeps its word. Buttons without an icon keep their text. */
+@container (max-width: 980px) {
+  .actions.fold .btn.tonal:has(svg) {
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    gap: 0;
+    justify-content: center;
+    font-size: 0;
+  }
 }
 
 .btn.primary {
@@ -447,6 +462,8 @@ h2 {
   --set-badge-sel-fg: var(--on-primary, #fff);
   --set-badge-shadow: none;
   --set-head-bg: color-mix(in srgb, var(--surface) 55%, transparent);
+  /* the top bar's floating groups: frosted enough that nothing behind them reads */
+  --bar-glass: color-mix(in srgb, var(--surface) 72%, transparent);
 }
 
 /* Motion (Settings → Look → Motion): lib/motion.ts sets <html data-motion>
@@ -626,4 +643,105 @@ select optgroup {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+/* DJ mode (docs/DJ_UI.md §7): one colour per deck, used on everything of that deck; the
+   waveforms read these through getComputedStyle when the theme or skin changes. Skins override
+   them in skins.css. */
+:root {
+  --dj-a: #38bdf8;
+  --dj-a-ink: #042b3f;
+  --dj-b: #f472b6;
+  --dj-b-ink: #3b0620;
+  --dj-wave-bg: #0b1522;
+  --dj-playhead: #ffffff;
+  --dj-beat: rgb(255 255 255 / 0.14);
+  --dj-bar: rgb(255 255 255 / 0.3);
+  --dj-band-low: #f97316;
+  --dj-band-high: #ffffff;
+  --dj-well: #05101a;
+  --dj-hit: 48px;
+  --dj-gap: 12px;
+  --dj-deck-h: 96px;
+  --dj-mix-gradient: linear-gradient(90deg, var(--dj-a), var(--dj-b));
+  --dj-mix-ink: #101820;
+}
+:root[data-mode="light"] {
+  --dj-a: #0369a1;
+  --dj-a-ink: #ffffff;
+  --dj-b: #be185d;
+  --dj-b-ink: #ffffff;
+  --dj-wave-bg: #e8f1f4;
+  --dj-playhead: #0b1e3a;
+  --dj-beat: rgb(11 30 58 / 0.14);
+  --dj-bar: rgb(11 30 58 / 0.32);
+  --dj-band-high: #0b1e3a;
+  --dj-well: #d3e1e6;
+  --dj-mix-ink: #ffffff;
+}
+
+/* Exercise mode (docs/EXERCISE_UI.md §6): the colour of each kind of effort. They carry meaning, so skins never
+   override them; light and dark each keep >= 4.5:1 as text on --surface and >= 3:1 as shapes on --bg.
+   --z-ink is the text on a filled zone, --track the unlit bars. */
+:root {
+  --z-warm: #60a5fa;
+  --z-flat: #4ade80;
+  --z-climb: #fbbf24;
+  --z-stand: #fb923c;
+  --z-jumps: #c084fc;
+  --z-sprint: #fb7185;
+  --z-recov: #2dd4bf;
+  --z-cool: #a5b4fc;
+  --z-ink: #06121a;
+  --track: #2a3547;
+  --ride-ring: 380px;
+  --ride-rpm: 150px;
+  --ride-hit: 44px;
+  --ride-hit-touch: 56px;
+}
+:root[data-mode="light"] {
+  --z-warm: #1d4ed8;
+  --z-flat: #15803d;
+  --z-climb: #b45309;
+  --z-stand: #c2410c;
+  --z-jumps: #7e22ce;
+  --z-sprint: #be123c;
+  --z-recov: #0f766e;
+  --z-cool: #4338ca;
+  --z-ink: #ffffff;
+  --track: #cbd8de;
+}
+/* The ride screen stays dark in any theme ("Always dark during a ride"): the dark palette, scoped. */
+.ex-dark {
+  --bg: #0a121d;
+  --sidebar: #0c1522;
+  --surface: #111c2b;
+  --surface-2: #172436;
+  --surface-3: #203047;
+  --border: #203047;
+  --text: #eef6fb;
+  --muted: #9db2c4;
+  --faint: #7a90a4;
+  --primary: #67e3f5;
+  --primary-strong: #22c5dd;
+  --on-primary: #042b33;
+  --on-primary-strong: #fff;
+  --danger: #f87171;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --warn-bg: rgb(251 191 36 / 0.12);
+  --warn-border: rgb(251 191 36 / 0.45);
+  --shadow: 0 12px 32px rgb(0 0 0 / 0.45);
+  --z-warm: #60a5fa;
+  --z-flat: #4ade80;
+  --z-climb: #fbbf24;
+  --z-stand: #fb923c;
+  --z-jumps: #c084fc;
+  --z-sprint: #fb7185;
+  --z-recov: #2dd4bf;
+  --z-cool: #a5b4fc;
+  --z-ink: #06121a;
+  --track: #2a3547;
+  color-scheme: dark;
+  color: var(--text);
 }

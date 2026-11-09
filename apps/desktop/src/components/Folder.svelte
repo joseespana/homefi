@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { foldLabels } from "../lib/foldLabels";
   import { api, errorText, type Track } from "../lib/api";
   import { app } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
@@ -46,12 +47,12 @@
     <div class="muted ellipsis small">{path}</div>
     <div class="muted">{loading ? "Scanning…" : `${tracks.length} songs`}</div>
   </div>
-  <div class="actions">
-    <button class="btn tonal" onclick={() => pickFolder()}><Icon name="folder" size={16} /> Other folder</button>
+  <div class="actions fold" use:foldLabels>
+    <button class="btn tonal" title="Other folder" onclick={() => pickFolder()}><Icon name="folder" size={16} /> Other folder</button>
     {#if path && !inLibrary}
       <button class="btn tonal" onclick={addToLibrary}>Add to library</button>
     {/if}
-    <button class="btn tonal" onclick={() => api.play(tracks.map((t) => t.path), 0, true)} disabled={!tracks.length}><Icon name="shuffle" size={16} /> Shuffle</button>
+    <button class="btn tonal" title="Shuffle" onclick={() => api.play(tracks.map((t) => t.path), 0, true)} disabled={!tracks.length}><Icon name="shuffle" size={16} /> Shuffle</button>
     <button class="btn primary" onclick={() => api.play(tracks.map((t) => t.path))} disabled={!tracks.length}><Icon name="play" size={16} /> Play</button>
   </div>
 </header>

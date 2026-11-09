@@ -473,15 +473,7 @@ async fn start_hub(app: AppHandle, party: bool, code: Option<String>) -> CmdResu
     let result = HubSession::start(&app, party, code).await;
     share.hub_starting.store(false, Ordering::SeqCst);
     match result {
-        Ok(session) => {
-            *share.hub.lock().unwrap() = Some(session);
-            // the mirror starts from what plays now
-            let snap = app.state::<AppState>().player.snapshot();
-            share.snapshots.send_replace(Some((Instant::now(), snap)));
-            let view = hub_view(&app);
-            let _ = app.emit("share-hub", &view);
-            Ok(view)
-        }
+        Ok(session) => Ok(install_hub(&app, session)),
         Err(e) => {
             *share.hub_error.lock().unwrap() = Some(e.clone());
             emit_hub(&app);
@@ -489,6 +481,49 @@ async fn start_hub(app: AppHandle, party: bool, code: Option<String>) -> CmdResu
             Err(e)
         }
     }
+}
+
+/// A started hub becomes the app's: the mirror starts from what plays now.
+fn install_hub(app: &AppHandle, session: Arc<HubSession>) -> HubView {
+    let share = app.state::<Share>();
+    *share.hub.lock().unwrap() = Some(session);
+    let snap = app.state::<AppState>().player.snapshot();
+    share.snapshots.send_replace(Some((Instant::now(), snap)));
+    let view = hub_view(app);
+    let _ = app.emit("share-hub", &view);
+    view
+}
+
+/// The ride's listen-only hub (`exercise`): `Err(None)` when this computer already shares or is in
+/// someone's session (the caller keeps the ride's audio on the computer and says so), otherwise
+/// `Err(Some(message))` when it could not start.
+pub(crate) async fn start_ride_hub(
+    app: &AppHandle,
+    config: homefi_core::share::HubConfig,
+) -> Result<(), Option<String>> {
+    let share = app.state::<Share>();
+    if share.hub().is_some() || share.guest().is_some() || share.hub_starting.swap(true, Ordering::SeqCst) {
+        return Err(None);
+    }
+    *share.hub_error.lock().unwrap() = None;
+    share.discovery.stop_browse();
+    let result = HubSession::start_with(app, config, true, false).await;
+    share.hub_starting.store(false, Ordering::SeqCst);
+    match result {
+        Ok(session) => {
+            install_hub(app, session);
+            Ok(())
+        }
+        Err(e) => {
+            refresh_discovery(app);
+            Err(Some(e))
+        }
+    }
+}
+
+/// Stops the hub (the ride's, when `start_ride_hub` started it), as `share_stop` does.
+pub(crate) async fn stop_hub(app: &AppHandle) {
+    let _ = share_stop(app.clone()).await;
 }
 
 #[tauri::command]

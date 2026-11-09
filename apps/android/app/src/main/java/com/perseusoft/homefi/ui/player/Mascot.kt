@@ -142,7 +142,7 @@ private const val BEHIND = -0.3f
 private const val BAND_W = 50f
 
 /** Art colours, same as the desktop's MASCOT_COLORS and costume palette. */
-private object Ink {
+internal object Ink {
     val navy = Color(0xFF0B1E3A)
     val white = Color.White
     val cushion = Color(0xFF34D399)
@@ -183,7 +183,7 @@ private object Ink {
 }
 
 /** A colour that cycles through the hues, like the desktop's `hue-rotate` neon. */
-private class Neon(argb: Long) {
+internal class Neon(argb: Long) {
     private val hsv = FloatArray(3).also { android.graphics.Color.colorToHSV(argb.toInt(), it) }
     fun at(shift: Float) = Color.hsv((hsv[0] + shift) % 360f, hsv[1], hsv[2])
 }
@@ -208,7 +208,7 @@ private fun bolt(x: Float, y: Float, s: Float) =
         "L${x + s * 0.55f} ${y + s * 0.75f}L${x + s * 0.08f} ${y + s * 0.75f}L${x + s * 0.35f} ${y}Z"
 
 /** Every path, parsed once (from the desktop's `lib/mascot.ts` and Mascot.svelte). */
-private object Art {
+internal object Art {
     val house = svg("M542.1 288L748.1 466.2A46 46 0 0 1 764 501L764 760A46 46 0 0 1 718 806L306 806A46 46 0 0 1 260 760L260 501A46 46 0 0 1 275.9 466.2L481.9 288A46 46 0 0 1 542.1 288Z")
     // one cup / pad per side, so each can slide round the head on its own
     val cupL = svg("M236 508H248A40 40 0 0 1 288 548V664A40 40 0 0 1 248 704H236A40 40 0 0 1 196 664V548A40 40 0 0 1 236 508Z")

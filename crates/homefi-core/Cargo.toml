@@ -11,7 +11,8 @@ authors.workspace = true
 # Shared control networking: the hub server and the guest client (`share::Hub`,
 # `share::GuestClient`). The protocol, permissions and fair queue are always
 # built. Off by default so the CLI does not carry an HTTP server.
-share = ["dep:axum", "dep:tokio-tungstenite", "dep:tower", "dep:tower-http", "tokio/net"]
+decode = ["dep:symphonia"]
+share = ["dep:axum", "dep:mdns-sd", "dep:tokio-tungstenite", "dep:tower", "dep:tower-http", "tokio/net"]
 
 [dependencies]
 axum = { workspace = true, optional = true }
@@ -20,12 +21,14 @@ chrono.workspace = true
 dirs.workspace = true
 futures.workspace = true
 lofty.workspace = true
+mdns-sd = { workspace = true, optional = true }
 regex.workspace = true
 reqwest.workspace = true
 roxmltree.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+symphonia = { workspace = true, optional = true }
 tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
@@ -37,8 +40,16 @@ tracing.workspace = true
 unicode-normalization.workspace = true
 url.workspace = true
 
+# free space of a volume (`download::space`); other platforms report "unreadable"
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [dev-dependencies]
 wiremock = "0.6"
+
+[[test]]
+name = "exercise_analysis"
+required-features = ["decode"]
 
 [[test]]
 name = "share"

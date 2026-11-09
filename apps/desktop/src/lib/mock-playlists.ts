@@ -44,6 +44,8 @@ const defaults: PlaylistSettings = {
   chat_curve: "steady",
   chat_allow_explicit: true,
   chat_from_song: true,
+  tidal_auto_save: false,
+  tidal_delete_with: false,
 };
 let settings: PlaylistSettings = { ...defaults };
 
@@ -436,7 +438,23 @@ export const playlistsMock = {
     ...partyHandlers,
     home_playlists: () => [...saved],
     home_playlist_save: ({ playlist: p }: { playlist: HomePlaylist }) => {
-      saved = [p, ...saved.filter((x) => x.id !== p.id)];
+      // like the core: a copy that doesn't know its TIDAL twin keeps the stored one
+      const stored = { ...p, tidal_uuid: p.tidal_uuid ?? saved.find((x) => x.id === p.id)?.tidal_uuid ?? null };
+      saved = [stored, ...saved.filter((x) => x.id !== p.id)];
+      return stored;
+    },
+    home_playlist_save_to_tidal: async ({ id }: { id: string }) => {
+      await wait(1200);
+      const p = saved.find((x) => x.id === id);
+      if (!p) throw "This playlist isn't in HomeFi anymore.";
+      const created = !p.tidal_uuid;
+      const stored = { ...p, tidal_uuid: p.tidal_uuid ?? `mock-${id}` };
+      saved = saved.map((x) => (x.id === id ? stored : x));
+      const skipped = p.unmatched.length ? [] : ["Some Jam · Korn"];
+      const n = p.entries.length;
+      const done = created ? `Saved ${n} songs to TIDAL` : `Updated on TIDAL: ${n} songs`;
+      const summary = skipped.length ? `${done} · ${skipped.length} isn't on TIDAL` : done;
+      return { playlist: stored, report: { uuid: stored.tidal_uuid, created, saved: n, skipped, summary } };
     },
     home_playlist_delete: ({ id }: { id: string }) => {
       const had = saved.some((x) => x.id === id);

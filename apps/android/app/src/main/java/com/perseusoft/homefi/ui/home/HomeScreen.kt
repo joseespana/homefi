@@ -47,33 +47,29 @@ import com.perseusoft.homefi.core.LocalPlaylist
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.library.EmbeddedCover
 import com.perseusoft.homefi.player.Recent
-import com.perseusoft.homefi.player.isFilePath
 import com.perseusoft.homefi.player.tidalId
 import com.perseusoft.homefi.ui.HomefiLogo
 import com.perseusoft.homefi.ui.library.CoverArt
 import com.perseusoft.homefi.ui.share.ShareEntry
 import java.util.Calendar
 
-private fun Recent.cover(): Any? = if (isFilePath(mediaId)) EmbeddedCover(mediaId) else artworkUri
-
 /** The main view: pick up where you left off. */
 @Composable
-fun HomeScreen() {
+fun HomeScreen(onTrain: () -> Unit = {}) {
     val app = LocalContext.current.homefi
+    val exercise by app.settings.exercise.collectAsStateWithLifecycle()
     val recents by app.player.recents.items.collectAsStateWithLifecycle()
     val library by app.library.state.collectAsStateWithLifecycle()
 
     // one card per album, in the order they were last heard
-    val albums = remember(recents) {
-        recents.filter { it.album.isNotBlank() }.distinctBy { "${it.artist}\u0000${it.album}".lowercase() }.take(12)
-    }
+    val albums = remember(recents) { recentAlbums(recents) }
 
     // the sections arrive one after another; shelves slide when the recents change
     ListEntrance {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item(key = "greeting") {
             Text(
-                stringResource(greeting()),
+                stringResource(greetingFor(Calendar.getInstance().get(Calendar.HOUR_OF_DAY))),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 modifier = itemMotion(0).padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
@@ -81,13 +77,16 @@ fun HomeScreen() {
         }
         // someone nearby sharing music, or the session you are in
         item(key = "share") { Box(itemMotion(1)) { ShareEntry() } }
+        if (exercise.showEntry) {
+            item(key = "train") { Box(itemMotion(1)) { com.perseusoft.homefi.ui.exercise.TrainCard(onTrain) } }
+        }
         if (recents.isEmpty()) {
             item(key = "empty") { Box(itemMotion(2)) { EmptyHome() } }
         } else {
             item(key = "continue") { Box(itemMotion(2)) { ContinueCard(recents.first()) { app.player.playRecents(recents, 0) } } }
             item(key = "recent-songs") {
                 Shelf(stringResource(R.string.home_recent_songs), itemMotion(3)) {
-                    items(recents.take(20), key = { it.mediaId }) { r ->
+                    items(recentSongs(recents), key = { it.mediaId }) { r ->
                         Tile(r.cover(), r.title, r.artist, cloud = tidalId(r.mediaId) != null, modifier = itemMotion()) {
                             app.player.playRecents(recents, recents.indexOf(r))
                         }
@@ -100,13 +99,7 @@ fun HomeScreen() {
                         items(albums, key = { "album-${it.mediaId}" }) { r ->
                             Tile(r.cover(), r.album, r.artist, cloud = tidalId(r.mediaId) != null, icon = Icons.Rounded.Album, modifier = itemMotion()) {
                                 // the album's songs we've heard, local ones as a whole album
-                                val local = library.tracks.filter { it.album.equals(r.album, true) && it.artist.equals(r.artist, true) }
-                                if (local.isNotEmpty()) {
-                                    app.player.play(local.sortedWith(compareBy({ it.discNumber }, { it.trackNumber })))
-                                } else {
-                                    val heard = recents.filter { it.album == r.album && it.artist == r.artist }
-                                    app.player.playRecents(heard, 0)
-                                }
+                                app.playRecentAlbum(r, recents, library)
                             }
                         }
                     }
@@ -116,18 +109,12 @@ fun HomeScreen() {
         if (library.playlists.isNotEmpty()) {
             item(key = "playlists") {
                 Shelf(stringResource(R.string.library_playlists), itemMotion(5)) {
-                    items(library.playlists.take(20), key = { it.path }) { p -> PlaylistTile(p, itemMotion()) }
+                    items(homePlaylists(library.playlists), key = { it.path }) { p -> PlaylistTile(p, itemMotion()) }
                 }
             }
         }
     }
     }
-}
-
-private fun greeting(): Int = when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
-    in 5..11 -> R.string.home_morning
-    in 12..18 -> R.string.home_afternoon
-    else -> R.string.home_evening
 }
 
 @Composable
@@ -206,8 +193,7 @@ private fun PlaylistTile(p: LocalPlaylist, modifier: Modifier = Modifier) {
     val app = LocalContext.current.homefi
     val first = p.tracks.firstOrNull()
     Tile(first?.let(::EmbeddedCover), p.name, stringResource(R.string.library_count, p.tracks.size), cloud = false, icon = Icons.AutoMirrored.Rounded.QueueMusic, modifier = modifier) {
-        val tracks = p.tracks.mapNotNull(app.library::find)
-        if (tracks.isNotEmpty()) app.player.play(tracks)
+        app.playPlaylist(p)
     }
 }
 

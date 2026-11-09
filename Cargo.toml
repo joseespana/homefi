@@ -34,6 +34,8 @@ flacenc = { version = "0.5.1", default-features = false }
 indicatif = "0.17"
 libc = "0.2"
 lofty = "0.22"
+# Announces / finds the ride TV (`_homefi-ride._tcp`) with mDNS; pure Rust on every OS
+mdns-sd = { version = "=0.21.6", default-features = false }
 open = "5"
 regex = "1"
 rand = "0.8"

@@ -4,6 +4,7 @@
   import { lyricsShown, shareTitle, toggleLyrics, toggleShare } from "../lib/playerButtons.svelte";
   import { share } from "../lib/share.svelte";
   import { shownSource as src } from "../lib/source.svelte";
+  import { sidePlayer } from "../lib/sidePlayer.svelte";
   import Icon from "./Icon.svelte";
 
   // `ghost`: the small buttons of the top bar (sharing has the rail and its status pill there).
@@ -40,8 +41,25 @@
   </button>
 {/snippet}
 
+{#snippet sideButton()}
+  {#if sidePlayer.wanted}
+    {@const on = !sidePlayer.hidden && !queueOpen}
+    <button
+      class={buttonClass}
+      class:on
+      title={on ? "Hide the side player" : "Show the side player"}
+      aria-label="Side player"
+      aria-pressed={on}
+      onclick={() => (queueOpen ? ((queueOpen = false), (sidePlayer.hidden = false)) : sidePlayer.toggle())}
+    >
+      <Icon name="sidePanel" size={16} />
+    </button>
+  {/if}
+{/snippet}
+
 {#if look === "ghost"}
   {@render lyricsButton()}
+  {@render sideButton()}
   {@render queueButton()}
   {@render miniButton()}
 {:else if narrow}
@@ -73,6 +91,7 @@
   </button>
   {@render lyricsButton()}
   {@render miniButton()}
+  {@render sideButton()}
   {@render queueButton()}
 {/if}
 

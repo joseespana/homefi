@@ -141,14 +141,23 @@ class PlayerController(private val context: Context, private val trackLookup: (S
         playItems(tracks.map { it.toMediaItem().withSource(source) }, startIndex, shuffle)
     }
 
-    fun playItems(items: List<MediaItem>, startIndex: Int, shuffle: Boolean, source: SourceContext? = null) = withController { c ->
+    /** [autoplay] false loads the queue paused (a ride waiting for its TV). */
+    fun playItems(
+        items: List<MediaItem>,
+        startIndex: Int,
+        shuffle: Boolean,
+        source: SourceContext? = null,
+        autoplay: Boolean = true,
+        repeatMode: Int? = null,
+    ) = withController { c ->
         val queue = if (source == null) items else items.map { it.withSource(source) }
         if (queue.isNotEmpty() && playOverride?.invoke(queue, startIndex.coerceIn(0, queue.lastIndex), false) == true) return@withController
         c.shuffleModeEnabled = shuffle
         val start = if (shuffle) (queue.indices).random() else startIndex.coerceIn(0, queue.lastIndex)
+        repeatMode?.let { c.repeatMode = it }
         c.setMediaItems(queue, start, 0L)
         c.prepare()
-        c.play()
+        if (autoplay) c.play() else c.pause()
     }
 
     /** Tidal tracks, streamed (see TidalStreams). */

@@ -1,5 +1,8 @@
 package com.perseusoft.homefi.ui.theme
 
+import androidx.compose.ui.Alignment
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.expandHorizontally
 import android.database.ContentObserver
 import android.os.Handler
 import android.os.Looper
@@ -230,6 +233,19 @@ class MotionScheme(val level: Motion, val style: MotionStyle) {
         return slideOutVertically(offsetMove) { (it * fall).roundToInt() } +
             fadeOut(tween(if (style == MotionStyle.MODERN) 200 else 120)) +
             if (bouncy) scaleOut(move(), targetScale = 0.94f, transformOrigin = TransformOrigin(0.5f, 1f)) else ExitTransition.None
+    }
+
+    /** The side player opening beside the app: it widens from the right edge, the app gives way. */
+    fun sideEnter(): EnterTransition = when {
+        !enabled -> EnterTransition.None
+        !moves -> fadeIn(tween(160))
+        else -> expandHorizontally(move(IntSize.VisibilityThreshold), expandFrom = Alignment.Start) + fadeIn(tween(220, delay = 40))
+    }
+
+    fun sideExit(): ExitTransition = when {
+        !enabled -> ExitTransition.None
+        !moves -> fadeOut(tween(120))
+        else -> shrinkHorizontally(move(IntSize.VisibilityThreshold), shrinkTowards = Alignment.Start) + fadeOut(tween(120))
     }
 
     /** A block that opens below what's there (a setting's options, a bar appearing). */

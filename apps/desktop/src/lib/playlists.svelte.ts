@@ -2,7 +2,7 @@
 // can take a couple of minutes, and leaving the screen must not lose it. Lists are
 // `$state.raw` (replaced, never mutated). The product rules (tour set, thresholds, fallback
 // order) are in homefi-core; this only holds state and sends intents.
-import { api, errorText, type ChatBrief, type ConcertBuilt, type ConcertMode, type ConcertProgress, type ConcertRequest, type ConcertSources, type HomePlaylist, type PartyBrief, type PlaylistOrigin, type PlaylistSettings, type SourceContext, type StreamItem } from "./api";
+import { api, errorText, on, type ChatBrief, type ConcertBuilt, type ConcertMode, type ConcertProgress, type ConcertRequest, type ConcertSources, type HomePlaylist, type PartyBrief, type PlaylistOrigin, type PlaylistSettings, type SourceContext, type StreamItem, type TidalSyncEvent } from "./api";
 import { uiLanguage } from "./eq.svelte";
 
 /** What the core answers to a build the user cancelled. */
@@ -50,6 +50,12 @@ export function requestOf(p: ConcertPlaylist, mode: ConcertMode = p.origin.mode)
   return { artist: o.artist, shows: o.shows_wanted, thresholds: o.thresholds, mode, popular_only: o.source.kind === "tidal_popular" };
 }
 
+/** Saving one playlist to TIDAL: running, done (with the words to show) or failed. */
+export type TidalStatus =
+  | { id: string; state: "saving" }
+  | { id: string; state: "saved"; summary: string; skipped: string[] }
+  | { id: string; state: "failed"; message: string };
+
 class PlaylistStore {
   list = $state.raw<HomePlaylist[]>([]);
   loaded = $state(false);
@@ -59,10 +65,36 @@ class PlaylistStore {
   progress = $state.raw<ConcertProgress | null>(null);
   error = $state<string | null>(null);
   sources = $state.raw<ConcertSources | null>(null);
+  /** The last save to TIDAL (button or automatic), for the playlist it names. */
+  tidal = $state.raw<TidalStatus | null>(null);
 
   #cancelling = false;
+  #listening = false;
+
+  /** Automatic saves to TIDAL run in the background; their outcome arrives as an event. */
+  #listen() {
+    if (this.#listening) return;
+    this.#listening = true;
+    on.homePlaylistTidal((e) => this.#tidalDone(e)).catch(() => (this.#listening = false));
+  }
+
+  #tidalDone(e: TidalSyncEvent) {
+    if (e.kind === "failed") {
+      this.tidal = { id: e.id, state: "failed", message: e.message };
+      return;
+    }
+    this.#replace(e.playlist);
+    this.tidal = { id: e.playlist.id, state: "saved", summary: e.report.summary, skipped: e.report.skipped };
+  }
+
+  /** Puts the stored copy of a playlist in the list, where it was (new ones go first). */
+  #replace(p: HomePlaylist) {
+    const at = this.list.findIndex((x) => x.id === p.id);
+    this.list = at < 0 ? [p, ...this.list] : this.list.map((x) => (x.id === p.id ? p : x));
+  }
 
   async load() {
+    this.#listen();
     try {
       this.list = await api.homePlaylists();
     } catch (e) {
@@ -81,8 +113,22 @@ class PlaylistStore {
   }
 
   async save(p: HomePlaylist) {
-    await api.homePlaylistSave(p);
-    this.list = [p, ...this.list.filter((x) => x.id !== p.id)];
+    this.#listen();
+    const stored = await api.homePlaylistSave(p);
+    this.list = [stored, ...this.list.filter((x) => x.id !== p.id)];
+  }
+
+  /** "Save to TIDAL" / "Update on TIDAL": the TIDAL copy ends up with the same songs, in order. */
+  async saveToTidal(p: HomePlaylist) {
+    if (this.tidal?.state === "saving") return;
+    this.tidal = { id: p.id, state: "saving" };
+    try {
+      const done = await api.homePlaylistSaveToTidal(p.id, uiLanguage());
+      this.#replace(done.playlist);
+      this.tidal = { id: p.id, state: "saved", summary: done.report.summary, skipped: done.report.skipped };
+    } catch (e) {
+      this.tidal = { id: p.id, state: "failed", message: errorText(e) };
+    }
   }
 
   async remove(id: string) {

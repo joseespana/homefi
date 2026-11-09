@@ -12,9 +12,15 @@ coil = "3.2.0"
 media3 = "1.8.0"
 # FFmpeg audio decoders for Media3 (ALAC, AC-3, E-AC-3, DTS, TrueHD); GPL-3.0, keep in sync with media3
 media3Ffmpeg = "1.8.0+1"
-# QR code for logging in from a phone (pure Java, no camera)
+# QR codes: login on a phone, TV pairing (pure Java; frames come from CameraX)
 zxing = "3.5.3"
+# the phone scans the TV's pairing QR: CameraX frames decoded by the same zxing core (offline, free)
+camerax = "1.4.2"
 junit = "4.13.2"
+# org.json for JVM unit tests (the Android stub throws); same API as the platform's
+orgJson = "20250517"
+# Compose for TV (D-pad focus, NavigationDrawer, TV Card/ListItem/Button); stable
+tvMaterial = "1.1.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -37,7 +43,13 @@ media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", versi
 media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
 media3-ffmpeg = { group = "org.jellyfin.media3", name = "media3-ffmpeg-decoder", version.ref = "media3Ffmpeg" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
+androidx-tv-material = { group = "androidx.tv", name = "tv-material", version.ref = "tvMaterial" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
+androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
+androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

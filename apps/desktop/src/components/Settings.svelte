@@ -15,6 +15,8 @@
   import { PAGES, isPageId, type PageId } from "./settings/pages";
   import AboutPage from "./settings/pages/AboutPage.svelte";
   import DiscsPage from "./settings/pages/DiscsPage.svelte";
+  import DjPage from "./settings/pages/DjPage.svelte";
+  import ExercisePage from "./settings/pages/ExercisePage.svelte";
   import DownloadsPage from "./settings/pages/DownloadsPage.svelte";
   import LibraryPage from "./settings/pages/LibraryPage.svelte";
   import LookPage from "./settings/pages/LookPage.svelte";
@@ -139,6 +141,10 @@
               <SoundPage {settings} />
             {:else if page === "playback"}
               <PlaybackOptions {settings} save={(patch) => model.save(patch)} />
+            {:else if page === "dj"}
+              <DjPage {settings} />
+            {:else if page === "exercise"}
+              <ExercisePage {settings} />
             {:else if page === "playlists"}
               <PlaylistsPage {settings} />
             {:else if page === "ai"}

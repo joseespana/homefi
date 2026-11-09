@@ -51,6 +51,25 @@ pub struct TrackInfo {
     /// International Standard Recording Code, links the file to Tidal.
     #[serde(default)]
     pub isrc: Option<String>,
+    /// Tempo from the `BPM` tag (ID3 `TBPM`, Vorbis `BPM`, MP4 `tmpo`), whole beats per minute.
+    /// `None` when the file has no usable tag.
+    #[serde(default)]
+    pub bpm: Option<u16>,
+}
+
+/// Tempos outside this are tag noise (a "0", a year typed by mistake).
+const MIN_TAG_BPM: f32 = 30.0;
+const MAX_TAG_BPM: f32 = 300.0;
+
+/// A `BPM` tag value ("128", "127.6", "128/1") as whole beats per minute.
+pub fn parse_bpm(text: &str) -> Option<u16> {
+    let first = text.trim().split(['/', ' ']).next()?;
+    let value: f32 = first.replace(',', ".").parse().ok()?;
+    (value.is_finite() && (MIN_TAG_BPM..=MAX_TAG_BPM).contains(&value)).then(|| value.round() as u16)
+}
+
+fn tag_bpm(tag: &Tag) -> Option<u16> {
+    [ItemKey::IntegerBpm, ItemKey::Bpm].iter().filter_map(|k| tag.get_string(k)).find_map(parse_bpm)
 }
 
 impl TrackInfo {
@@ -173,6 +192,7 @@ pub fn read_track(path: &Path) -> Result<TrackInfo> {
         lossless,
         size_bytes: std::fs::metadata(path).map(|m| m.len()).unwrap_or(0),
         isrc: tag.and_then(|t| t.get_string(&ItemKey::Isrc)).map(|s| s.trim().to_uppercase()).filter(|s| !s.is_empty()),
+        bpm: tag.and_then(tag_bpm),
     })
 }
 
@@ -199,6 +219,7 @@ pub fn basic_track(path: &Path) -> TrackInfo {
         bitrate_kbps: None,
         size_bytes: std::fs::metadata(path).map(|m| m.len()).unwrap_or(0),
         isrc: None,
+        bpm: None,
     }
 }
 
@@ -236,6 +257,9 @@ struct CacheEntry {
     size: u64,
     modified: i64,
     info: TrackInfo,
+    /// Entries written before the `BPM` tag was read lack this: they are parsed once more.
+    #[serde(default)]
+    bpm_read: bool,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -272,6 +296,23 @@ fn normalize_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
     out
 }
 
+/// Roots that cannot be read right now (an unplugged USB stick, an SD card out): their songs are
+/// not listed, but [`scan`] keeps their cache entries so they do not have to be read again.
+fn missing_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut missing = Vec::new();
+    for root in roots.iter().filter(|r| !r.is_dir()) {
+        // cache keys are canonical paths: also keep the root as its nearest present parent would resolve it
+        if let Some((parent, rest)) = root.ancestors().skip(1).find(|p| p.exists()).and_then(|p| {
+            let rest = root.strip_prefix(p).ok()?;
+            Some((p.canonicalize().ok()?, rest.to_path_buf()))
+        }) {
+            missing.push(parent.join(rest));
+        }
+        missing.push(root.clone());
+    }
+    missing
+}
+
 /// Playable files below `dir` (hidden files and folders are skipped,
 /// symlinks are not followed).
 fn collect_files(dir: &Path, out: &mut Vec<(PathBuf, std::fs::Metadata)>) {
@@ -294,6 +335,9 @@ fn collect_files(dir: &Path, out: &mut Vec<(PathBuf, std::fs::Metadata)>) {
 
 /// Scans `roots` recursively. With `cache`, unchanged files are not parsed
 /// again and the cache file is rewritten with the current state.
+///
+/// A root that is not there (volume removed) is skipped, not purged: its cache entries survive in the
+/// cache file and come back when the volume does. Only files that vanished from a present root are dropped.
 pub fn scan(roots: &[PathBuf], cache: Option<&Path>) -> Vec<TrackInfo> {
     let mut files = Vec::new();
     for root in normalize_roots(roots) {
@@ -307,7 +351,7 @@ pub fn scan(roots: &[PathBuf], cache: Option<&Path>) -> Vec<TrackInfo> {
     for (path, meta) in files {
         let (size, modified) = (meta.len(), modified_secs(&meta));
         match old.entries.remove(&path) {
-            Some(entry) if entry.size == size && entry.modified == modified => tracks.push(entry),
+            Some(entry) if entry.size == size && entry.modified == modified && entry.bpm_read => tracks.push(entry),
             _ => pending.push((path, size, modified)),
         }
     }
@@ -326,7 +370,7 @@ pub fn scan(roots: &[PathBuf], cache: Option<&Path>) -> Vec<TrackInfo> {
                                 tracing::debug!("no tags for {}: {e}", path.display());
                                 basic_track(path)
                             });
-                            CacheEntry { size: *size, modified: *modified, info }
+                            CacheEntry { size: *size, modified: *modified, info, bpm_read: true }
                         })
                         .collect::<Vec<_>>()
                 })
@@ -335,6 +379,11 @@ pub fn scan(roots: &[PathBuf], cache: Option<&Path>) -> Vec<TrackInfo> {
         handles.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
     });
     tracks.extend(parsed);
+
+    // what is left of the old cache: stale files of present roots are dropped, files of missing roots are kept
+    let missing = missing_roots(roots);
+    let kept_offline: Vec<CacheEntry> =
+        old.entries.into_values().filter(|e| missing.iter().any(|root| e.info.path.starts_with(root))).collect();
 
     // untagged files go last; keys are lowercased once per track, not per comparison
     tracks.sort_by_cached_key(|t| {
@@ -352,7 +401,7 @@ pub fn scan(roots: &[PathBuf], cache: Option<&Path>) -> Vec<TrackInfo> {
     if let Some(cache_path) = cache {
         let new_cache = Cache {
             version: CACHE_VERSION,
-            entries: tracks.iter().map(|e| (e.info.path.clone(), e.clone())).collect(),
+            entries: tracks.iter().chain(&kept_offline).map(|e| (e.info.path.clone(), e.clone())).collect(),
         };
         // atomic: a scan killed mid-write (app swiped away) keeps the old cache
         let write = serde_json::to_vec(&new_cache)
@@ -408,6 +457,7 @@ mod tests {
             lossless: true,
             size_bytes: 0,
             isrc: None,
+            bpm: None,
         };
         assert_eq!(t.quality_label(), "FLAC · 24-bit / 96 kHz");
         t.sample_rate = Some(44_100);
@@ -417,6 +467,61 @@ mod tests {
         t.lossless = false;
         t.bitrate_kbps = Some(320);
         assert_eq!(t.quality_label(), "MP3 · 320 kbps");
+    }
+
+    #[test]
+    fn bpm_tags_read_leniently() {
+        assert_eq!(parse_bpm("128"), Some(128));
+        assert_eq!(parse_bpm(" 127.6 "), Some(128));
+        assert_eq!(parse_bpm("96,4"), Some(96));
+        assert_eq!(parse_bpm("120/1"), Some(120));
+        assert_eq!(parse_bpm("0"), None);
+        assert_eq!(parse_bpm("1999"), None);
+        assert_eq!(parse_bpm("fast"), None);
+        assert_eq!(parse_bpm(""), None);
+    }
+
+    #[test]
+    fn an_old_cache_entry_loads_and_is_read_again() {
+        // an entry as written before `bpm` and `bpm_read` existed
+        let old = r#"{"size":1,"modified":2,"info":{"path":"a.mp3","title":"t","artist":"","album":"",
+            "album_artist":"","track_number":0,"disc_number":0,"year":null,"genre":"","duration_ms":0,
+            "format":"MP3","sample_rate":null,"bit_depth":null,"channels":null,"bitrate_kbps":null,
+            "lossless":false,"size_bytes":1}}"#;
+        let entry: CacheEntry = serde_json::from_str(old).unwrap();
+        assert!(entry.info.bpm.is_none() && !entry.bpm_read);
+    }
+
+    /// A cache with one entry for `path`, as a previous scan would have written it.
+    fn cache_file_with(dir: &Path, path: &Path) -> PathBuf {
+        let info = basic_track(path);
+        let mut entries = HashMap::new();
+        entries.insert(path.to_path_buf(), CacheEntry { size: 1, modified: 2, info, bpm_read: true });
+        let cache = dir.join("cache.json");
+        std::fs::write(&cache, serde_json::to_vec(&Cache { version: CACHE_VERSION, entries }).unwrap()).unwrap();
+        cache
+    }
+
+    #[test]
+    fn a_missing_root_keeps_its_cache_entries_but_lists_nothing() {
+        let work = tempfile::tempdir().unwrap();
+        let present = work.path().join("Music");
+        std::fs::create_dir(&present).unwrap();
+        let usb = work.path().canonicalize().unwrap().join("usb").join("Music"); // not plugged in
+        let song = usb.join("Artist").join("song.flac");
+        let cache = cache_file_with(work.path(), &song);
+
+        let listed = scan(&[present, usb.clone()], Some(&cache));
+        assert!(listed.is_empty());
+        let saved: Cache = serde_json::from_slice(&std::fs::read(&cache).unwrap()).unwrap();
+        assert!(saved.entries.contains_key(&song), "the unplugged drive's entry must survive");
+
+        // a present root does not keep entries of files that are gone
+        let gone = work.path().canonicalize().unwrap().join("Music").join("gone.flac");
+        let cache = cache_file_with(work.path(), &gone);
+        scan(&[work.path().join("Music")], Some(&cache));
+        let saved: Cache = serde_json::from_slice(&std::fs::read(&cache).unwrap()).unwrap();
+        assert!(saved.entries.is_empty());
     }
 
     #[test]

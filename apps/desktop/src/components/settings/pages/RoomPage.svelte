@@ -60,6 +60,12 @@
     value={settings.room.player_buttons ?? "top"}
     onchange={(id) => m.saveRoom({ player_buttons: id })}
   />
+  <SwitchRow
+    label="Player beside the content"
+    hint="Automatic on wide windows: the song playing sits in a column on the right, sized to the window, while you browse. Its button opens the full room; the side player button hides it"
+    checked={settings.room.side_player ?? true}
+    onchange={(on) => m.saveRoom({ side_player: on })}
+  />
   {#if layout === "immersive"}
     <SegmentedRow label="Shade under the title" hint="So the title reads on any album. Auto makes it darker on light covers." options={SHADES} value={settings.room.immersive_shade ?? "auto"} onchange={(id) => m.saveRoom({ immersive_shade: id })} />
   {/if}

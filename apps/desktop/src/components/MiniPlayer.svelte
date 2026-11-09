@@ -15,6 +15,7 @@
   import Icon from "./Icon.svelte";
   import Mascot from "./Mascot.svelte";
   import MiniLyrics from "./MiniLyrics.svelte";
+  import MiniVolume from "./MiniVolume.svelte";
 
   /** The bar's size (logical px) and what lyrics and the mascot add to it. */
   const BAR_W = 380;
@@ -98,12 +99,19 @@
     if (duration && src.can.seek) src.seek(((e.clientX - r.left) / r.width) * duration);
   }
 
+  let vol = $state<MiniVolume>();
+  /** The volume slider is out: the time makes room for it. */
+  let volOpen = $state(false);
+
   function onKey(e: KeyboardEvent) {
     if (e.code === "Space") {
       e.preventDefault();
       if (src.can.toggle) src.toggle();
     } else if (e.code === "KeyM") {
       app.toggleMute();
+    } else if (e.code === "ArrowUp" || e.code === "ArrowDown") {
+      e.preventDefault();
+      vol?.nudge(e.code === "ArrowUp" ? 1 : -1);
     }
   }
 </script>
@@ -140,17 +148,8 @@
         <Icon name={playing ? "pause" : "play"} size={18} />
       </button>
       <button class="icon-btn key" aria-label="Next" onclick={() => src.next()} disabled={!src.can.next}><Icon name="next" size={16} /></button>
-      <button
-        class="icon-btn key mute"
-        class:on={app.muted}
-        aria-label={app.muted ? "Unmute" : "Mute"}
-        aria-pressed={app.muted}
-        title={app.muted ? "Unmute (M)" : "Mute (M)"}
-        onclick={() => app.toggleMute()}
-      >
-        <Icon name={app.muted ? "mute" : "volume"} size={15} />
-      </button>
-      <span class="time">{formatTime(p?.position_ms ?? 0)} / {formatTime(duration)}</span>
+      <MiniVolume bind:this={vol} bind:open={volOpen} />
+      <span class="time" class:hide={volOpen}>{formatTime(p?.position_ms ?? 0)} / {formatTime(duration)}</span>
     </div>
     <button class="bar" aria-label="Seek" onclick={seek}>
       <span style:width="{fraction * 100}%"></span>
@@ -288,10 +287,6 @@
     gap: 4px;
     color: var(--m-key);
   }
-  /* silenced: the button says so at a glance */
-  .mute.on {
-    color: #f87171;
-  }
   .key {
     color: var(--m-key);
   }
@@ -310,6 +305,11 @@
     font-size: 11px;
     font-variant-numeric: tabular-nums;
     color: var(--m-muted);
+    transition: opacity 0.18s ease;
+  }
+  /* the volume slider borrows its place while it is out */
+  .time.hide {
+    opacity: 0;
   }
   .small {
     width: 26px;

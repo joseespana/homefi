@@ -11,6 +11,8 @@
   import Login from "./components/Login.svelte";
   import TermsDialog from "./components/TermsDialog.svelte";
   import QueuePanel from "./components/QueuePanel.svelte";
+  import NowPanel from "./components/NowPanel.svelte";
+  import { sidePlayer } from "./lib/sidePlayer.svelte";
   import Rail from "./components/Rail.svelte";
   import Room from "./components/Room.svelte";
   import MascotHost from "./components/MascotHost.svelte";
@@ -50,6 +52,12 @@
   import { applyMotion, page } from "./lib/motion";
   import { whatsNew } from "./lib/whatsNew.svelte";
   import WhatsNewDialog from "./components/WhatsNewDialog.svelte";
+  import DjView from "./components/dj/DjView.svelte";
+  import DjAskDialog from "./components/dj/DjAskDialog.svelte";
+  import { dj } from "./lib/dj.svelte";
+  import { djSetups } from "./lib/dj-setups.svelte";
+  import ExerciseView from "./components/exercise/ExerciseView.svelte";
+  import { exercise } from "./lib/exercise.svelte";
 
   // dev: ?queue opens the queue panel (screenshots)
   let queueOpen = $state(import.meta.env.DEV && new URLSearchParams(location.search).has("queue"));
@@ -60,8 +68,14 @@
       share.init();
       disc.init();
       updates.init();
-      // dev: open a view from the URL, e.g. http://localhost:1420/#albums
-      if (import.meta.env.DEV && location.hash.length > 1) app.view = { name: location.hash.slice(1) } as typeof app.view;
+      dj.init();
+      djSetups.init();
+      exercise.init();
+      // dev: open a view from the URL, e.g. http://localhost:1420/#albums (#settings:dj opens a Settings page)
+      if (import.meta.env.DEV && location.hash.length > 1) {
+        const [name, page] = location.hash.slice(1).split(":");
+        app.view = (page ? { name, page } : { name }) as typeof app.view;
+      }
       ready = true;
       whatsNew.checkOnce();
     });
@@ -78,8 +92,12 @@
 
   // the retro layouts take the whole height: no page scroll, they size themselves
   const fill = $derived(
+    app.view.name === "dj" ||
+    (app.view.name === "exercise" && exercise.step === "ride") ||
     (app.view.name === "room" || (app.view.name === "guest" && share.tab === "player")) && (fillsRoom(layoutOf(app.settings?.room.layout), !!shownSource.current) || (lyrics.open && !!shownSource.current)),
   );
+
+  const sideShown = $derived(sidePlayer.wanted && !sidePlayer.hidden && !queueOpen);
 
   // "Open the lyrics on their own": when a song that has them starts
   const lyricsReq = $derived(lyrics.request(shownSource));
@@ -122,6 +140,10 @@
   function onKey(e: KeyboardEvent) {
     // a confirmation is open: keys belong to it (Space presses its focused button)
     if (app.confirmDialog) return;
+    // DJ mode's screen has its own (optional) keys
+    if (app.view.name === "dj") return;
+    // the ride screen has its own keys (Space, N)
+    if (app.view.name === "exercise" && exercise.step === "ride") return;
     const target = e.target as HTMLElement;
     if (target.closest("input, textarea, select, [contenteditable]") && (target as HTMLInputElement).type !== "range") return;
     // A = Ask the AI for a sound (opens Sound with the panel ready)
@@ -186,7 +208,13 @@
 <!-- room for macOS's window buttons where a skin floats the rail (still drags the window) -->
 <div class="titlebar" data-tauri-drag-region aria-hidden="true"></div>
 
-<div class="shell" class:queue={queueOpen} class:top-buttons={buttonsOnTop()}>
+<!-- the queue takes the right column when open; otherwise the side player may (a setting) -->
+<div
+  class="shell"
+  class:queue={queueOpen}
+  class:side={sideShown}
+  class:top-buttons={buttonsOnTop()}
+>
   <Rail />
   <main class:fill>
     <TopBar bind:queueOpen />
@@ -224,6 +252,10 @@
         <Sound />
       {:else if app.view.name === "assistant"}
         <Assistant />
+      {:else if app.view.name === "dj"}
+        <DjView />
+      {:else if app.view.name === "exercise"}
+        <ExerciseView />
       {:else if app.view.name === "guest"}
         {#if share.inRoom}<GuestView />{:else}<Room />{/if}
       {:else}
@@ -232,8 +264,10 @@
     </div>
     {/key}
   </main>
-  {#if queueOpen}<QueuePanel onclose={() => (queueOpen = false)} />{/if}
-  <Deck bind:queueOpen />
+  {#if queueOpen}<QueuePanel onclose={() => (queueOpen = false)} />
+  {:else if sideShown}<NowPanel onqueue={() => (queueOpen = true)} />{/if}
+  <!-- DJ mode has its own transport: the player bar would only show the parked player -->
+  {#if app.view.name !== "dj" && !(app.view.name === "exercise" && exercise.step === "ride")}<Deck bind:queueOpen />{/if}
 </div>
 
 {#if app.loginOpen}<Login />
@@ -249,6 +283,7 @@
 {#if updates.banner}<UpdateBanner />{/if}
 {#if whatsNew.open && !(app.loginOpen || (app.account && !app.termsAccepted))}<WhatsNewDialog />{/if}
 {#if app.confirmDialog}<ConfirmDialog />{/if}
+{#if dj.asking}<DjAskDialog />{/if}
 <Notifications />
 
 <!-- dragged out of the room: it floats over the room, or over everything -->
@@ -328,6 +363,10 @@
   }
   .shell.queue {
     grid-template-columns: 76px 1fr 320px;
+  }
+  /* the side player, sized to the window: about a quarter, between the queue's width and 440px */
+  .shell.side {
+    grid-template-columns: 76px 1fr clamp(300px, 26vw, 440px);
   }
   /* narrow window: the queue slides over the content instead of squeezing it
      (under the top bar, which keeps its Queue button in reach) */

@@ -55,6 +55,26 @@
         android:name="android.hardware.bluetooth_le"
         android:required="false" />
 
+    <!-- "Connect to TV": the in-app scanner reads the TV's pairing QR (frames never leave the phone; asked with a reason) -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.autofocus"
+        android:required="false" />
+
+    <!-- Exercise mode: the ride's TV server announces itself, and the TV app finds it, over mDNS (multicast) -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
+    <!-- HomeFi Train on Android TV / Chromecast with Google TV: no touch screen needed, not a TV-only app -->
+    <uses-feature
+        android:name="android.software.leanback"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+
     <!-- "HomeFi X is available": the official build hands the APK it downloaded (and checked
          against the release's SHA256SUMS) to Android's installer, which asks the user -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -73,6 +93,13 @@
     <uses-permission
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
+
+    <!-- the TV's voice search asks whether a speech recogniser answers (Android 11+ package visibility) -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
+    </queries>
 
     <application
         android:name=".HomefiApplication"
@@ -124,6 +151,36 @@
                 <data android:scheme="homefi" android:host="join" />
             </intent-filter>
 
+            <!-- The TV's pairing QR opened by the system camera: homefi://tv?host=...&port=...&code=... -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="homefi" android:host="tv" />
+            </intent-filter>
+
+            <!-- A ride (.homefiride) or DJ setup (.homefidj) from Drive, Files or a chat: asks before adding it -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/json" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\\.homefiride" />
+                <data android:pathPattern=".*\\.homefidj" />
+                <data android:pathPattern=".*\\..*\\.homefiride" />
+                <data android:pathPattern=".*\\..*\\.homefidj" />
+            </intent-filter>
+
             <!-- "Open with HomeFi" for audio files (FLAC, MP3, WAV, ...) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -132,6 +189,23 @@
                 <data android:scheme="file" />
                 <data android:mimeType="audio/*" />
                 <data android:mimeType="application/ogg" />
+            </intent-filter>
+        </activity>
+
+        <!-- Android TV / Google TV: the D-pad app's entry (MainActivity hands its intents over on a TV) -->
+        <activity
+            android:name=".tv.TvActivity"
+            android:exported="true"
+            android:banner="@drawable/tv_banner"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.perseusoft.homefi.tv"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|smallestScreenSize|screenLayout|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
 
@@ -160,6 +234,12 @@
                 <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
+
+        <!-- keeps the two DJ decks playing with the screen off -->
+        <service
+            android:name=".player.dj.DjService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <service
             android:name=".data.DownloadService"

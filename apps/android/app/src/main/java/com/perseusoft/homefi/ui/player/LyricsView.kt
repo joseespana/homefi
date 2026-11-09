@@ -120,11 +120,7 @@ import kotlin.math.sin
 /** After scrolling by hand the list stays put this long before following the song again. */
 private const val FOLLOW_PAUSE_MS = 4_000L
 
-/** A break longer than this between two lines shows the notes and a countdown in karaoke. */
-private const val GAP_MS = 4_000L
 
-/** A position report this far from the per-frame estimate moves the estimate (a seek, a stall). */
-private const val RESYNC_MS = 150L
 
 fun LyricsSize.label(): Int = when (this) {
     LyricsSize.SMALL -> R.string.lyrics_size_small
@@ -230,7 +226,7 @@ internal fun ColumnScope.LyricsLayout(state: PlayerUiState, layout: PlayerLayout
                         !lyrics.synced -> R.string.lyrics_not_synced
                         else -> null
                     }
-                    NormalLyrics(lyrics, time, palette, settings.lyricsSize, note, seek)
+                    LyricsLines(lyrics, time, palette, settings.lyricsSize, note, seek)
                 }
             }
         }
@@ -413,52 +409,17 @@ private fun LyricsTransport(state: PlayerUiState, palette: LyricsPalette) {
     }
 }
 
-/**
- * Where the song is for the lyrics, moved every frame while it plays: the player only
- * reports its position a few times a second. [offsetMs] > 0 shows the lyrics later.
- */
-@Composable
-private fun rememberLyricsTime(state: PlayerUiState, offsetMs: Int): State<Long> {
-    val time = remember { mutableLongStateOf(state.positionMs - offsetMs) }
-    val sample = rememberUpdatedState(state.positionMs)
-    val offset = rememberUpdatedState(offsetMs)
-    LaunchedEffect(state.isPlaying, state.current?.mediaId) {
-        if (!state.isPlaying) {
-            snapshotFlow { sample.value - offset.value }.collect { time.longValue = it }
-        } else {
-            var anchorPos = sample.value
-            var anchorNanos = -1L
-            var last = sample.value
-            while (true) {
-                withFrameNanos { now ->
-                    if (anchorNanos < 0) anchorNanos = now
-                    var estimate = anchorPos + (now - anchorNanos) / 1_000_000
-                    val s = sample.value
-                    if (s != last) {
-                        last = s
-                        if (abs(s - estimate) > RESYNC_MS) {
-                            anchorPos = s
-                            anchorNanos = now
-                            estimate = s
-                        }
-                    }
-                    time.longValue = estimate - offset.value
-                }
-            }
-        }
-    }
-    return time
-}
 
 // ------------------------------------------------------------------ normal
 
 /**
  * The whole text, the line being sung bright and the rest dimmed, kept about a third from
  * the top. Scrolling by hand stops the following for a few seconds (with a chip to come
- * back at once); a tap on a line jumps there.
+ * back at once); a tap on a line jumps there ([onLine] gets that line's time; null = lines are not tappable).
+ * Also what the TV screens draw.
  */
 @Composable
-private fun NormalLyrics(lyrics: Lyrics, time: State<Long>, palette: LyricsPalette, size: LyricsSize, note: Int?, onSeek: ((Long) -> Unit)?) {
+internal fun LyricsLines(lyrics: Lyrics, time: State<Long>, palette: LyricsPalette, size: LyricsSize, note: Int?, onLine: ((Long) -> Unit)?) {
     val motion = LocalMotion.current
     val synced = lyrics.synced
     val current by remember(lyrics) { derivedStateOf { lyrics.lineAt(time.value) } }
@@ -526,10 +487,10 @@ private fun NormalLyrics(lyrics: Lyrics, time: State<Long>, palette: LyricsPalet
                             scaleY = scale
                         }
                         .then(
-                            if (onSeek != null) {
+                            if (onLine != null) {
                                 Modifier.clickable(onClickLabel = stringResource(R.string.lyrics_seek_line)) {
                                     follow = true
-                                    onSeek(lyrics.timeOf(i))
+                                    onLine(lyrics.timeOf(i))
                                 }
                             } else {
                                 Modifier
@@ -556,37 +517,8 @@ private fun NormalLyrics(lyrics: Lyrics, time: State<Long>, palette: LyricsPalet
 
 // ------------------------------------------------------------------ karaoke
 
-/**
- * What karaoke shows at a moment: the line sung big ([line], -1 during a break), the one
- * before faint above, the one after small below, and when a break ends ([gapUntil]).
- */
-@Immutable
-private data class Slot(val line: Int, val previous: Int, val next: Int, val gapUntil: Long? = null)
 
-private fun slotAt(l: Lyrics, t: Long): Slot {
-    val i = l.lineAt(t)
-    if (i >= 0 && !l.lines[i].blank) {
-        val next = l.nextSung(i)
-        val end = l.endOf(i)
-        // sung, and a long instrumental follows
-        if (t > end && next >= 0 && l.timeOf(next) - end > GAP_MS) return Slot(-1, i, next, l.timeOf(next))
-        return Slot(i, l.previousSung(i), next)
-    }
-    val next = l.nextSung(i)
-    if (next < 0) return Slot(-1, l.previousSung(l.lines.size), -1) // the song is over
-    // before the first line, or a long break marked with an empty line
-    if (i < 0 || l.timeOf(next) - l.timeOf(i) > GAP_MS) return Slot(-1, l.previousSung(next), next, l.timeOf(next))
-    // a short break: the next line waits, still unfilled
-    return Slot(next, l.previousSung(next), l.nextSung(next))
-}
 
-/** How much of line [index] has been sung at [t], 0..1. */
-private fun progressOf(l: Lyrics, index: Int, t: Long): Float {
-    val start = l.timeOf(index)
-    if (t <= start) return 0f
-    val end = l.endOf(index)
-    return ((t - start).toFloat() / (end - start).coerceAtLeast(1)).coerceIn(0f, 1f)
-}
 
 /**
  * One big line filling with the accent as it's sung, with HomeFito holding the mic below
@@ -596,7 +528,7 @@ private fun progressOf(l: Lyrics, index: Int, t: Long): Float {
 @Composable
 private fun KaraokeLyrics(lyrics: Lyrics, time: State<Long>, palette: LyricsPalette, size: LyricsSize, mascot: Boolean, playing: Boolean) {
     val motion = LocalMotion.current
-    val slot by remember(lyrics) { derivedStateOf { slotAt(lyrics, time.value) } }
+    val slot by remember(lyrics) { derivedStateOf { karaokeFrame(lyrics, time.value) } }
     val compact = LocalPlayerCompact.current
     val scale = if (compact) 0.85f else 1f
     val big = size.karaoke() * scale
@@ -605,50 +537,7 @@ private fun KaraokeLyrics(lyrics: Lyrics, time: State<Long>, palette: LyricsPale
     val smallStyle = MaterialTheme.typography.titleMedium.copy(fontSize = small, lineHeight = small * 1.25f, fontWeight = FontWeight.Medium)
 
     val lines: @Composable (Modifier) -> Unit = { m ->
-        AnimatedContent(
-            targetState = slot,
-            // the old line is gone before the new one comes in, so they never overlap
-            transitionSpec = {
-                if (motion.moves) {
-                    (fadeIn(motion.tween(200, delay = 110)) + slideInVertically(motion.tween(320)) { it / 6 }) togetherWith fadeOut(motion.tween(110))
-                } else {
-                    fadeIn(motion.tween(200, delay = 110)) togetherWith fadeOut(motion.tween(110))
-                }
-            },
-            contentKey = { it.line to it.gapUntil },
-            modifier = m,
-            label = "karaoke",
-        ) { s ->
-            Column(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                if (s.previous >= 0) {
-                    Text(
-                        lyrics.lines[s.previous].text,
-                        style = smallStyle,
-                        color = palette.dim.copy(alpha = palette.dim.alpha * 0.6f),
-                        textAlign = TextAlign.Center,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(16.dp))
-                }
-                if (s.line >= 0) {
-                    SungLine(lyrics.lines[s.line].text, bigStyle, palette) { progressOf(lyrics, s.line, time.value) }
-                } else {
-                    Countdown(s.gapUntil, time, bigStyle, palette)
-                }
-                if (s.next >= 0 && s.next != s.line) {
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        lyrics.lines[s.next].text,
-                        style = smallStyle,
-                        color = palette.dim,
-                        textAlign = TextAlign.Center,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        }
+        KaraokeLines(lyrics, slot, time, palette, bigStyle, smallStyle, m)
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -672,12 +561,12 @@ private fun KaraokeLyrics(lyrics: Lyrics, time: State<Long>, palette: LyricsPale
 /**
  * The karaoke lines for the picture-in-picture window: the line being sung (filling with the
  * accent as it goes) and the next one, no controls, no mascot. Same timing and sweep as
- * [KaraokeLyrics].
+ * [KaraokeLyrics] (both draw frames from [karaokeFrame]).
  */
 @Composable
 internal fun PipLyrics(lyrics: Lyrics, state: PlayerUiState, palette: LyricsPalette, offsetMs: Int) {
     val time = rememberLyricsTime(state, offsetMs)
-    val slot by remember(lyrics) { derivedStateOf { slotAt(lyrics, time.value) } }
+    val slot by remember(lyrics) { derivedStateOf { karaokeFrame(lyrics, time.value) } }
     val big = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp, lineHeight = 21.sp, fontWeight = FontWeight.Bold)
     val small = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 15.sp)
     Column(
@@ -686,7 +575,7 @@ internal fun PipLyrics(lyrics: Lyrics, state: PlayerUiState, palette: LyricsPale
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (slot.line >= 0) {
-            SungLine(lyrics.lines[slot.line].text, big, palette) { progressOf(lyrics, slot.line, time.value) }
+            SungLine(lyrics.lines[slot.line].text, big, palette) { karaokeProgress(lyrics, slot.line, time.value) }
         } else {
             Text(stringResource(R.string.lyrics_gap), style = big, color = palette.fill, textAlign = TextAlign.Center)
         }
@@ -704,82 +593,4 @@ internal fun PipLyrics(lyrics: Lyrics, state: PlayerUiState, palette: LyricsPale
     }
 }
 
-/**
- * [text] in the dim colour, then again in the accent up to [progress] — across the wrapped
- * lines one after the other, with a soft leading edge. Drawn, not recomposed, every frame.
- */
-@Composable
-private fun SungLine(text: String, style: TextStyle, palette: LyricsPalette, progress: () -> Float) {
-    var layout by remember(text) { mutableStateOf<TextLayoutResult?>(null) }
-    val soft = with(LocalDensity.current) { 20.dp.toPx() }
-    Text(
-        text,
-        style = style,
-        color = palette.dim,
-        textAlign = TextAlign.Center,
-        onTextLayout = { layout = it },
-        modifier = Modifier.fillMaxWidth().drawWithContent {
-            drawContent()
-            val l = layout ?: return@drawWithContent
-            val p = progress()
-            if (p <= 0f) return@drawWithContent
-            var total = 0f
-            for (i in 0 until l.lineCount) total += l.getLineRight(i) - l.getLineLeft(i)
-            var left = total * p
-            for (i in 0 until l.lineCount) {
-                if (left <= 0f) break
-                val x0 = l.getLineLeft(i)
-                val x1 = l.getLineRight(i)
-                val w = x1 - x0
-                val full = left >= w
-                val edge = x0 + min(w, left)
-                left -= w
-                val brush = if (full) {
-                    Brush.horizontalGradient(listOf(palette.fill, palette.fillEnd), startX = x0, endX = x1.coerceAtLeast(x0 + 1f))
-                } else {
-                    val end = edge + soft
-                    Brush.horizontalGradient(
-                        0f to palette.fill,
-                        ((edge - x0) / (end - x0)) to palette.fillEnd,
-                        1f to palette.fillEnd.copy(alpha = 0f),
-                        startX = x0,
-                        endX = end,
-                    )
-                }
-                clipRect(x0 - soft, l.getLineTop(i), if (full) x1 + soft else edge + soft, l.getLineBottom(i)) {
-                    // alpha 1: otherwise it takes the dim colour's alpha from the layout
-                    drawText(l, brush = brush, alpha = 1f)
-                }
-            }
-        },
-    )
-}
 
-/** "♪ ♪ ♪" during a break, three dots going out one per second before the singing comes back. */
-@Composable
-private fun Countdown(until: Long?, time: State<Long>, style: TextStyle, palette: LyricsPalette) {
-    val dots by remember(until) {
-        derivedStateOf { if (until == null) 0 else ceil((until - time.value) / 1000.0).toInt().coerceIn(0, 3) }
-    }
-    Text(
-        stringResource(R.string.lyrics_gap),
-        style = style,
-        color = palette.fill,
-        textAlign = TextAlign.Center,
-        // a gentle bob, moved in the draw phase only
-        modifier = Modifier.graphicsLayer { translationY = sin(time.value / 260.0).toFloat() * 4.dp.toPx() },
-    )
-    if (until != null) {
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            repeat(3) { k ->
-                Box(
-                    Modifier
-                        .size(10.dp)
-                        .clip(CircleShape)
-                        .background(if (k < dots) palette.fill else palette.dim.copy(alpha = palette.dim.alpha * 0.4f)),
-                )
-            }
-        }
-    }
-}

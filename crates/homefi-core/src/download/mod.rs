@@ -4,6 +4,7 @@
 //! end can render progress its own way.
 
 mod engine;
+pub mod space;
 
 pub use engine::Downloader;
 

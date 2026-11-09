@@ -12,7 +12,6 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
-import com.perseusoft.homefi.MainActivity
 import com.perseusoft.homefi.R
 import com.perseusoft.homefi.homefi
 import kotlinx.coroutines.flow.collectLatest
@@ -47,7 +46,7 @@ class DownloadService : LifecycleService() {
 
     private fun notification(state: DownloadState): android.app.Notification {
         val open = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            this, 0, AppEntry.intent(this).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE,
         )
         val current = state.active.values.firstOrNull()

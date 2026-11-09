@@ -49,6 +49,10 @@ pub struct LibraryRef {
     pub album: String,
     pub isrc: Option<String>,
     pub duration_ms: u64,
+    /// Tempo from the file's `BPM` tag.
+    pub bpm: Option<u16>,
+    /// The file's genre tag (may be empty).
+    pub genre: String,
 }
 
 /// The library, looked up by ISRC or by artist and song title.
@@ -95,6 +99,11 @@ impl LibraryIndex {
 
     pub fn len(&self) -> usize {
         self.tracks.len()
+    }
+
+    /// Every file, in the order given to [`Self::new`].
+    pub fn refs(&self) -> &[LibraryRef] {
+        &self.tracks
     }
 
     pub fn is_empty(&self) -> bool {
@@ -185,7 +194,7 @@ pub fn entry_from_track(
     }
 }
 
-fn entry_from_library(lib: &LibraryRef, tag: EntryTag, note: String) -> PlaylistEntry {
+pub(crate) fn entry_from_library(lib: &LibraryRef, tag: EntryTag, note: String) -> PlaylistEntry {
     PlaylistEntry {
         title: lib.title.clone(),
         artist: lib.artist.clone(),
@@ -226,6 +235,10 @@ pub struct Resolved {
     pub confidence: f32,
     /// Tidal's search failed or timed out (not the same as "no match"), and the library had no copy.
     pub failed: bool,
+    /// Tempo Tidal gives for the matched track.
+    pub tidal_bpm: Option<u16>,
+    /// Tempo in the tag of the library file of the song.
+    pub library_bpm: Option<u16>,
 }
 
 pub struct Resolver<'a> {
@@ -262,7 +275,7 @@ impl Resolver<'_> {
     async fn resolve_one(&self, candidate: SongCandidate) -> Resolved {
         let library_hit = self.library.find(&candidate.artist, &candidate.title);
         let (tidal, search_failed) = match self.api {
-            Some(api) => match self.best_on_tidal(api, &candidate).await {
+            Some(api) => match best_on_tidal(api, &candidate).await {
                 Ok(best) => (best, false),
                 Err(()) => (None, true),
             },
@@ -283,42 +296,44 @@ impl Resolver<'_> {
         let tidal_score = tidal.as_ref().map_or(0.0, |(_, s)| *s);
         let confidence = if library_hit.is_some() { CERTAIN } else { tidal_score.min(CERTAIN) };
         let failed = search_failed && entry.is_none();
-        Resolved { candidate, entry, confidence, failed }
+        let tidal_bpm = tidal.as_ref().and_then(|(t, _)| t.bpm).and_then(|b| u16::try_from(b).ok()).filter(|b| *b > 0);
+        let library_bpm = library_hit.and_then(|l| l.bpm);
+        Resolved { candidate, entry, confidence, failed, tidal_bpm, library_bpm }
     }
+}
 
-    /// The best studio match on Tidal and its score, if it reaches [`MIN_CONFIDENCE`];
-    /// `Err` when the search itself failed or timed out.
-    async fn best_on_tidal(&self, api: &TidalApi, candidate: &SongCandidate) -> Result<Option<(Track, f32)>, ()> {
-        let query = format!("{} {}", candidate.artist, candidate.title);
-        let found = match tokio::time::timeout(RESOLVE_TIMEOUT, api.search(&query)).await {
-            Ok(Ok(found)) => found,
-            Ok(Err(e)) => {
-                tracing::warn!("searching Tidal for “{}” by {} failed: {e}", candidate.title, candidate.artist);
-                return Err(());
-            }
-            Err(_) => {
-                tracing::warn!("searching Tidal for “{}” by {} timed out", candidate.title, candidate.artist);
-                return Err(());
-            }
-        };
-        let top = found
-            .top_hit
-            .filter(|h| h.kind.eq_ignore_ascii_case("TRACKS"))
-            .and_then(|h| serde_json::from_value::<Track>(h.value).ok());
-        let mut seen = std::collections::HashSet::new();
-        Ok(found
-            .tracks
-            .items
-            .into_iter()
-            .chain(top)
-            .filter(|t| t.allow_streaming && seen.insert(t.id))
-            .map(|t| {
-                let s = score(candidate, &t);
-                (t, s)
-            })
-            .filter(|(_, s)| *s >= MIN_CONFIDENCE)
-            .reduce(|best, next| if is_better(&next, &best) { next } else { best }))
-    }
+/// The best studio match on Tidal and its score, if it reaches [`MIN_CONFIDENCE`];
+/// `Err` when the search itself failed or timed out.
+pub(crate) async fn best_on_tidal(api: &TidalApi, candidate: &SongCandidate) -> Result<Option<(Track, f32)>, ()> {
+    let query = format!("{} {}", candidate.artist, candidate.title);
+    let found = match tokio::time::timeout(RESOLVE_TIMEOUT, api.search(&query)).await {
+        Ok(Ok(found)) => found,
+        Ok(Err(e)) => {
+            tracing::warn!("searching Tidal for “{}” by {} failed: {e}", candidate.title, candidate.artist);
+            return Err(());
+        }
+        Err(_) => {
+            tracing::warn!("searching Tidal for “{}” by {} timed out", candidate.title, candidate.artist);
+            return Err(());
+        }
+    };
+    let top = found
+        .top_hit
+        .filter(|h| h.kind.eq_ignore_ascii_case("TRACKS"))
+        .and_then(|h| serde_json::from_value::<Track>(h.value).ok());
+    let mut seen = std::collections::HashSet::new();
+    Ok(found
+        .tracks
+        .items
+        .into_iter()
+        .chain(top)
+        .filter(|t| t.allow_streaming && seen.insert(t.id))
+        .map(|t| {
+            let s = score(candidate, &t);
+            (t, s)
+        })
+        .filter(|(_, s)| *s >= MIN_CONFIDENCE)
+        .reduce(|best, next| if is_better(&next, &best) { next } else { best }))
 }
 
 /// Higher score wins; on a tie the earliest release (the original).
@@ -412,6 +427,7 @@ mod tests {
             album: "Album".into(),
             isrc: isrc.map(str::to_owned),
             duration_ms: 1000,
+            ..LibraryRef::default()
         }
     }
 

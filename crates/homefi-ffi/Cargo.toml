@@ -20,7 +20,7 @@ required-features = ["bindgen"]
 bindgen = ["uniffi/cli"]
 
 [dependencies]
-homefi-core = { workspace = true, features = ["share"] }
+homefi-core = { workspace = true, features = ["share", "decode"] }
 futures.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

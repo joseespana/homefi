@@ -36,7 +36,11 @@ export type View =
   /** "Set up my sound": the EQ assistant (AI or the guided wizard); `say` fills the first note. */
   | { name: "assistant"; say?: string }
   /** Someone else's room (shared control / party), as a guest. */
-  | { name: "guest" };
+  | { name: "guest" }
+  /** DJ mode: two decks, a mixer and a sampler. */
+  | { name: "dj" }
+  /** Exercise mode: indoor cycling rides built from your music. */
+  | { name: "exercise" };
 
 export interface ActiveDownload {
   task: number;

@@ -84,8 +84,12 @@
     align-items: center;
     height: 34px;
     border-radius: var(--r-sm);
-    background: var(--glass-strong);
+    /* frosted glass: what scrolls behind is blurred away, so it never reads as a button */
+    background: linear-gradient(var(--glass-strong), var(--glass-strong)), var(--bar-glass);
     border: 1px solid var(--glass-border);
+    backdrop-filter: blur(24px) saturate(1.5);
+    -webkit-backdrop-filter: blur(24px) saturate(1.5);
+    box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
   }
   .cluster {
     gap: 2px;

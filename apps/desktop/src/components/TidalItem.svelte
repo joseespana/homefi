@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { foldLabels } from "../lib/foldLabels";
   import { sound } from "../lib/sound.svelte";
   import { untrack } from "svelte";
   import { api, errorText, formatTime, type Hit, type Kind, type TidalDetail, type SourceContext, type TasteScope, type VersionHit } from "../lib/api";
@@ -239,12 +240,13 @@
       {/if}
       {#if mine?.atmos}<p class="muted small">Dolby Atmos needs an Atmos device, and downloads skip Atmos tracks: pick a stereo version to keep it.</p>{/if}
       {#if detail.description}<p class="desc muted">{detail.description}</p>{/if}
-      <div class="actions">
+      <div class="actions fold" use:foldLabels>
         {#if tracks.length}
           <button class="btn primary" onclick={() => play()}><Icon name="play" size={16} /> Play</button>
-          <button class="btn tonal" onclick={() => play(true)}><Icon name="shuffle" size={16} /> Shuffle</button>
+          <button class="btn tonal" title="Shuffle" onclick={() => play(true)}><Icon name="shuffle" size={16} /> Shuffle</button>
           <button
             class="btn tonal"
+            title="Queue"
             onclick={(e) => app.openQueueMenu(e, detail!.header.title, (next) => run(async () => app.queueHits(await allTracks(), detail!.header.title, next)), scope ?? undefined)}
           >
             <Icon name="queue" size={16} /> Queue
@@ -257,7 +259,12 @@
         {#if complete && !dlActive}
           <span class="btn tonal done" title="Every track is in your library"><Icon name="check" size={16} /> Downloaded</span>
         {:else}
-          <button class="btn tonal" onclick={downloadAll} disabled={queued && dlActive}>
+          <button
+            class="btn tonal"
+            title={queued && dlActive ? "Downloading…" : v?.kind === "artist" ? "Download discography" : owned.length ? `Download ${done ? missing.length : ""} missing` : "Download all"}
+            onclick={downloadAll}
+            disabled={queued && dlActive}
+          >
             <Icon name={queued && dlActive ? "clock" : "download"} size={16} />
             {#if queued && dlActive}Downloading…
             {:else if v?.kind === "artist"}Download discography
@@ -266,7 +273,7 @@
           </button>
         {/if}
         {#if (owned.length || wiping) && !dlActive}
-          <button class="btn tonal danger" class:wiping onclick={deleteDownloads} disabled={wiping} title="Moves the downloaded files to the Trash">
+          <button class="btn tonal danger" class:wiping onclick={deleteDownloads} disabled={wiping} title="{complete ? 'Delete download' : 'Delete the downloaded tracks'}: moves the files to the Trash">
             {#if wiping}
               <span class="mini-spin" aria-hidden="true"></span> Deleting…
             {:else}
@@ -286,7 +293,7 @@
           </button>
         {/if}
         {#if detail.owned}
-          <button class="btn tonal danger" onclick={deletePlaylist}>
+          <button class="btn tonal danger" title="Delete playlist" onclick={deletePlaylist}>
             <Icon name="trash" size={16} /> Delete playlist
           </button>
         {/if}
@@ -368,6 +375,8 @@
   }
   .actions {
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 8px;
     margin-top: 4px;
   }

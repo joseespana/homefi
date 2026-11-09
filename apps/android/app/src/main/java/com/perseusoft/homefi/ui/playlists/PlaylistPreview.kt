@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.CloudSync
+import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -57,6 +60,7 @@ import com.perseusoft.homefi.core.HomePlaylist
 import com.perseusoft.homefi.core.PlaylistEntry
 import com.perseusoft.homefi.core.SetlistSource
 import com.perseusoft.homefi.core.TasteScope
+import com.perseusoft.homefi.data.TidalSave
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.library.EmbeddedCover
 import com.perseusoft.homefi.ui.QueueButton
@@ -85,6 +89,8 @@ class PreviewActions(
     val onMode: (ConcertMode) -> Unit = {},
     /** The words on the saved playlist's rebuild button ("Search again", "Change answers"). */
     @StringRes val searchAgainLabel: Int = R.string.pl_search_again,
+    /** "Save to TIDAL" / "Update on TIDAL"; null hides it (a draft, or not signed in to Tidal). */
+    val onSaveToTidal: (() -> Unit)? = null,
 )
 
 /**
@@ -164,6 +170,9 @@ private fun PreviewHeader(playlist: HomePlaylist, fallbackNote: String?, aiName:
     val find = app.library::find
     var sourcesOpen by rememberSaveable { mutableStateOf(false) }
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
+    val tidalAll by app.playlists.tidal.collectAsStateWithLifecycle()
+    val tidal = tidalAll?.takeIf { it.id == playlist.id }
+    val onTidal = playlist.tidalUuid != null
 
     val origin = playlist.concert
     val popular = origin?.source is SetlistSource.TidalPopular
@@ -231,6 +240,21 @@ private fun PreviewHeader(playlist: HomePlaylist, fallbackNote: String?, aiName:
                     Spacer(Modifier.size(ButtonDefaults.IconSpacing))
                     Text(stringResource(actions.searchAgainLabel))
                 }
+                actions.onSaveToTidal?.let { saveToTidal ->
+                    OutlinedButton(onClick = { haptics.press(); saveToTidal() }, enabled = tidal !is TidalSave.Saving) {
+                        Icon(if (onTidal) Icons.Rounded.CloudSync else Icons.Rounded.CloudUpload, null, Modifier.size(ButtonDefaults.IconSize))
+                        Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                        Text(
+                            stringResource(
+                                when {
+                                    tidal is TidalSave.Saving -> R.string.pl_tidal_saving
+                                    onTidal -> R.string.pl_tidal_update
+                                    else -> R.string.pl_tidal_save
+                                },
+                            ),
+                        )
+                    }
+                }
                 TextButton(onClick = { confirmDelete = true }) {
                     Icon(Icons.Rounded.Delete, null, Modifier.size(ButtonDefaults.IconSize))
                     Spacer(Modifier.size(ButtonDefaults.IconSpacing))
@@ -243,11 +267,12 @@ private fun PreviewHeader(playlist: HomePlaylist, fallbackNote: String?, aiName:
         }
         if (actions.saved) {
             Text(
-                stringResource(R.string.pl_only_in_homefi),
+                stringResource(if (onTidal) R.string.pl_in_homefi_and_tidal else R.string.pl_only_in_homefi),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),
             )
+            TidalResult(tidal)
         }
     }
     if (sourcesOpen) SourcesSheet(playlist, aiName, settings.showSources) { sourcesOpen = false }
@@ -255,10 +280,46 @@ private fun PreviewHeader(playlist: HomePlaylist, fallbackNote: String?, aiName:
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text(stringResource(R.string.pl_delete)) },
-            text = { Text(stringResource(R.string.pl_delete_confirm, playlist.name)) },
+            text = {
+                val words = if (app.playlists.deletesTidalCopy(playlist)) R.string.pl_delete_confirm_tidal else R.string.pl_delete_confirm
+                Text(stringResource(words, playlist.name))
+            },
             confirmButton = { TextButton(onClick = { confirmDelete = false; actions.onDelete() }) { Text(stringResource(R.string.pl_delete)) } },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.pl_cancel)) } },
         )
+    }
+}
+
+/** How the last save to TIDAL went: the core's summary and the songs TIDAL doesn't have, or the error. */
+@Composable
+private fun TidalResult(tidal: TidalSave?) {
+    var skippedOpen by rememberSaveable { mutableStateOf(false) }
+    when (tidal) {
+        is TidalSave.Saved -> Column(Modifier.padding(top = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.CheckCircle, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(6.dp))
+                Text(tidal.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            }
+            if (tidal.skipped.isNotEmpty()) {
+                TextButton(onClick = { skippedOpen = !skippedOpen }) {
+                    Text(stringResource(R.string.pl_tidal_not_there, tidal.skipped.size))
+                    Icon(if (skippedOpen) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
+                }
+                if (skippedOpen) {
+                    tidal.skipped.forEach { name ->
+                        Text(name, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+        is TidalSave.Failed -> Text(
+            stringResource(R.string.pl_tidal_failed, tidal.message),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        is TidalSave.Saving, null -> Unit
     }
 }
 

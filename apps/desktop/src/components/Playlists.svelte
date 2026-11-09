@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { foldLabels } from "../lib/foldLabels";
   import { item } from "../lib/motion";
   import { untrack } from "svelte";
   import type { Paged } from "../lib/paged.svelte";
@@ -89,7 +90,7 @@
         {openTracks.length} songs{open.tracks.length > openTracks.length ? ` · ${open.tracks.length - openTracks.length} not on this computer` : ""}
       </div>
       <div class="dim ellipsis">{open.path}</div>
-      <div class="actions">
+      <div class="actions fold" use:foldLabels>
         <button class="btn primary" onclick={() => play()} disabled={!openTracks.length}><Icon name="play" size={16} /> Play</button>
         <button class="btn tonal" onclick={() => play(true)} disabled={!openTracks.length}><Icon name="shuffle" size={16} /> Shuffle</button>
         <button
@@ -109,7 +110,7 @@
       <h1>Playlists</h1>
       <div class="muted">{loading ? "Loading…" : `${local.length} on this computer · ${tidalList?.total ?? 0} on Tidal`}</div>
     </div>
-    <div class="actions">
+    <div class="actions fold" use:foldLabels>
       <div class="filter"><Icon name="search" size={16} /><input placeholder="Filter playlists" bind:value={filter} /></div>
       <button class="btn primary" onclick={() => (app.view = { name: "chat-playlist" })}><Icon name="ai" size={16} /> Make a playlist with AI</button>
       <button class="btn tonal" onclick={() => (app.view = { name: "concert" })}><Icon name="mic" size={16} /> Get ready for a concert</button>

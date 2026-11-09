@@ -352,6 +352,7 @@ impl PartySession {
             unmatched: pool.unmatched,
             sources: Vec::new(),
             search_widget_html: None,
+            tidal_uuid: None,
         };
         Ok(BuildResult { built: PartyBuilt { playlist, note }, model: config.model, last_songs })
     }

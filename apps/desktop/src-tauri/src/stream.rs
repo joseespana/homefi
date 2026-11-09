@@ -215,7 +215,8 @@ async fn resolve<R: Runtime>(app: &AppHandle<R>, item: &StreamItem) -> Result<Pa
     Ok(path)
 }
 
-async fn fetch_or_local<R: Runtime>(app: &AppHandle<R>, item: &StreamItem) -> Result<PathBuf, String> {
+/// The file of `item`: its local copy, or the stream cache's (fetched now when missing).
+pub(crate) async fn fetch_or_local<R: Runtime>(app: &AppHandle<R>, item: &StreamItem) -> Result<PathBuf, String> {
     if let Some(local) = item.local.as_ref().map(PathBuf::from).filter(|p| p.exists()) {
         return Ok(local);
     }

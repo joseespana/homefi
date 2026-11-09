@@ -1,5 +1,12 @@
 package com.perseusoft.homefi.ui.player
 
+import androidx.compose.material.icons.rounded.VerticalSplit
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.OpenInFull
+import androidx.compose.material.icons.rounded.CloseFullscreen
 import com.perseusoft.homefi.ui.playlists.songSeedAction
 import com.perseusoft.homefi.ui.playlists.toSeed
 import androidx.compose.material3.HorizontalDivider
@@ -182,11 +189,52 @@ private fun PlayerLayout.icon(): ImageVector = when (this) {
     PlayerLayout.WEB2000 -> Icons.Rounded.Language
 }
 
-/** Full-screen player: four layouts over the same controls. */
+/**
+ * Full-screen player: four layouts over the same controls. [docked] = it was maximized from
+ * the side player, so closing it goes back to the side (and says so).
+ */
 @Composable
-fun NowPlayingScreen(onClose: () -> Unit) {
+fun NowPlayingScreen(onClose: () -> Unit, docked: Boolean = false) {
     BackHandler(onBack = onClose)
-    PlayerContent(playerSource(), onClose = onClose)
+    PlayerContent(
+        playerSource(),
+        onClose = onClose,
+        close = if (docked) PlayerClose.TO_SIDE else PlayerClose.DOWN,
+    )
+}
+
+/**
+ * The player beside the app on a wide screen: the same layouts in a narrower column, with
+ * buttons to hide it ([onHide]) and to fill the screen ([onMaximize]). Back isn't its own:
+ * it keeps working for the screen on the left.
+ */
+@Composable
+fun SidePlayer(onHide: () -> Unit, onMaximize: () -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier.clip(RoundedCornerShape(topStart = SidePlayerCorner, bottomStart = SidePlayerCorner))) {
+        PlayerContent(
+            playerSource(),
+            onClose = onHide,
+            onMaximize = onMaximize,
+            close = PlayerClose.HIDE_SIDE,
+            // sharing is one tap away in the full player; the narrow bar keeps the essentials
+            showShare = false,
+        )
+    }
+}
+
+private val SidePlayerCorner = 24.dp
+
+/** From this screen width (dp) the player can sit beside the app (Material's "expanded" width). */
+const val SIDE_PLAYER_MIN_SCREEN_DP = 840
+
+/** What the player's close button does, which decides its icon and label. */
+enum class PlayerClose(val icon: ImageVector, val label: Int) {
+    /** The full player slides down to the mini player. */
+    DOWN(Icons.Rounded.KeyboardArrowDown, R.string.player_close),
+    /** The maximized player goes back beside the app. */
+    TO_SIDE(Icons.Rounded.CloseFullscreen, R.string.player_to_side),
+    /** The side player slides away; the mini player brings it back. */
+    HIDE_SIDE(Icons.AutoMirrored.Rounded.KeyboardArrowRight, R.string.player_hide_side),
 }
 
 /**
@@ -206,11 +254,14 @@ internal val LocalPlayerCompact = staticCompositionLocalOf { false }
  * action buttons (layout, outputs, ...) to put in its own row, so there is
  * one bar instead of two. [onQueue] replaces the queue sheet, [showQueue]
  * hides that button, and [onClose] / [showShare] hide theirs when null / false.
+ * [close] picks the close button's look; [onMaximize] adds a "full screen" button.
  */
 @Composable
 fun PlayerContent(
     source: PlayerSource,
     onClose: (() -> Unit)? = null,
+    onMaximize: (() -> Unit)? = null,
+    close: PlayerClose = PlayerClose.DOWN,
     onQueue: (() -> Unit)? = null,
     showShare: Boolean = true,
     showQueue: Boolean = true,
@@ -286,7 +337,7 @@ fun PlayerContent(
                 .fillMaxSize()
                 .padding(horizontal = Space.l, vertical = Space.xs),
         ) {
-            if (header == null) TopBar(onClose = onClose, actions = actions)
+            if (header == null) TopBar(onClose = onClose, close = close, onMaximize = onMaximize, actions = actions)
             // the lyrics rise over the layout (and sink back); another layout fades through
             val motion = LocalMotion.current
             AnimatedContent(
@@ -329,54 +380,25 @@ fun PlayerContent(
     }
 }
 
-/**
- * The album behind everything: faint in most layouts, the whole backdrop in
- * the immersive one, always fading into the surface so text stays readable.
- */
 @Composable
-private fun Backdrop(cover: Any?, strong: Boolean, shade: ImmersiveShade) {
-    val surface = LocalSkin.current.base
-    val context = LocalContext.current
-    // a new album dissolves into the old one
-    Crossfade(cover, animationSpec = LocalMotion.current.tween(500), label = "backdrop") { shown ->
-        if (shown != null) {
-            // the desktop's blurred album: Modifier.blur needs Android 12, so the cover is
-            // also decoded tiny and stretched, which blurs it on any version
-            AsyncImage(
-                model = if (strong) shown else ImageRequest.Builder(context).data(shown).size(24, 24).build(),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                filterQuality = FilterQuality.High,
-                alpha = if (strong) 1f else 0.75f,
-                modifier = Modifier.fillMaxSize().then(if (strong) Modifier else Modifier.blur(24.dp)),
-            )
-        }
-    }
-    // immersive: how much the fade under the title hides the album (0 none, 1 strong)
-    val lower = rememberCoverLightness(if (strong && shade == ImmersiveShade.AUTO) cover else null)
-    val amount = when (shade) {
-        ImmersiveShade.STRONG -> 1f
-        ImmersiveShade.SOFT -> 0.5f
-        ImmersiveShade.OFF -> 0f
-        // the text is the surface's opposite: a cover close to the text's tone needs more shade
-        ImmersiveShade.AUTO -> lower?.let { l -> if (surface.luminance() < 0.5f) l else 1f - l }
-            ?.let { 0.35f + 0.65f * it }
-            ?: 0.8f
-    }
-    val stops = if (strong) {
-        listOf(surface.copy(alpha = 0.35f * amount), Color.Transparent, surface.copy(alpha = 0.92f * amount), surface.copy(alpha = amount))
-    } else {
-        listOf(surface.copy(alpha = 0.25f), surface.copy(alpha = 0.55f), surface.copy(alpha = 0.92f))
-    }
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(stops)))
-}
-
-@Composable
-private fun TopBar(onClose: (() -> Unit)?, actions: @Composable RowScope.() -> Unit) {
+private fun TopBar(
+    onClose: (() -> Unit)?,
+    close: PlayerClose,
+    onMaximize: (() -> Unit)?,
+    actions: @Composable RowScope.() -> Unit,
+) {
     Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (onClose != null) IconButton(onClick = onClose) { Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.player_close)) }
+        if (onClose != null) IconButton(onClick = onClose) { Icon(close.icon, stringResource(close.label)) }
+        if (onMaximize != null) {
+            IconButton(onClick = onMaximize) { Icon(Icons.Rounded.OpenInFull, stringResource(R.string.player_maximize)) }
+        }
         Spacer(Modifier.weight(1f))
-        actions()
+        // a narrow side player scrolls its buttons rather than squeezing them
+        Row(
+            Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+            content = actions,
+        )
     }
 }
 
@@ -460,6 +482,15 @@ private fun PlayerActions(
                     trailingIcon = { Switch(checked = pip.pipMascot, onCheckedChange = null) },
                     onClick = { app.settings.update { it.copy(pipMascot = !it.pipMascot) } },
                 )
+                // the side player is removed right here, where it shows (only screens wide enough offer it)
+                if (LocalConfiguration.current.screenWidthDp >= SIDE_PLAYER_MIN_SCREEN_DP) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.side_player_short)) },
+                        leadingIcon = { Icon(Icons.Rounded.VerticalSplit, null) },
+                        trailingIcon = { Switch(checked = pip.sidePlayer, onCheckedChange = null) },
+                        onClick = { app.settings.update { it.copy(sidePlayer = !it.sidePlayer) } },
+                    )
+                }
             }
             HorizontalDivider()
             PlayerLayout.entries.forEach { l ->
@@ -885,51 +916,7 @@ private fun QueueSheet(state: PlayerUiState, onDismiss: () -> Unit) {
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         )
-        val listState = rememberLazyListState(initialFirstVisibleItemIndex = state.index.coerceAtLeast(0))
-        LazyColumn(state = listState) {
-            items(state.queue.size, key = { i -> "$i-${state.queue[i].mediaId}" }) { i ->
-                val entry = state.queue[i]
-                val isCurrent = i == state.index
-                val skin = LocalSkin.current
-                ListItem(
-                    modifier = itemMotion().clickable(enabled = caps.canSkipTo) { player.skipTo(i) },
-                    colors = if (isCurrent && skin.selection != null) {
-                        skinRowColors(i, current = true)
-                    } else {
-                        ListItemDefaults.colors(containerColor = if (skin.stripe != null && i % 2 == 1) skin.stripe else MaterialTheme.colorScheme.surfaceContainerLow)
-                    },
-                    leadingContent = {
-                        Box(contentAlignment = Alignment.Center) {
-                            CoverArt(entry.coverModel(), 44.dp, radius = 6.dp)
-                            if (isCurrent) {
-                                Box(Modifier.size(44.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.45f)))
-                                Icon(Icons.Rounded.GraphicEq, null, tint = Color.White)
-                            }
-                        }
-                    },
-                    headlineContent = {
-                        Text(
-                            entry.title,
-                            color = currentTitleColor(isCurrent),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    },
-                    supportingContent = {
-                        val by = entry.queueId?.let(addedBy::get)
-                        if (by == null) {
-                            Text(entry.artist, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        } else {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                MemberDot(by.color, 10.dp)
-                                Spacer(Modifier.width(6.dp))
-                                Text(stringResource(R.string.sharing_by, entry.artist, by.name), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    },
-                )
-            }
-        }
+        QueueList(state, addedBy, onSkipTo = if (caps.canSkipTo) player::skipTo else null)
     }
 }
 
