@@ -7,6 +7,8 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.11] - 2026-11-10
+
 ### Added
 - Android TV: the Train setup now has the phone's genres, how famous the songs are, the era and
   "My rides" (ride a saved one again with no AI call), all with the remote; the form scrolls.
