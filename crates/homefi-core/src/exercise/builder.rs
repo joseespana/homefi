@@ -24,11 +24,11 @@ use super::profile::{profile, ProfilePoint};
 use super::settings::{ExerciseSettings, SourcesMode};
 use super::words::{self, Problem};
 use crate::ai::AiConfig;
-use crate::api::TidalApi;
+use crate::api::{limits, TidalApi};
 use crate::dj::{DjAnalysis, Grid};
 use crate::error::Result;
 use crate::humane::Lang;
-use crate::models::Track;
+use crate::models::{MediaItem, Playlist, Track};
 use crate::playlist::{
     artist_key, entry_from_library, entry_from_track, new_id, now_ms, popularity_0_100, EntryTag, HomePlaylist,
     LibraryIndex, PlaylistEntry, PlaylistOrigin, Resolver, RideOrigin, SeenEntries, SongCandidate,
@@ -65,6 +65,14 @@ const CENTER_WEIGHT: f32 = 0.05;
 const DURATION_WEIGHT: f32 = 2.0;
 const ANALYSIS_PENALTY: f32 = 0.3;
 const TIDAL_PENALTY: f32 = 0.1;
+/// Without the AI: genres whose Tidal playlists are read, the top playlists one is picked from, and how many.
+const PLAYLIST_GENRES: usize = 3;
+const PLAYLISTS_CONSIDERED: usize = 6;
+const PLAYLISTS_PER_GENRE: usize = 2;
+/// Songs from the genres' playlists above which the search by the genre's bare name is skipped.
+const ENOUGH_FROM_PLAYLISTS: usize = 40;
+/// Words of a playlist title that mean the genre's best-known songs, read first when the rider wants hits.
+const HITS_WORDS: [&str; 6] = ["classic", "hits", "essential", "beginner", "101", "best"];
 
 /// Reads the tempo and beat grid of a song's audio. The app implements it (decoding needs its own
 /// audio stack and the DJ analysis cache); `None` when the song cannot be read.
@@ -146,6 +154,9 @@ pub struct RidePlan {
     pub songs: Vec<PlannedSong>,
     /// Why the ride isn't exactly what was asked, already in the build language.
     pub notes: Vec<String>,
+    /// The AI was asked and failed (why, in the build language): the songs come from a plain Tidal search,
+    /// and the apps say so loudly. None when the AI answered or was not asked.
+    pub ai_problem: Option<String>,
     pub cues: CueSettings,
     pub wish: MusicWish,
     /// The course profile of `workout`, drawn on the ride screen and the TV.
@@ -337,7 +348,8 @@ async fn build_inner(
         Some(m) => (m.asked, m.played),
         None => (Vec::new(), HashSet::new()),
     };
-    let (mut pool, mut notes, fresh_asked) = gatherer.gather(&asked_workout, &earlier_asked, progress).await;
+    let Gathered { mut pool, mut notes, ai_problem, asked: fresh_asked } =
+        gatherer.gather(&asked_workout, &earlier_asked, progress).await;
     let mut asked = earlier_asked;
     asked.extend(fresh_asked);
     let liked: HashSet<String> = taste.artists.iter().map(|a| artist_key(a)).filter(|a| !a.is_empty()).collect();
@@ -380,7 +392,9 @@ async fn build_inner(
         select_rung(&pool.songs, &workout, &mut picks, rung, rung_at, &judge);
     }
 
-    let built = assemble(request, &wish, workout, &mut pool, &picks, &settings, ctx, &mut budget, &mut notes).await?;
+    let mut built =
+        assemble(request, &wish, workout, &mut pool, &picks, &settings, ctx, &mut budget, &mut notes).await?;
+    built.plan.ai_problem = ai_problem;
     let mut played = played;
     for pick in picks.iter().flatten() {
         played.extend(pool.songs[pick.candidate].keys().map(str::to_owned));
@@ -412,16 +426,12 @@ impl Gatherer<'_> {
     }
 
     /// Searches everything: the library, the AI (told not to repeat `earlier`) and Tidal. Returns the pool, the
-    /// notes and what the AI proposed this time.
-    async fn gather(
-        &self,
-        workout: &Workout,
-        earlier: &[SongCandidate],
-        progress: Progress<'_>,
-    ) -> (Pool, Vec<String>, Vec<SongCandidate>) {
+    /// notes, why the AI failed (if it did) and what it proposed this time.
+    async fn gather(&self, workout: &Workout, earlier: &[SongCandidate], progress: Progress<'_>) -> Gathered {
         let lang = self.ctx.lang;
         let mut pool = Pool::new(&self.wish.taste);
         let mut notes = Vec::new();
+        let mut ai_problem = None;
         let mut asked = Vec::new();
         add_library(&mut pool, self.ctx.library, self.wish);
         let mut with_ai = false;
@@ -433,10 +443,10 @@ impl Gatherer<'_> {
                     asked.extend(proposals.iter().map(|p| p.candidate.clone()));
                     add_proposals(&mut pool, &self.resolver(), proposals, progress).await;
                 }
-                Ok(_) => notes.push(words::ai_failed_note(lang, words::ai_no_songs(lang))),
+                Ok(_) => ai_problem = Some(words::ai_failed_note(lang, words::ai_no_songs(lang))),
                 Err(e) => {
-                    tracing::warn!("{e}");
-                    notes.push(words::ai_failed_note(lang, &e.humane_in(lang)));
+                    tracing::warn!("the ride's AI failed: {e}");
+                    ai_problem = Some(words::ai_failed_note(lang, &e.humane_in(lang)));
                 }
             }
         } else if !self.wish.genres.is_empty() {
@@ -445,15 +455,31 @@ impl Gatherer<'_> {
         if !with_ai {
             if let Some(api) = self.api {
                 progress(RideProgress::Searching { with_ai: false });
-                let queries = search_queries(self.wish, "");
-                add_searches(&mut pool, api, self.ctx.library, self.prefer_library, queries).await;
+                let lib = self.ctx.library;
+                let listed =
+                    add_genre_playlists(&mut pool, api, lib, self.prefer_library, self.wish, fresh_seed()).await;
+                // the genre's bare name finds bands named after it: only worth it when the playlists gave little
+                let queries = search_queries(self.wish, "")
+                    .into_iter()
+                    .filter(|(genre, query)| listed < ENOUGH_FROM_PLAYLISTS || genre != query)
+                    .collect();
+                add_searches(&mut pool, api, lib, self.prefer_library, queries).await;
             }
         }
         if self.api.is_none() {
             notes.push(crate::concert::words::no_tidal_note(lang));
         }
-        (pool, notes, asked)
+        Gathered { pool, notes, ai_problem, asked }
     }
+}
+
+/// What [`Gatherer::gather`] found.
+struct Gathered {
+    pool: Pool,
+    notes: Vec<String>,
+    ai_problem: Option<String>,
+    /// What the AI proposed this time.
+    asked: Vec<SongCandidate>,
 }
 
 /// Library songs whose genre tag names a wish genre (every song when the wish has no genre).
@@ -577,13 +603,106 @@ async fn add_searches(
         .collect()
         .await;
     for (genre, tracks) in found {
-        for track in tracks.into_iter().filter(|t| t.allow_streaming) {
-            let bpm = track.bpm.and_then(positive_bpm).map(|b| (b, BpmSource::Tidal));
-            let entry = entry_from_track(&track, library, prefer_library, EntryTag::Plain, String::new());
-            let popularity = track.popularity.map(popularity_0_100);
-            pool.add(Candidate { popularity, ..Candidate::new(entry, bpm, genre.clone()) });
+        add_tracks(pool, tracks, &genre, library, prefer_library);
+    }
+}
+
+/// Tidal songs found for `genre` (the ones Tidal lets play) as candidates.
+fn add_tracks(pool: &mut Pool, tracks: Vec<Track>, genre: &str, library: &LibraryIndex, prefer_library: bool) {
+    for track in tracks.into_iter().filter(|t| t.allow_streaming) {
+        let bpm = track.bpm.and_then(positive_bpm).map(|b| (b, BpmSource::Tidal));
+        let entry = entry_from_track(&track, library, prefer_library, EntryTag::Plain, String::new());
+        let popularity = track.popularity.map(popularity_0_100);
+        pool.add(Candidate { popularity, ..Candidate::new(entry, bpm, genre.to_owned()) });
+    }
+}
+
+/// A number that differs on every build, to pick which playlists a build reads.
+fn fresh_seed() -> usize {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos() as usize)
+}
+
+/// Which of `count` playlists to read: [`PLAYLISTS_PER_GENRE`] different ones, starting where `seed` says.
+fn playlist_picks(count: usize, seed: usize) -> Vec<usize> {
+    (0..count.min(PLAYLISTS_PER_GENRE)).map(|i| (seed + i) % count).collect()
+}
+
+/// Without the AI, searching a genre's name finds songs and bands named after it ("Metal Church") and the
+/// same ones every time; Tidal's own playlists of the genre ("Metal Classics") hold its real songs. Each genre
+/// reads two of its top editorial playlists, picked anew on every build and from a different spot in each, so
+/// "new songs" brings others. Returns how many songs they gave.
+async fn add_genre_playlists(
+    pool: &mut Pool,
+    api: &TidalApi,
+    library: &LibraryIndex,
+    prefer_library: bool,
+    wish: &MusicWish,
+    seed: usize,
+) -> usize {
+    let genres: Vec<&String> = wish.genres.iter().take(PLAYLIST_GENRES).collect();
+    let found = futures::future::join_all(genres.iter().map(|genre| async move {
+        match tokio::time::timeout(RESOLVE_TIMEOUT, api.search(genre)).await {
+            Ok(Ok(found)) => found.playlists.items,
+            _ => {
+                tracing::warn!("searching Tidal playlists for “{genre}” failed");
+                Vec::new()
+            }
+        }
+    }))
+    .await;
+    let hits = wish.taste.popularity == Popularity::Hits;
+    let mut reads = Vec::new();
+    for (g, (genre, playlists)) in genres.into_iter().zip(found).enumerate() {
+        let top = genre_playlists(playlists, genre, hits);
+        for at in playlist_picks(top.len(), seed.wrapping_add(g)) {
+            let list = &top[at];
+            let spare = (list.number_of_tracks - limits::PLAYLIST_ITEMS).max(0);
+            let offset = if spare == 0 { 0 } else { (seed as i64 / 7).rem_euclid(spare + 1) };
+            reads.push((genre.clone(), list.uuid.clone(), offset));
         }
     }
+    let pages = futures::future::join_all(reads.into_iter().map(|(genre, uuid, offset)| async move {
+        match tokio::time::timeout(RESOLVE_TIMEOUT, api.playlist_items(&uuid, offset)).await {
+            Ok(Ok(page)) => (genre, page.items),
+            _ => {
+                tracing::warn!("reading a Tidal playlist for {genre} failed");
+                (genre, Vec::new())
+            }
+        }
+    }))
+    .await;
+    let before = pool.songs.len();
+    for (genre, items) in pages {
+        let tracks = items
+            .into_iter()
+            .filter_map(|i| match i.item {
+                MediaItem::Track(t) => Some(t),
+                MediaItem::Video(_) => None,
+            })
+            .collect();
+        add_tracks(pool, tracks, &genre, library, prefer_library);
+    }
+    pool.songs.len() - before
+}
+
+/// The playlists worth reading for `genre`: Tidal's editorial ones with the genre in the title (a "Hip-Hop
+/// Workout" is not metal), the best-known songs first when the rider wants hits; at most
+/// [`PLAYLISTS_CONSIDERED`].
+fn genre_playlists(playlists: Vec<Playlist>, genre: &str, hits: bool) -> Vec<Playlist> {
+    let genre = fold(genre);
+    let mut kept: Vec<Playlist> = playlists
+        .into_iter()
+        .filter(|p| p.number_of_tracks > 0 && p.kind.as_deref() == Some("EDITORIAL") && fold(&p.title).contains(&genre))
+        .collect();
+    if hits {
+        // stable: Tidal's own order within each group
+        kept.sort_by_key(|p| {
+            let title = fold(&p.title);
+            !HITS_WORDS.iter().any(|w| title.contains(w))
+        });
+    }
+    kept.truncate(PLAYLISTS_CONSIDERED);
+    kept
 }
 
 /// Reads the tempo of candidates that have none, within `budget` songs: the AI's own picks first, then
@@ -968,6 +1087,7 @@ async fn assemble(
         workout: final_workout,
         songs,
         notes: std::mem::take(notes),
+        ai_problem: None,
         cues: CueSettings {
             countdown_seconds: settings.countdown_seconds,
             notice_seconds: settings.segment_notice_seconds,
@@ -989,12 +1109,50 @@ pub(crate) fn test_plan(workout: Workout, cues: CueSettings) -> RidePlan {
         })
         .collect();
     let profile = profile(&workout);
-    RidePlan { version: 1, workout, songs, notes: Vec::new(), cues, wish: MusicWish::default(), profile }
+    RidePlan {
+        version: 1,
+        workout,
+        songs,
+        notes: Vec::new(),
+        ai_problem: None,
+        cues,
+        wish: MusicWish::default(),
+        profile,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_tidals_playlists_of_the_genre_are_read_the_classics_first_for_hits() {
+        let list = |title: &str, kind: &str| -> Playlist {
+            serde_json::from_value(serde_json::json!({
+                "uuid": title, "title": title, "numberOfTracks": 50, "type": kind
+            }))
+            .unwrap()
+        };
+        let found = || {
+            vec![
+                list("Metal Halloween", "EDITORIAL"),
+                list("Hip-Hop Workout", "EDITORIAL"),
+                list("My metal", "USER"),
+                list("Metal Classics", "EDITORIAL"),
+            ]
+        };
+        let titles = |kept: Vec<Playlist>| kept.into_iter().map(|p| p.title).collect::<Vec<_>>();
+        assert_eq!(titles(genre_playlists(found(), "Metal", false)), ["Metal Halloween", "Metal Classics"]);
+        assert_eq!(titles(genre_playlists(found(), "metal", true)), ["Metal Classics", "Metal Halloween"]);
+    }
+
+    #[test]
+    fn each_build_reads_different_playlists_of_the_genre() {
+        assert_eq!(playlist_picks(6, 0), [0, 1]);
+        assert_eq!(playlist_picks(6, 5), [5, 0]);
+        assert_eq!(playlist_picks(1, 3), [0]);
+        assert!(playlist_picks(0, 3).is_empty());
+    }
 
     #[test]
     fn bars_are_eight_beats() {

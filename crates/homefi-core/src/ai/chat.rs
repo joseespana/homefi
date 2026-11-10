@@ -220,7 +220,7 @@ pub async fn chat_system(
         Api::ChatCompletions => {
             openai::chat_completions(config, system, messages, tools, search, cap, options.light_reasoning).await?
         }
-        Api::Gemini => gemini::chat(config, system, messages, tools, search, cap).await?,
+        Api::Gemini => gemini::chat(config, system, messages, tools, search, cap, options.light_reasoning).await?,
     };
     Ok(reply)
 }

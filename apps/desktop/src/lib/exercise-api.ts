@@ -114,6 +114,8 @@ export interface RidePlan {
   workout: Workout;
   songs: PlannedSong[];
   notes: string[];
+  /** The AI was asked and failed (why): shown loudly. Absent when it answered or was not asked. */
+  ai_problem?: string | null;
   cues: { countdown_seconds: number; notice_seconds: number };
   wish: MusicWish;
   profile: ProfilePoint[];

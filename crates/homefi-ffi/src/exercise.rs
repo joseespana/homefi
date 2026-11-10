@@ -707,6 +707,8 @@ pub struct RidePlan {
     pub songs: Vec<PlannedSong>,
     /// Why the ride is not exactly what was asked, in the build language.
     pub notes: Vec<String>,
+    /// The AI was asked and failed (why): the apps show it loudly. None when it answered or was not asked.
+    pub ai_problem: Option<String>,
     pub countdown_seconds: u8,
     pub notice_seconds: u8,
     pub wish: MusicWish,
@@ -719,6 +721,7 @@ impl From<ex::RidePlan> for RidePlan {
             workout: p.workout.into(),
             songs: p.songs.into_iter().map(Into::into).collect(),
             notes: p.notes,
+            ai_problem: p.ai_problem,
             countdown_seconds: p.cues.countdown_seconds,
             notice_seconds: p.cues.notice_seconds,
             wish: p.wish.into(),
@@ -738,6 +741,7 @@ impl From<RidePlan> for ex::RidePlan {
             workout,
             songs: p.songs.into_iter().map(Into::into).collect(),
             notes: p.notes,
+            ai_problem: p.ai_problem,
             cues: ex::CueSettings { countdown_seconds: p.countdown_seconds, notice_seconds: p.notice_seconds },
             wish: p.wish.into(),
             profile,
@@ -1583,6 +1587,7 @@ mod tests {
             workout,
             songs,
             notes: Vec::new(),
+            ai_problem: None,
             countdown_seconds: 3,
             notice_seconds: 10,
             wish: ex::MusicWish::default().into(),

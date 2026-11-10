@@ -13,6 +13,7 @@ import com.perseusoft.homefi.core.Popularity
 import com.perseusoft.homefi.core.exerciseDecades
 import com.perseusoft.homefi.tv.TvRow
 import com.perseusoft.homefi.ui.exercise.Genre
+import com.perseusoft.homefi.ui.exercise.RideProblem
 import com.perseusoft.homefi.ui.exercise.decadeLabel
 import com.perseusoft.homefi.ui.exercise.labelRes
 import com.perseusoft.homefi.ui.exercise.rideLine
@@ -254,6 +255,8 @@ private fun RidePlan(state: RideUi.Preview, session: com.perseusoft.homefi.playe
     val totalS = segments.sumOf { it.seconds.toInt() }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(plan.workout.name, style = TvType.section, color = look.ink)
+        plan.aiProblem?.let { RideProblem(it) }
+        state.rebuildError?.let { RideProblem("${stringResource(R.string.ex_rebuild_failed)} $it") }
         Text(
             stringResource(R.string.ex_plan_summary, clockText(totalS), segments.size, plan.songs.size),
             style = TvType.body, color = look.ink2,

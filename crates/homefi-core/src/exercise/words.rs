@@ -143,8 +143,10 @@ pub(crate) fn no_ai_note(lang: Lang) -> String {
 pub(crate) fn ai_failed_note(lang: Lang, message: &str) -> String {
     say(
         lang,
-        format!("{message} The songs come from your genres instead."),
-        format!("{message} Las canciones salen de tus géneros."),
+        format!("The AI could not pick the songs: {message} This ride comes from a plain Tidal search of your genres."),
+        format!(
+            "La IA no pudo elegir las canciones: {message} Esta ruta sale de una búsqueda simple en Tidal de tus géneros."
+        ),
     )
 }
 

@@ -277,7 +277,7 @@ async fn the_ais_candidates_are_resolved_and_kept_only_when_their_tempo_fits() {
 }
 
 #[tokio::test]
-async fn an_ai_that_fails_falls_back_to_the_genres_with_a_note() {
+async fn an_ai_that_fails_falls_back_to_the_genres_and_says_so_apart() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/v1/search"))
@@ -293,7 +293,55 @@ async fn an_ai_that_fails_falls_back_to_the_genres_with_a_note() {
             .await
             .unwrap();
     assert_eq!(built.plan.songs.len(), 4);
-    assert!(built.plan.notes.iter().any(|n| n.contains("from your genres")), "{:?}", built.plan.notes);
+    let problem = built.plan.ai_problem.as_deref().expect("the failure is told apart from the notes");
+    assert!(problem.contains("plain Tidal search"), "{problem}");
+    assert!(built.plan.notes.iter().all(|n| !n.contains("AI")), "{:?}", built.plan.notes);
+}
+
+/// Tidal's search for "metal …" finds two playlists of the genre; each holds fast metal songs of its own.
+struct PlaylistSearch;
+
+impl Respond for PlaylistSearch {
+    fn respond(&self, _: &Request) -> ResponseTemplate {
+        let list =
+            |uuid: &str| json!({ "uuid": uuid, "title": "Metal Workout", "numberOfTracks": 4, "type": "EDITORIAL" });
+        let mut body = page(Vec::new());
+        body["playlists"] = json!({ "items": [list("pl-a"), list("pl-b")] });
+        ResponseTemplate::new(200).set_body_json(body)
+    }
+}
+
+fn playlist_items(first_id: i64, label: &str) -> Value {
+    let items: Vec<Value> = [150, 160, 170, 165]
+        .iter()
+        .enumerate()
+        .map(|(n, bpm)| {
+            let id = first_id + n as i64;
+            json!({ "type": "track", "item": track(id, &format!("{label}-{n}"), &format!("Band {id}"), Some(*bpm), SONG_SECONDS) })
+        })
+        .collect();
+    json!({ "limit": 100, "offset": 0, "totalNumberOfItems": items.len(), "items": items })
+}
+
+#[tokio::test]
+async fn without_the_ai_the_genres_playlists_bring_its_real_songs() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/v1/search")).respond_with(PlaylistSearch).mount(&server).await;
+    for (uuid, first, label) in [("pl-a", 3000, "a"), ("pl-b", 4000, "b")] {
+        Mock::given(method("GET"))
+            .and(path(format!("/v1/playlists/{uuid}/items")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(playlist_items(first, label)))
+            .mount(&server)
+            .await;
+    }
+    let api = tidal_api(&server);
+    let fx = Fixture::new();
+    let fast = seg(SegmentKind::Sprint, (150, 170), Position::Standing, None);
+    let workout = Workout { segments: vec![fast.clone(), fast], ..four_segments() };
+    let built = build(&request(workout, &["metal"], true), &fx.ctx(Some(&api), None, None), &|_| {}).await.unwrap();
+    assert_eq!(built.plan.songs.len(), 2);
+    assert!(built.plan.songs.iter().all(|s| s.entry.title.starts_with("a-") || s.entry.title.starts_with("b-")));
+    assert_eq!(built.plan.ai_problem, None, "the AI was not asked");
 }
 
 fn library_song(n: usize, genre: &str, bpm: Option<u16>, seconds: u64) -> LibraryRef {

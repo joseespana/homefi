@@ -141,15 +141,33 @@ pub(crate) async fn chat(
     tools: &[Tool],
     search: Option<&WebSearch>,
     max_tokens: u32,
+    light: bool,
 ) -> Result<ChatReply, AiError> {
     let url = format!("{}/{}:generateContent", config.base(), model_path(&config.model));
     let mut payload = body(config, system, messages, tools, max_tokens);
+    if light {
+        light_thinking(&config.model, &mut payload);
+    }
     if search.is_some() {
         web_search::gemini_request(&mut payload);
     }
     let req = request(config, http().post(url)).timeout(CHAT_TIMEOUT).json(&payload);
     parse(config, send(config, req, false).await?)
 }
+
+/// A quick task: Gemini's thinking models think little, so the thinking does not use up the answer's tokens.
+/// Gemini 2.x takes a token budget; later models take a level.
+fn light_thinking(model: &str, payload: &mut Value) {
+    let thinking = if model.contains("gemini-2") {
+        json!({ "thinkingBudget": LIGHT_THINKING_BUDGET })
+    } else {
+        json!({ "thinkingLevel": "low" })
+    };
+    payload["generationConfig"]["thinkingConfig"] = thinking;
+}
+
+/// Thinking tokens a Gemini 2.x model gets for a quick task (Pro needs at least 128).
+const LIGHT_THINKING_BUDGET: u32 = 512;
 
 pub(crate) async fn list_models(config: &AiConfig) -> Result<Vec<ModelInfo>, AiError> {
     let mut models = Vec::new();
@@ -246,12 +264,24 @@ mod tests {
             .mount(&server)
             .await;
         let c = cfg(&server.uri());
-        let reply = chat(&c, &"s".into(), &[Message::User { text: "hi".into() }], &[], None, 4096).await.unwrap();
+        let reply =
+            chat(&c, &"s".into(), &[Message::User { text: "hi".into() }], &[], None, 4096, false).await.unwrap();
         assert_eq!(reply.text, "Veamos.");
         assert_eq!(reply.tool_calls[0].id, "gemini_2");
         assert_eq!(reply.tool_calls[0].arguments["query"], "HD 600");
         let again = body(&c, &"s".into(), &[reply.into_message()], &[], 4096);
         assert_eq!(again["contents"][0]["parts"][2]["thoughtSignature"], "c2ln");
+    }
+
+    #[test]
+    fn quick_tasks_ask_thinking_models_to_think_little() {
+        let mut new = json!({ "generationConfig": { "maxOutputTokens": 10 } });
+        light_thinking("gemini-3.8-flash", &mut new);
+        assert_eq!(new["generationConfig"]["thinkingConfig"]["thinkingLevel"], "low");
+        assert_eq!(new["generationConfig"]["maxOutputTokens"], 10);
+        let mut old = json!({});
+        light_thinking("models/gemini-2.5-pro", &mut old);
+        assert_eq!(old["generationConfig"]["thinkingConfig"]["thinkingBudget"], LIGHT_THINKING_BUDGET);
     }
 
     #[tokio::test]

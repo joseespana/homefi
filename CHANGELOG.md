@@ -7,6 +7,16 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Fixed
+- Exercise: when the AI could not pick the songs, the ride said so only in a small grey note, so it
+  looked like the app kept returning a saved list. The reason now shows in a red notice at the top
+  of the plan (phone, TV and desktop), and a failed "New songs" uses the same notice.
+- Exercise: without the AI, the songs came from searching the genre's name (bands with "Metal" in
+  their name, the same ones every time). They now come from Tidal's playlists of the genre, a
+  different pair of playlists and a different spot in them on every build.
+- AI: Gemini's thinking models also think briefly on quick tasks (ride and party song lists), so
+  the thinking does not use up the answer.
+
 ## [1.5.12] - 2026-11-10
 
 ### Fixed

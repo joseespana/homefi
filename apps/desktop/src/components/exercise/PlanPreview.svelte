@@ -79,6 +79,9 @@
   {:else if exercise.rebuildError}
     <p class="again err" role="alert"><Icon name="alert" size={16} />Could not find new songs. {exercise.rebuildError} This ride is still ready.</p>
   {/if}
+  {#if plan.ai_problem}
+    <p class="again err" role="alert"><Icon name="alert" size={16} />{plan.ai_problem}</p>
+  {/if}
 
   {#if ride}
     <section class="kept" aria-label="Saved ride">

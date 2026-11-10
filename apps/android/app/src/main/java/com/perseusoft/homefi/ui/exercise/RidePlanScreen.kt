@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -110,6 +112,21 @@ fun RideFailed(message: String, onBack: () -> Unit) {
     }
 }
 
+/** What went wrong with the build (the AI failed, "new songs" failed), where it cannot be missed. */
+@Composable
+fun RideProblem(text: String) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.errorContainer, MaterialTheme.shapes.medium)
+            .padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(Icons.Rounded.WarningAmber, contentDescription = null, tint = MaterialTheme.colorScheme.onErrorContainer)
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onErrorContainer)
+    }
+}
+
 /**
  * Step 3: the plan: the mountain, then every part with its song and how the song's tempo fits the cadence. While
  * "new songs" runs the plan stays here with the progress above it; a failed one says so and keeps the plan.
@@ -125,6 +142,7 @@ fun RidePreview(state: RideUi.Preview, session: RideSession) {
     val totalS = segments.sumOf { it.seconds.toInt() }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(plan.workout.name, style = MaterialTheme.typography.headlineSmall)
+        plan.aiProblem?.let { RideProblem(it) }
         Text(
             stringResource(R.string.ex_plan_summary, clock(totalS), segments.size, plan.songs.size),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -138,13 +156,7 @@ fun RidePreview(state: RideUi.Preview, session: RideSession) {
             )
         }
         if (rebuilding != null) RebuildCard(rebuilding, session::cancelBuild)
-        state.rebuildError?.let { error ->
-            Text(
-                "${stringResource(R.string.ex_rebuild_failed)} $error",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
+        state.rebuildError?.let { error -> RideProblem("${stringResource(R.string.ex_rebuild_failed)} $error") }
         if (saved != null) SavedLine(saved, onKeep = session::keepSaved, onRename = { renaming = true })
         plan.notes.forEach { note ->
             Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
