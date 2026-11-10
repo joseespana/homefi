@@ -7,6 +7,8 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.10] - 2026-11-10
+
 ### Added
 - Android TV: Settings, two panes (pages on the left, rows on the right), every setting reachable
   with the remote: look, player, sound and DJ, downloads, TIDAL, party, this TV, lyrics, AI and
