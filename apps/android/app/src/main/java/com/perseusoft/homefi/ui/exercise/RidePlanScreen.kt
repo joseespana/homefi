@@ -32,7 +32,6 @@ import androidx.compose.ui.unit.dp
 import com.perseusoft.homefi.R
 import com.perseusoft.homefi.core.BeatRatio
 import com.perseusoft.homefi.core.PlannedSong
-import com.perseusoft.homefi.core.RideBuilt
 import com.perseusoft.homefi.core.RideProgress
 import com.perseusoft.homefi.core.RideSegment
 import com.perseusoft.homefi.core.SavedRideSummary
@@ -55,27 +54,48 @@ fun RideBuilding(state: RideUi.Building, onCancel: () -> Unit) {
     ) {
         Spacer(Modifier.height(48.dp))
         Text(stringResource(R.string.ex_building), style = MaterialTheme.typography.titleLarge)
-        val progress = state.progress
-        val fraction = when (progress) {
-            is RideProgress.Resolving -> progress.done.toFloat() / progress.total.coerceAtLeast(1u).toFloat()
-            is RideProgress.Analyzing -> progress.done.toFloat() / progress.total.coerceAtLeast(1u).toFloat()
-            RideProgress.Matching -> PROGRESS_FULL
-            else -> null
-        }
-        if (fraction != null) LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
-        else LinearProgressIndicator(Modifier.fillMaxWidth())
-        Text(
-            when (progress) {
-                null -> stringResource(R.string.ex_step_starting)
-                is RideProgress.Searching ->
-                    if (progress.withAi) stringResource(R.string.ex_step_ai, state.aiName.orEmpty()) else stringResource(R.string.ex_step_search)
-                is RideProgress.Resolving -> stringResource(R.string.ex_step_resolving, progress.done.toInt(), progress.total.toInt())
-                is RideProgress.Analyzing -> stringResource(R.string.ex_step_analyzing, progress.done.toInt(), progress.total.toInt())
-                RideProgress.Matching -> stringResource(R.string.ex_step_matching)
-            },
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        BuildSteps(state)
         OutlinedButton(onClick = onCancel) { Text(stringResource(R.string.ex_cancel)) }
+    }
+}
+
+/** The bar and the words of what the build is doing (the build screen and the preview's "new songs"). */
+@Composable
+private fun BuildSteps(state: RideUi.Building) {
+    val progress = state.progress
+    val fraction = when (progress) {
+        is RideProgress.Resolving -> progress.done.toFloat() / progress.total.coerceAtLeast(1u).toFloat()
+        is RideProgress.Analyzing -> progress.done.toFloat() / progress.total.coerceAtLeast(1u).toFloat()
+        RideProgress.Matching -> PROGRESS_FULL
+        else -> null
+    }
+    if (fraction != null) LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+    else LinearProgressIndicator(Modifier.fillMaxWidth())
+    Text(
+        when (progress) {
+            null -> stringResource(R.string.ex_step_starting)
+            is RideProgress.Searching ->
+                if (progress.withAi) stringResource(R.string.ex_step_ai, state.aiName.orEmpty()) else stringResource(R.string.ex_step_search)
+            is RideProgress.Resolving -> stringResource(R.string.ex_step_resolving, progress.done.toInt(), progress.total.toInt())
+            is RideProgress.Analyzing -> stringResource(R.string.ex_step_analyzing, progress.done.toInt(), progress.total.toInt())
+            RideProgress.Matching -> stringResource(R.string.ex_step_matching)
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/** "New songs" running on the preview: the plan stays, the progress shows above it, Cancel keeps the plan. */
+@Composable
+private fun RebuildCard(state: RideUi.Building, onCancel: () -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.ex_rebuilding), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.ex_cancel)) }
+            }
+            BuildSteps(state)
+        }
     }
 }
 
@@ -90,10 +110,16 @@ fun RideFailed(message: String, onBack: () -> Unit) {
     }
 }
 
-/** Step 3: the plan: the mountain, then every part with its song and how the song's tempo fits the cadence. */
+/**
+ * Step 3: the plan: the mountain, then every part with its song and how the song's tempo fits the cadence. While
+ * "new songs" runs the plan stays here with the progress above it; a failed one says so and keeps the plan.
+ */
 @Composable
-fun RidePreview(built: RideBuilt, saved: SavedRideSummary?, session: RideSession) {
+fun RidePreview(state: RideUi.Preview, session: RideSession) {
     var renaming by rememberSaveable { mutableStateOf(false) }
+    val built = state.built
+    val saved = state.saved
+    val rebuilding = state.rebuilding
     val plan = built.plan
     val segments = plan.workout.segments
     val totalS = segments.sumOf { it.seconds.toInt() }
@@ -111,6 +137,14 @@ fun RidePreview(built: RideBuilt, saved: SavedRideSummary?, session: RideSession
                 modifier = Modifier.fillMaxWidth().height(PLAN_MOUNTAIN_HEIGHT),
             )
         }
+        if (rebuilding != null) RebuildCard(rebuilding, session::cancelBuild)
+        state.rebuildError?.let { error ->
+            Text(
+                "${stringResource(R.string.ex_rebuild_failed)} $error",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
         if (saved != null) SavedLine(saved, onKeep = session::keepSaved, onRename = { renaming = true })
         plan.notes.forEach { note ->
             Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -120,13 +154,13 @@ fun RidePreview(built: RideBuilt, saved: SavedRideSummary?, session: RideSession
         }
         GradientButton(
             text = stringResource(R.string.ex_start),
-            onClick = { session.start(built) },
+            onClick = { if (rebuilding == null) session.start(built) },
             icon = Icons.Rounded.PlayArrow,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = session::build) { Text(stringResource(R.string.ex_another_mix)) }
-            TextButton(onClick = session::backToSetup) { Text(stringResource(R.string.ex_change)) }
+            TextButton(onClick = session::rebuild, enabled = rebuilding == null) { Text(stringResource(R.string.ex_another_mix)) }
+            TextButton(onClick = session::backToSetup, enabled = rebuilding == null) { Text(stringResource(R.string.ex_change)) }
         }
         Spacer(Modifier.height(16.dp))
     }

@@ -14,7 +14,7 @@ pub use model::{
     new_id, ChatOrigin, ConcertOrigin, EntryTag, HomePlaylist, PartyOrigin, PlaylistEntry, PlaylistOrigin, RideOrigin,
     SetlistSource, SongCandidate, SourceLink, MAX_SOURCES, PLAYLISTS_DIR, PLAYLIST_FORMAT_VERSION,
 };
-pub(crate) use resolve::{artist_key, entry_from_library};
+pub(crate) use resolve::{artist_key, entry_from_library, popularity_0_100};
 pub use resolve::{
     entry_from_track, score, LibraryIndex, LibraryRef, Resolved, Resolver, SeenEntries, MIN_CONFIDENCE,
     RESOLVE_PARALLEL, RESOLVE_TIMEOUT,

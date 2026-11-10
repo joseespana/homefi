@@ -56,11 +56,11 @@
     <string name="tv_dl_choose">Where should it be saved?</string>
     <string name="tv_dl_usb_no_page">This TV does not show that settings page. HomeFi will use its own folder on the drive.</string>
     <string name="tv_dl_guide_title">Let HomeFi write to your USB drive</string>
-    <string name="tv_dl_guide_body">To save music in a HomeFi folder on the drive, Android needs your OK once.</string>
+    <string name="tv_dl_guide_body">This download is going to your USB drive. To save it in a HomeFi folder on the drive, Android needs your OK.</string>
     <string name="tv_dl_guide_1">Press “Open settings”.</string>
     <string name="tv_dl_guide_2">Find HomeFi and turn on “Allow access to manage all files”.</string>
     <string name="tv_dl_guide_3">Press Back to return here.</string>
-    <string name="tv_dl_guide_fallback">Not now: HomeFi saves in its own folder on the drive (it goes away if you uninstall HomeFi).</string>
+    <string name="tv_dl_guide_fallback">Not now: HomeFi saves in its own folder on the drive (it goes away if you uninstall HomeFi). You will be asked again next time.</string>
     <string name="tv_dl_guide_open">Open settings</string>
     <string name="tv_dl_guide_app">Use the app folder</string>
     <string name="tv_np_heart">Heart this song</string>

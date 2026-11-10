@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Ajustes de la tele: páginas (docs/TV_UI.md 6.9) -->
+    <string name="tv_set_cat_look">Aspecto</string>
+    <string name="tv_set_cat_look_about">Tema, skin, movimiento, tamaño del texto y márgenes de pantalla.</string>
+    <string name="tv_set_cat_player">Reproductor</string>
+    <string name="tv_set_cat_player_about">El reproductor a pantalla completa: panel, controles, salto y cadena de señal.</string>
+    <string name="tv_set_cat_sound">Sonido y DJ</string>
+    <string name="tv_set_cat_sound_about">Paso del ecualizador, botones de Sonido y modo DJ (necesita un ratón).</string>
+    <string name="tv_set_cat_downloads">Descargas</string>
+    <string name="tv_set_cat_downloads_about">Calidad, dónde se guarda la música, espacio libre y las etiquetas que lleva.</string>
+    <string name="tv_set_cat_tidal">TIDAL</string>
+    <string name="tv_set_cat_tidal_about">Tu cuenta y cómo cargan las listas y álbumes de TIDAL.</string>
+    <string name="tv_set_cat_party">Fiesta</string>
+    <string name="tv_set_cat_party_about">Cuando esta tele es el anfitrión: quién añade canciones, avisos y retardo del altavoz.</string>
+    <string name="tv_set_cat_tv">Esta tele</string>
+    <string name="tv_set_cat_tv_about">Salvapantallas, mantener la pantalla encendida, voz y actualizaciones.</string>
+    <string name="tv_set_cat_lyrics">Letras</string>
+    <string name="tv_set_cat_lyrics_about">Cómo se ven las letras y el karaoke y cómo siguen el ritmo.</string>
+    <string name="tv_set_cat_ai_about">Tu propia clave de IA hace hablar a los chats, los sonidos y las listas. Se queda en esta tele.</string>
+    <string name="tv_set_cat_about">Acerca de</string>
+    <string name="tv_set_cat_about_about">Novedades, actualizaciones y la versión.</string>
+
+    <!-- valores -->
+    <string name="tv_set_value_default">Por defecto</string>
+    <string name="tv_set_on">Sí</string>
+    <string name="tv_set_off">No</string>
+    <string name="tv_set_never">Nunca</string>
+    <string name="tv_set_seconds">%1$d s</string>
+    <string name="tv_set_minutes">%1$d min</string>
+    <string name="tv_set_mb">%1$d MB</string>
+    <string name="tv_set_gb">%1$d GB</string>
+    <string name="tv_set_percent">%1$d%%</string>
+    <string name="tv_set_count">%1$d</string>
+    <string name="tv_set_allowed">Permitido</string>
+    <string name="tv_set_not_allowed">No permitido</string>
+    <string name="tv_set_updates_off">No en esta versión</string>
+
+    <!-- filas -->
+    <string name="tv_set_progress_style">Estilo de la barra de progreso</string>
+    <string name="tv_set_text_size">Tamaño del texto</string>
+    <string name="tv_set_text_size_hint">Hace más pequeñas o más grandes todas las palabras de la tele.</string>
+    <string name="tv_set_safe_margins">Mantener dentro de los márgenes seguros</string>
+    <string name="tv_set_safe_margins_hint">Desactívalo en una tele que muestra la imagen entera.</string>
+    <string name="tv_set_player_panel">Panel con el que abre el reproductor</string>
+    <string name="tv_set_player_panel_hint">Arriba en el mando cambia de panel mientras escuchas.</string>
+    <string name="tv_set_panel_lyrics">Letras</string>
+    <string name="tv_set_panel_mascot">HomeFito</string>
+    <string name="tv_set_panel_visualizer">Visualizador</string>
+    <string name="tv_set_panel_queue">Cola</string>
+    <string name="tv_set_player_colours">Usar los colores de la skin en el reproductor</string>
+    <string name="tv_set_player_colours_hint">Desactivado usa los colores simples de la tele.</string>
+    <string name="tv_set_controls_hide">Ocultar los controles tras</string>
+    <string name="tv_set_controls_hide_hint">Nunca los deja siempre en pantalla.</string>
+    <string name="tv_set_seek">Salto al avanzar</string>
+    <string name="tv_set_seek_hint">Lo que mueven izquierda / derecha mantenidas, avance rápido y retroceso.</string>
+    <string name="tv_set_eq_step">Paso del ecualizador</string>
+    <string name="tv_set_eq_step_hint">Cuánto mueve una banda cada pulsación de arriba / abajo.</string>
+    <string name="tv_set_sound_button">Botón de Sonido en el reproductor</string>
+    <string name="tv_set_tilt">Deslizadores de graves, agudos y claridad</string>
+    <string name="tv_set_dj_entry">Modo DJ</string>
+    <string name="tv_set_dj_entry_hint">Automático lo muestra solo mientras hay un ratón conectado.</string>
+    <string name="tv_set_dj_auto">Con ratón</string>
+    <string name="tv_set_download_target">Guardar las descargas en</string>
+    <string name="tv_set_download_target_hint">Preguntar te deja elegir entre el almacenamiento interno y una unidad USB cada vez.</string>
+    <string name="tv_set_min_free">Dejar libre al menos</string>
+    <string name="tv_set_min_free_hint">En una unidad por debajo de eso no se escribe.</string>
+    <string name="tv_set_usb_access">Acceso a la unidad USB</string>
+    <string name="tv_set_usb_access_hint">El acceso a todos los archivos deja a HomeFi guardar en una carpeta HomeFi de la unidad; sin él, usa su propia carpeta allí.</string>
+    <string name="tv_set_forget_drives">Olvidar las unidades recordadas</string>
+    <string name="tv_set_forget_drives_hint">Unidades cuyas canciones la biblioteca mantiene en la lista. Los archivos siguen en la unidad.</string>
+    <string name="tv_set_stream_cache">Caché del streaming de TIDAL</string>
+    <string name="tv_set_stream_cache_hint">Espacio para guardar las canciones que escuchas por streaming.</string>
+    <string name="tv_set_threads">Canciones descargadas a la vez</string>
+    <string name="tv_set_account">Cuenta de TIDAL</string>
+    <string name="tv_set_party_auto">Dejar entrar las canciones de los invitados sin preguntar</string>
+    <string name="tv_set_party_auto_hint">Desactivado: cada canción que añade un invitado espera tu visto bueno.</string>
+    <string name="tv_set_max_per_guest">Canciones en espera por invitado</string>
+    <string name="tv_set_notice_seconds">Los avisos se quedan en pantalla</string>
+    <string name="tv_set_start_wait">Esperar a todos en una canción nueva</string>
+    <string name="tv_set_speaker_delay">Retardo del altavoz</string>
+    <string name="tv_set_ui_form">Qué app se abre</string>
+    <string name="tv_set_ui_form_hint">Automático sigue al dispositivo. Cámbialo solo para probar.</string>
+    <string name="tv_set_ui_auto">Automático</string>
+    <string name="tv_set_ui_phone">Móvil</string>
+    <string name="tv_set_ui_tv">Tele</string>
+    <string name="tv_set_ambient">Salvapantallas tras</string>
+    <string name="tv_set_ambient_hint">Mientras suena música y nadie pulsa una tecla.</string>
+    <string name="tv_set_ambient_style">El salvapantallas muestra</string>
+    <string name="tv_set_ambient_cover">La portada</string>
+    <string name="tv_set_ambient_karaoke">Líneas de karaoke</string>
+    <string name="tv_set_ambient_mascot">HomeFito</string>
+    <string name="tv_set_ambient_clock">Solo el reloj</string>
+    <string name="tv_set_keep_awake">Mantener la pantalla encendida mientras suena música</string>
+    <string name="tv_set_keep_awake_hint">Desactivado deja que la tele se duerma como de costumbre.</string>
+    <string name="tv_set_awake_after">Al pausar, mantenerla encendida</string>
+    <string name="tv_set_awake_after_hint">Después puede entrar el salvapantallas del sistema.</string>
+    <string name="tv_set_voice">Entrada por voz</string>
+    <string name="tv_set_voice_hint">Un botón de micrófono junto a la búsqueda y los chats con IA. Tus palabras van al servicio de voz de Google.</string>
+    <string name="tv_set_ride_open">Abrir la rodada de un móvil tras</string>
+    <string name="tv_set_ride_open_hint">No solo muestra el aviso.</string>
+    <string name="tv_set_auto_update">Descargar las actualizaciones solas</string>
+    <string name="tv_set_auto_update_hint">Instalar sigue pidiendo tu visto bueno.</string>
+    <string name="tv_set_lyrics_timing">Sincronía de las letras</string>
+
+    <!-- página de IA -->
+    <string name="tv_ai_key_type">Pulsa OK y escribe la clave con el teclado en pantalla.</string>
+    <string name="tv_ai_get_key">Consigue una clave en %1$s</string>
+    <string name="tv_ai_loading">Cargando…</string>
+    <string name="tv_ai_privacy">Tu clave se queda en esta tele, cifrada con el Keystore de Android. HomeFi solo se la envía a %1$s, solo para hablar con el asistente.</string>
+
+    <!-- teclado -->
+    <string name="tv_kb_symbols">#+= símbolos</string>
+    <string name="tv_kb_letters">ABC letras</string>
+    <string name="tv_kb_shift">Mayús</string>
+    <string name="tv_kb_show">Mostrar</string>
+    <string name="tv_kb_hide">Ocultar</string>
+
+    <!-- DJ -->
+    <string name="tv_dj_ready_body">Dos platos, un crossfader y pads, hechos para el ratón. Pulsa Atrás para salir del modo DJ.</string>
+    <string name="tv_dj_open">Abrir el modo DJ</string>
+
+    <!-- acceso USB -->
+    <string name="tv_dl_paused_access">En pausa: esperando el acceso USB</string>
+    <string name="tv_dl_access_wait">Esperando el acceso USB</string>
+    <string name="tv_dl_access_wait_body">%1$d descargas esperan a que permitas el acceso a todos los archivos. Vuelve y siguen, o pulsa Reanudar para que se te pregunte otra vez.</string>
+
+    <!-- Train on the TV -->
+    <string name="tv_train_here">Empezar una rodada en esta tele</string>
+    <string name="tv_train_phone_more">En el móvil también puedes elegir géneros, hablar con la IA y repetir rodadas guardadas.</string>
+    <string name="tv_train_done">Listo</string>
+</resources>

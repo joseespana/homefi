@@ -42,7 +42,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import com.perseusoft.homefi.core.Popularity
 import com.perseusoft.homefi.core.PresetId
+import com.perseusoft.homefi.core.RideTaste
+import com.perseusoft.homefi.core.exerciseDecades
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.InputChip
+import androidx.compose.runtime.LaunchedEffect
 import com.perseusoft.homefi.core.RideSegment
 import com.perseusoft.homefi.core.exercisePreset
 import androidx.compose.material.icons.rounded.Check
@@ -147,6 +156,8 @@ fun RideSetup(form: RideForm, chat: RideChat) {
     val aiReady = remember(form.useAi) { app.ai.hasProvider() }
     val language = languageTag()
     val presets = remember(language) { exercisePresets(language) }
+    val suggestions by session.suggestions.collectAsStateWithLifecycle()
+    LaunchedEffect(form.genres) { session.loadSuggestions(form.genres) }
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Section(stringResource(R.string.ex_duration)) {
@@ -234,6 +245,7 @@ fun RideSetup(form: RideForm, chat: RideChat) {
                     label = { Text(stringResource(R.string.ex_genre_mix)) },
                 )
             }
+            TasteBlock(settings.taste, suggestions, session::updateTaste)
             OutlinedTextField(
                 value = form.sentence,
                 onValueChange = { v -> session.updateForm { it.copy(sentence = v.take(MAX_SENTENCE)) } },
@@ -317,6 +329,121 @@ fun BuildBar() {
 }
 
 private const val MAX_SENTENCE = 200
+
+private fun Popularity.labelRes(): Int = when (this) {
+    Popularity.HITS -> R.string.ex_pop_hits
+    Popularity.MIX -> R.string.ex_pop_mix
+    Popularity.DISCOVER -> R.string.ex_pop_discover
+}
+
+/** First year of the decades written in full ("2000s"): "00s" or "20s" would be unclear. */
+private const val FULL_DECADE_FROM = 2000
+private const val YEARS_PER_CENTURY = 100
+
+/** "80s", "2000s". */
+private fun decadeLabel(decade: UShort): String {
+    val year = decade.toInt()
+    return if (year < FULL_DECADE_FROM) "${year % YEARS_PER_CENTURY}s" else "${year}s"
+}
+
+/**
+ * The taste questions under the genres, compact with smart defaults (big hits, any era, no artists): how famous,
+ * which era, and folded away the artists liked (with the library's suggestions) and the ones never to play.
+ * Every answer is a setting, saved as it changes, so the next ride starts from it.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TasteBlock(taste: RideTaste, suggestions: List<String>, onTaste: ((RideTaste) -> RideTaste) -> Unit) {
+    val decades = remember { exerciseDecades() }
+    var open by rememberSaveable { mutableStateOf(false) }
+    val label = MaterialTheme.typography.labelLarge
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Text(stringResource(R.string.ex_taste_popularity), style = label, color = muted, modifier = Modifier.padding(top = 8.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Popularity.entries.forEach { p ->
+            FilterChip(
+                selected = taste.popularity == p,
+                onClick = { onTaste { it.copy(popularity = p) } },
+                label = { Text(stringResource(p.labelRes())) },
+                modifier = Modifier.selectScale(taste.popularity == p),
+            )
+        }
+    }
+    Text(stringResource(R.string.ex_taste_era), style = label, color = muted)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        FilterChip(
+            selected = taste.eras.isEmpty(),
+            onClick = { onTaste { it.copy(eras = emptyList()) } },
+            label = { Text(stringResource(R.string.ex_era_any)) },
+        )
+        decades.forEach { decade ->
+            FilterChip(
+                selected = decade in taste.eras,
+                onClick = { onTaste { t -> t.copy(eras = if (decade in t.eras) t.eras - decade else (t.eras + decade).sorted()) } },
+                label = { Text(decadeLabel(decade)) },
+            )
+        }
+    }
+    val count = taste.artists.size + taste.avoid.size
+    TextButton(onClick = { open = !open }) {
+        Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
+        Text(
+            if (count > 0) stringResource(R.string.ex_taste_artists_count, count) else stringResource(R.string.ex_taste_artists),
+            Modifier.padding(start = 4.dp),
+        )
+    }
+    if (!open) return
+    Text(stringResource(R.string.ex_taste_like), style = label, color = muted)
+    val offered = suggestions.filter { s -> taste.artists.none { it.equals(s, ignoreCase = true) } }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        taste.artists.forEach { artist -> NameChip(artist) { onTaste { it.copy(artists = it.artists - artist) } } }
+        offered.forEach { artist ->
+            val add = stringResource(R.string.ex_taste_add_suggestion, artist)
+            AssistChip(
+                onClick = { onTaste { it.copy(artists = it.artists + artist) } },
+                label = { Text(artist) },
+                leadingIcon = { Icon(Icons.Rounded.Add, add, Modifier.size(FilterChipDefaults.IconSize)) },
+            )
+        }
+    }
+    NameField(stringResource(R.string.ex_taste_like_add)) { name -> onTaste { it.copy(artists = it.artists + name) } }
+    Text(stringResource(R.string.ex_taste_avoid), style = label, color = muted)
+    if (taste.avoid.isNotEmpty()) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            taste.avoid.forEach { artist -> NameChip(artist) { onTaste { it.copy(avoid = it.avoid - artist) } } }
+        }
+    }
+    NameField(stringResource(R.string.ex_taste_avoid_add)) { name -> onTaste { it.copy(avoid = it.avoid + name) } }
+}
+
+/** A chosen artist: tapping removes it. */
+@Composable
+private fun NameChip(name: String, onRemove: () -> Unit) {
+    InputChip(
+        selected = true,
+        onClick = onRemove,
+        label = { Text(name) },
+        trailingIcon = { Icon(Icons.Rounded.Close, stringResource(R.string.ex_taste_remove, name), Modifier.size(FilterChipDefaults.IconSize)) },
+    )
+}
+
+/** A one-line field that hands its text over on "Done" (the core trims, de-duplicates and caps the list). */
+@Composable
+private fun NameField(label: String, onAdd: (String) -> Unit) {
+    var text by rememberSaveable { mutableStateOf("") }
+    OutlinedTextField(
+        value = text,
+        onValueChange = { text = it },
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = {
+            if (text.isNotBlank()) onAdd(text.trim())
+            text = ""
+        }),
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
 
 private fun snapMinutes(value: Float): Int =
     (Math.round(value / MINUTES_STEP) * MINUTES_STEP).coerceIn(MIN_MINUTES, MAX_MINUTES)

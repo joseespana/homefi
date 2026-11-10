@@ -24,7 +24,7 @@ fn config(provider: AiProvider, server: &MockServer) -> AiConfig {
 }
 
 fn search(max_uses: u8) -> ChatOptions {
-    ChatOptions { web_search: Some(WebSearch { max_uses }) }
+    ChatOptions { web_search: Some(WebSearch { max_uses }), ..Default::default() }
 }
 
 fn ask() -> Vec<Message> {

@@ -617,11 +617,22 @@ pub struct HomefiEngine {
     session: Session,
     /// How album lists are grouped ([`Self::set_album_versions`]).
     grouping: std::sync::Mutex<versions::Grouping>,
+    /// What the last Exercise build found, for a quick "new songs" of the same ride.
+    ride_memory: std::sync::Mutex<Option<homefi_core::exercise::BuildMemory>>,
 }
 
 impl HomefiEngine {
     fn grouping(&self) -> versions::Grouping {
         *self.grouping.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// A copy of the last build's memory: a cancelled build leaves the kept one as it was.
+    fn ride_memory(&self) -> Option<homefi_core::exercise::BuildMemory> {
+        self.ride_memory.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    fn remember_ride(&self, memory: homefi_core::exercise::BuildMemory) {
+        *self.ride_memory.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(memory);
     }
 
     /// One card per album (its releases in `versions`), as the settings say.
@@ -642,7 +653,11 @@ impl HomefiEngine {
         let config = Config::load(&app_dir.join(homefi_core::paths::CONFIG_FILENAME))?;
         // answered before any download asks (no ffmpeg on phones: quick)
         homefi_core::ffmpeg::warm_up();
-        Ok(Arc::new(Self { session: Session::new(app_dir, config), grouping: Default::default() }))
+        Ok(Arc::new(Self {
+            session: Session::new(app_dir, config),
+            grouping: Default::default(),
+            ride_memory: Default::default(),
+        }))
     }
 
     /// How album lists (artist pages, search, favorites) are grouped from now

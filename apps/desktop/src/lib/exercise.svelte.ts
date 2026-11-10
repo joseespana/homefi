@@ -9,7 +9,9 @@ import {
   EX_LANGUAGE,
   EX_MAX_GENRES,
   EX_MAX_GENRE_CHARS,
+  EX_MAX_ARTIST_CHARS,
   EX_MAX_SENTENCE_CHARS,
+  EX_MAX_TASTE_ARTISTS,
   EX_MINUTES,
   PRESET_IDS,
   RIDE_FILE,
@@ -27,6 +29,7 @@ import {
   type RidePlan,
   type RideProgress,
   type RideRequest,
+  type RideTaste,
   type RideView,
   type SavedRide,
 } from "./exercise-api";
@@ -61,6 +64,14 @@ class ExerciseStore {
   editing = $state(false);
   /** A build started here is running (the stage event confirms it a moment later). */
   building = $state(false);
+  /** The running build is "new songs" for the plan on the screen: the preview stays, with the progress in it. */
+  rebuilding = $state(false);
+  /** Why the last "new songs" failed (the previous plan stays). */
+  rebuildError = $state<string | null>(null);
+  /** The plan on the screen while "new songs" runs (the backend reports none while it builds). */
+  private keptPlan = $state.raw<RidePlan | null>(null);
+  /** Artists the library has the most songs of in the genres picked (for "artists you like"). */
+  suggestions = $state.raw<string[]>([]);
   progress = $state.raw<RideProgress | null>(null);
   buildError = $state<string | null>(null);
   /** The plan the last build answered (until the stage event carries it). */
@@ -93,10 +104,20 @@ class ExerciseStore {
   /** The stage as the backend holds it. */
   stage = $derived(this.state?.stage ?? "idle");
   /** The screen to draw. */
+  plan = $derived<RidePlan | null>(this.state?.plan ?? this.keptPlan ?? this.built?.plan ?? null);
   step = $derived<ExerciseStep>(
-    this.stage === "riding" ? "ride" : this.stage === "finished" ? "done" : this.building || this.stage === "building" || !!this.buildError ? "building" : this.stage === "ready" && !this.editing ? "preview" : "setup",
+    this.stage === "riding"
+      ? "ride"
+      : this.stage === "finished"
+        ? "done"
+        : this.rebuilding && this.plan
+          ? "preview"
+          : this.building || this.stage === "building" || !!this.buildError
+            ? "building"
+            : this.stage === "ready" && !this.editing
+              ? "preview"
+              : "setup",
   );
-  plan = $derived<RidePlan | null>(this.state?.plan ?? this.built?.plan ?? null);
   riding = $derived(this.stage === "riding");
   /** The rail's dot: a ride or a build is going on. */
   busy = $derived(this.stage === "riding" || this.step === "building");
@@ -132,6 +153,7 @@ class ExerciseStore {
     } catch {}
     this.refreshRides();
     if (import.meta.env.DEV && new URLSearchParams(location.search).has("exrides")) this.setupTab = "rides";
+    if (import.meta.env.DEV && new URLSearchParams(location.search).has("exrebuild") && this.plan) this.rebuild();
     this.tvMode = this.settings.tv_enabled ? "app" : "none";
   }
 
@@ -202,6 +224,36 @@ class ExerciseStore {
   setSentence(text: string) {
     this.request.wish.sentence = text.slice(0, EX_MAX_SENTENCE_CHARS);
   }
+  // ------------------------------------------------------------ the taste (saved settings)
+
+  /** The taste answers are settings: every change is saved, the next ride starts from them. */
+  setTaste(patch: Partial<RideTaste>) {
+    return this.saveSettings({ taste: { ...this.settings.taste, ...patch } });
+  }
+  /** A decade on or off (none is any era). */
+  toggleEra(decade: number) {
+    const eras = this.settings.taste.eras;
+    return this.setTaste({ eras: eras.includes(decade) ? eras.filter((d) => d !== decade) : [...eras, decade].sort((a, b) => a - b) });
+  }
+  /** Adds a name to the liked or avoided artists (once, any case; the core keeps ten). */
+  addArtist(list: "artists" | "avoid", name: string) {
+    const clean = name.trim().slice(0, EX_MAX_ARTIST_CHARS);
+    const names = this.settings.taste[list];
+    if (!clean || names.some((n) => n.toLowerCase() === clean.toLowerCase()) || names.length >= EX_MAX_TASTE_ARTISTS) return;
+    return this.setTaste({ [list]: [...names, clean] });
+  }
+  removeArtist(list: "artists" | "avoid", name: string) {
+    return this.setTaste({ [list]: this.settings.taste[list].filter((n) => n !== name) });
+  }
+  /** Re-reads the suggestions for the genres picked now. */
+  async loadSuggestions() {
+    try {
+      this.suggestions = await exerciseApi.artistSuggestions($state.snapshot(this.request.wish.genres));
+    } catch {
+      this.suggestions = [];
+    }
+  }
+
   get tooManyGenres() {
     return this.request.wish.genres.length >= EX_MAX_GENRES;
   }
@@ -248,22 +300,31 @@ class ExerciseStore {
   // ------------------------------------------------------------ build
 
   build() {
-    return this.gated(() => this.runBuild());
+    return this.gated(() => this.runBuild(false));
   }
 
-  private async runBuild() {
+  /** `again`: "new songs" for the plan on the screen, which stays until the new one is there (a failure keeps it). */
+  private async runBuild(again: boolean) {
     if (this.building) return;
     this.building = true;
+    this.keptPlan = again ? this.plan : null;
+    this.rebuilding = !!this.keptPlan;
     this.cancelled = false;
     this.progress = null;
     this.buildError = null;
+    this.rebuildError = null;
     this.editing = false;
     try {
       this.built = await exerciseApi.build($state.snapshot(this.request) as RideRequest, EX_LANGUAGE, (p) => (this.progress = p));
     } catch (e) {
-      if (!this.cancelled) this.buildError = errorText(e);
+      if (!this.cancelled) {
+        if (this.rebuilding) this.rebuildError = errorText(e);
+        else this.buildError = errorText(e);
+      }
     } finally {
       this.building = false;
+      this.rebuilding = false;
+      this.keptPlan = null;
       this.progress = null;
     }
   }
@@ -271,6 +332,7 @@ class ExerciseStore {
   async cancelBuild() {
     this.cancelled = true;
     this.buildError = null;
+    this.rebuildError = null;
     try {
       await exerciseApi.cancel();
     } catch {}
@@ -280,6 +342,7 @@ class ExerciseStore {
   changeSetup() {
     this.editing = true;
     this.buildError = null;
+    this.rebuildError = null;
   }
 
   // ------------------------------------------------------------ the ride
@@ -318,10 +381,10 @@ class ExerciseStore {
     await this.stop();
     if (this.plan) await this.start();
   }
-  /** "Same ride, new songs": the same request built again. */
+  /** "Same ride, new songs": the same request built again, on the preview (the backend reuses what it found). */
   async rebuild() {
-    await this.stop();
-    await this.build();
+    if (this.stage === "riding" || this.stage === "finished") await this.stop();
+    await this.gated(() => this.runBuild(true));
   }
   /** "Done" / leaving the summary. */
   finish() {

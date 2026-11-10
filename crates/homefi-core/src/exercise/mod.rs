@@ -5,7 +5,7 @@
 //!
 //! - [`model`]: the workout, its segments and the request.
 //! - [`presets`]: the styles (any length) and the beginner caps.
-//! - [`settings`]: every option, with defaults and ranges in one place.
+//! - [`settings`]: every option, with defaults and ranges in one place; [`taste`]: artists to suggest.
 //! - [`bpm`]: does a song's tempo fit a cadence? (1:1, half-time, double-time) and the widening ladder.
 //! - [`builder`]: request to ride plan and playlist; [`ai`]: the chat and the song proposals.
 //! - [`library`]: saved rides (auto-saved builds, kept, favorites) and their export / import.
@@ -22,20 +22,22 @@ pub mod presets;
 pub mod profile;
 pub mod ride;
 pub mod settings;
+pub mod taste;
 pub mod tv;
 pub(crate) mod words;
 
 pub use ai::{ExerciseSession, ExerciseTurn};
 pub use bpm::{fit, ladder, BeatRatio, BpmSource, Fit, Rung, Tolerance};
 pub use builder::{
-    build, Analyzer, BuildContext, CueSettings, PlannedSong, PulseSource, RideBuilt, RidePlan, RideProgress,
-    BUILD_DEADLINE,
+    build, build_with_memory, Analyzer, BuildContext, BuildMemory, CueSettings, PlannedSong, PulseSource, RideBuilt,
+    RidePlan, RideProgress, BUILD_DEADLINE,
 };
 pub use cues::{schedule, CueKind};
 pub use library::{auto_name, export_ride, import_ride, RideStore, RideSummary, SavedRide, SAVED_RIDE_FORMAT_VERSION};
 pub use model::{
-    round_minutes, Effort, Interval, MusicWish, Position, PresetId, RideRequest, RpmRange, Segment, SegmentKind, Sport,
-    Target, Workout, WorkoutOrigin, MAX_RIDE_MINUTES, MIN_RIDE_MINUTES, RIDE_MINUTES_STEP,
+    round_minutes, Effort, Interval, MusicWish, Popularity, Position, PresetId, RideRequest, RideTaste, RpmRange,
+    Segment, SegmentKind, Sport, Target, Workout, WorkoutOrigin, DECADES, MAX_ARTIST_CHARS, MAX_RIDE_MINUTES,
+    MAX_TASTE_ARTISTS, MIN_RIDE_MINUTES, RIDE_MINUTES_STEP,
 };
 pub use presets::{beginner_caps, preset};
 pub use profile::{elevation_at, profile, ProfilePoint};
@@ -43,6 +45,7 @@ pub use ride::{Cue, IntervalPhase, IntervalView, NextView, PulseView, RideClock,
 pub use settings::{
     lenient_exercise, CourseLook, ExerciseSettings, PulseStyle, SourcesMode, TvAudio, DEFAULT_TV_PORT, TV_DISPLAY_AUTO,
 };
+pub use taste::{artist_suggestions, MAX_ARTIST_SUGGESTIONS};
 #[cfg(feature = "share")]
 pub use tv::{discover, RideTvEndpoint, TvServer, RIDE_SERVICE_TYPE};
 pub use tv::{render_page, RideTvView, TvPart, TvText, TV_PROTOCOL_VERSION};

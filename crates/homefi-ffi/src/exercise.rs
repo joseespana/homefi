@@ -65,6 +65,16 @@ pub enum PresetId {
 }
 mirror_enum!(PresetId <=> ex::PresetId { FirstRide, Easy, Classic, Intervals });
 
+/// How famous the songs of a ride should be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum Popularity {
+    /// The genre's big hits by its famous acts (the default).
+    Hits,
+    Mix,
+    Discover,
+}
+mirror_enum!(Popularity <=> ex::Popularity { Hits, Mix, Discover });
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum SourcesMode {
     LibraryFirst,
@@ -231,6 +241,8 @@ pub struct ExerciseSettings {
     /// Automatic rides kept, 5..=200 (kept rides and favorites never count).
     #[uniffi(default = 30)]
     pub ride_history_max: u16,
+    /// The setup's taste answers, remembered for the next ride.
+    pub taste: RideTaste,
 }
 
 impl From<ex::ExerciseSettings> for ExerciseSettings {
@@ -267,6 +279,7 @@ impl From<ex::ExerciseSettings> for ExerciseSettings {
             health_notice_seen: s.health_notice_seen,
             tempo_nudge_pct: s.tempo_nudge_pct,
             ride_history_max: s.ride_history_max,
+            taste: s.taste.into(),
         }
     }
 }
@@ -305,6 +318,7 @@ impl From<ExerciseSettings> for ex::ExerciseSettings {
             health_notice_seen: s.health_notice_seen,
             tempo_nudge_pct: s.tempo_nudge_pct,
             ride_history_max: s.ride_history_max,
+            taste: s.taste.into(),
         }
     }
 }
@@ -466,23 +480,67 @@ impl From<RideWorkout> for ex::Workout {
     }
 }
 
+/// The rider's taste for a ride (cleaned by the core: known decades, at most ten names each).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct RideTaste {
+    /// Decades by their first year (1960..=2020); empty = any era.
+    pub eras: Vec<u16>,
+    pub popularity: Popularity,
+    /// Artists the rider likes: they lead the AI's picks.
+    pub artists: Vec<String>,
+    /// Artists never to play.
+    pub avoid: Vec<String>,
+}
+
+impl From<ex::RideTaste> for RideTaste {
+    fn from(t: ex::RideTaste) -> Self {
+        Self { eras: t.eras, popularity: t.popularity.into(), artists: t.artists, avoid: t.avoid }
+    }
+}
+
+impl From<RideTaste> for ex::RideTaste {
+    fn from(t: RideTaste) -> Self {
+        Self { eras: t.eras, popularity: t.popularity.into(), artists: t.artists, avoid: t.avoid }
+    }
+}
+
+/// The decades the setup offers (the year each starts), oldest first.
+#[uniffi::export]
+pub fn exercise_decades() -> Vec<u16> {
+    ex::DECADES.to_vec()
+}
+
+/// The taste as the core keeps it (cleaned), for the setup to show what will be used.
+#[uniffi::export]
+pub fn exercise_taste_clamped(taste: RideTaste) -> RideTaste {
+    ex::RideTaste::from(taste).clamped().into()
+}
+
+/// Artists to offer under "artists you like": the ones the library has the most songs of in `genres`
+/// (any genre when empty), at most [`ex::MAX_ARTIST_SUGGESTIONS`].
+#[uniffi::export]
+pub fn exercise_artist_suggestions(library: Vec<LibraryRef>, genres: Vec<String>) -> Vec<String> {
+    ex::artist_suggestions(library.iter().map(|l| (l.artist.as_str(), l.genre.as_str())), &genres)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct MusicWish {
     pub genres: Vec<String>,
     /// Several genres spread over the segments by tempo.
     pub mix: bool,
     pub sentence: String,
+    pub taste: RideTaste,
 }
 
 impl From<ex::MusicWish> for MusicWish {
     fn from(w: ex::MusicWish) -> Self {
-        Self { genres: w.genres, mix: w.mix, sentence: w.sentence }
+        Self { genres: w.genres, mix: w.mix, sentence: w.sentence, taste: w.taste.into() }
     }
 }
 
 impl From<MusicWish> for ex::MusicWish {
     fn from(w: MusicWish) -> Self {
-        Self { genres: w.genres, mix: w.mix, sentence: w.sentence }
+        Self { genres: w.genres, mix: w.mix, sentence: w.sentence, taste: w.taste.into() }
     }
 }
 
@@ -896,6 +954,10 @@ struct FileAnalyzer {
 }
 
 impl ex::Analyzer for FileAnalyzer {
+    fn can_read(&self, entry: &pl::PlaylistEntry) -> bool {
+        entry.local_path.is_some()
+    }
+
     fn analyze<'a>(
         &'a self,
         entry: &'a pl::PlaylistEntry,
@@ -914,7 +976,8 @@ impl ex::Analyzer for FileAnalyzer {
 #[uniffi::export]
 impl HomefiEngine {
     /// Builds the ride (not saved: the app saves `playlist` when the ride starts). The AI's key travels apart
-    /// and is never stored. Cancelling the coroutine stops the work between songs.
+    /// and is never stored. Cancelling the coroutine stops the work between songs. Building the same request
+    /// again ("new songs") reuses what the last build found and plays songs it did not.
     #[allow(clippy::too_many_arguments)]
     pub async fn exercise_build(
         self: Arc<Self>,
@@ -945,7 +1008,11 @@ impl HomefiEngine {
                 analyzer: Some(&analyzer),
                 lang: Lang::from_code(&language),
             };
-            let built = ex::build(&request.into(), &ctx, &|p| listener.on_progress(p.into())).await?;
+            // the last build's memory: "new songs" for the same ride reuses what it found
+            let memory = self.ride_memory();
+            let (built, memory) =
+                ex::build_with_memory(&request.into(), &ctx, &|p| listener.on_progress(p.into()), memory).await?;
+            self.remember_ride(memory);
             Ok(RideBuilt { plan: built.plan.into(), playlist: built.playlist.into() })
         })
         .await
@@ -1517,7 +1584,7 @@ mod tests {
             notes: Vec::new(),
             countdown_seconds: 3,
             notice_seconds: 10,
-            wish: MusicWish { genres: vec![], mix: false, sentence: String::new() },
+            wish: ex::MusicWish::default().into(),
             profile: Vec::new(),
         }
     }

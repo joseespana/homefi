@@ -70,6 +70,12 @@ Left column, three cards:
    "Or tell the AI in a sentence (optional)" (placeholder: "Classic rock for the climbs, something heavy for the sprints"), with
    a status line: `AI on: <provider>` (tag, `--ai-tag-*`) or `No AI: genres only` with a link "Set up AI" (opens Settings).
    Without AI the sentence field is disabled with the tooltip "Needs your AI key. Genres still work." (`needs_ai_message`).
+   Under the genres, the **taste** questions (`TasteChips` on desktop, `TasteBlock` on Android), compact with smart
+   defaults: **How famous** (segmented Big hits / Mix / Discover, default Big hits), **Era** (chips Any, 60s ... 90s,
+   2000s, 2010s, 2020s; several allowed, none is Any) and a folded **Artists (optional)**: "Artists you like" (removable
+   chips, dashed "+ name" suggestions from the library's most-owned artists in the picked genres, a field that adds on
+   Enter) and "Never play" (same, struck through). Every answer is saved at once in `exercise.taste` (a setting on both
+   platforms), and the build always uses the saved taste.
 
 Right column:
 
@@ -104,7 +110,8 @@ fallback) goes to the preview as notes, not an error.
 ### 3.3 Preview (mock-up 3)
 
 Header: title "Your ride is ready", subtitle "30 min · Easy · Rock + Metal · 8 songs"; actions right: **Change setup**,
-**Rebuild** (same request, new songs), **Start ride** (primary pill 56 px).
+**New songs** (same request, songs the last build did not play; the preview stays with an inline
+progress bar and Cancel, a failure keeps the plan), **Start ride** (primary pill 56 px).
 
 - The **mountain** (160 px, full width) with part boundaries as ticks. Hover a part = tooltip (name, time, RPM, song) and the
   matching row highlights; click = scrolls to the row. Parts are keyboard focusable (roving, arrows).
@@ -440,7 +447,7 @@ Desktop English; Android strings keys `ex_*` in `strings_exercise.xml` (EN and E
 | ex_ready | Your ride is ready | Tu rutina está lista |
 | ex_start | Start ride | Empezar |
 | ex_change | Change setup | Cambiar |
-| ex_rebuild | Rebuild | Volver a armar |
+| ex_another_mix | New songs | Canciones nuevas |
 | ex_col_part / time / pedal / effort / song / beat | Part / Time / Pedal / Effort / Song / Beat | Parte / Tiempo / Pedaleo / Esfuerzo / Canción / Ritmo |
 | ex_another | Another song | Otra canción |
 | ex_wrong_tempo | Wrong tempo (double / half) | Tempo equivocado (doble / mitad) |

@@ -62,6 +62,7 @@ import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.ui.HomefiLogo
 import com.perseusoft.homefi.tv.train.TvTrainController
 import com.perseusoft.homefi.tv.train.TvTrainSection
+import com.perseusoft.homefi.tv.train.TvRideOverlay
 import com.perseusoft.homefi.player.exercise.TvClientUi
 import com.perseusoft.homefi.data.UpdateStatus
 import androidx.lifecycle.Lifecycle
@@ -79,13 +80,16 @@ private const val MS_PER_SECOND = 1_000L
 private const val OPEN_PLAYER_WAIT_MS = 1_500L
 private val SCRIM = Brush.horizontalGradient(listOf(Color(0xE6070A14), Color(0x99070A14), Color.Transparent))
 
+/** A request to open a section (an intent, a test), optionally on one Settings page. */
+data class TvOpenRequest(val section: TvSection, val settings: TvSettingsCategory? = null)
+
 /**
  * The TV app: the drawer with every section, the section on the right, and over them the
  * full-screen player and the ambient screensaver. Section screens read the same state as the phone's.
  * [openPlayer] emits when an intent asks for the player (the media notification, a file).
  */
 @Composable
-fun TvRoot(idle: TvIdle, train: TvTrainController, openPlayer: Flow<Unit>, openSection: Flow<TvSection>, onExit: () -> Unit) {
+fun TvRoot(idle: TvIdle, train: TvTrainController, openPlayer: Flow<Unit>, openSection: Flow<TvOpenRequest>, onExit: () -> Unit) {
     TvTheme {
         val look = LocalTvLook.current
         val motion = com.perseusoft.homefi.ui.theme.LocalMotion.current
@@ -103,6 +107,8 @@ fun TvRoot(idle: TvIdle, train: TvTrainController, openPlayer: Flow<Unit>, openS
         val signedIn = account != null
 
         var section by rememberSaveable { mutableStateOf(TvSection.HOME) }
+        // the Settings page to open on ("set up an AI" from the playlist chat); null = where the user left it
+        var settingsPage by remember { mutableStateOf<TvSettingsCategory?>(null) }
         val navScope = androidx.compose.runtime.rememberCoroutineScope()
         val backdropCover = remember { TvBackdropCover() }
         val coverTint = rememberCoverTint(backdropCover.cover)
@@ -131,7 +137,7 @@ fun TvRoot(idle: TvIdle, train: TvTrainController, openPlayer: Flow<Unit>, openS
         val rideKey = watching?.endpoint?.let { "${it.host}:${it.port}" }
         val rideBanner = watching != null && section != TvSection.TRAIN && rideKey != rideDismissed
 
-        LaunchedEffect(Unit) { openSection.collect { section = it; entryKey++ } }
+        LaunchedEffect(Unit) { openSection.collect { section = it.section; settingsPage = it.settings; entryKey++ } }
         LaunchedEffect(Unit) { openPlayer.collect { if (app.player.state.value.current != null) playerOpen = true } }
         // TIDAL is hidden while signed out: leave it if that happens under the user
         LaunchedEffect(section, sections) { if (section !in sections) section = TvSection.HOME }
@@ -144,7 +150,19 @@ fun TvRoot(idle: TvIdle, train: TvTrainController, openPlayer: Flow<Unit>, openS
         }
         LaunchedEffect(player.isPlaying) { if (!player.isPlaying) idle.leaveAmbient() }
 
-        val modal = update.needsPermission || updateNotes || notesPending.isNotEmpty()
+        // a download going to a USB drive without "All files access" asks for it; coming back from Android's page resumes it
+        val downloads by app.downloads.state.collectAsStateWithLifecycle()
+        val djOpen by app.dj.isOpen.collectAsStateWithLifecycle()
+        val rideOpen by app.ride.isOpen.collectAsStateWithLifecycle()
+        // closing DJ mode or the ride returns the focus to its page
+        LaunchedEffect(djOpen, rideOpen) { if (!djOpen && !rideOpen) entryKey++ }
+        val context = LocalContext.current
+        LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+            val state = app.downloads.state.value
+            if (state.pausedForAccess && com.perseusoft.homefi.data.Storage.hasSharedAccess(context)) app.downloads.resume()
+        }
+
+        val modal = update.needsPermission || updateNotes || notesPending.isNotEmpty() || downloads.askingAccess != null
         val loginShown = accountLoaded && !signedIn && (section == TvSection.HOME || section == TvSection.TIDAL)
         BackHandler(enabled = !playerOpen && !ambient && !modal) {
             when {
@@ -159,7 +177,7 @@ fun TvRoot(idle: TvIdle, train: TvTrainController, openPlayer: Flow<Unit>, openS
         Box(Modifier.fillMaxSize().background(look.bg)) {
             TvBackdrop(Modifier.fillMaxSize(), tint = coverTint)
             // the shell stays composed under the player (its place is kept) but cannot take focus
-            Box(Modifier.fillMaxSize().focusProperties { canFocus = !playerOpen && !modal }) {
+            Box(Modifier.fillMaxSize().focusProperties { canFocus = !playerOpen && !modal && !djOpen && !rideOpen }) {
                 ModalNavigationDrawer(
                     drawerContent = { value ->
                         val open = value == DrawerValue.Open
@@ -181,7 +199,7 @@ fun TvRoot(idle: TvIdle, train: TvTrainController, openPlayer: Flow<Unit>, openS
                     androidx.compose.runtime.CompositionLocalProvider(
                         LocalTvDrawerEntry provides itemFocus.getValue(section),
                         LocalTvBackdropCover provides backdropCover,
-                        LocalTvNav provides remember { TvNav(go = { target -> section = target; entryKey++ }, openPlayer = {
+                        LocalTvNav provides remember { TvNav(go = { target -> section = target; entryKey++ }, openSettings = { page -> settingsPage = page; section = TvSection.SETTINGS; entryKey++ }, openPlayer = {
                             // the song that was just chosen arrives a moment later: open when it does (or at once if the same one is already there)
                             val before = app.player.state.value.current?.mediaId
                             navScope.launch {
@@ -209,6 +227,7 @@ fun TvRoot(idle: TvIdle, train: TvTrainController, openPlayer: Flow<Unit>, openS
                             loginShown = shownLogin,
                             accountLoaded = accountLoaded,
                             djUsable = djAvailable(tv.djEntry, mouse),
+                            settingsPage = settingsPage,
                             entryKey = shownKey,
                             onOpenPlayer = { playerOpen = true },
                             onGo = { target ->
@@ -256,8 +275,22 @@ fun TvRoot(idle: TvIdle, train: TvTrainController, openPlayer: Flow<Unit>, openS
                     },
                 )
             }
+            // DJ mode: the phone's two decks over the TV, for the mouse
+            AnimatedVisibility(djOpen, enter = fadeIn(motion.tween(260)), exit = fadeOut(motion.tween(200))) {
+                Box(Modifier.fillMaxSize().background(look.bg)) { com.perseusoft.homefi.ui.dj.DjScreen(onClose = app.dj::close) }
+            }
+            // a ride run on this TV: the core's page, then its summary
+            AnimatedVisibility(rideOpen, enter = fadeIn(motion.tween(260)), exit = fadeOut(motion.tween(200))) { TvRideOverlay() }
             AnimatedVisibility(ambient && player.current != null, enter = fadeIn(motion.tween(900)), exit = fadeOut(motion.tween(250))) { TvAmbient(player) }
-            if (update.needsPermission) {
+            if (downloads.askingAccess != null) {
+                TvUsbGuide(
+                    onOpenSettings = {
+                        app.downloads.answerAccess(com.perseusoft.homefi.data.UsbAccessAnswer.OPEN_SETTINGS)
+                        openUsbAccessSettings(context)
+                    },
+                    onAppFolder = { app.downloads.answerAccess(com.perseusoft.homefi.data.UsbAccessAnswer.APP_FOLDER) },
+                )
+            } else if (update.needsPermission) {
                 TvInstallPermission(onLater = app.updates::skipPermission)
             } else if (updateNotes) {
                 TvTextDialog(
@@ -281,6 +314,7 @@ private fun SectionContent(
     loginShown: Boolean,
     accountLoaded: Boolean,
     djUsable: Boolean,
+    settingsPage: TvSettingsCategory?,
     entryKey: Int,
     onOpenPlayer: () -> Unit,
     onGo: (TvSection) -> Unit,
@@ -300,12 +334,8 @@ private fun SectionContent(
         section == TvSection.SOUND -> TvSound(entryKey)
         section == TvSection.PARTY -> TvParty(entryKey)
         section == TvSection.TRAIN -> TvTrainSection(train, entryKey, Modifier.fillMaxSize())
-        section == TvSection.DJ && !djUsable -> TvComingSoon(
-            section,
-            entryKey,
-            home,
-            note = stringResource(R.string.tv_dj_need_mouse) + ". " + stringResource(R.string.tv_dj_need_mouse_body),
-        )
+        section == TvSection.DJ -> TvDj(entryKey, djUsable, home)
+        section == TvSection.SETTINGS -> TvSettings(entryKey, settingsPage)
         else -> TvComingSoon(section, entryKey, home)
     }
 }

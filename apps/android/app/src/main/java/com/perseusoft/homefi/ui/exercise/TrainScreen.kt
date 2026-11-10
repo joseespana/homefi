@@ -48,7 +48,7 @@ fun TrainScreen() {
                     RideSetup(form, chat)
                 }
                 is RideUi.Building -> RideBuilding(state, session::cancelBuild)
-                is RideUi.Preview -> RidePreview(state.built, state.saved, session)
+                is RideUi.Preview -> RidePreview(state, session)
                 is RideUi.Failed -> RideFailed(state.message, session::backToSetup)
                 is RideUi.Riding, is RideUi.Finished -> Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(stringResource(R.string.ex_in_progress), style = MaterialTheme.typography.titleMedium)

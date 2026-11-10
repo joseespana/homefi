@@ -301,3 +301,13 @@ for everyone else; the GitHub URL stays as the no-store path.
 8. Do you own a domain for a short `/tv` link, or is the Downloader code enough?
 9. Ambient mode is TV-only for now; do you want a desktop screensaver too (the "both platforms"
    rule), or leave it?
+
+### José's answers (2026-11-09)
+
+- The HomeFi TV app targets Android TV / Google TV only. A Chromecast (José has one) is a
+  casting target only — that waits for the paid Google account (end of Nov 2026).
+- Downloads on the TV: always ask where (`downloadTarget` default `ASK`).
+- USB: ask for "All files access" when it is needed, every time it is missing (no silent
+  fallback without asking first; the app folder stays the fallback if he declines).
+- Party on the TV: guests are approved automatically by default (`partyAutoApprove = true`).
+- Voice input: not answered; stays on as a setting (`voiceInput`).

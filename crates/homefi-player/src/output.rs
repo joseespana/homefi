@@ -19,6 +19,10 @@ const BUFFER_SECONDS: f32 = 0.5;
 /// Longer on surround devices and on Windows (WASAPI shared mode at a fixed
 /// rate means resampling more often), where a busy moment would underrun.
 const SAFE_BUFFER_SECONDS: f32 = 1.0;
+/// Frames the realtime callback can handle in one call without allocating: a generous bound
+/// (WASAPI / ALSA periods are a few thousand frames; 32768 is 0.74 s at 44.1 kHz). A device
+/// asking for more gets silence for the excess instead of a heap allocation on the audio thread.
+const MAX_CALLBACK_FRAMES: usize = 32_768;
 
 /// Serialises every device query (enumeration, names, supported configs, opening a stream).
 /// CoreAudio crashes inside its own property calls when two threads query devices at once
@@ -299,7 +303,12 @@ where
     T: SizedSample + FromSample<f32>,
 {
     let channels = config.channels as u64;
-    let mut scratch: Vec<f32> = Vec::new();
+    let fixed_frames = match config.buffer_size {
+        cpal::BufferSize::Fixed(frames) => frames as usize,
+        cpal::BufferSize::Default => 0,
+    };
+    // allocated once, here: the callback only ever slices it
+    let mut scratch = vec![0f32; MAX_CALLBACK_FRAMES.max(fixed_frames) * channels as usize];
     // the filters set before opening apply from the first sample, without a glide
     let mut eq = Equalizer::with_design(shared.take_eq().unwrap_or_default(), config.sample_rate.0, channels as usize);
     let err_shared = shared.clone();
@@ -308,30 +317,21 @@ where
         .build_output_stream(
             config,
             move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
-                if scratch.len() < data.len() {
-                    scratch.resize(data.len(), 0.0);
-                }
-                // whole frames only, so the channels never slide out of place
-                let want = whole_frames(data.len().min(consumer.occupied_len()), channels as usize);
+                // whole frames only, so the channels never slide out of place; what does not fit
+                // the pre-sized buffer (an oversized callback) is left silent, never allocated
+                let want = whole_frames(data.len().min(consumer.occupied_len()).min(scratch.len()), channels as usize);
                 let got = consumer.pop_slice(&mut scratch[..want]);
                 // after decoding / resampling, before the volume: allocation free
                 let start = shared.frames_played.load(Ordering::Relaxed);
                 run_eq(&mut eq, &shared, start, &mut scratch[..got], channels as usize);
                 let volume = shared.volume();
-                let (mut peak_l, mut peak_r) = (0f32, 0f32);
-                for (i, (out, s)) in data.iter_mut().zip(&scratch[..got]).enumerate() {
-                    let v = *s * volume;
-                    if i as u64 % channels == 0 {
-                        peak_l = peak_l.max(v.abs());
-                    } else {
-                        peak_r = peak_r.max(v.abs());
-                    }
-                    *out = T::from_sample(v);
+                for (out, s) in data.iter_mut().zip(&scratch[..got]) {
+                    *out = T::from_sample(*s * volume);
                 }
-                if channels == 1 {
-                    peak_r = peak_l;
-                }
-                shared.meters.record(peak_l.min(1.0), peak_r.min(1.0));
+                // the peak of a scaled signal is the scaled peak: one pass, no per-sample branching
+                let (peak_l, peak_r) = peaks(&scratch[..got], channels as usize);
+                let gain = volume.abs();
+                shared.meters.record((peak_l * gain).min(1.0), (peak_r * gain).min(1.0));
                 shared.meters.tap.push(&scratch[..got], channels as usize);
                 // underrun: silence
                 for out in &mut data[got..] {
@@ -346,6 +346,47 @@ where
             None,
         )
         .map_err(|e| PlayerError::Output(e.to_string()))
+}
+
+/// Left / right meter peaks (absolute, linear) of interleaved `samples`.
+///
+/// Mono feeds both meters and stereo is plain L / R. Surround layouts (WAVEFORMATEXTENSIBLE
+/// order: FL FR FC LFE BL BR [SL SR]) fold to two meters by side: from 6 channels up, the
+/// centre and the LFE (channels 2 and 3) count on both sides; every other channel counts on the
+/// left when its index is even and on the right when odd (FL / BL / SL left, FR / BR / SR
+/// right). Frames are walked with `chunks_exact`: no modulo per sample.
+pub(crate) fn peaks(samples: &[f32], channels: usize) -> (f32, f32) {
+    let channels = channels.max(1);
+    let (mut left, mut right) = (0f32, 0f32);
+    match channels {
+        1 => {
+            left = samples.iter().fold(0f32, |m, s| m.max(s.abs()));
+            right = left;
+        }
+        2 => {
+            for frame in samples.chunks_exact(2) {
+                left = left.max(frame[0].abs());
+                right = right.max(frame[1].abs());
+            }
+        }
+        _ => {
+            let centre_on_both = channels >= 6;
+            for frame in samples.chunks_exact(channels) {
+                for (i, s) in frame.iter().enumerate() {
+                    let v = s.abs();
+                    if centre_on_both && (i == 2 || i == 3) {
+                        left = left.max(v);
+                        right = right.max(v);
+                    } else if i % 2 == 0 {
+                        left = left.max(v);
+                    } else {
+                        right = right.max(v);
+                    }
+                }
+            }
+        }
+    }
+    (left, right)
 }
 
 /// `samples` rounded down to a whole number of frames of `channels`.
@@ -400,6 +441,29 @@ mod tests {
         for (i, s) in out.iter().enumerate() {
             assert_eq!(*s, (i % 8) as f32, "sample {i} landed on the wrong channel");
         }
+    }
+
+    #[test]
+    fn meters_fold_surround_by_side() {
+        assert_eq!(peaks(&[0.5, -0.25, 0.1], 1), (0.5, 0.5));
+        assert_eq!(peaks(&[0.5, -0.25, 0.1, 0.9], 2), (0.5, 0.9));
+        // 5.1: only the rear right (channel 5) is loud: right meter only
+        assert_eq!(peaks(&[0.0, 0.0, 0.0, 0.0, 0.0, -0.8], 6), (0.0, 0.8));
+        // 5.1: the centre feeds both sides, a rear left only the left
+        assert_eq!(peaks(&[0.0, 0.0, 0.6, 0.0, 0.0, 0.0], 6), (0.6, 0.6));
+        assert_eq!(peaks(&[0.0, 0.0, 0.0, 0.0, 0.7, 0.0], 6), (0.7, 0.0));
+        assert_eq!(peaks(&[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.4], 8), (0.0, 0.4));
+        // quad has no centre: channel 2 is a rear left
+        assert_eq!(peaks(&[0.0, 0.0, 0.3, 0.0], 4), (0.3, 0.0));
+        assert_eq!(peaks(&[], 2), (0.0, 0.0));
+    }
+
+    #[test]
+    fn an_oversized_callback_is_limited_to_the_presized_buffer() {
+        // the callback reads at most `scratch.len()`: whole frames, rest is silence
+        let scratch_len = MAX_CALLBACK_FRAMES * 6;
+        let asked = scratch_len + 6 * 100;
+        assert_eq!(whole_frames(asked.min(scratch_len), 6), scratch_len);
     }
 
     #[test]

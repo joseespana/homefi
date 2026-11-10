@@ -47,8 +47,11 @@ publishing anything: the installers are kept as workflow artifacts for 30 days
 | macOS 11+ | Apple Silicon (`arm64`), Intel (`x64`) | `HomeFi-<v>-macos-<arch>.dmg` |
 | Windows 10/11 | `x64`, `arm64` | `HomeFi-<v>-windows-<arch>.setup.exe` (+ `.msi` on x64) |
 | Linux | `x86_64`, `arm64` | `.deb` (Debian/Ubuntu), `.rpm` (Fedora/openSUSE), `.AppImage` (any) |
-| Android 8+ | arm64-v8a, armeabi-v7a, x86_64 (universal) | `HomeFi-<v>-android.apk` |
+| Android 8+ | arm64-v8a, armeabi-v7a (universal) | `HomeFi-<v>-android.apk` |
 | CLI | the six desktop targets | `homefi-cli-<v>-<target>.tar.gz` / `.zip` |
+
+The release APK has no x86_64 library (it halves the download): x86_64 Android devices (Chromebooks,
+emulators) are not covered. Build for them locally; the default `homefi.abis` still includes x86_64.
 
 There is no iOS build: the app is about your own files and output devices, which iOS doesn't open up.
 

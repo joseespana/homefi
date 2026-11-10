@@ -39,6 +39,11 @@ class WhatsNew(private val app: Application, private val settings: SettingsStore
         }
     }
 
+    /** Shows [notes] on demand (Settings, About) through the same dialog as after an update. */
+    fun show(notes: List<ReleaseNotes>) {
+        _pending.value = notes
+    }
+
     fun dismiss() {
         _pending.value = emptyList()
     }

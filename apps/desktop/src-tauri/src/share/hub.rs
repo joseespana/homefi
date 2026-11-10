@@ -655,7 +655,7 @@ impl HubSession {
                 m.files.insert(source, path);
                 let state = app.state::<AppState>();
                 let dir = crate::stream::cache_dir(&state);
-                let mut keep = state.player.snapshot().queue;
+                let mut keep = state.player.snapshot().queue.to_vec();
                 keep.extend(m.files.values().cloned());
                 tokio::task::spawn_blocking(move || {
                     homefi_core::stream_cache::trim(&dir, crate::stream::CACHE_LIMIT, &keep)

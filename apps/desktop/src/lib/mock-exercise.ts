@@ -357,7 +357,7 @@ async function build(r: RideRequest, channel: { id: number }): Promise<RideBuilt
     }
     for (let done = 0; done < 12; done++) {
       post({ kind: "analyzing", done, total: 12 });
-      if (flag === "building" && done === 6) await new Promise(() => {});
+      if ((flag === "building" || url.has("exrebuild")) && done === 6) await new Promise(() => {});
       await wait(120);
     }
     post({ kind: "matching" });
@@ -446,6 +446,8 @@ export const exerciseMock = {
     exercise_presets: () => PRESETS,
     exercise_ride_minutes: () => Array.from({ length: 17 }, (_, i) => 10 + i * 5),
     exercise_default_request: () => ({ ...request, minutes: settings.ride_minutes }),
+    exercise_artist_suggestions: ({ genres }: { genres: string[] }) =>
+      genres.some((g) => g.toLowerCase() === "metal") ? ["Metallica", "Iron Maiden", "Megadeth"] : ["Foo Fighters", "Queen"],
     exercise_health_notice: () =>
       "HomeFi suggests a pace and an effort, it does not measure your body or give medical advice. Listen to yourself, and stop if you feel pain, dizziness or shortness of breath. If in doubt, check with a doctor.",
     exercise_open: async () => {

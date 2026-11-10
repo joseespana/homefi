@@ -183,11 +183,17 @@ fun TvTabs(
 
 /** Screen title with a count / subtitle line and a slot on the right (clock, tags, pills). */
 @Composable
-fun TvScreenHeader(title: String, subtitle: String?, modifier: Modifier = Modifier, trailing: @Composable () -> Unit = {}) {
+fun TvScreenHeader(
+    title: String,
+    subtitle: String?,
+    modifier: Modifier = Modifier,
+    titleStyle: androidx.compose.ui.text.TextStyle = TvType.title,
+    trailing: @Composable () -> Unit = {},
+) {
     val look = LocalTvLook.current
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = TvType.title, color = look.ink, maxLines = 1)
+            Text(title, style = titleStyle, color = look.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!subtitle.isNullOrBlank()) Text(subtitle, style = TvType.secondary, color = look.ink2, maxLines = 1)
         }
         trailing()

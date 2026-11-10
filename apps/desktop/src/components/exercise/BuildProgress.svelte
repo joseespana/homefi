@@ -2,26 +2,17 @@
   // Building (docs/EXERCISE_UI.md §3.2): the ghost of the course, four steps from the builder's progress,
   // an overall bar and Cancel. Leaving the screen does not stop it. A failed build lands here too, with
   // the reason and a way back.
-  import { sketchOf, type RideProgress } from "../../lib/exercise-api";
+  import { BUILD_STEPS as STEPS, buildStepOf, sketchOf, type RideProgress } from "../../lib/exercise-api";
   import { exercise } from "../../lib/exercise.svelte";
   import Icon from "../Icon.svelte";
   import ExCard from "./ExCard.svelte";
   import Mountain from "./Mountain.svelte";
 
   type StepId = RideProgress["kind"];
-  const STEPS: { id: StepId; label: string }[] = [
-    { id: "searching", label: "Searching songs" },
-    { id: "resolving", label: "Finding them on TIDAL and in your library" },
-    { id: "analyzing", label: "Checking the tempo" },
-    { id: "matching", label: "Matching songs to each part" },
-  ];
-  /** Where each step starts on the overall bar (%), and how much of it the step takes. */
-  const SPAN: Record<StepId, [number, number]> = { searching: [4, 14], resolving: [18, 40], analyzing: [58, 30], matching: [90, 8] };
 
   const p = $derived(exercise.progress);
-  const at = $derived(p ? STEPS.findIndex((s) => s.id === p.kind) : 0);
-  const fraction = $derived(p && "done" in p && p.total > 0 ? p.done / p.total : 0);
-  const percent = $derived(Math.min(99, Math.round(SPAN[STEPS[at].id][0] + SPAN[STEPS[at].id][1] * fraction)));
+  const at = $derived(buildStepOf(p).at);
+  const percent = $derived(buildStepOf(p).percent);
   const count = (id: StepId): string => {
     if (!p || p.kind !== id) return "";
     if (p.kind === "resolving") return `${p.done} of ${p.total}`;

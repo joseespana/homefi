@@ -504,7 +504,7 @@ private fun TvPlaylistChat(
                         cta = stringResource(R.string.pl_party_set_up_ai),
                         ctaIcon = Icons.Rounded.AutoAwesome,
                         entryKey = entryKey,
-                        onCta = { nav.go(TvSection.SETTINGS) },
+                        onCta = { nav.openSettings(TvSettingsCategory.AI) },
                         icon = Icons.Rounded.AutoAwesome,
                     )
                 }

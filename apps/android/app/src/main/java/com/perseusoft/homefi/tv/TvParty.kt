@@ -275,7 +275,7 @@ private fun TvPartyHost(hub: HubUi, entryKey: Int) {
         horizontalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         Column(Modifier.weight(1f).fillMaxHeight()) {
-            TvScreenHeader(stringResource(R.string.tv_party_title), info?.sessionName ?: stringResource(R.string.sharing_starting)) { TvNowPlayingChip() }
+            TvScreenHeader(stringResource(R.string.tv_party_title), info?.sessionName ?: stringResource(R.string.sharing_starting), titleStyle = TvType.title.copy(fontSize = 26.sp))
             Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TvPill(
                     stringResource(R.string.tv_party_stream),
@@ -289,7 +289,7 @@ private fun TvPartyHost(hub: HubUi, entryKey: Int) {
                 TvPill(
                     stringResource(R.string.tv_party_auto_approve),
                     { app.settings.updateTv { it.copy(partyAutoApprove = !autoApprove) } },
-                    icon = Icons.Rounded.Check,
+                    icon = if (autoApprove) Icons.Rounded.Check else Icons.Rounded.HowToVote,
                     selected = autoApprove,
                     height = 32.dp,
                     labelStyle = TvType.body.copy(fontSize = 14.sp),

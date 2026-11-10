@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 
 use super::session::PartyTurn;
 use super::{round_minutes, words, EnergyCurve, MAX_NOTES_CHARS, MAX_TITLE_CHARS, MS_PER_MINUTE};
+use crate::ai::prompt::{one_line, tagged};
 use crate::ai::Tool;
 use crate::humane::Lang;
 use crate::playlist::PlaylistSettings;
@@ -16,7 +17,7 @@ const ENERGY_WORDS: [&str; 3] = ["steady", "rising", "arc"];
 /// Most songs the user can name for the playlist to include.
 pub const MAX_ASKED_SONGS: usize = 10;
 /// Longest title or artist of a named song (chars).
-const MAX_SONG_FIELD_CHARS: usize = 120;
+pub(super) const MAX_SONG_FIELD_CHARS: usize = 120;
 
 /// A song the user named ("alors dance" → “Alors on danse” by Stromae, as the AI corrected it).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -127,7 +128,7 @@ impl ChatBrief {
     /// The brief as a bullet list, for the prompts.
     pub(crate) fn describe(&self) -> String {
         let title = if self.title.is_empty() { "not set yet" } else { self.title.as_str() };
-        let wish = if self.wish.is_empty() { "nothing yet" } else { self.wish.as_str() };
+        let wish = if self.wish.is_empty() { "nothing yet".to_owned() } else { tagged("user_words", &self.wish) };
         let explicit = if self.allow_explicit { "allowed" } else { "to avoid" };
         let mut text = format!(
             "- Asked for: {wish}\n- Title: {title}\n- Length: {}\n- Energy: {}\n- Explicit lyrics: {explicit}",
@@ -136,7 +137,10 @@ impl ChatBrief {
         );
         if !self.songs.is_empty() {
             let songs: Vec<String> = self.songs.iter().map(|s| format!("{} – {}", s.artist, s.title)).collect();
-            text.push_str(&format!("\n- Songs to include (they open the playlist): {}", songs.join("; ")));
+            text.push_str(&format!(
+                "\n- Songs to include (they open the playlist): {}",
+                tagged("named_songs", &songs.join("; "))
+            ));
         }
         text
     }
@@ -171,9 +175,9 @@ fn clean_songs(songs: Vec<AskedSong>) -> Vec<AskedSong> {
         .collect()
 }
 
-/// Trimmed and cut at `max` characters (never in the middle of one).
+/// On one line (line breaks and control characters become spaces) and cut at `max` characters.
 fn cut(text: &str, max: usize) -> String {
-    text.trim().chars().take(max).collect::<String>().trim_end().to_owned()
+    one_line(text, max)
 }
 
 pub(crate) fn set_playlist_tool() -> Tool {
@@ -285,7 +289,7 @@ mod tests {
         assert_eq!(names, [("Alors on danse", "Stromae"), ("Papaoutai", "Stromae")]);
         assert!(b
             .describe()
-            .contains("Songs to include (they open the playlist): Stromae – Alors on danse; Stromae – Papaoutai"));
+            .contains("Songs to include (they open the playlist): <named_songs>Stromae – Alors on danse; Stromae – Papaoutai</named_songs>"));
         b.apply(&json!({ "title": "x" }));
         assert_eq!(b.songs.len(), 2, "a call without songs keeps them");
         b.apply(&json!({ "songs": [] }));

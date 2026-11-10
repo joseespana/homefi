@@ -13,11 +13,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::arrange::{arrange, cap_per_artist, effective_ms, pick_for_duration, Picked, AVG_SONG_MS};
-use super::chat::{opener, set_playlist_tool, SET_PLAYLIST};
+use super::chat::{opener, set_playlist_tool, MAX_SONG_FIELD_CHARS, SET_PLAYLIST};
 use super::words::{self, Problem};
 use super::{Brief, ChatBrief, PartyBrief};
+use crate::ai::prompt::{json_in_text, language_rule, one_line, tagged, DATA_RULE, ORIGINAL_TITLES_RULE};
 use crate::ai::replies::{quick_replies, suggest_replies_tool, SUGGEST_REPLIES};
-use crate::ai::{chat, resolve_model, AiConfig, AiError, AiErrorKind, Message, Tool, ToolResult};
+use crate::ai::{
+    chat, chat_with, resolve_model, AiConfig, AiError, AiErrorKind, ChatOptions, Message, Tool, ToolResult,
+    MAX_OUTPUT_CEILING,
+};
 use crate::api::TidalApi;
 use crate::concert::words::{self as concert_words, Problem as ConcertProblem};
 use crate::concert::BUILD_DEADLINE;
@@ -38,6 +42,10 @@ const CANDIDATE_OVERSHOOT: f64 = 1.5;
 /// Fewest and most songs asked of the AI in one call.
 const MIN_ASK: usize = 12;
 const MAX_ASK: usize = 80;
+/// Tokens one proposed song takes in the tool call (title, artist, energy, JSON around them), with room to spare.
+const TOKENS_PER_SONG: usize = 50;
+/// Room for the model's own thinking and the tool call's frame: those count against the limit too.
+const BUILD_OVERHEAD_TOKENS: usize = 2048;
 /// Extra calls to the AI when the songs found don't fill the length.
 const MAX_FILL_ROUNDS: u8 = 2;
 /// Songs kept in the "Not found" list.
@@ -297,7 +305,7 @@ impl PartySession {
             progress(PartyProgress::Asking { round });
             let missing_ms = target_ms.saturating_sub(pool.total_ms());
             let instruction = build_instruction(&self.brief, &settings, ask_count(missing_ms), &self.last_songs, &pool);
-            let proposed = self.ask_for_songs(&config, instruction).await?;
+            let proposed = self.ask_for_songs(&config, instruction, ask_count(missing_ms)).await?;
             let fresh: Vec<Proposed> = proposed.into_iter().filter(|p| pool.asked.insert(p.key())).collect();
             pool.proposed += fresh.len();
             let (candidates, energies): (Vec<SongCandidate>, Vec<u8>) =
@@ -400,17 +408,19 @@ impl PartySession {
     }
 
     /// One `propose_songs` call on the chat so far plus `instruction` (not stored).
-    async fn ask_for_songs(&self, config: &AiConfig, instruction: String) -> Result<Vec<Proposed>> {
+    async fn ask_for_songs(&self, config: &AiConfig, instruction: String, count: usize) -> Result<Vec<Proposed>> {
         let mut conversation = self.messages.clone();
         conversation.push(Message::User { text: instruction });
         let tools = [propose_songs_tool()];
-        let reply = chat(config, &build_system_prompt(&self.brief, self.lang), &conversation, &tools).await?;
-        let call = reply
-            .tool_calls
-            .into_iter()
-            .find(|c| c.name == PROPOSE_SONGS)
-            .ok_or_else(|| AiError::new(config, AiErrorKind::BadAnswer, "no propose_songs"))?;
-        Ok(parse_proposed(&call.arguments))
+        let options = ChatOptions { max_tokens: Some(build_output_tokens(count)), ..Default::default() };
+        let reply = chat_with(config, &build_system_prompt(&self.brief), &conversation, &tools, &options).await?;
+        let arguments = match reply.tool_calls.iter().find(|c| c.name == PROPOSE_SONGS) {
+            Some(call) => call.arguments.clone(),
+            // a small model may write the answer instead of calling the tool
+            None => rescued_songs(&reply.text)
+                .ok_or_else(|| AiError::new(config, AiErrorKind::BadAnswer, "no propose_songs"))?,
+        };
+        Ok(parse_proposed(&arguments))
     }
 }
 
@@ -476,9 +486,24 @@ fn ask_count(missing_ms: u64) -> usize {
     wanted.clamp(MIN_ASK, MAX_ASK)
 }
 
+/// Output tokens the answer asking for `count` songs may take: the songs plus the overhead, up to the ceiling.
+fn build_output_tokens(count: usize) -> u32 {
+    u32::try_from(count * TOKENS_PER_SONG + BUILD_OVERHEAD_TOKENS).unwrap_or(MAX_OUTPUT_CEILING).min(MAX_OUTPUT_CEILING)
+}
+
+/// The answer of a model that wrote JSON in its text: the object with `songs`, or the bare list.
+fn rescued_songs(text: &str) -> Option<Value> {
+    match json_in_text(text)? {
+        list @ Value::Array(_) => Some(json!({ "songs": list })),
+        object if object.get("songs").is_some() => Some(object),
+        _ => None,
+    }
+}
+
 fn parse_proposed(arguments: &Value) -> Vec<Proposed> {
-    let text =
-        |song: &Value, key: &str| song.get(key).and_then(Value::as_str).map(str::trim).unwrap_or_default().to_owned();
+    let text = |song: &Value, key: &str| {
+        one_line(song.get(key).and_then(Value::as_str).unwrap_or_default(), MAX_SONG_FIELD_CHARS)
+    };
     let mut seen = HashSet::new();
     arguments
         .get("songs")
@@ -538,16 +563,9 @@ pub(super) fn describe_brief(brief: &PartyBrief) -> String {
         words::length(brief.minutes)
     );
     if !brief.notes.is_empty() {
-        text.push_str(&format!("\n- Anything else: {}", brief.notes));
+        text.push_str(&format!("\n- Anything else: {}", tagged("user_notes", &brief.notes)));
     }
     text
-}
-
-fn language_rule(lang: Lang) -> &'static str {
-    match lang {
-        Lang::En => "Answer in English.",
-        Lang::Es => "Answer in Spanish.",
-    }
 }
 
 fn chat_system_prompt(brief: &Brief, lang: Lang) -> String {
@@ -558,7 +576,7 @@ fn chat_system_prompt(brief: &Brief, lang: Lang) -> String {
             "You are the DJ helper of a music app. The user is planning a party playlist. Their answers so far:\n{describe}\n\n\
              Ask at most ONE short question per message about their taste: artists everyone likes, genres, languages, \
              songs that must play or must not. Call {SUGGEST_REPLIES} with 2 to 4 short answers every time. Never list \
-             songs in the chat: the playlist is built later. {rule}"
+             songs in the chat: the playlist is built later. {DATA_RULE} {rule}"
         ),
         Brief::Chat(_) => format!(
             "You are the DJ helper of a music app. The user wants a playlist and says in their own words what it is \
@@ -571,14 +589,14 @@ fn chat_system_prompt(brief: &Brief, lang: Lang) -> String {
              allow_explicit, energy). When the user names songs (even misspelled or without the artist), work out the \
              real song and pass every one of them in `songs`, and name it back in your reply (\"Alors on danse by \
              Stromae\") so they can correct you. Always write a reply, never only call tools. Never list songs of \
-             your own in the chat: the playlist is built later. {rule}"
+             your own in the chat: the playlist is built later. {DATA_RULE} {rule}"
         ),
     }
 }
 
-fn build_system_prompt(brief: &Brief, lang: Lang) -> String {
+fn build_system_prompt(brief: &Brief) -> String {
     let describe = brief.describe();
-    let rule = language_rule(lang);
+    let rule = format!("{ORIGINAL_TITLES_RULE} {DATA_RULE}");
     match brief {
         Brief::Party(_) => format!(
             "You are an expert party DJ. Pick the songs of a playlist for these answers:\n{describe}\n\nCall \

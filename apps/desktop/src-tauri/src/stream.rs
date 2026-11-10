@@ -223,7 +223,7 @@ pub(crate) async fn fetch_or_local<R: Runtime>(app: &AppHandle<R>, item: &Stream
     let state = app.state::<AppState>();
     let dir = cache_dir(&state);
     let path = fetch(&state, &dir, &item.id).await.map_err(crate::commands::err)?;
-    let keep: Vec<PathBuf> = state.player.snapshot().queue;
+    let keep: Vec<PathBuf> = state.player.snapshot().queue.to_vec();
     tokio::task::spawn_blocking(move || stream_cache::trim(&dir, CACHE_LIMIT, &keep));
     Ok(path)
 }

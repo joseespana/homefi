@@ -33,11 +33,13 @@ private const val MS_PER_MINUTE = 60_000L
 class TvActivity : ComponentActivity() {
     companion object {
         const val EXTRA_SECTION = "homefi.section"
+        /** With the Settings section: the page to open (a test or a shortcut), e.g. `--es homefi.settings AI`. */
+        const val EXTRA_SETTINGS = "homefi.settings"
     }
 
     private val idle = TvIdle()
     private val playerRequests = Channel<Unit>(Channel.CONFLATED)
-    private val sectionRequests = Channel<TvSection>(Channel.CONFLATED)
+    private val sectionRequests = Channel<TvOpenRequest>(Channel.CONFLATED)
     /** The one ride client and pairing endpoint of the TV: lives while the app is in front, whatever the section. */
     private val train by lazy { TvTrainController(homefi) }
     private val intents by lazy { TvIntents(this, lifecycleScope) }
@@ -77,7 +79,9 @@ class TvActivity : ComponentActivity() {
     private fun handle(intent: Intent?) {
         if (intents.handle(intent)) playerRequests.trySend(Unit)
         // a shortcut or a test opens a section directly: `--es homefi.section LIBRARY`
-        intent?.getStringExtra(EXTRA_SECTION)?.let { name -> TvSection.entries.firstOrNull { it.name.equals(name, true) } }?.let(sectionRequests::trySend)
+        val section = intent?.getStringExtra(EXTRA_SECTION)?.let { name -> TvSection.entries.firstOrNull { it.name.equals(name, true) } } ?: return
+        val page = intent.getStringExtra(EXTRA_SETTINGS)?.let { name -> TvSettingsCategory.entries.firstOrNull { it.name.equals(name, true) } }
+        sectionRequests.trySend(TvOpenRequest(section, page))
     }
 
     /** Ambient mode swallows the key that wakes it; every other key just restarts the idle timer. */

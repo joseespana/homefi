@@ -19,7 +19,12 @@ import com.perseusoft.homefi.R
 import com.perseusoft.homefi.homefi
 
 /** Where a screen can send the user: another section of the drawer, or the full-screen player. */
-class TvNav(val go: (TvSection) -> Unit, val openPlayer: () -> Unit)
+class TvNav(
+    val go: (TvSection) -> Unit,
+    val openPlayer: () -> Unit,
+    /** Settings, opened on one page (the AI page from "set up an AI"). */
+    val openSettings: (TvSettingsCategory) -> Unit = {},
+)
 
 val LocalTvNav = staticCompositionLocalOf { TvNav(go = {}, openPlayer = {}) }
 

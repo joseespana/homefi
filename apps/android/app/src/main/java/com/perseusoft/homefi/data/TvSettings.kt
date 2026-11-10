@@ -48,7 +48,7 @@ object TvDefaults {
     val DJ_ENTRY = TvDjEntry.AUTO
     const val VOICE_INPUT = true
 
-    val DOWNLOAD_TARGET = DownloadTarget.INTERNAL
+    val DOWNLOAD_TARGET = DownloadTarget.ASK
     /** Free space a download target keeps (the core's `download::space` rule: default 500, 100..=5000). */
     const val MIN_FREE_MB = 500
     val MIN_FREE_MB_RANGE = 100..5000
@@ -61,7 +61,7 @@ object TvDefaults {
     val EQ_STEP_DB_RANGE = 0.5f..3.0f
 
     /** Like the phone: a guest's songs wait for the host's yes. */
-    const val PARTY_AUTO_APPROVE = false
+    const val PARTY_AUTO_APPROVE = true
     /** The Android TV home-screen "Continue listening" row (phase 6). */
     const val CHANNELS = false
     /** A new version downloads by itself; installing then asks the one system OK. */

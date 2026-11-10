@@ -22,10 +22,10 @@ class TvSettingsTest {
         assertEquals(1.0f, d.textScale, 0f)
         assertEquals(TvDjEntry.AUTO, d.djEntry)
         assertTrue(d.voiceInput)
-        assertEquals(DownloadTarget.INTERNAL, d.downloadTarget)
+        assertEquals(DownloadTarget.ASK, d.downloadTarget)
         assertEquals(500, d.minFreeMb)
         assertEquals(1024, d.streamCacheMb)
-        assertFalse(d.partyAutoApprove)
+        assertTrue(d.partyAutoApprove)
         assertEquals(1.0f, d.eqStepDb, 0f)
         assertTrue(d.libraryVolumes.isEmpty())
     }
@@ -63,8 +63,8 @@ class TvSettingsTest {
     fun roundTripsThroughJson() {
         val s = TvSettings(
             uiForm = UiForm.TV, ambientSeconds = 120, ambientStyle = AmbientStyle.CLOCK, playerPanel = PlayerPanel.QUEUE,
-            djEntry = TvDjEntry.ON, downloadTarget = DownloadTarget.ASK, textScale = 1.2f, minFreeMb = 800,
-            libraryVolumes = listOf("/storage/ABCD-1234/Music"), partyAutoApprove = true, voiceInput = false, eqStepDb = 2.5f,
+            djEntry = TvDjEntry.ON, downloadTarget = DownloadTarget.USB, textScale = 1.2f, minFreeMb = 800,
+            libraryVolumes = listOf("/storage/ABCD-1234/Music"), partyAutoApprove = false, voiceInput = false, eqStepDb = 2.5f,
         )
         assertEquals(s, TvSettings.fromJson(s.toJson()))
     }

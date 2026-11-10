@@ -45,10 +45,34 @@ export interface Workout {
   origin: { kind: string };
 }
 
+/** How famous the songs are: the genre's big hits (the default), a mix, or music to discover. */
+export type Popularity = "hits" | "mix" | "discover";
+export const POPULARITIES: readonly { id: Popularity; label: string; hint: string }[] = [
+  { id: "hits", label: "Big hits", hint: "Famous songs by the genre's best-known acts" },
+  { id: "mix", label: "Mix", hint: "Mostly hits, some lesser-known songs" },
+  { id: "discover", label: "Discover", hint: "Songs and artists you may not know yet" },
+];
+/** The decades the setup offers (homefi_core::exercise::DECADES); none picked is any era. */
+export const EX_DECADES: readonly number[] = [1960, 1970, 1980, 1990, 2000, 2010, 2020];
+/** Liked or avoided artists kept, and the longest name (the core's limits). */
+export const EX_MAX_TASTE_ARTISTS = 10;
+export const EX_MAX_ARTIST_CHARS = 60;
+
+/** The rider's taste for a ride; a setting (the setup saves every answer). */
+export interface RideTaste {
+  eras: number[];
+  popularity: Popularity;
+  artists: string[];
+  avoid: string[];
+}
+export const DEFAULT_TASTE: RideTaste = { eras: [], popularity: "hits", artists: [], avoid: [] };
+
 export interface MusicWish {
   genres: string[];
   mix: boolean;
   sentence: string;
+  /** The backend fills it from the settings when building. */
+  taste?: RideTaste;
 }
 
 export interface RideRequest {
@@ -194,6 +218,21 @@ export type RideProgress =
   | { kind: "analyzing"; done: number; total: number }
   | { kind: "matching" };
 
+/** The build's steps as the screens name them, and where each sits on an overall bar (start %, span %). */
+export const BUILD_STEPS: readonly { id: RideProgress["kind"]; label: string; span: [number, number] }[] = [
+  { id: "searching", label: "Searching songs", span: [4, 14] },
+  { id: "resolving", label: "Finding them on TIDAL and in your library", span: [18, 40] },
+  { id: "analyzing", label: "Checking the tempo", span: [58, 30] },
+  { id: "matching", label: "Matching songs to each part", span: [90, 8] },
+];
+/** The step a progress report is at (0 before the first) and the overall percent (never 100 before the end). */
+export function buildStepOf(p: RideProgress | null): { at: number; percent: number } {
+  const at = p ? Math.max(0, BUILD_STEPS.findIndex((s) => s.id === p.kind)) : 0;
+  const fraction = p && "done" in p && p.total > 0 ? p.done / p.total : 0;
+  const [start, span] = BUILD_STEPS[at].span;
+  return { at, percent: Math.min(99, Math.round(start + span * fraction)) };
+}
+
 export interface RideBuilt {
   plan: RidePlan;
   playlist: { id: string; name: string };
@@ -295,6 +334,8 @@ export interface ExerciseSettings {
   tempo_nudge_pct: number;
   /** How many automatic saved rides are kept (kept ones and favorites never count). */
   ride_history_max: number;
+  /** The setup's taste answers, remembered for the next ride. */
+  taste: RideTaste;
 }
 
 // Ranges and defaults: a copy of homefi_core::exercise (the core clamps whatever is sent).
@@ -343,9 +384,13 @@ export const DEFAULT_EXERCISE_SETTINGS: ExerciseSettings = {
   health_notice_seen: false,
   tempo_nudge_pct: 0,
   ride_history_max: 30,
+  taste: DEFAULT_TASTE,
 };
 /** The setting with defaults for whatever an older settings file doesn't have. */
-export const exerciseSettingsOf = (s: { exercise?: Partial<ExerciseSettings> } | null | undefined): ExerciseSettings => ({ ...DEFAULT_EXERCISE_SETTINGS, ...s?.exercise });
+export const exerciseSettingsOf = (s: { exercise?: Partial<ExerciseSettings> } | null | undefined): ExerciseSettings => {
+  const merged = { ...DEFAULT_EXERCISE_SETTINGS, ...s?.exercise };
+  return { ...merged, taste: { ...DEFAULT_TASTE, ...merged.taste } };
+};
 
 // ------------------------------------------------------------------ words and numbers every screen shares
 
@@ -546,6 +591,8 @@ export const exerciseApi = {
   rideMinutes: () => invoke<number[]>("exercise_ride_minutes"),
   defaultRequest: () => invoke<RideRequest>("exercise_default_request"),
   healthNotice: (language: string) => invoke<string>("exercise_health_notice", { language }),
+  /** Artists the library has the most songs of in these genres (for "artists you like"). */
+  artistSuggestions: (genres: string[]) => invoke<string[]>("exercise_artist_suggestions", { genres }),
   /** The AI conversation: the error is "needs your AI key" when none is set up. */
   open: (request: RideRequest, language: string) => invoke<ExerciseTurn>("exercise_open", { request, language }),
   reply: (text: string) => invoke<ExerciseTurn>("exercise_reply", { text }),

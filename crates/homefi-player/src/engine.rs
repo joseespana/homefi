@@ -97,7 +97,8 @@ pub struct OutputOptions {
 #[derive(Debug, Clone, PartialEq, Serialize, Default)]
 pub struct Snapshot {
     pub status: Status,
-    pub queue: Vec<PathBuf>,
+    /// Shared: a snapshot four times a second clones the pointer, not the paths.
+    pub queue: Arc<[PathBuf]>,
     /// Index into `queue` of the track being heard.
     pub current: Option<usize>,
     pub position_ms: u64,
@@ -352,6 +353,10 @@ struct Engine {
     published: Arc<Mutex<Snapshot>>,
 
     queue: Vec<PathBuf>,
+    /// `queue` as published; dropped whenever a command may have changed it.
+    queue_view: Option<Arc<[PathBuf]>>,
+    /// Best output rate per source rate on the open device (see [`BestRates`]).
+    best_rates: BestRates,
     order: Vec<usize>,
     /// Position in `order` of the track being decoded.
     decoding: Option<usize>,
@@ -414,6 +419,8 @@ impl Engine {
             listener,
             published,
             queue: Vec::new(),
+            queue_view: None,
+            best_rates: BestRates::default(),
             order: Vec::new(),
             decoding: None,
             deck: None,
@@ -473,6 +480,8 @@ impl Engine {
     }
 
     fn handle(&mut self, cmd: Command) {
+        // any command may edit the queue: the shared copy is rebuilt on the next publish
+        self.queue_view = None;
         match cmd {
             Command::Load { queue, start, position_ms, play } => {
                 self.queue = queue;
@@ -735,6 +744,7 @@ impl Engine {
     fn close(&mut self) {
         self.meters.tap.clear();
         self.output = None;
+        self.best_rates.clear();
         self.deck = None;
         self.pending.clear();
         self.decoded.clear();
@@ -774,7 +784,7 @@ impl Engine {
         let mut pos = pos;
         // skip unplayable files (at most one full lap)
         for _ in 0..self.queue.len().max(1) {
-            match self.begin_track(pos, ms, true) {
+            match self.begin_track(pos, ms, true, None) {
                 Ok(()) => {
                     self.status = Status::Playing;
                     return;
@@ -793,19 +803,41 @@ impl Engine {
         self.status = Status::Stopped;
     }
 
-    /// Opens the file at `order[pos]`; reuses the output when possible
-    /// (gapless) unless `reopen`.
-    fn begin_track(&mut self, pos: usize, ms: u64, reopen: bool) -> Result<()> {
+    /// Opens the file at `order[pos]` (or takes the `probed` source already opened for it);
+    /// reuses the output when possible (gapless) unless `reopen`.
+    fn begin_track(&mut self, pos: usize, ms: u64, reopen: bool, probed: Option<Source>) -> Result<()> {
         let path = self.queue.get(self.order[pos]).cloned().ok_or_else(|| PlayerError::Open("empty queue".into()))?;
-        let mut source = Source::open(&path)?;
+        let mut source = match probed {
+            Some(source) => source,
+            None => Source::open(&path)?,
+        };
         let start_ms = if ms > 0 { source.seek(ms).unwrap_or(0) } else { 0 };
 
-        let device = find_device(self.device.as_deref())?;
-        let target_rate = best_rate(&device, source.sample_rate);
-
-        let device_name = device_name(&device);
+        // gapless with a rate already known for this device: no device query on the hand-over
+        let known = if reopen {
+            None
+        } else {
+            self.output
+                .as_ref()
+                .filter(|o| self.best_rates.get(source.sample_rate) == Some(o.rate))
+                .map(|o| (o.device_name.clone(), o.rate))
+        };
+        let (device, device_name, target_rate) = match known {
+            Some((name, rate)) => (None, name, rate),
+            None => {
+                let device = find_device(self.device.as_deref())?;
+                let rate = best_rate(&device, source.sample_rate);
+                let name = device_name(&device);
+                (Some(device), name, rate)
+            }
+        };
         let reuse =
             !reopen && self.output.as_ref().is_some_and(|o| o.rate == target_rate && o.device_name == device_name);
+        if !reuse {
+            // a new stream: what was learnt about the old one does not carry over
+            self.best_rates.clear();
+        }
+        self.best_rates.insert(source.sample_rate, target_rate);
         let sound = self.sound_of(&path);
         let mut tags_gain = None;
         let plan = self.plan_for(&path, &sound, &mut tags_gain, &device_name, target_rate);
@@ -814,6 +846,7 @@ impl Engine {
             self.shared = Shared::new(self.volume, self.meters.clone());
             // from the first sample, without a glide
             self.shared.set_eq(plan.design);
+            let device = device.ok_or_else(|| PlayerError::Output("no audio output device".into()))?;
             let output = Output::open(&device, target_rate, source.channels.max(1), self.shared.clone())?;
             self.meters.tap.set_rate(output.rate);
             self.output = Some(output);
@@ -1256,19 +1289,20 @@ impl Engine {
         };
 
         let path = self.queue[self.order[pos]].clone();
-        let rate = Source::open(&path).map(|s| s.sample_rate).ok();
-        let same_rate = rate.is_some()
-            && self.output.as_ref().is_some_and(|o| {
-                let device = find_device(self.device.as_deref()).ok();
-                let target = match (&device, rate) {
-                    (Some(d), Some(r)) => best_rate(d, r),
-                    _ => 0,
-                };
-                o.rate == target
+        // opened once: kept for `begin_track` when the output can carry on (gapless)
+        let probed = Source::open(&path).ok();
+        let same_rate = probed.as_ref().is_some_and(|s| {
+            let source_rate = s.sample_rate;
+            let device_name = self.device.clone();
+            let target = self.best_rates.get_or_probe(source_rate, || {
+                let device = find_device(device_name.as_deref()).ok()?;
+                Some(best_rate(&device, source_rate))
             });
+            self.output.as_ref().is_some_and(|o| Some(o.rate) == target)
+        });
 
         if same_rate {
-            if let Err(e) = self.begin_track(pos, 0, false) {
+            if let Err(e) = self.begin_track(pos, 0, false, probed) {
                 self.error = Some(e.to_string());
                 self.source_eof = true;
             }
@@ -1351,7 +1385,7 @@ impl Engine {
         });
         let snapshot = Snapshot {
             status: self.status,
-            queue: self.queue.clone(),
+            queue: self.queue_view.get_or_insert_with(|| Arc::from(self.queue.as_slice())).clone(),
             current: self.current_pos().and_then(|p| self.order.get(p).copied()),
             position_ms: self.position_ms(),
             duration_ms: seg.and_then(|s| s.duration_ms),
@@ -1409,6 +1443,40 @@ fn best_rate(device: &cpal::Device, source: u32) -> u32 {
     pick_rate(&rates, source)
         .or_else(|| device.default_output_config().ok().map(|c| c.sample_rate().0))
         .unwrap_or(48_000)
+}
+
+/// The best output rate for each source rate seen on the open device, learnt when the stream
+/// opens so a gapless hand-over (which runs on the feeding thread, with the ring buffer
+/// draining) never enumerates devices. Cleared whenever the stream is closed or reopened,
+/// which covers device changes and device loss.
+#[derive(Debug, Default)]
+struct BestRates(Vec<(u32, u32)>);
+
+impl BestRates {
+    fn get(&self, source: u32) -> Option<u32> {
+        self.0.iter().find(|(s, _)| *s == source).map(|(_, r)| *r)
+    }
+
+    fn insert(&mut self, source: u32, rate: u32) {
+        match self.0.iter_mut().find(|(s, _)| *s == source) {
+            Some(entry) => entry.1 = rate,
+            None => self.0.push((source, rate)),
+        }
+    }
+
+    fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    /// The remembered rate, else what `probe` finds (remembered when it finds one).
+    fn get_or_probe(&mut self, source: u32, probe: impl FnOnce() -> Option<u32>) -> Option<u32> {
+        if let Some(rate) = self.get(source) {
+            return Some(rate);
+        }
+        let rate = probe()?;
+        self.insert(source, rate);
+        Some(rate)
+    }
 }
 
 /// The queue after [`Player::set_upcoming`]: what was played (up to the current
@@ -1508,6 +1576,49 @@ mod tests {
         assert!(e.parked.is_none());
         assert!(e.error.is_some());
         assert_eq!(e.status, Status::Stopped);
+    }
+
+    #[test]
+    fn the_hand_over_asks_the_device_once_per_source_rate() {
+        let mut rates = BestRates::default();
+        let mut probes = 0;
+        for _ in 0..3 {
+            let rate = rates.get_or_probe(44_100, || {
+                probes += 1;
+                Some(48_000)
+            });
+            assert_eq!(rate, Some(48_000));
+        }
+        assert_eq!(probes, 1);
+        // a failed probe is not remembered
+        assert_eq!(rates.get_or_probe(96_000, || None), None);
+        assert_eq!(rates.get(96_000), None);
+        // a new stream forgets the old device
+        rates.clear();
+        assert_eq!(rates.get(44_100), None);
+    }
+
+    #[test]
+    fn snapshots_share_the_queue_until_a_command_changes_it() {
+        let (_tx, rx) = mpsc::channel();
+        let listener: Listener = Arc::new(|_: &Snapshot| {});
+        let mut e = Engine::new(rx, 0.5, None, listener, Default::default(), Default::default());
+        e.handle(Command::Load {
+            queue: vec![PathBuf::from("/nowhere/a.flac"), PathBuf::from("/nowhere/b.flac")],
+            start: 0,
+            position_ms: 0,
+            play: false,
+        });
+        e.publish();
+        let first = e.published.lock().unwrap().queue.clone();
+        e.publish();
+        let second = e.published.lock().unwrap().queue.clone();
+        assert!(Arc::ptr_eq(&first, &second), "a tick must not copy the queue");
+        e.handle(Command::Append(vec![PathBuf::from("/nowhere/c.flac")]));
+        e.publish();
+        let third = e.published.lock().unwrap().queue.clone();
+        assert_eq!(third.len(), 3);
+        assert_eq!(first.len(), 2);
     }
 
     #[test]

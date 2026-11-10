@@ -7,6 +7,60 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Added
+- Android TV: Settings, two panes (pages on the left, rows on the right), every setting reachable
+  with the remote: look, player, sound and DJ, downloads, TIDAL, party, this TV, lyrics, AI and
+  About, including every TV setting (the player controls hide time reads "Never" when 0). The AI
+  page sets the provider, key (typed with the TV keyboard, shown as dots, kept in the Keystore and
+  never logged), model and server, so the AI chats work on the TV; the playlist chat's "set up an
+  AI" opens it. The TV keyboard gained capitals and a symbols page (punctuation, Spanish letters).
+- Android TV: a download going to a USB drive asks for "All files access" every time it is
+  missing and explains why; "Use the app folder" is the way to say no (asked again next time, but
+  not for the rest of that queue). "What's new" can be reopened from Settings, About.
+- Android TV: DJ mode, with a mouse. The section opens the phone's two decks over the TV when a
+  mouse (USB or Bluetooth) is connected, or always when "DJ mode" is set to On.
+- Android TV: Train runs on the TV itself. Pick a length and a style with the remote, build the
+  ride, start it and watch it on the TV's own screen (the ride page the phone also sends to TVs),
+  with pause, next part and end on the remote, and a summary at the end.
+
+- Exercise: three quick taste questions under the genres, on the phone and the desktop: how famous
+  ("Big hits", the default, "Mix" or "Discover"), the era (any, or the 60s to the 2020s) and,
+  folded away, the artists you like (with suggestions from your library) and artists never to
+  play. Every answer is saved as a setting, so the next ride starts from it. "Big hits" now really
+  picks the genre's famous songs by its best-known acts.
+
+### Fixed
+- AI answers cut off at the output limit no longer build an empty ride: long rides ask for fewer songs per
+  segment and a bigger limit, each provider's "cut off" signal is read, and the user sees a clear message.
+- AI prompts treat what you type (genres, favourite and avoided artists, notes, chat words) as data:
+  line breaks are flattened and the text sits in tags that cannot be closed from inside. Song prompts no
+  longer translate titles, named artists beat the "only hits" rule, and an avoided artist is also avoided
+  as a guest. A model that writes its songs as JSON text instead of a tool call is still understood.
+- The sound reaction sends the AI only the sounds around what plays (not every saved sound) and the
+  line shown is always the app's own, so it can't contradict what changed.
+- Concert research tells the AI today's date, skips the second AI call when nothing was found, and only
+  links web (http/https) pages. Anthropic caches the EQ assistant's fixed instructions between rounds.
+- Desktop: the queue panel no longer freezes on long queues. It draws only the rows near the
+  screen (5,000 songs opened in 2.6 s, now about 70 ms); dragging to reorder keeps working across
+  the whole queue with auto-scroll, and the panel opens on the playing song.
+- Android starts faster: no false "last run ended" crash report at every start (it ran logcat on
+  the main thread), the Rust library loads in the background, the second player only exists when
+  crossfade is on and the TV server is built when a ride needs it. The release APK drops x86_64
+  (about half the size).
+- Desktop player: the audio callback no longer allocates (its buffer is sized when the stream opens),
+  the level meters fold surround by side without a per-sample modulo, the gapless hand-over opens
+  the next file once and no longer enumerates audio devices, and the queue is shared between
+  snapshots instead of copied four times a second.
+- Exercise: a ride for a genre such as metal could be filled with songs by little-known artists.
+  The AI's well-known picks lost their place when a long part of the ride was split in two, songs
+  found by a search ("metal workout") competed on tempo alone, and a song the AI asked for could
+  turn into a cover by another artist. Now the AI's picks keep their ranking, unknown artists only
+  fill in when nothing famous fits, and a match by a different artist is left out.
+- Exercise: "New songs" (was "Rebuild") stays on the ride's preview with its progress there,
+  instead of leaving it; a failure or Cancel keeps the plan you had. It is also much quicker: it
+  reuses the songs the last build found and plays the ones it did not, asking the AI again only
+  for the parts with nothing new left.
+
 ## [1.5.9] - 2026-11-09
 
 ### Added

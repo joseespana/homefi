@@ -6,7 +6,7 @@
 
 use serde_json::{json, Value};
 
-use super::chat::{arguments, send, ChatReply, Message, Native, Tool, ToolCall, MAX_TOKENS};
+use super::chat::{arguments, send, ChatReply, Message, Native, System, Tool, ToolCall};
 use super::web_search::{self, WebSearch};
 use super::{http, AiConfig, AiError, AiErrorKind, Api, ModelInfo, CHAT_TIMEOUT, LIST_TIMEOUT};
 
@@ -27,7 +27,7 @@ fn model_path(model: &str) -> String {
     }
 }
 
-pub(crate) fn body(config: &AiConfig, system: &str, messages: &[Message], tools: &[Tool]) -> Value {
+pub(crate) fn body(config: &AiConfig, system: &System, messages: &[Message], tools: &[Tool], max_tokens: u32) -> Value {
     let mut contents: Vec<Value> = Vec::new();
     let push_user = |contents: &mut Vec<Value>, parts: Vec<Value>| match contents.last_mut() {
         Some(last) if last["role"] == "user" => last["parts"].as_array_mut().expect("parts").extend(parts),
@@ -75,9 +75,9 @@ pub(crate) fn body(config: &AiConfig, system: &str, messages: &[Message], tools:
         }
     }
     let mut body = json!({
-        "systemInstruction": { "parts": [{ "text": system }] },
+        "systemInstruction": { "parts": [{ "text": system.joined() }] },
         "contents": contents,
-        "generationConfig": { "maxOutputTokens": MAX_TOKENS },
+        "generationConfig": { "maxOutputTokens": max_tokens },
     });
     if !tools.is_empty() {
         let declarations: Vec<Value> = tools
@@ -90,6 +90,9 @@ pub(crate) fn body(config: &AiConfig, system: &str, messages: &[Message], tools:
 }
 
 pub(crate) fn parse(config: &AiConfig, answer: Value) -> Result<ChatReply, AiError> {
+    if answer.pointer("/candidates/0/finishReason") == Some(&json!("MAX_TOKENS")) {
+        return Err(AiError::truncated(config));
+    }
     let Some(content) = answer.pointer("/candidates/0/content").filter(|c| c.is_object()) else {
         // blocked prompts come back without candidates
         let reason = answer.pointer("/promptFeedback/blockReason").and_then(Value::as_str).unwrap_or("no candidates");
@@ -133,13 +136,14 @@ pub(crate) fn parse(config: &AiConfig, answer: Value) -> Result<ChatReply, AiErr
 
 pub(crate) async fn chat(
     config: &AiConfig,
-    system: &str,
+    system: &System<'_>,
     messages: &[Message],
     tools: &[Tool],
     search: Option<&WebSearch>,
+    max_tokens: u32,
 ) -> Result<ChatReply, AiError> {
     let url = format!("{}/{}:generateContent", config.base(), model_path(&config.model));
-    let mut payload = body(config, system, messages, tools);
+    let mut payload = body(config, system, messages, tools, max_tokens);
     if search.is_some() {
         web_search::gemini_request(&mut payload);
     }
@@ -214,7 +218,7 @@ mod tests {
             Message::User { text: "ok".into() },
         ];
         let tools = [Tool { name: "f".into(), description: "d".into(), parameters: json!({"type": "object"}) }];
-        let b = body(&cfg("http://x"), "sys", &history, &tools);
+        let b = body(&cfg("http://x"), &"sys".into(), &history, &tools, 4096);
         assert_eq!(b["systemInstruction"]["parts"][0]["text"], "sys");
         assert_eq!(b["tools"][0]["functionDeclarations"][0]["parametersJsonSchema"]["type"], "object");
         let c = b["contents"].as_array().unwrap();
@@ -242,11 +246,11 @@ mod tests {
             .mount(&server)
             .await;
         let c = cfg(&server.uri());
-        let reply = chat(&c, "s", &[Message::User { text: "hi".into() }], &[], None).await.unwrap();
+        let reply = chat(&c, &"s".into(), &[Message::User { text: "hi".into() }], &[], None, 4096).await.unwrap();
         assert_eq!(reply.text, "Veamos.");
         assert_eq!(reply.tool_calls[0].id, "gemini_2");
         assert_eq!(reply.tool_calls[0].arguments["query"], "HD 600");
-        let again = body(&c, "s", &[reply.into_message()], &[]);
+        let again = body(&c, &"s".into(), &[reply.into_message()], &[], 4096);
         assert_eq!(again["contents"][0]["parts"][2]["thoughtSignature"], "c2ln");
     }
 
@@ -263,5 +267,17 @@ mod tests {
             .await;
         let models = list_models(&cfg(&server.uri())).await.unwrap();
         assert_eq!(models, vec![ModelInfo::new("gemini-flash-x", "Gemini Flash X")]);
+    }
+
+    #[test]
+    fn answers_cut_at_the_limit_are_errors() {
+        let c = cfg("http://x");
+        let cut = json!({"candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": [{"text": "{\"songs"}]}}]});
+        assert!(parse(&c, cut).unwrap_err().is_truncated());
+        let done = json!({"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "ok"}]}}]});
+        assert_eq!(parse(&c, done).unwrap().text, "ok");
+        let b = body(&c, &System::new("rules. ", "state"), &[], &[], 999);
+        assert_eq!(b["generationConfig"]["maxOutputTokens"], 999);
+        assert_eq!(b["systemInstruction"]["parts"][0]["text"], "rules. state");
     }
 }

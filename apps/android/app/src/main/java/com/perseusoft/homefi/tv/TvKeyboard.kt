@@ -54,7 +54,26 @@ private const val KEY_COLUMNS = 9
 private val KEY_SIZE = 30.dp
 private val KEY_GAP = 6.dp
 private const val CARET_MS = 600
-private val KEYS = (('a'..'z') + ('0'..'9')).map { it.toString() }
+
+/** The two pages of keys: letters and digits with the punctuation typed most, and the other symbols. */
+enum class KeyPage { LETTERS, SYMBOLS }
+
+private const val LETTER_PAGE_PUNCTUATION = ".,-_@!?':"
+
+/** Accents and marks Spanish needs, then the symbols of keys, links and chat: the page 9 keys wide and 5 rows high. */
+private const val SYMBOL_PAGE = ";\"#$%&*()+=/\\|<>[]{}~^`¿¡ñáéíóúü€£°ª…—«»§×÷¬¶"
+
+/**
+ * The keys of [page], row after row ([KEY_COLUMNS] a row). [shift] turns letters (accented ones too) into capitals:
+ * API keys and names are case-sensitive, so the keyboard has to type both.
+ */
+fun keyboardKeys(page: KeyPage, shift: Boolean): List<String> {
+    val raw = when (page) {
+        KeyPage.LETTERS -> (('a'..'z') + ('0'..'9')).joinToString("") + LETTER_PAGE_PUNCTUATION
+        KeyPage.SYMBOLS -> SYMBOL_PAGE
+    }
+    return raw.map { if (shift) it.uppercaseChar().toString() else it.toString() }
+}
 
 /** The width of [KEY_COLUMNS] keys with their gaps. */
 val TV_KEYBOARD_WIDTH: Dp = KEY_SIZE * KEY_COLUMNS + KEY_GAP * (KEY_COLUMNS - 1)
@@ -71,9 +90,12 @@ private const val KEY_DELETE = "⌫"
 private const val KEY_CLEAR = "✕"
 private const val KEY_SPACE = " "
 
-/** The text as the user has typed it, with a caret (still when motion is off); [placeholder] while empty. */
+/** What a secret field shows instead of [text]: one dot per character, so a key can be checked by length without being read. */
+fun masked(text: String): String = "•".repeat(text.length)
+
+/** The text as the user has typed it, with a caret (still when motion is off); [placeholder] while empty. [secret] shows dots. */
 @Composable
-fun TvField(text: String, placeholder: String, modifier: Modifier = Modifier, onMic: (() -> Unit)? = null) {
+fun TvField(text: String, placeholder: String, modifier: Modifier = Modifier, onMic: (() -> Unit)? = null, secret: Boolean = false) {
     val look = LocalTvLook.current
     val motion = LocalMotion.current
     val caret = if (motion.enabled) {
@@ -100,7 +122,7 @@ fun TvField(text: String, placeholder: String, modifier: Modifier = Modifier, on
             if (text.isEmpty()) {
                 Text(placeholder, style = TvType.body, color = look.ink3, maxLines = 1, overflow = TextOverflow.Ellipsis)
             } else {
-                Text(text, style = TvType.body.copy(fontSize = 18.sp), color = look.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                Text(if (secret) masked(text) else text, style = TvType.body.copy(fontSize = 18.sp), color = look.ink, maxLines = 1, overflow = TextOverflow.StartEllipsis, modifier = Modifier.weight(1f, fill = false))
             }
             Box(Modifier.padding(start = 2.dp).size(width = 2.dp, height = 22.dp).alpha(caret).background(look.accent2))
         }
@@ -123,8 +145,10 @@ fun TvKeyboard(
     rightTo: androidx.compose.ui.focus.FocusRequester? = null,
     submitLabel: String = stringResource(R.string.tv_kb_search),
 ) {
+    var page by remember { mutableStateOf(KeyPage.LETTERS) }
+    var shift by remember { mutableStateOf(false) }
     Column(modifier.width(TV_KEYBOARD_WIDTH), verticalArrangement = Arrangement.spacedBy(KEY_GAP)) {
-        KEYS.chunked(KEY_COLUMNS).forEachIndexed { row, keys ->
+        keyboardKeys(page, shift).chunked(KEY_COLUMNS).forEachIndexed { row, keys ->
             Row(horizontalArrangement = Arrangement.spacedBy(KEY_GAP)) {
                 keys.forEachIndexed { col, key ->
                     TvKey(
@@ -145,6 +169,11 @@ fun TvKeyboard(
             TvKey(KEY_CLEAR, { onText(typed(text, KEY_CLEAR)) }, width = wide, icon = Icons.Rounded.Clear, description = stringResource(R.string.clear))
             TvKey(submitLabel, onSubmit, Modifier.tvRightTo(rightTo), width = KEY_SIZE * 3 + KEY_GAP * 2, primary = true)
         }
+        Row(horizontalArrangement = Arrangement.spacedBy(KEY_GAP)) {
+            val pageKey = if (page == KeyPage.LETTERS) stringResource(R.string.tv_kb_symbols) else stringResource(R.string.tv_kb_letters)
+            TvKey(pageKey, { page = if (page == KeyPage.LETTERS) KeyPage.SYMBOLS else KeyPage.LETTERS }, Modifier.tvLeftToDrawer(), width = KEY_SIZE * 3 + KEY_GAP * 2)
+            TvKey(stringResource(R.string.tv_kb_shift), { shift = !shift }, Modifier.tvRightTo(rightTo), width = KEY_SIZE * 3 + KEY_GAP * 2, selected = shift)
+        }
     }
 }
 
@@ -157,6 +186,8 @@ private fun TvKey(
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     description: String? = null,
     primary: Boolean = false,
+    /** A switch that is on (Shift): drawn with the accent gradient. */
+    selected: Boolean = false,
 ) {
     val look = LocalTvLook.current
     val shape = RoundedCornerShape(8.dp)
@@ -169,17 +200,17 @@ private fun TvKey(
     ) { focused ->
         val fill = when {
             focused -> Modifier.background(Color.White, shape)
-            primary -> Modifier.background(look.gradient, shape)
+            primary || selected -> Modifier.background(look.gradient, shape)
             else -> Modifier.background(Color.White.copy(alpha = 0.10f), shape).border(1.dp, look.glassLine, shape)
         }
         val ink = when {
             focused -> look.onFocus
-            primary -> look.onAccent
+            primary || selected -> look.onAccent
             else -> look.ink
         }
         Box(fill, contentAlignment = Alignment.Center) {
             if (icon != null) Icon(icon, description, tint = ink, modifier = Modifier.size(18.dp))
-            else Text(label.uppercase(), style = TvType.body.copy(fontSize = if (primary) 13.sp else 15.sp), color = ink, maxLines = 1)
+            else Text(label, style = TvType.body.copy(fontSize = if (primary || label.length > 1) 13.sp else 15.sp), color = ink, maxLines = 1)
         }
     }
 }
@@ -193,16 +224,20 @@ fun TvTextPrompt(
     onDismiss: () -> Unit,
     placeholder: String = stringResource(R.string.tv_lib_filter),
     doneLabel: String = stringResource(R.string.tv_kb_done),
+    /** A key or a password: shown as dots (until "Show" is pressed) and never sent to the speech service. */
+    secret: Boolean = false,
 ) {
     val look = LocalTvLook.current
     var text by remember { mutableStateOf(initial) }
-    val mic = rememberVoiceInput { text = it }
+    var reveal by remember { mutableStateOf(false) }
+    val voice = rememberVoiceInput { text = it }
+    val mic = if (secret) null else voice
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize().background(Color(0xCC040510)), contentAlignment = Alignment.Center) {
             TvGlass(Modifier.width(TV_KEYBOARD_WIDTH + 56.dp), solid = true) {
                 Column(Modifier.padding(28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(title, style = TvType.section, color = look.ink, maxLines = 1)
-                    TvField(text, placeholder, Modifier.fillMaxWidth(), onMic = mic)
+                    TvField(text, placeholder, Modifier.fillMaxWidth(), onMic = mic, secret = secret && !reveal)
                     TvKeyboard(
                         text = text,
                         onText = { text = it },
@@ -212,6 +247,7 @@ fun TvTextPrompt(
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         if (mic != null) TvPill(stringResource(R.string.tv_kb_speak), mic, icon = Icons.Rounded.Mic, height = 30.dp)
+                        if (secret) TvPill(stringResource(if (reveal) R.string.tv_kb_hide else R.string.tv_kb_show), { reveal = !reveal }, height = 30.dp)
                         TvPill(stringResource(R.string.cancel), onDismiss, height = 30.dp)
                     }
                 }

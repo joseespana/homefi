@@ -48,9 +48,16 @@ data class DownloadState(
     val pausedDrive: String? = null,
     /** TV with `tv.downloadTarget = ask`: the job that waits for "Internal or USB?". */
     val choosing: DownloadJob? = null,
+    /** TV: the job going to a USB drive that waits for "may HomeFi write on the whole drive?" (All files access). */
+    val askingAccess: DownloadJob? = null,
+    /** The paused jobs wait for the user to grant All files access (not for a drive): they resume when he comes back. */
+    val pausedForAccess: Boolean = false,
 ) {
     val isBusy: Boolean get() = current != null || pending.isNotEmpty()
 }
+
+/** What the user answered to "may HomeFi write on the whole USB drive?". */
+enum class UsbAccessAnswer { OPEN_SETTINGS, APP_FOLDER }
 
 /** Serial download queue backed by the Rust engine. */
 class DownloadRepository(
@@ -73,6 +80,9 @@ class DownloadRepository(
     private var pauseRequested = false
     private var pausedRoot: File? = null
     private var choice: CompletableDeferred<DownloadTarget?>? = null
+    private var accessChoice: CompletableDeferred<UsbAccessAnswer?>? = null
+    /** The user said "use the app folder" for the queue now running: the next jobs of it do not ask again. */
+    private var accessDeclined = false
 
     init {
         // a drive pulled out under a download pauses it; plugged back in, it goes on by itself
@@ -85,7 +95,7 @@ class DownloadRepository(
                 }
                 val waitingFor = pausedRoot
                 val back = if (waitingFor != null) volumes.any { it.root == waitingFor } else volumes.any { it.removable }
-                if (_state.value.paused.isNotEmpty() && back) resume()
+                if (_state.value.paused.isNotEmpty() && !_state.value.pausedForAccess && back) resume()
             }
         }
         scope.launch {
@@ -95,6 +105,7 @@ class DownloadRepository(
                 running = launch { process(job) }
                 running?.join()
                 _state.update { it.copy(current = null, active = emptyMap()) }
+                if (_state.value.pending.isEmpty()) accessDeclined = false
             }
         }
     }
@@ -113,9 +124,10 @@ class DownloadRepository(
     }
 
     fun cancelAll() {
-        _state.update { it.copy(pending = emptyList(), paused = emptyList(), pausedDrive = null, choosing = null) }
+        _state.update { it.copy(pending = emptyList(), paused = emptyList(), pausedDrive = null, choosing = null, askingAccess = null, pausedForAccess = false) }
         pausedRoot = null
         choice?.complete(null)
+        accessChoice?.complete(null)
         running?.cancel()
     }
 
@@ -128,13 +140,18 @@ class DownloadRepository(
     fun resume() {
         val waiting = _state.value.paused
         pausedRoot = null
-        _state.update { it.copy(paused = emptyList(), pausedDrive = null) }
+        _state.update { it.copy(paused = emptyList(), pausedDrive = null, pausedForAccess = false) }
         waiting.forEach(::enqueueAgain)
     }
 
     /** The answer of the "Internal or USB?" question (`null` = cancel that job). */
     fun choose(target: DownloadTarget?) {
         choice?.complete(target)
+    }
+
+    /** The answer of the "All files access" question (`null` = cancel that job). */
+    fun answerAccess(answer: UsbAccessAnswer?) {
+        accessChoice?.complete(answer)
     }
 
     fun clearLog() {
@@ -165,7 +182,21 @@ class DownloadRepository(
             } ?: return null
         }
         return when (val d = TvStorage.destination(target, internal, usbDir)) {
-            is DownloadDestination.Dir -> d
+            is DownloadDestination.Dir -> {
+                if (!TvStorage.needsAccessQuestion(d.onUsb, Storage.hasSharedAccess(context), accessDeclined)) return d
+                when (askAccess(job)) {
+                    UsbAccessAnswer.APP_FOLDER -> {
+                        accessDeclined = true
+                        d
+                    }
+                    UsbAccessAnswer.OPEN_SETTINGS -> {
+                        // the user is off to Android's page: the job waits for him (Resume, or on coming back with the access)
+                        pauseJob(job, usb?.root, context.getString(R.string.tv_dl_usb), forAccess = true)
+                        null
+                    }
+                    null -> null
+                }
+            }
             else -> {
                 pauseJob(job, usb?.root, context.getString(R.string.tv_dl_usb))
                 null
@@ -173,11 +204,23 @@ class DownloadRepository(
         }
     }
 
-    /** Keeps [job] for when the drive is back. */
-    private fun pauseJob(job: DownloadJob, root: File?, drive: String) {
+    /** Asks (on the screen) whether HomeFi may write on the whole USB drive; every time it is missing and a download needs it. */
+    private suspend fun askAccess(job: DownloadJob): UsbAccessAnswer? {
+        val answer = CompletableDeferred<UsbAccessAnswer?>().also { accessChoice = it }
+        _state.update { it.copy(askingAccess = job) }
+        return try {
+            answer.await()
+        } finally {
+            accessChoice = null
+            _state.update { it.copy(askingAccess = null) }
+        }
+    }
+
+    /** Keeps [job] for when the drive is back (or, with [forAccess], for the user's All files access). */
+    private fun pauseJob(job: DownloadJob, root: File?, drive: String, forAccess: Boolean = false) {
         pausedRoot = root ?: pausedRoot
-        _state.update { it.copy(paused = it.paused + job, pausedDrive = drive) }
-        log(LogKind.SKIPPED, job.label, context.getString(R.string.tv_dl_paused_usb))
+        _state.update { it.copy(paused = it.paused + job, pausedDrive = drive, pausedForAccess = forAccess) }
+        log(LogKind.SKIPPED, job.label, context.getString(if (forAccess) R.string.tv_dl_paused_access else R.string.tv_dl_paused_usb))
     }
 
     private suspend fun process(job: DownloadJob) {

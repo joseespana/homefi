@@ -3,7 +3,7 @@
 
 use serde_json::{json, Value};
 
-use super::chat::{arguments, send, ChatReply, Message, Native, Tool, ToolCall, MAX_TOKENS};
+use super::chat::{arguments, send, ChatReply, Message, Native, System, Tool, ToolCall};
 use super::web_search::{self, SourceList, WebSearch};
 use super::{http, AiConfig, AiError, AiErrorKind, Api, ModelInfo, CHAT_TIMEOUT, LIST_TIMEOUT};
 
@@ -21,7 +21,23 @@ fn request(config: &AiConfig, builder: reqwest::RequestBuilder) -> reqwest::Requ
     }
 }
 
-pub(crate) fn body(config: &AiConfig, system: &str, messages: &[Message], tools: &[Tool]) -> Value {
+/// Shorter fixed parts aren't cached by the API (the smallest cacheable prompt is 1024 tokens
+/// on most models, more on some), so asking would only add noise.
+const MIN_CACHEABLE_CHARS: usize = 4000;
+
+/// A bare string, or blocks with the fixed part marked cacheable when it is long enough.
+fn system_value(system: &System) -> Value {
+    if system.fixed.len() < MIN_CACHEABLE_CHARS {
+        return Value::String(system.joined().into_owned());
+    }
+    let mut blocks = vec![json!({ "type": "text", "text": system.fixed, "cache_control": { "type": "ephemeral" } })];
+    if !system.dynamic.is_empty() {
+        blocks.push(json!({ "type": "text", "text": system.dynamic }));
+    }
+    Value::Array(blocks)
+}
+
+pub(crate) fn body(config: &AiConfig, system: &System, messages: &[Message], tools: &[Tool], max_tokens: u32) -> Value {
     let mut out: Vec<Value> = Vec::new();
     // consecutive user-side entries (tool results, then the user's words) go in one message
     let push_user = |out: &mut Vec<Value>, blocks: Vec<Value>| match out.last_mut() {
@@ -58,8 +74,8 @@ pub(crate) fn body(config: &AiConfig, system: &str, messages: &[Message], tools:
     }
     let mut body = json!({
         "model": config.model.trim(),
-        "max_tokens": MAX_TOKENS,
-        "system": system,
+        "max_tokens": max_tokens,
+        "system": system_value(system),
         "messages": out,
     });
     if !tools.is_empty() {
@@ -102,13 +118,14 @@ pub(crate) fn parse(config: &AiConfig, answer: Value) -> Result<ChatReply, AiErr
 /// content appended, and the rounds are merged into one reply.
 pub(crate) async fn chat(
     config: &AiConfig,
-    system: &str,
+    system: &System<'_>,
     messages: &[Message],
     tools: &[Tool],
     search: Option<&WebSearch>,
+    max_tokens: u32,
 ) -> Result<ChatReply, AiError> {
     let url = format!("{}/messages", config.base());
-    let mut payload = body(config, system, messages, tools);
+    let mut payload = body(config, system, messages, tools, max_tokens);
     if let Some(search) = search {
         web_search::anthropic_request(&mut payload, search);
     }
@@ -117,6 +134,9 @@ pub(crate) async fn chat(
         let req = request(config, http().post(&url)).timeout(CHAT_TIMEOUT).json(&payload);
         let answer = send(config, req, false).await?;
         let paused = search.is_some() && answer["stop_reason"] == "pause_turn";
+        if answer["stop_reason"] == "max_tokens" {
+            return Err(AiError::truncated(config));
+        }
         let content = answer["content"].clone();
         let reply = parse(config, answer)?;
         let merged_now = match merged.take() {
@@ -226,7 +246,7 @@ mod tests {
             },
             Message::User { text: "the first".into() },
         ];
-        let b = body(&config("http://x"), "be nice", &history, &[tool()]);
+        let b = body(&config("http://x"), &"be nice".into(), &history, &[tool()], 4096);
         assert_eq!(b["system"], "be nice");
         assert_eq!(b["tools"][0]["input_schema"]["type"], "object");
         let msgs = b["messages"].as_array().unwrap();
@@ -255,12 +275,14 @@ mod tests {
             .mount(&server)
             .await;
         let reply =
-            chat(&config(&server.uri()), "sys", &[Message::User { text: "hi".into() }], &[tool()], None).await.unwrap();
+            chat(&config(&server.uri()), &"sys".into(), &[Message::User { text: "hi".into() }], &[tool()], None, 4096)
+                .await
+                .unwrap();
         assert_eq!(reply.text, "Looking that up.");
         assert_eq!(reply.tool_calls[0].name, "search_headphones");
         assert_eq!(reply.tool_calls[0].arguments["query"], "Sony WH-1000XM5");
         // replayed verbatim next time
-        let replay = body(&config("http://x"), "", &[reply.into_message()], &[]);
+        let replay = body(&config("http://x"), &"".into(), &[reply.into_message()], &[], 4096);
         assert_eq!(replay["messages"][0]["content"][1]["id"], "toolu_9");
     }
 
@@ -299,5 +321,43 @@ mod tests {
             .await;
         let e = crate::ai::test_key(&config(&server.uri())).await.unwrap_err();
         assert_eq!(e.humane_in(crate::humane::Lang::Es), "La llave de Anthropic no es válida. Revísala en Ajustes.");
+    }
+
+    #[test]
+    fn a_long_fixed_part_is_marked_cacheable_and_a_short_one_is_not() {
+        let fixed = "r".repeat(MIN_CACHEABLE_CHARS);
+        let b = body(&config("http://x"), &System::new(&fixed, "state now"), &[], &[], 1000);
+        assert_eq!(
+            b["system"],
+            json!([
+                { "type": "text", "text": fixed, "cache_control": { "type": "ephemeral" } },
+                { "type": "text", "text": "state now" }
+            ])
+        );
+        assert_eq!(b["max_tokens"], 1000);
+        // no dynamic part: only the cached block
+        let only = body(&config("http://x"), &System::new(&fixed, ""), &[], &[], 1000);
+        assert_eq!(only["system"].as_array().unwrap().len(), 1);
+        // too short to be cached: a plain string, both parts joined, fixed first
+        let short = body(&config("http://x"), &System::new("rules. ", "state"), &[], &[], 1000);
+        assert_eq!(short["system"], "rules. state");
+    }
+
+    #[tokio::test]
+    async fn an_answer_cut_at_the_limit_is_a_friendly_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "content": [{"type": "tool_use", "id": "t", "name": "x", "input": {}}],
+                "stop_reason": "max_tokens"
+            })))
+            .mount(&server)
+            .await;
+        let err = chat(&config(&server.uri()), &"s".into(), &[Message::User { text: "hi".into() }], &[], None, 256)
+            .await
+            .unwrap_err();
+        assert!(err.is_truncated());
+        assert!(err.humane_in(crate::humane::Lang::Es).contains("sin espacio"));
     }
 }

@@ -42,6 +42,13 @@ object TvStorage {
         DownloadTarget.ASK -> if (usbDir == null) DownloadDestination.Dir(internalDir, onUsb = false) else DownloadDestination.Ask
     }
 
+    /**
+     * A download going to a USB drive without "All files access" asks for it (docs/TV_APP_PLAN.md, José's answers):
+     * every time it is missing, except for the rest of a queue where he already said "use the app folder".
+     */
+    fun needsAccessQuestion(onUsb: Boolean, sharedAccess: Boolean, declinedThisQueue: Boolean): Boolean =
+        onUsb && !sharedAccess && !declinedThisQueue
+
     /** The volume that holds [path] (the longest root that is a parent of it), if any. */
     fun volumeOf(path: String, volumes: List<VolumeInfo>): VolumeInfo? =
         volumes.filter { path == it.root.path || path.startsWith(it.root.path + File.separator) }.maxByOrNull { it.root.path.length }

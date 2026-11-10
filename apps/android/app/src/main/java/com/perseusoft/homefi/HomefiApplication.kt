@@ -56,8 +56,6 @@ class HomefiApplication : Application(), SingletonImageLoader.Factory {
     /** Mounted storage volumes (internal, USB, SD) and their free space. */
     lateinit var volumes: com.perseusoft.homefi.data.VolumeMonitor
         private set
-    /** The one-time "All files access" question for a USB drive on a TV. */
-    val usbAccess: com.perseusoft.homefi.data.UsbAccess by lazy { com.perseusoft.homefi.data.UsbAccess(this) }
     /** Songs hearted in the TV player. */
     val liked: com.perseusoft.homefi.data.LikedSongs by lazy { com.perseusoft.homefi.data.LikedSongs(this) }
     /** What the TV's search was asked for lately. */
@@ -124,9 +122,19 @@ class HomefiApplication : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        // Loading the Rust library (JNA, UniFFI checksums) takes ~180 ms: do it on another thread while
+        // the main thread builds what does not need the core. The same thread sets the core's language
+        // (error messages in the phone's language), and the main thread waits for it before any core use.
+        val languageTag = java.util.Locale.getDefault().toLanguageTag()
+        var coreReady = false
+        val warmUp = Thread({
+            coreReady = runCatching { setLanguage(languageTag) }.isSuccess
+        }, "homefi-core-warmup").apply { start() }
         CrashLog.install(this)
-        // error messages from the Rust core in the phone's language
-        setLanguage(java.util.Locale.getDefault().toLanguageTag())
+        outputs = AudioOutputs(this)
+        warmUp.join()
+        // it failed there: try again here so the failure shows up as it always did
+        if (!coreReady) setLanguage(languageTag)
         com.perseusoft.homefi.data.Humane.init(this)
         engine = HomefiEngine(filesDir.resolve("homefi").absolutePath)
         account = AccountStore(engine, appScope)
@@ -143,7 +151,6 @@ class HomefiApplication : Application(), SingletonImageLoader.Factory {
         downloads = DownloadRepository(this, engine, settings, appScope)
         library = LibraryRepository(this, engine, downloads, appScope)
         playlists = HomePlaylists(engine, appScope, settings.playlists) { account.isLoggedIn }
-        outputs = AudioOutputs(this)
         equalizer = Equalizer(settings, outputs, appScope)
         ai = AiSetup(settings, KeyVault(this))
         sound = SoundLayers(this, equalizer, outputs, appScope)

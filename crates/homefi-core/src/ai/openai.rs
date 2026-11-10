@@ -5,7 +5,7 @@
 
 use serde_json::{json, Value};
 
-use super::chat::{arguments, send, ChatReply, Message, Native, Tool, ToolCall, MAX_TOKENS};
+use super::chat::{arguments, send, ChatReply, Message, Native, System, Tool, ToolCall};
 use super::web_search::{self, WebSearch};
 use super::{http, AiConfig, AiError, AiErrorKind, AiProvider, Api, ModelInfo, CHAT_TIMEOUT, LIST_TIMEOUT};
 
@@ -18,7 +18,13 @@ fn bearer(config: &AiConfig, builder: reqwest::RequestBuilder) -> reqwest::Reque
 
 // ------------------------------------------------------------------ Responses
 
-pub(crate) fn responses_body(config: &AiConfig, system: &str, messages: &[Message], tools: &[Tool]) -> Value {
+pub(crate) fn responses_body(
+    config: &AiConfig,
+    system: &System,
+    messages: &[Message],
+    tools: &[Tool],
+    max_tokens: u32,
+) -> Value {
     let mut input: Vec<Value> = Vec::new();
     for m in messages {
         match m {
@@ -46,9 +52,9 @@ pub(crate) fn responses_body(config: &AiConfig, system: &str, messages: &[Messag
     }
     let mut body = json!({
         "model": config.model.trim(),
-        "instructions": system,
+        "instructions": system.joined(),
         "input": input,
-        "max_output_tokens": MAX_TOKENS,
+        "max_output_tokens": max_tokens,
         // nothing kept on OpenAI's side; the reasoning comes back encrypted so it can be replayed
         "store": false,
         "include": ["reasoning.encrypted_content"],
@@ -63,6 +69,11 @@ pub(crate) fn responses_body(config: &AiConfig, system: &str, messages: &[Messag
 }
 
 pub(crate) fn parse_responses(config: &AiConfig, answer: Value) -> Result<ChatReply, AiError> {
+    if answer["status"] == "incomplete"
+        && answer.pointer("/incomplete_details/reason") == Some(&json!("max_output_tokens"))
+    {
+        return Err(AiError::truncated(config));
+    }
     let Some(items) = answer.get("output").and_then(Value::as_array) else {
         return Err(AiError::new(config, AiErrorKind::BadAnswer, "no output"));
     };
@@ -96,13 +107,14 @@ pub(crate) fn parse_responses(config: &AiConfig, answer: Value) -> Result<ChatRe
 
 pub(crate) async fn responses(
     config: &AiConfig,
-    system: &str,
+    system: &System<'_>,
     messages: &[Message],
     tools: &[Tool],
     search: Option<&WebSearch>,
+    max_tokens: u32,
 ) -> Result<ChatReply, AiError> {
     let url = format!("{}/responses", config.base());
-    let mut payload = responses_body(config, system, messages, tools);
+    let mut payload = responses_body(config, system, messages, tools, max_tokens);
     match search {
         // xAI searches through Responses too, with the bare tool
         Some(_) if config.provider == AiProvider::XAi => web_search::xai_request(&mut payload),
@@ -115,8 +127,14 @@ pub(crate) async fn responses(
 
 // ----------------------------------------------------------- Chat Completions
 
-pub(crate) fn chat_body(config: &AiConfig, system: &str, messages: &[Message], tools: &[Tool]) -> Value {
-    let mut out = vec![json!({ "role": "system", "content": system })];
+pub(crate) fn chat_body(
+    config: &AiConfig,
+    system: &System,
+    messages: &[Message],
+    tools: &[Tool],
+    max_tokens: u32,
+) -> Value {
+    let mut out = vec![json!({ "role": "system", "content": system.joined() })];
     for m in messages {
         match m {
             Message::User { text } => out.push(json!({ "role": "user", "content": text })),
@@ -151,7 +169,7 @@ pub(crate) fn chat_body(config: &AiConfig, system: &str, messages: &[Message], t
             }
         }
     }
-    let mut body = json!({ "model": config.model.trim(), "messages": out, "max_tokens": MAX_TOKENS });
+    let mut body = json!({ "model": config.model.trim(), "messages": out, "max_tokens": max_tokens });
     if !tools.is_empty() {
         body["tools"] = tools
             .iter()
@@ -162,6 +180,9 @@ pub(crate) fn chat_body(config: &AiConfig, system: &str, messages: &[Message], t
 }
 
 pub(crate) fn parse_chat(config: &AiConfig, answer: Value) -> Result<ChatReply, AiError> {
+    if answer.pointer("/choices/0/finish_reason") == Some(&json!("length")) {
+        return Err(AiError::truncated(config));
+    }
     let Some(msg) = answer.pointer("/choices/0/message") else {
         return Err(AiError::new(config, AiErrorKind::BadAnswer, "no choices"));
     };
@@ -193,13 +214,14 @@ pub(crate) fn parse_chat(config: &AiConfig, answer: Value) -> Result<ChatReply, 
 
 pub(crate) async fn chat_completions(
     config: &AiConfig,
-    system: &str,
+    system: &System<'_>,
     messages: &[Message],
     tools: &[Tool],
     search: Option<&WebSearch>,
+    max_tokens: u32,
 ) -> Result<ChatReply, AiError> {
     let url = format!("{}/chat/completions", config.base());
-    let mut payload = chat_body(config, system, messages, tools);
+    let mut payload = chat_body(config, system, messages, tools, max_tokens);
     if search.is_some() {
         web_search::openrouter_request(&mut payload);
     }
@@ -275,7 +297,7 @@ mod tests {
 
     #[test]
     fn responses_requests_keep_nothing_on_the_server() {
-        let b = responses_body(&cfg(AiProvider::OpenAi, "http://x"), "sys", &history(), &[tool()]);
+        let b = responses_body(&cfg(AiProvider::OpenAi, "http://x"), &"sys".into(), &history(), &[tool()], 4096);
         assert_eq!(b["instructions"], "sys");
         assert_eq!(b["store"], false);
         assert_eq!(b["tools"][0]["type"], "function");
@@ -289,7 +311,7 @@ mod tests {
 
     #[test]
     fn chat_requests_use_the_classic_shape() {
-        let b = chat_body(&cfg(AiProvider::Mistral, "http://x"), "sys", &history(), &[tool()]);
+        let b = chat_body(&cfg(AiProvider::Mistral, "http://x"), &"sys".into(), &history(), &[tool()], 4096);
         let msgs = b["messages"].as_array().unwrap();
         assert_eq!(msgs[0]["role"], "system");
         assert_eq!(msgs[2]["content"], Value::Null);
@@ -297,7 +319,7 @@ mod tests {
         assert_eq!(msgs[3]["role"], "tool");
         assert_eq!(msgs[3]["name"], "f");
         assert_eq!(b["tools"][0]["function"]["name"], "f");
-        let groq = chat_body(&cfg(AiProvider::Groq, "http://x"), "sys", &history(), &[]);
+        let groq = chat_body(&cfg(AiProvider::Groq, "http://x"), &"sys".into(), &history(), &[], 4096);
         assert!(groq["messages"][3].get("name").is_none());
         assert!(groq.get("tools").is_none());
     }
@@ -319,7 +341,8 @@ mod tests {
             .mount(&server)
             .await;
         let c = cfg(AiProvider::OpenAi, &server.uri());
-        let reply = responses(&c, "s", &[Message::User { text: "hi".into() }], &[tool()], None).await.unwrap();
+        let reply =
+            responses(&c, &"s".into(), &[Message::User { text: "hi".into() }], &[tool()], None, 4096).await.unwrap();
         assert_eq!(reply.text, "Buscando…");
         assert_eq!(
             reply.tool_calls,
@@ -329,7 +352,7 @@ mod tests {
                 arguments: json!({"query": "HD 600"})
             }]
         );
-        let again = responses_body(&c, "s", &[reply.into_message()], &[]);
+        let again = responses_body(&c, &"s".into(), &[reply.into_message()], &[], 4096);
         assert_eq!(again["input"][0]["type"], "reasoning");
         assert_eq!(again["input"][0]["encrypted_content"], "gAAA");
     }
@@ -350,11 +373,13 @@ mod tests {
             .mount(&server)
             .await;
         let c = AiConfig::new(AiProvider::Ollama, "qwen3:8b", None).with_base_url(server.uri());
-        let reply = chat_completions(&c, "s", &[Message::User { text: "hi".into() }], &[tool()], None).await.unwrap();
+        let reply = chat_completions(&c, &"s".into(), &[Message::User { text: "hi".into() }], &[tool()], None, 4096)
+            .await
+            .unwrap();
         assert_eq!(reply.tool_calls[0].id, "call_0");
         assert_eq!(reply.tool_calls[0].arguments, json!({"q": 1}));
         // reasoning goes back to the same provider
-        let again = chat_body(&c, "s", &[reply.into_message()], &[]);
+        let again = chat_body(&c, &"s".into(), &[reply.into_message()], &[], 4096);
         assert_eq!(again["messages"][1]["reasoning_content"], "think");
     }
 
@@ -390,5 +415,29 @@ mod tests {
             .await;
         let e = crate::ai::test_key(&cfg(AiProvider::OpenRouter, &server.uri())).await.unwrap_err();
         assert_eq!(e.humane_in(crate::humane::Lang::En), "The OpenRouter key isn't valid. Check it in Settings.");
+    }
+
+    #[test]
+    fn answers_cut_at_the_limit_are_errors_on_both_apis() {
+        let c = cfg(AiProvider::Groq, "http://x");
+        let cut = json!({"choices": [{"finish_reason": "length", "message": {"content": "{\"songs\": [", "tool_calls": []}}]});
+        assert!(parse_chat(&c, cut).unwrap_err().is_truncated());
+        let done = json!({"choices": [{"finish_reason": "stop", "message": {"content": "hi"}}]});
+        assert_eq!(parse_chat(&c, done).unwrap().text, "hi");
+        let r = cfg(AiProvider::OpenAi, "http://x");
+        let cut = json!({"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}, "output": []});
+        assert!(parse_responses(&r, cut).unwrap_err().is_truncated());
+        // incomplete for another reason (a filter) is not a cap
+        let other = json!({"status": "incomplete", "incomplete_details": {"reason": "content_filter"}, "output": []});
+        assert!(parse_responses(&r, other).is_ok());
+    }
+
+    #[test]
+    fn the_cap_and_the_system_parts_reach_both_bodies() {
+        let system = System::new("rules. ", "state");
+        let r = responses_body(&cfg(AiProvider::OpenAi, "http://x"), &system, &[], &[], 777);
+        assert_eq!((r["max_output_tokens"].as_u64(), r["instructions"].as_str()), (Some(777), Some("rules. state")));
+        let c = chat_body(&cfg(AiProvider::Groq, "http://x"), &system, &[], &[], 555);
+        assert_eq!((c["max_tokens"].as_u64(), c["messages"][0]["content"].as_str()), (Some(555), Some("rules. state")));
     }
 }

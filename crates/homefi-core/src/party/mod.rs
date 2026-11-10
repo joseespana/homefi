@@ -269,7 +269,7 @@ impl PartyBrief {
         Self {
             ages,
             minutes: round_minutes(self.minutes),
-            notes: self.notes.trim().chars().take(MAX_NOTES_CHARS).collect(),
+            notes: crate::ai::prompt::one_line(&self.notes, MAX_NOTES_CHARS),
             ..self
         }
     }

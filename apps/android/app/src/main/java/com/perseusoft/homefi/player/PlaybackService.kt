@@ -57,46 +57,33 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
+        // cheap: the TV server itself is only created when a ride sends to the TV
         rideTv = RideTvHost(this).also(homefi.ride::attachTv)
         val streams = TidalStreams(this, scope)
         val attributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .build()
-        // two decks, so the next song can start while this one fades out (crossfade)
-        val players = listOf(0, 1).map { deck -> buildPlayer(deck, streams, attributes, handleFocus = deck == 0) }
-        val fader = Crossfader(this, players, attributes, homefi.settings.crossfade, homefi.sound, streams, scope) { from, to ->
+        // deck 0 now; deck 1 (the next song fading in) only once crossfade is on, a second ExoPlayer costs
+        // ~100 ms of start-up and memory that gapless playback never uses
+        val first = buildPlayer(0, streams, attributes, handleFocus = true)
+        val fader = Crossfader(
+            this, first, { buildPlayer(1, streams, attributes, handleFocus = false) }, { wire(it, 1, streams) },
+            attributes, homefi.settings.crossfade, homefi.sound, streams, scope,
+        ) { from, to ->
             // the incoming deck is the session's from now on: notification, lock screen, the app's queue
             carDecks.getOrNull(to)?.let { session?.player = it }
-            val player = players[to]
-            streams.prefetch(player)
-            homefi.sound.onTrack(player)
+            crossfader?.players?.getOrNull(to)?.let { player ->
+                streams.prefetch(player)
+                homefi.sound.onTrack(player)
+            }
         }
         crossfader = fader
-        players.forEach { player ->
-            val isActive = { fader.player === player }
-            player.addListener(SkipUndecodable(player, isActive))
-            player.addListener(LastQueue.Saver(this, player, isActive))
-            player.addListener(object : Player.Listener {
-                override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    if (isActive() && !isPlaying) AudioTap.reset()
-                }
-
-                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    if (!isActive()) return
-                    streams.prefetch(player)
-                    // taste layers and loudness follow the track at once (no round trip through a controller)
-                    homefi.sound.onTrack(player)
-                }
-
-                override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
-                    if (isActive()) homefi.sound.onTrack(player)
-                }
-
-                override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
-                    if (isActive()) homefi.sound.onTrack(player)
-                }
-            })
+        wire(first, 0, streams)
+        carDecks = fader.decks.map { CarLyricsPlayer(it, homefi, scope) }
+        // the second deck is built when crossfade is turned on (and at start when it already is)
+        scope.launch {
+            homefi.settings.crossfade.collect { if (fader.wantsSpare(it)) fader.ensureSpare() }
         }
 
         // route to the output picked in the app (USB DAC, jack, Bluetooth, ...)
@@ -110,12 +97,44 @@ class PlaybackService : MediaLibraryService() {
             AppEntry.intent(this).putExtra(AppEntry.EXTRA_OPEN_PLAYER, true),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        carDecks = fader.decks.map { CarLyricsPlayer(it, homefi, scope) }
         // the lyrics in the car follow the setting
         scope.launch { homefi.settings.settings.collect { carDecks.forEach(CarLyricsPlayer::refresh) } }
         session = MediaLibrarySession.Builder(this, carDecks[0], Callback(this, CarLibrary(homefi), scope, ::carConnected))
             .setSessionActivity(open)
             .build()
+    }
+
+    /** The listeners every deck carries (the active one acts, the other stays quiet). */
+    private fun wire(player: ExoPlayer, deck: Int, streams: TidalStreams) {
+        val fader = crossfader ?: return
+        val isActive = { fader.player === player }
+        player.addListener(SkipUndecodable(player, isActive))
+        player.addListener(LastQueue.Saver(this, player, isActive))
+        player.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isActive() && !isPlaying) AudioTap.reset()
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                if (!isActive()) return
+                streams.prefetch(player)
+                // taste layers and loudness follow the track at once (no round trip through a controller)
+                homefi.sound.onTrack(player)
+            }
+
+            override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                if (isActive()) homefi.sound.onTrack(player)
+            }
+
+            override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+                if (isActive()) homefi.sound.onTrack(player)
+            }
+        })
+        // a deck built later joins the session wrappers (car lyric line, lyrics refresh)
+        if (deck > 0) {
+            val wrapper = fader.decks.getOrNull(deck) ?: return
+            carDecks = carDecks + CarLyricsPlayer(wrapper, homefi, scope).also { it.carConnected = cars.isNotEmpty() }
+        }
     }
 
     /**

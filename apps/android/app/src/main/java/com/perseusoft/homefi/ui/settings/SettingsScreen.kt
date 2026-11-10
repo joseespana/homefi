@@ -166,13 +166,13 @@ import com.perseusoft.homefi.ui.share.label
 import java.text.Normalizer
 import kotlinx.coroutines.launch
 
-private fun ThemeMode.label(): Int = when (this) {
+internal fun ThemeMode.label(): Int = when (this) {
     ThemeMode.SYSTEM -> R.string.theme_system
     ThemeMode.LIGHT -> R.string.theme_light
     ThemeMode.DARK -> R.string.theme_dark
 }
 
-private fun AudioQuality.label(): Int = when (this) {
+internal fun AudioQuality.label(): Int = when (this) {
     AudioQuality.LOW -> R.string.quality_low
     AudioQuality.NORMAL -> R.string.quality_normal
     AudioQuality.HIGH -> R.string.quality_high
@@ -949,7 +949,7 @@ private fun ThemeSwatch(colors: ColorScheme, modifier: Modifier) {
     }
 }
 
-private fun Motion.labelRes(): Int = when (this) {
+internal fun Motion.labelRes(): Int = when (this) {
     Motion.AUTO -> R.string.motion_auto
     Motion.FULL -> R.string.motion_full
     Motion.SUBTLE -> R.string.motion_subtle
@@ -1612,24 +1612,24 @@ private fun WifiDirectGroup(s: ShareSettings, set: ((ShareSettings) -> ShareSett
     SettingsNote(stringResource(R.string.sharing_group_hint))
 }
 
-private fun ShareAddMode.labelRes(): Int = when (this) {
+internal fun ShareAddMode.labelRes(): Int = when (this) {
     ShareAddMode.FREE -> R.string.sharing_add_free
     ShareAddMode.APPROVE -> R.string.sharing_add_approve
     ShareAddMode.LIMIT -> R.string.sharing_add_limit
 }
 
-private fun ShareQueueOrder.labelRes(): Int = when (this) {
+internal fun ShareQueueOrder.labelRes(): Int = when (this) {
     ShareQueueOrder.FIRST_COME -> R.string.sharing_order_first
     ShareQueueOrder.TURNS -> R.string.sharing_order_turns
 }
 
-private fun ShareSkipMode.labelRes(): Int = when (this) {
+internal fun ShareSkipMode.labelRes(): Int = when (this) {
     ShareSkipMode.NOBODY -> R.string.sharing_skip_nobody
     ShareSkipMode.EVERYONE -> R.string.sharing_skip_everyone
     ShareSkipMode.VOTE -> R.string.sharing_skip_vote
 }
 
-private fun ShareEditMode.labelRes(): Int = when (this) {
+internal fun ShareEditMode.labelRes(): Int = when (this) {
     ShareEditMode.OWN -> R.string.sharing_edit_own
     ShareEditMode.ALL -> R.string.sharing_edit_all
     ShareEditMode.NONE -> R.string.sharing_edit_none
@@ -1734,7 +1734,7 @@ private fun MascotLimbs.labelRes(): Int = when (this) {
     MascotLimbs.OFF -> R.string.limbs_off
 }
 
-private fun PlayerLayout.labelRes(): Int = when (this) {
+internal fun PlayerLayout.labelRes(): Int = when (this) {
     PlayerLayout.CLASSIC -> R.string.layout_classic
     PlayerLayout.IMMERSIVE -> R.string.layout_immersive
     PlayerLayout.VINYL -> R.string.layout_vinyl
@@ -1745,7 +1745,7 @@ private fun PlayerLayout.labelRes(): Int = when (this) {
     PlayerLayout.WEB2000 -> R.string.layout_web2000
 }
 
-private fun ProgressStyle.labelRes(): Int = when (this) {
+internal fun ProgressStyle.labelRes(): Int = when (this) {
     ProgressStyle.CLASSIC -> R.string.progress_classic
     ProgressStyle.WAVY -> R.string.progress_wavy
     ProgressStyle.WAVEFORM -> R.string.progress_waveform
@@ -1754,7 +1754,7 @@ private fun ProgressStyle.labelRes(): Int = when (this) {
     ProgressStyle.MINIMAL -> R.string.progress_minimal
 }
 
-private fun ProgressThickness.labelRes(): Int = when (this) {
+internal fun ProgressThickness.labelRes(): Int = when (this) {
     ProgressThickness.THIN -> R.string.progress_thin
     ProgressThickness.MEDIUM -> R.string.progress_medium
     ProgressThickness.THICK -> R.string.progress_thick

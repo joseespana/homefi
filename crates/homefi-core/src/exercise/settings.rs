@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use super::model::{round_minutes, PresetId, MAX_RIDE_MINUTES, MIN_RIDE_MINUTES};
+use super::model::{round_minutes, PresetId, RideTaste, MAX_RIDE_MINUTES, MIN_RIDE_MINUTES};
 
 pub const DEFAULT_RIDE_MINUTES: u16 = 30;
 pub const MIN_TOLERANCE_RPM: u8 = 2;
@@ -139,6 +139,8 @@ pub struct ExerciseSettings {
     /// Every built ride is saved automatically; this many such rides are kept, oldest pruned first
     /// (kept rides and favorites never), 5..=200.
     pub ride_history_max: u16,
+    /// The setup's taste answers (era, how famous, artists liked and avoided), remembered for the next ride.
+    pub taste: RideTaste,
 }
 
 impl Default for ExerciseSettings {
@@ -175,6 +177,7 @@ impl Default for ExerciseSettings {
             health_notice_seen: false,
             tempo_nudge_pct: 0,
             ride_history_max: DEFAULT_RIDE_HISTORY,
+            taste: RideTaste::default(),
         }
     }
 }
@@ -197,6 +200,7 @@ impl ExerciseSettings {
                 "" => TV_DISPLAY_AUTO.into(),
                 name => name.chars().take(MAX_DISPLAY_NAME_CHARS).collect(),
             },
+            taste: self.taste.clone().clamped(),
             ..self.clone()
         }
     }
@@ -219,6 +223,7 @@ pub fn lenient_exercise<'de, D: Deserializer<'de>>(d: D) -> Result<ExerciseSetti
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exercise::model::Popularity;
 
     #[test]
     fn defaults_follow_the_plan() {
@@ -239,6 +244,8 @@ mod tests {
         assert!(s.tv_lyrics, "lyrics on the TV are on by default");
         assert_eq!((s.course_look, s.course_summits), (CourseLook::Ribbon, false));
         assert_eq!(s.ride_history_max, 30);
+        assert_eq!(s.taste.popularity, Popularity::Hits, "big hits unless the rider asks otherwise");
+        assert!(s.taste.eras.is_empty() && s.taste.artists.is_empty() && s.taste.avoid.is_empty());
         assert_eq!(s.clamped(), s, "defaults are already in range");
     }
 
@@ -290,5 +297,14 @@ mod tests {
         assert_eq!((h.exercise.course_look, h.exercise.course_summits), (CourseLook::Alpine, true));
         let h: Holder = serde_json::from_str(r#"{"exercise": {"course_look": "neon"}}"#).unwrap();
         assert_eq!(h.exercise.course_look, CourseLook::Ribbon, "an unknown look falls back to ribbon");
+        let h: Holder = serde_json::from_str(
+            r#"{"exercise": {"taste": {"eras": [1990, 1991, 1980], "popularity": "discover", "artists": [" Slayer "]}}}"#,
+        )
+        .unwrap();
+        let taste = &h.exercise.taste;
+        assert_eq!((taste.eras.as_slice(), taste.popularity), ([1980, 1990].as_slice(), Popularity::Discover));
+        assert_eq!((taste.artists.as_slice(), taste.avoid.len()), (["Slayer".to_owned()].as_slice(), 0));
+        let back: ExerciseSettings = serde_json::from_str(&serde_json::to_string(&h.exercise).unwrap()).unwrap();
+        assert_eq!(&back.taste, taste, "the taste round-trips");
     }
 }

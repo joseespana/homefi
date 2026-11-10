@@ -59,8 +59,15 @@ fun djAvailable(djEntry: TvDjEntry, mouse: Boolean): Boolean = when (djEntry) {
     TvDjEntry.OFF -> false
 }
 
+/**
+ * A pointing device the user can move on the screen: a real (not virtual) device with the mouse source.
+ * Remotes and keyboards answer with other sources, so they do not unlock DJ mode.
+ */
+internal fun isMouseDevice(sources: Int, isVirtual: Boolean): Boolean =
+    !isVirtual && sources and InputDevice.SOURCE_MOUSE == InputDevice.SOURCE_MOUSE
+
 private fun mouseConnected(): Boolean = InputDevice.getDeviceIds().any { id ->
-    InputDevice.getDevice(id)?.let { it.sources and InputDevice.SOURCE_MOUSE == InputDevice.SOURCE_MOUSE } == true
+    InputDevice.getDevice(id)?.let { isMouseDevice(it.sources, it.isVirtual) } == true
 }
 
 /** Whether a mouse is plugged in (USB or Bluetooth), kept up to date while the screen is composed. */

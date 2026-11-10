@@ -160,6 +160,11 @@ pub fn score(candidate: &SongCandidate, track: &Track) -> f32 {
     points + POPULARITY_WEIGHT * (track.popularity.unwrap_or(0).clamp(0, POPULARITY_MAX as i64) as f32 / POPULARITY_MAX)
 }
 
+/// Tidal's popularity of a track inside 0..=100.
+pub(crate) fn popularity_0_100(popularity: i64) -> u8 {
+    popularity.clamp(0, POPULARITY_MAX as i64) as u8
+}
+
 /// A playlist entry from a Tidal track. With `prefer_library`, a file of the
 /// library (same ISRC, or same artist and title) becomes its `local_path`.
 pub fn entry_from_track(
@@ -209,7 +214,7 @@ pub(crate) fn entry_from_library(lib: &LibraryRef, tag: EntryTag, note: String) 
 }
 
 /// Remembers entries by Tidal id and library path: a file and its Tidal twin count once.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct SeenEntries {
     keys: HashSet<String>,
 }
@@ -239,6 +244,8 @@ pub struct Resolved {
     pub tidal_bpm: Option<u16>,
     /// Tempo in the tag of the library file of the song.
     pub library_bpm: Option<u16>,
+    /// Tidal's popularity of the matched track, 0..=100.
+    pub tidal_popularity: Option<u8>,
 }
 
 pub struct Resolver<'a> {
@@ -298,7 +305,8 @@ impl Resolver<'_> {
         let failed = search_failed && entry.is_none();
         let tidal_bpm = tidal.as_ref().and_then(|(t, _)| t.bpm).and_then(|b| u16::try_from(b).ok()).filter(|b| *b > 0);
         let library_bpm = library_hit.and_then(|l| l.bpm);
-        Resolved { candidate, entry, confidence, failed, tidal_bpm, library_bpm }
+        let tidal_popularity = tidal.as_ref().and_then(|(t, _)| t.popularity).map(popularity_0_100);
+        Resolved { candidate, entry, confidence, failed, tidal_bpm, library_bpm, tidal_popularity }
     }
 }
 

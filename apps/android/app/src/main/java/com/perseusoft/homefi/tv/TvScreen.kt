@@ -175,18 +175,29 @@ private fun RideRow(name: String, modifier: Modifier, onClick: () -> Unit) {
  * The ride, drawn by the core's own page (the single TV renderer). When the music plays here the page
  * asks this app where its playback is (`window.homefiSongPositionMs`) so the pulse follows what is heard.
  */
-@SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun RideWeb(state: TvClientUi.Watching, client: RideTvClient) {
+    BackHandler(onBack = client::stopWatching)
+    RideWebView(state.endpoint.pageUrl, state.listening, client::songPositionMs)
+}
+
+/**
+ * The WebView on the core's ride page at [pageUrl]. With [followSong] the page asks [songPositionMs] (this
+ * app's playback, -1 when unknown) so the pulse follows what is heard. Shared by the phone's ride watched
+ * here and by a ride run on this TV (a local address).
+ */
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun RideWebView(pageUrl: String, followSong: Boolean, songPositionMs: () -> Long) {
     val view = LocalView.current
     DisposableEffect(Unit) {
         view.keepScreenOn = true
         onDispose { view.keepScreenOn = false }
     }
-    BackHandler(onBack = client::stopWatching)
+    val position by androidx.compose.runtime.rememberUpdatedState(songPositionMs)
     var web by remember { mutableStateOf<WebView?>(null) }
-    LaunchedEffect(web, state.listening) {
-        web?.evaluateJavascript(if (state.listening) DEFINE_POSITION else UNDEFINE_POSITION, null)
+    LaunchedEffect(web, followSong) {
+        web?.evaluateJavascript(if (followSong) DEFINE_POSITION else UNDEFINE_POSITION, null)
     }
     AndroidView(
         modifier = Modifier.fillMaxSize(),
@@ -203,14 +214,14 @@ private fun RideWeb(state: TvClientUi.Watching, client: RideTvClient) {
                 settings.mediaPlaybackRequiresUserGesture = false
                 addJavascriptInterface(object {
                     @JavascriptInterface
-                    fun songPositionMs(): Double = client.songPositionMs().toDouble()
+                    fun songPositionMs(): Double = position().toDouble()
                 }, "HomefiTv")
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView, url: String?) {
-                        if (client.songPositionMs() >= 0) view.evaluateJavascript(DEFINE_POSITION, null)
+                        if (position() >= 0) view.evaluateJavascript(DEFINE_POSITION, null)
                     }
                 }
-                loadUrl(state.endpoint.pageUrl)
+                loadUrl(pageUrl)
                 web = this
             }
         },

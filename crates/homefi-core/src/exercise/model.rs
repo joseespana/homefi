@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::ai::prompt::one_line;
+
 pub const WORKOUT_FORMAT_VERSION: u32 = 1;
 /// Ride length the rider may choose (minutes), in steps of [`RIDE_MINUTES_STEP`].
 pub const MIN_RIDE_MINUTES: u16 = 10;
@@ -322,7 +324,70 @@ impl Workout {
     }
 }
 
-/// What the rider wants to hear: genres (one, or several for a mix), and a free sentence.
+/// How famous the songs of a ride should be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Popularity {
+    /// Some hits, some lesser-known songs by established acts.
+    Mix,
+    /// Lesser-known songs and artists.
+    Discover,
+    /// The genre's big hits by its famous acts: songs the rider knows and sings along to (the default).
+    #[default]
+    #[serde(other)]
+    Hits,
+}
+
+impl Popularity {
+    pub const ALL: [Popularity; 3] = [Self::Hits, Self::Mix, Self::Discover];
+}
+
+/// Decades the rider may pick (the year a decade starts), oldest first; none picked means any era.
+pub const DECADES: [u16; 7] = [1960, 1970, 1980, 1990, 2000, 2010, 2020];
+/// Artists the rider likes (or wants to avoid) that a taste keeps, and the longest name (chars).
+pub const MAX_TASTE_ARTISTS: usize = 10;
+pub const MAX_ARTIST_CHARS: usize = 60;
+
+/// The rider's taste for a ride: when the music is from, how famous, who they like and who never to play.
+/// Remembered in the settings so the next ride starts from the same answers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct RideTaste {
+    /// Decades (see [`DECADES`]); empty = any era.
+    pub eras: Vec<u16>,
+    pub popularity: Popularity,
+    /// Artists the rider likes: they lead the AI's picks.
+    pub artists: Vec<String>,
+    /// Artists never to play.
+    pub avoid: Vec<String>,
+}
+
+/// Names on one line, without empties or repeats (any case), at most [`MAX_TASTE_ARTISTS`] of [`MAX_ARTIST_CHARS`].
+fn clean_names(names: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for name in names {
+        let name = one_line(&name, MAX_ARTIST_CHARS);
+        if !name.is_empty() && !out.iter().any(|x| x.to_lowercase() == name.to_lowercase()) {
+            out.push(name);
+        }
+    }
+    out.truncate(MAX_TASTE_ARTISTS);
+    out
+}
+
+impl RideTaste {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Only known decades, oldest first and once; artist lists cleaned.
+    pub fn clamped(self) -> Self {
+        let eras = DECADES.iter().copied().filter(|d| self.eras.contains(d)).collect();
+        Self { eras, popularity: self.popularity, artists: clean_names(self.artists), avoid: clean_names(self.avoid) }
+    }
+}
+
+/// What the rider wants to hear: genres (one, or several for a mix), a free sentence and their taste.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct MusicWish {
@@ -331,6 +396,9 @@ pub struct MusicWish {
     /// Several genres spread over the segments by tempo (metal for sprints, calmer for the warm-up).
     pub mix: bool,
     pub sentence: String,
+    /// Left out of the JSON when it is the default, so older files and playlists read and write the same.
+    #[serde(skip_serializing_if = "RideTaste::is_default")]
+    pub taste: RideTaste,
 }
 
 impl MusicWish {
@@ -338,17 +406,22 @@ impl MusicWish {
     pub fn clamped(self) -> Self {
         let mut genres: Vec<String> = Vec::new();
         for g in self.genres {
-            let g: String = g.trim().chars().take(MAX_GENRE_CHARS).collect();
+            let g = one_line(&g, MAX_GENRE_CHARS);
             if !g.is_empty() && !genres.iter().any(|x| x.eq_ignore_ascii_case(&g)) {
                 genres.push(g);
             }
         }
         genres.truncate(MAX_GENRES);
-        Self { genres, mix: self.mix, sentence: self.sentence.trim().chars().take(MAX_SENTENCE_CHARS).collect() }
+        Self {
+            genres,
+            mix: self.mix,
+            sentence: one_line(&self.sentence, MAX_SENTENCE_CHARS),
+            taste: self.taste.clamped(),
+        }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.genres.is_empty() && self.sentence.trim().is_empty()
+        self.genres.is_empty() && self.sentence.trim().is_empty() && self.taste.artists.is_empty()
     }
 }
 
@@ -430,10 +503,34 @@ mod tests {
             genres: vec![" Rock ".into(), "rock".into(), "".into(), "Metal".into()],
             mix: true,
             sentence: "  90s  ".into(),
+            ..MusicWish::default()
         }
         .clamped();
         assert_eq!(wish.genres, ["Rock", "Metal"]);
         assert_eq!(wish.sentence, "90s");
         assert!(MusicWish::default().is_empty());
+    }
+
+    #[test]
+    fn the_taste_is_cleaned_and_reads_leniently() {
+        let taste = RideTaste {
+            eras: vec![2020, 1985, 1980, 1980, 1950],
+            popularity: Popularity::Mix,
+            artists: vec![" Metallica ".into(), "metallica".into(), "".into(), "x".repeat(200)],
+            avoid: (0..30).map(|i| format!("Band {i}")).collect(),
+        }
+        .clamped();
+        assert_eq!(taste.eras, [1980, 2020], "known decades, oldest first, once");
+        assert_eq!(taste.artists.len(), 2);
+        assert_eq!(taste.artists[0], "Metallica");
+        assert_eq!(taste.artists[1].chars().count(), MAX_ARTIST_CHARS);
+        assert_eq!(taste.avoid.len(), MAX_TASTE_ARTISTS);
+        // an older wish without a taste, or an unknown popularity word, reads as big hits
+        let old: MusicWish = serde_json::from_str(r#"{"genres":["metal"],"mix":false,"sentence":""}"#).unwrap();
+        assert_eq!(old.taste, RideTaste::default());
+        assert_eq!(old.taste.popularity, Popularity::Hits);
+        let odd: RideTaste = serde_json::from_str(r#"{"popularity":"viral","eras":[1990]}"#).unwrap();
+        assert_eq!((odd.popularity, odd.eras.as_slice()), (Popularity::Hits, [1990].as_slice()));
+        assert_eq!(serde_json::to_string(&Popularity::Discover).unwrap(), "\"discover\"");
     }
 }

@@ -1,7 +1,5 @@
 package com.perseusoft.homefi.tv
 
-import android.content.Intent
-import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,7 +28,6 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.SdStorage
 import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material.icons.rounded.Usb
 import androidx.compose.material3.Icon
@@ -86,7 +83,6 @@ fun TvDownloads(entryKey: Int) {
     val settings by app.settings.settings.collectAsStateWithLifecycle()
     val volumes by app.volumes.volumes.collectAsStateWithLifecycle()
     val library by app.library.state.collectAsStateWithLifecycle()
-    val usbAsked by app.usbAccess.asked.collectAsStateWithLifecycle()
     val tv = settings.tv
     val look = LocalTvLook.current
     val safe = tvSafePadding()
@@ -105,8 +101,6 @@ fun TvDownloads(entryKey: Int) {
             delay(if (state.isBusy) POLL_BUSY_MS else POLL_IDLE_MS)
         }
     }
-    // the first time a drive shows up: the guided "All files access" screen, once
-    LaunchedEffect(usb != null, usbAsked, sharedAccess) { if (usb != null && !usbAsked && !sharedAccess) guide = true }
 
     Column(Modifier.fillMaxSize().padding(top = safe.calculateTopPadding(), end = safe.calculateRightPadding(androidx.compose.ui.unit.LayoutDirection.Ltr))) {
         TvScreenHeader(
@@ -154,8 +148,8 @@ fun TvDownloads(entryKey: Int) {
             }
             if (state.paused.isNotEmpty()) item(key = "paused") {
                 Notice(
-                    stringResource(R.string.tv_dl_usb_gone),
-                    stringResource(R.string.tv_dl_paused_body, state.paused.size),
+                    stringResource(if (state.pausedForAccess) R.string.tv_dl_access_wait else R.string.tv_dl_usb_gone),
+                    stringResource(if (state.pausedForAccess) R.string.tv_dl_access_wait_body else R.string.tv_dl_paused_body, state.paused.size),
                     look.warn,
                 ) { TvPill(stringResource(R.string.tv_dl_resume), repo::resume, Modifier.tvLeftToDrawer(), icon = Icons.Rounded.PlayArrow, primary = true, height = 30.dp, labelStyle = TvType.body.copy(fontSize = 14.sp)) }
             }
@@ -184,16 +178,12 @@ fun TvDownloads(entryKey: Int) {
     }
     state.choosing?.let { job -> TargetChoice(job, internalFree = internal, usb = usb, onChoose = repo::choose) }
     if (guide) {
-        UsbGuide(
+        TvUsbGuide(
             onOpenSettings = {
-                app.usbAccess.markAsked()
                 guide = false
-                val intent = Storage.accessSettingsIntent(context)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                if (intent == null || runCatching { context.startActivity(intent) }.isFailure) {
-                    Toast.makeText(context, context.getString(R.string.tv_dl_usb_no_page), Toast.LENGTH_LONG).show()
-                }
+                openUsbAccessSettings(context)
             },
-            onAppFolder = { app.usbAccess.markAsked(); guide = false },
+            onAppFolder = { guide = false },
         )
     }
 }
@@ -313,31 +303,6 @@ private fun TargetChoice(job: DownloadJob, internalFree: VolumeInfo?, usb: Volum
                     TvPill(stringResource(R.string.tv_dl_internal) + internalFree?.let { " · " + formatBytes(it.freeBytes) }.orEmpty(), { onChoose(DownloadTarget.INTERNAL) }, Modifier.tvInitialFocus().fillMaxWidth(), icon = Icons.Rounded.PhoneAndroid, primary = true)
                     TvPill(stringResource(R.string.tv_dl_usb) + usb?.let { " · " + formatBytes(it.freeBytes) }.orEmpty(), { onChoose(DownloadTarget.USB) }, Modifier.fillMaxWidth(), icon = Icons.Rounded.Usb)
                     TvPill(stringResource(R.string.cancel), { onChoose(null) }, Modifier.fillMaxWidth())
-                }
-            }
-        }
-    }
-}
-
-/** The guided screen for "All files access" on a TV: three steps, or the app folder on the drive. */
-@Composable
-private fun UsbGuide(onOpenSettings: () -> Unit, onAppFolder: () -> Unit) {
-    val look = LocalTvLook.current
-    Dialog(onDismissRequest = onAppFolder, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(Modifier.fillMaxSize().background(Color(0xE6040510)), contentAlignment = Alignment.Center) {
-            TvGlass(Modifier.width(520.dp), solid = true) {
-                Column(Modifier.padding(28.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Icon(Icons.Rounded.SdStorage, null, tint = look.accent2, modifier = Modifier.size(32.dp))
-                    Text(stringResource(R.string.tv_dl_guide_title), style = TvType.title.copy(fontSize = 24.sp), color = look.ink)
-                    Text(stringResource(R.string.tv_dl_guide_body), style = TvType.body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Normal, fontSize = 15.sp), color = look.ink2)
-                    listOf(R.string.tv_dl_guide_1, R.string.tv_dl_guide_2, R.string.tv_dl_guide_3).forEachIndexed { i, step ->
-                        Text("${i + 1}.  " + stringResource(step), style = TvType.body.copy(fontSize = 15.sp), color = look.ink)
-                    }
-                    Text(stringResource(R.string.tv_dl_guide_fallback), style = TvType.secondary.copy(fontSize = 13.sp), color = look.ink3)
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        TvPill(stringResource(R.string.tv_dl_guide_open), onOpenSettings, Modifier.tvInitialFocus(), primary = true, height = 36.dp)
-                        TvPill(stringResource(R.string.tv_dl_guide_app), onAppFolder, height = 36.dp)
-                    }
                 }
             }
         }

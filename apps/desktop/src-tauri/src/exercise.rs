@@ -24,8 +24,8 @@ use std::time::Duration;
 use homefi_core::dj::{analyze_file, AnalysisCache, DjAnalysis};
 use homefi_core::exercise::tv::{ride_hub_config, ride_token, RideListen, TvConfig, TvLyrics, TvSession};
 use homefi_core::exercise::{
-    self as ex, Analyzer, BuildContext, CueKind, ExerciseSession, ExerciseTurn, PresetId, RideBuilt, RideClock,
-    RidePlan, RideProgress, RideRequest, RideStore, RideSummary, RideView, TvAudio, TvPart, TvServer,
+    self as ex, Analyzer, BuildContext, BuildMemory, CueKind, ExerciseSession, ExerciseTurn, PresetId, RideBuilt,
+    RideClock, RidePlan, RideProgress, RideRequest, RideStore, RideSummary, RideView, TvAudio, TvPart, TvServer,
 };
 use homefi_core::export::ExportKind;
 use homefi_core::humane::{self, Lang};
@@ -177,6 +177,8 @@ pub struct Exercise {
     ride: Mutex<RideState>,
     /// The TV's LAN server, while it runs.
     tv: Mutex<Option<TvServer>>,
+    /// What the last build found: "new songs" for the same ride reuses it instead of searching again.
+    memory: Mutex<Option<BuildMemory>>,
 }
 
 // ------------------------------------------------------------------ views
@@ -305,6 +307,13 @@ pub fn exercise_default_request(state: State<'_, AppState>) -> RideRequest {
 }
 
 /// The "not medical advice" notice, shown once before the first ride.
+/// Artists to offer under "artists you like": the ones the library has the most songs of in `genres`.
+#[tauri::command]
+pub fn exercise_artist_suggestions(state: State<'_, AppState>, genres: Vec<String>) -> Vec<String> {
+    let library = lock(&state.library);
+    ex::artist_suggestions(library.iter().map(|t| (t.artist.as_str(), t.genre.as_str())), &genres)
+}
+
 #[tauri::command]
 pub fn exercise_health_notice(language: String) -> String {
     ex::health_notice(Lang::from_code(&language))
@@ -372,6 +381,10 @@ fn cached_file(dir: &Path, id: &str) -> Option<PathBuf> {
 }
 
 impl Analyzer for DesktopAnalyzer {
+    fn can_read(&self, entry: &PlaylistEntry) -> bool {
+        self.file_of(entry).is_some()
+    }
+
     fn analyze<'a>(
         &'a self,
         entry: &'a PlaylistEntry,
@@ -397,10 +410,12 @@ impl Analyzer for DesktopAnalyzer {
 #[tauri::command]
 pub async fn exercise_build(
     app: AppHandle,
-    request: RideRequest,
+    mut request: RideRequest,
     language: String,
     on_progress: Channel<RideProgress>,
 ) -> CmdResult<RideBuiltView> {
+    // the taste answers are settings (the setup saves them), so every build uses the latest ones
+    request.wish.taste = app.state::<AppState>().settings().exercise.taste;
     let exercise = app.state::<Exercise>();
     if !lock(&exercise.ride).begin_build() {
         return Err(match humane::language() {
@@ -454,10 +469,14 @@ async fn run_build(
     let progress = move |p: RideProgress| {
         let _ = on_progress.send(p);
     };
-    tokio::select! {
-        r = ex::build(request, &ctx, &progress) => r.map_err(err),
-        () = cancelled(cancel) => Err(cancelled_text()),
-    }
+    // a copy: a cancelled build leaves the kept memory as it was
+    let memory = lock(&app.state::<Exercise>().memory).clone();
+    let (built, memory) = tokio::select! {
+        r = ex::build_with_memory(request, &ctx, &progress, memory) => r.map_err(err)?,
+        () = cancelled(cancel) => return Err(cancelled_text()),
+    };
+    *lock(&app.state::<Exercise>().memory) = Some(memory);
+    Ok(built)
 }
 
 #[tauri::command]

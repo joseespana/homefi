@@ -179,8 +179,21 @@ the same, larger, without controls, dark by default, with the QR on the phone on
 `metronome_click` (false), `pulse_style` (ring / bar / flash, ring), `pulse_offset_ms`
 (−500..=500, 0; prefilled from the lyrics offset for Bluetooth speakers), `keep_screen_on` (true),
 `tv_enabled` (false), `tv_port` (1024..=65535, 47801), `tv_window_fullscreen` (desktop, true),
-`health_notice_seen` (false), phase 2: `tempo_nudge_pct` (0..=8, 0). Tests: `defaults_follow_the_plan`,
-clamping, lenient JSON like `dj::settings`.
+`health_notice_seen` (false), phase 2: `tempo_nudge_pct` (0..=8, 0), `taste` (`RideTaste`: `eras` decades
+1960..=2020, none = any; `popularity` hits / mix / discover, hits; `artists` and `avoid`, at most 10 names of 60
+chars). Tests: `defaults_follow_the_plan`, clamping, lenient JSON like `dj::settings`.
+
+**Taste and fame.** The wish carries the taste (`MusicWish.taste`; the apps put the saved setting in every
+request). The AI prompt says how famous (big hits by the genre's canonical acts / a mix / discover), the eras, the
+liked artists (they lead) and the avoided ones. The builder's `fame_weights` table turns the popularity into score
+weights: with big hits a song by an artist neither the AI nor the rider named only fills a part when no known song
+fits, the AI's order and Tidal's popularity rank the rest. A proposal resolved to another artist (a cover) is left
+out, avoided artists never enter the pool, and the AI's segment survives the split of long segments.
+
+**New songs (rebuild).** `build_with_memory` returns a `BuildMemory` (the candidate pool, what the AI was asked,
+what was played) the app keeps; the same inputs within 30 minutes reuse it: no search, songs not played before win,
+and the AI is asked (with its earlier songs excluded) only for the segments with nothing new that fits. The apps
+keep the preview on screen with the progress inline while it runs.
 
 ## Phases
 

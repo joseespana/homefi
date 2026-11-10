@@ -390,7 +390,7 @@ async fn building_again_tells_the_ai_what_was_there() {
     assert!(!builds[0].contains("previous playlist"));
     assert!(builds[1].contains("previous playlist") && builds[1].contains("Bad Bunny – Song 0"));
     assert!(builds[1].contains("más reguetón"), "the chat is part of the build request");
-    assert!(builds[1].contains("Answer in Spanish."));
+    assert!(builds[1].contains("do not translate") && !builds[1].contains("Answer in"), "titles stay as credited");
 }
 
 /// A chat session whose AI named the playlist and set 28 minutes (rounded to 30).
@@ -493,7 +493,9 @@ async fn named_songs_open_the_playlist_once_even_when_explicit() {
     assert_eq!(got.iter().filter(|t| **t == "Song 0").count(), 1, "the AI's copy is a repeat");
     assert!(built.playlist.unmatched.iter().any(|c| c.title == "Made Up Song"));
     let asked = ai_bodies(&server.received_requests().await.unwrap());
-    assert!(asked.iter().any(|b| b.contains("Songs to include (they open the playlist): Queen – Explicit Anthem")));
+    assert!(asked
+        .iter()
+        .any(|b| b.contains("Songs to include (they open the playlist): <named_songs>Queen – Explicit Anthem")));
 }
 
 #[tokio::test]

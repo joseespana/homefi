@@ -55,11 +55,11 @@
     <string name="tv_dl_choose">¿Dónde quieres guardarla?</string>
     <string name="tv_dl_usb_no_page">Esta tele no muestra esa página de ajustes. HomeFi usará su propia carpeta en la unidad.</string>
     <string name="tv_dl_guide_title">Deja que HomeFi escriba en tu unidad USB</string>
-    <string name="tv_dl_guide_body">Para guardar música en una carpeta HomeFi de la unidad, Android necesita tu permiso una vez.</string>
+    <string name="tv_dl_guide_body">Esta descarga va a tu unidad USB. Para guardarla en una carpeta HomeFi de la unidad, Android necesita tu permiso.</string>
     <string name="tv_dl_guide_1">Pulsa «Abrir ajustes».</string>
     <string name="tv_dl_guide_2">Busca HomeFi y activa «Permitir acceso para administrar todos los archivos».</string>
     <string name="tv_dl_guide_3">Pulsa Atrás para volver aquí.</string>
-    <string name="tv_dl_guide_fallback">Ahora no: HomeFi guarda en su propia carpeta de la unidad (desaparece si desinstalas HomeFi).</string>
+    <string name="tv_dl_guide_fallback">Ahora no: HomeFi guarda en su propia carpeta de la unidad (desaparece si desinstalas HomeFi). Se te preguntará otra vez la próxima vez.</string>
     <string name="tv_dl_guide_open">Abrir ajustes</string>
     <string name="tv_dl_guide_app">Usar la carpeta de la app</string>
     <string name="tv_np_heart">Marcar como favorita</string>

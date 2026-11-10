@@ -94,6 +94,14 @@ class DeckPlayer(val exo: ExoPlayer, private val skip: (Int) -> Boolean) : Forwa
 }
 
 /**
+ * How many decks (ExoPlayers) the playback service keeps: the second one only exists to fade into,
+ * so it is built when crossfade is on and the phone is allowed to use it (low-power fallback on a
+ * low-memory phone never crossfades, so it never pays for it).
+ */
+internal fun crossfadeDeckCount(crossfadeOn: Boolean, lowPowerFallback: Boolean, lowRam: Boolean): Int =
+    if (crossfadeOn && !(lowPowerFallback && lowRam)) 2 else 1
+
+/**
  * Feeds [AudioTap] (visualizer, VU meters, mascot) from one deck only while it is the
  * session's, so two songs overlapping don't mix in the meters.
  */
@@ -129,7 +137,11 @@ class DeckTap(private val deck: Int) : TeeAudioProcessor.AudioBufferSink {
 @OptIn(UnstableApi::class)
 class Crossfader(
     context: Context,
-    val players: List<ExoPlayer>,
+    firstDeck: ExoPlayer,
+    /** Builds deck 1 the first time crossfade needs it ([ensureSpare]). */
+    private val buildSpare: () -> ExoPlayer,
+    /** Deck 1 was just built: the owner wires its listeners and its session wrapper. */
+    private val onSpareBuilt: (ExoPlayer) -> Unit,
     private val attributes: AudioAttributes,
     private val settings: StateFlow<CrossfadeSettings>,
     private val sound: SoundLayers,
@@ -138,7 +150,13 @@ class Crossfader(
     /** The session must now play deck [to] (it was [from]). */
     private val onSwap: (from: Int, to: Int) -> Unit,
 ) {
-    val decks: List<DeckPlayer> = players.map { DeckPlayer(it, ::skipTo) }
+    private val _players = mutableListOf(firstDeck)
+    /** One deck, or two once crossfade asked for the spare. */
+    val players: List<ExoPlayer> get() = _players
+    private val _decks = mutableListOf(DeckPlayer(firstDeck, ::skipTo))
+    val decks: List<DeckPlayer> get() = _decks
+    private var preferredDevice: android.media.AudioDeviceInfo? = null
+    private val hasSpare get() = _players.size > 1
 
     /** The deck the session plays. */
     var active = 0
@@ -167,21 +185,38 @@ class Crossfader(
     }
     private var fade: Fade? = null
 
-    init {
-        players.forEachIndexed { i, p ->
-            p.addListener(object : Player.Listener {
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == Player.STATE_READY && i == spare) onSpareReady()
-                    if (playbackState == Player.STATE_BUFFERING) fade?.takeIf { it.to == i }?.lagged = true
-                    if (playbackState == Player.STATE_ENDED && fade?.from == i) finishFade()
-                }
+    private fun listen(i: Int, p: ExoPlayer) {
+        p.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY && i == spare) onSpareReady()
+                if (playbackState == Player.STATE_BUFFERING) fade?.takeIf { it.to == i }?.lagged = true
+                if (playbackState == Player.STATE_ENDED && fade?.from == i) finishFade()
+            }
 
-                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                    // paused during a fade: the outgoing song stops with it
-                    if (!playWhenReady && fade?.to == i) finishFade()
-                }
-            })
-        }
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                // paused during a fade: the outgoing song stops with it
+                if (!playWhenReady && fade?.to == i) finishFade()
+            }
+        })
+    }
+
+    /** Whether [s] (on this phone) needs the second deck. */
+    fun wantsSpare(s: CrossfadeSettings): Boolean =
+        crossfadeDeckCount(s.mode == CrossfadeMode.ON, s.lowPowerFallback, lowRam) > 1
+
+    /** Builds the second deck once (main thread), so the first fade finds it ready. */
+    fun ensureSpare() {
+        if (hasSpare) return
+        val p = buildSpare()
+        _players += p
+        _decks += DeckPlayer(p, ::skipTo)
+        listen(1, p)
+        runCatching { p.setPreferredAudioDevice(preferredDevice) }
+        onSpareBuilt(p)
+    }
+
+    init {
+        listen(0, firstDeck)
         if (lowRam) Crossfading.unavailable(R.string.crossfade_unavailable_memory)
         scope.launch {
             while (isActive) delay(tick())
@@ -189,7 +224,7 @@ class Crossfader(
     }
 
     private fun enabled(s: CrossfadeSettings): Boolean =
-        s.mode == CrossfadeMode.ON && !(s.lowPowerFallback && (lowRam || lagging))
+        hasSpare && s.mode == CrossfadeMode.ON && !(s.lowPowerFallback && (lowRam || lagging))
 
     private fun now() = SystemClock.elapsedRealtime()
 
@@ -315,6 +350,7 @@ class Crossfader(
 
     private fun cancelStage() {
         stage = null
+        if (!hasSpare) return
         val dst = players[spare]
         if (dst.mediaItemCount > 0 || dst.playbackState != Player.STATE_IDLE) {
             dst.stop()
@@ -429,7 +465,10 @@ class Crossfader(
     }
 
     /** The output picked in the app, for both decks. */
-    fun setPreferredAudioDevice(device: android.media.AudioDeviceInfo?) = players.forEach { it.setPreferredAudioDevice(device) }
+    fun setPreferredAudioDevice(device: android.media.AudioDeviceInfo?) {
+        preferredDevice = device
+        players.forEach { it.setPreferredAudioDevice(device) }
+    }
 
     fun release() {
         Crossfading.publish(null)

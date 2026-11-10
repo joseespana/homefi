@@ -173,7 +173,7 @@ fun TvSound(entryKey: Int) {
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(top = safe.calculateTopPadding(), end = safe.calculateRightPadding(androidx.compose.ui.unit.LayoutDirection.Ltr))) {
+    Column(Modifier.fillMaxSize().padding(top = safe.calculateTopPadding(), bottom = safe.calculateBottomPadding(), end = safe.calculateRightPadding(androidx.compose.ui.unit.LayoutDirection.Ltr))) {
         TvScreenHeader(stringResource(R.string.sound_title), soundSubtitle(), Modifier.padding(start = 12.dp)) { TvNowPlayingChip() }
         Row(Modifier.padding(start = 12.dp, top = 10.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             TvTabs(
@@ -466,7 +466,7 @@ private fun CurveTab(eqVm: EqViewModel, bodyEntry: FocusRequester) {
             val name = target?.let { outputLabel(it, connected) } ?: stringResource(R.string.eq_output_default)
             TvTag(stringResource(R.string.tv_sound_editing, name))
             if (target != null && !own) TvTag(stringResource(R.string.tv_sound_shared_profile))
-            if (!eq.enabled) TvTag(stringResource(R.string.sound_off), tone = look.warn)
+            if (!eq.enabled) TvTag(stringResource(R.string.tv_sound_off), tone = look.warn)
             Spacer(Modifier.weight(1f))
             if (editing) TvKeyHints(
                 listOf(
@@ -507,7 +507,7 @@ private fun CurveTab(eqVm: EqViewModel, bodyEntry: FocusRequester) {
         ) { focused ->
             TvGlass(Modifier.fillMaxSize().then(if (editing) Modifier.border(2.dp, look.accent, CURVE_SHAPE) else Modifier)) {
                 if (bands.isEmpty()) {
-                    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(Modifier.fillMaxSize().padding(top = 28.dp), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(stringResource(R.string.eq_empty), style = TvType.body, color = look.ink2)
                         Text(stringResource(R.string.tv_sound_press_ok_add), style = TvType.secondary, color = look.ink3)
                     }
@@ -519,7 +519,7 @@ private fun CurveTab(eqVm: EqViewModel, bodyEntry: FocusRequester) {
                     maxRange = 18f,
                     labelSp = 13f,
                     pointScale = 1.5f,
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxSize().padding(start = 10.dp, end = 10.dp, top = 16.dp, bottom = 8.dp),
                 )
                 if (!editing && focused && bands.isNotEmpty()) {
                     Text(

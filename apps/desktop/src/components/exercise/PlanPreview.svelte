@@ -1,7 +1,7 @@
 <script lang="ts">
   // Preview (docs/EXERCISE_UI.md §3.3): the built course and, part by part, the song, the tempo fit and
   // the notes. The ride's playlist is saved when it starts. Hovering a part of the mountain lights its row.
-  import { FIT_TOOLTIP, clock, courseText, describeWorkout, effortWord, fitOf, partsOf, positionIcon, positionLabel, zoneName, zoneVar, type PlannedSong } from "../../lib/exercise-api";
+  import { BUILD_STEPS, FIT_TOOLTIP, buildStepOf, clock, courseText, describeWorkout, effortWord, fitOf, partsOf, positionIcon, positionLabel, zoneName, zoneVar, type PlannedSong } from "../../lib/exercise-api";
   import { exercise } from "../../lib/exercise.svelte";
   import { app } from "../../lib/state.svelte";
   import Cover from "../Cover.svelte";
@@ -47,6 +47,8 @@
     rows?.querySelector<HTMLElement>(`[data-row="${i}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
   const openSaved = () => saved && (app.view = { name: "home-playlist", id: saved.id });
+  // "new songs" runs on this screen: the plan stays until the new one replaces it
+  const step = $derived(buildStepOf(exercise.progress));
 </script>
 
 <svelte:window onkeydown={(e) => e.key === "Escape" && (menu = null)} onclick={() => (menu = null)} />
@@ -58,10 +60,25 @@
       <p class="sub">{exercise.summary} · {plan.songs.length} {plan.songs.length === 1 ? "song" : "songs"}</p>
     </div>
     <span class="sp"></span>
-    <button type="button" class="btn tonal" onclick={() => exercise.changeSetup()}>Change setup</button>
-    <button type="button" class="btn tonal" onclick={() => exercise.rebuild()}><Icon name="refresh" size={16} />Rebuild</button>
-    <button type="button" class="start" onclick={() => exercise.start()}><Icon name="play" size={18} />Start ride</button>
+    <button type="button" class="btn tonal" onclick={() => exercise.changeSetup()} disabled={exercise.rebuilding}>Change setup</button>
+    <button type="button" class="btn tonal" onclick={() => exercise.rebuild()} disabled={exercise.rebuilding} title="Same ride, songs it did not play yet"><Icon name="refresh" size={16} />New songs</button>
+    <button type="button" class="start" onclick={() => exercise.start()} disabled={exercise.rebuilding}><Icon name="play" size={18} />Start ride</button>
   </header>
+
+  {#if exercise.rebuilding}
+    <section class="again" aria-label="Finding new songs">
+      <div class="againrow">
+        <b>Finding new songs…</b>
+        <span class="muted">{BUILD_STEPS[step.at].label}</span>
+        <span class="sp"></span>
+        <button type="button" class="btn tonal" onclick={() => exercise.cancelBuild()}>Cancel</button>
+      </div>
+      <div class="bar" role="progressbar" aria-label="Finding new songs" aria-valuemin="0" aria-valuemax="100" aria-valuenow={step.percent}><i style:width="{step.percent}%"></i></div>
+      <span class="sr" aria-live="polite">{BUILD_STEPS[step.at].label}</span>
+    </section>
+  {:else if exercise.rebuildError}
+    <p class="again err" role="alert"><Icon name="alert" size={16} />Could not find new songs. {exercise.rebuildError} This ride is still ready.</p>
+  {/if}
 
   {#if ride}
     <section class="kept" aria-label="Saved ride">
@@ -377,5 +394,45 @@
     .plan.head .beatcell {
       display: none;
     }
+  }
+  .again {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+  .again.err {
+    flex-direction: row;
+    align-items: center;
+    margin: 0;
+    color: var(--danger, var(--warn));
+  }
+  .againrow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .again .bar {
+    height: 6px;
+    border-radius: 99px;
+    background: var(--track);
+    overflow: hidden;
+  }
+  .again .bar i {
+    display: block;
+    height: 100%;
+    background: var(--primary);
+    transition: width 0.3s;
+  }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 </style>

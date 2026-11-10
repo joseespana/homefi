@@ -13,7 +13,7 @@ cpal.workspace = true
 rand.workspace = true
 ringbuf.workspace = true
 rubato.workspace = true
-serde.workspace = true
+serde = { workspace = true, features = ["rc"] }
 thiserror.workspace = true
 tracing.workspace = true
 

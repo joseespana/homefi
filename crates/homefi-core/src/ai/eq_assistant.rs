@@ -13,7 +13,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::chat::{chat, Message, Tool, ToolCall, ToolResult};
+use super::chat::{chat_system, ChatOptions, Message, System, Tool, ToolCall, ToolResult, CHAT_TURN_TOKENS};
 use super::guided::{GuidedEq, GuidedState};
 use super::replies::{quick_replies, suggest_replies_tool};
 use super::{resolve_model, AiConfig};
@@ -334,8 +334,16 @@ impl EqAssistant {
         let mut turn = AssistantTurn::default();
         let mut texts: Vec<String> = Vec::new();
         for _ in 0..MAX_ROUNDS {
-            let system = system_prompt(&self.state);
-            let reply = match chat(&self.config, &system, &self.state.messages, &tools).await {
+            let (fixed, dynamic) = system_parts(&self.state);
+            let reply = match chat_system(
+                &self.config,
+                &System::new(&fixed, &dynamic),
+                &self.state.messages,
+                &tools,
+                &ChatOptions { max_tokens: Some(CHAT_TURN_TOKENS), ..Default::default() },
+            )
+            .await
+            {
                 Ok(r) => r,
                 Err(e) => {
                     // the user's words stay out of the history, so "try again" resends them cleanly
@@ -1286,7 +1294,9 @@ fn intensity_ladder(intensity: TasteIntensity) -> String {
     )
 }
 
-fn system_prompt(state: &AssistantState) -> String {
+/// The prompt in two parts: the rules (the same bytes on every round of a session, so Anthropic
+/// caches them) and what the app knows right now (changes round to round).
+fn system_parts(state: &AssistantState) -> (String, String) {
     let ctx = &state.context;
     let language = if ctx.spanish() { "Spanish (neutral Latin American)" } else { "English" };
     let examples = phrase_examples(ctx.spanish());
@@ -1321,7 +1331,7 @@ fn system_prompt(state: &AssistantState) -> String {
         })),
         "topGenres": ctx.listening.as_ref().map(|l| l.top_genres.iter().take(5).collect::<Vec<_>>()),
     });
-    format!(
+    let fixed = format!(
         "You are the sound engineer of HomeFi's listening room, a hi-fi music player. You help someone who is not an audio expert \
 shape the sound of what they play. Your goal is a clearly audible change that matches what they asked for, and then to \
 calibrate it with them: a change nobody can hear is a failed answer, and so is one that makes the music worse.
@@ -1404,9 +1414,17 @@ towards an average target (Harman); fit and each person's ears change the result
 pain, ringing or hearing loss, suggest lowering the volume and seeing a professional; you are not a doctor.
 - Don't invent headphone measurements: use the tools.
 
-What the app knows (JSON): {context}",
+",
         intensity_id = intensity.id(),
-    )
+    );
+    (fixed, format!("What the app knows (JSON): {context}"))
+}
+
+/// Both parts as one text (what a provider without caching reads).
+#[cfg(test)]
+fn system_prompt(state: &AssistantState) -> String {
+    let (fixed, dynamic) = system_parts(state);
+    fixed + &dynamic
 }
 
 #[cfg(test)]
@@ -1964,6 +1982,21 @@ pub(crate) mod tests {
             ("Sennheiser HD 650", "oratory1990", "over-ear")
         );
         assert!(entry_for(&[], "nonsense").is_none());
+    }
+
+    #[test]
+    fn the_rules_stay_byte_identical_while_the_context_moves() {
+        let mut state = AssistantState { context: context(), ..Default::default() };
+        let (before, dynamic_before) = system_parts(&state);
+        state.user_turns = 3;
+        state.context.notes = Some("listens on the train".into());
+        let (after, dynamic_after) = system_parts(&state);
+        // the cacheable part is the same bytes, the state is only in the dynamic part
+        assert_eq!(before, after);
+        assert_ne!(dynamic_before, dynamic_after);
+        assert!(dynamic_after.starts_with("What the app knows (JSON): "));
+        assert!(!before.contains("questionsAskedSoFar"));
+        assert!(before.len() > 4000, "long enough for Anthropic to cache");
     }
 
     #[test]

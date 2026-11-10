@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.perseusoft.homefi.R
+import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.player.exercise.TvClientUi
 import com.perseusoft.homefi.tv.LocalTvLook
 import com.perseusoft.homefi.tv.TvGlass
@@ -64,11 +65,16 @@ fun TvTrainSection(controller: TvTrainController, entryKey: Int, modifier: Modif
     val panel by controller.panel.collectAsStateWithLifecycle()
     var typing by remember { mutableStateOf(false) }
     BackHandler(enabled = typing && ui is TvClientUi.Searching) { typing = false }
+    // a ride built on this TV (or being built) shows its own flow; "Start a ride here" opens it
+    val rideUi by androidx.compose.ui.platform.LocalContext.current.homefi.ride.ui.collectAsStateWithLifecycle()
+    var here by remember { mutableStateOf(false) }
 
     Box(modifier.fillMaxSize()) {
         val state = ui
-        if (state is TvClientUi.Searching && !typing) {
-            WaitingForPhone(panel, entryKey, onType = { typing = true }, onForget = controller::forgetPhones)
+        if (here || rideUi != com.perseusoft.homefi.player.exercise.RideUi.Setup) {
+            TvRideSetup(entryKey, onExit = { here = false })
+        } else if (state is TvClientUi.Searching && !typing) {
+            WaitingForPhone(panel, entryKey, onType = { typing = true }, onForget = controller::forgetPhones, onHere = { here = true })
         } else {
             // a new ride picked while watching (a phone paired mid-ride) restarts the page
             val rideKey = (state as? TvClientUi.Watching)?.endpoint?.let { "${it.host}:${it.port}" }
@@ -78,7 +84,7 @@ fun TvTrainSection(controller: TvTrainController, entryKey: Int, modifier: Modif
 }
 
 @Composable
-private fun WaitingForPhone(panel: PairPanel, entryKey: Int, onType: () -> Unit, onForget: () -> Unit) {
+private fun WaitingForPhone(panel: PairPanel, entryKey: Int, onType: () -> Unit, onForget: () -> Unit, onHere: () -> Unit) {
     val look = LocalTvLook.current
     val safe = tvSafePadding()
     Row(
@@ -101,7 +107,8 @@ private fun WaitingForPhone(panel: PairPanel, entryKey: Int, onType: () -> Unit,
                 Text(stringResource(R.string.tv_train_paired, panel.phones.joinToString { it.name }), style = TvType.secondary.copy(fontSize = 14.sp), color = look.ink2)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 4.dp)) {
-                TvPill(stringResource(R.string.ex_tv_enter_address), onType, Modifier.tvInitialFocus(key = entryKey).tvLeftToDrawer(), primary = true, height = 38.dp)
+                TvPill(stringResource(R.string.tv_train_here), onHere, Modifier.tvInitialFocus(key = entryKey).tvLeftToDrawer(), primary = true, height = 38.dp)
+                TvPill(stringResource(R.string.ex_tv_enter_address), onType, height = 38.dp)
                 if (panel.phones.isNotEmpty()) TvPill(stringResource(R.string.tv_train_forget), onForget, height = 38.dp)
             }
         }

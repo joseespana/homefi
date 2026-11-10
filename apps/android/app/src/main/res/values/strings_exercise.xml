@@ -64,7 +64,7 @@
     <string name="ex_ratio_half">half-time</string>
     <string name="ex_ratio_double">double-time</string>
     <string name="ex_start">Start ride</string>
-    <string name="ex_another_mix">Rebuild</string>
+    <string name="ex_another_mix">New songs</string>
     <string name="ex_change">Change setup</string>
     <string name="ex_kind_warm_up">Warm-up</string>
     <string name="ex_kind_flat">Seated flat</string>
@@ -202,4 +202,21 @@
     <string name="ex_look_alpine">Alpine</string>
     <string name="ex_look_stage">Stage</string>
     <string name="ex_set_course_summits">Label the summits with their time</string>
+    <!-- taste: how famous, era, artists (saved settings) -->
+    <string name="ex_taste_popularity">How famous</string>
+    <string name="ex_pop_hits">Big hits</string>
+    <string name="ex_pop_mix">Mix</string>
+    <string name="ex_pop_discover">Discover</string>
+    <string name="ex_taste_era">Era</string>
+    <string name="ex_era_any">Any</string>
+    <string name="ex_taste_artists">Artists (optional)</string>
+    <string name="ex_taste_artists_count">Artists (%1$d)</string>
+    <string name="ex_taste_like">Artists you like</string>
+    <string name="ex_taste_like_add">Add an artist you like</string>
+    <string name="ex_taste_avoid">Never play</string>
+    <string name="ex_taste_avoid_add">An artist to leave out</string>
+    <string name="ex_taste_remove">Remove %1$s</string>
+    <string name="ex_taste_add_suggestion">Add %1$s</string>
+    <string name="ex_rebuilding">Finding new songs…</string>
+    <string name="ex_rebuild_failed">Could not find new songs. This ride is still ready.</string>
 </resources>

@@ -213,6 +213,7 @@ fn main() {
         exercise::exercise_presets,
         exercise::exercise_ride_minutes,
         exercise::exercise_default_request,
+        exercise::exercise_artist_suggestions,
         exercise::exercise_health_notice,
         exercise::exercise_open,
         exercise::exercise_reply,

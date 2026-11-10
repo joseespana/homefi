@@ -18,6 +18,7 @@ import com.perseusoft.homefi.core.RideListener
 import com.perseusoft.homefi.core.RidePlan
 import com.perseusoft.homefi.core.RideProgress
 import com.perseusoft.homefi.core.RideRequest
+import com.perseusoft.homefi.core.RideTaste
 import com.perseusoft.homefi.core.RideView
 import com.perseusoft.homefi.core.RideWorkout
 import com.perseusoft.homefi.core.LyricLine
@@ -26,9 +27,11 @@ import com.perseusoft.homefi.lyrics.LyricsState
 import com.perseusoft.homefi.core.SavedRideSummary
 import com.perseusoft.homefi.core.TvAudio
 import com.perseusoft.homefi.core.TvSession
+import com.perseusoft.homefi.core.exerciseArtistSuggestions
 import com.perseusoft.homefi.core.exerciseDefaultRequest
 import com.perseusoft.homefi.core.exerciseListenPermissions
 import com.perseusoft.homefi.core.exerciseRideToken
+import com.perseusoft.homefi.data.DeviceForm
 import com.perseusoft.homefi.data.refs
 import com.perseusoft.homefi.data.userMessage
 import com.perseusoft.homefi.share.RideHubTerms
@@ -64,8 +67,17 @@ sealed interface RideUi {
     /** [progress] is null until the core reports the first step; [aiName] is the provider picking songs. */
     data class Building(val progress: RideProgress?, val aiName: String?) : RideUi
 
-    /** The plan, before riding. [saved] is its entry in "My rides" (saved by itself, or the one being ridden again). */
-    data class Preview(val built: RideBuilt, val saved: SavedRideSummary? = null) : RideUi
+    /**
+     * The plan, before riding. [saved] is its entry in "My rides" (saved by itself, or the one being ridden again).
+     * [rebuilding]: "new songs" runs and the plan stays on screen until the new one replaces it;
+     * [rebuildError]: the last "new songs" failed (this plan is still ready).
+     */
+    data class Preview(
+        val built: RideBuilt,
+        val saved: SavedRideSummary? = null,
+        val rebuilding: Building? = null,
+        val rebuildError: String? = null,
+    ) : RideUi
 
     /** Riding (or paused): the clock is [RideSession.frame]. */
     data class Riding(val plan: RidePlan) : RideUi
@@ -86,10 +98,11 @@ data class RideForm(
     /** The workout the AI chat designed; null builds [style] at [minutes]. */
     val workout: RideWorkout? = null,
 ) {
-    fun toRequest() = RideRequest(
+    /** [taste] is the saved setting (the setup's taste chips edit the settings, not the form). */
+    fun toRequest(taste: RideTaste) = RideRequest(
         minutes = minutes.toUShort(),
         style = style,
-        wish = MusicWish(genres.toList(), mix, sentence.trim()),
+        wish = MusicWish(genres.toList(), mix, sentence.trim(), taste),
         workout = workout,
     )
 }
@@ -180,9 +193,20 @@ class RideSession(private val app: HomefiApplication) {
     private var lyricsSig: LyricsSig? = null
     private var lyricsJob: Job? = null
 
+    /** Artists the library has the most songs of in the genres picked (for "artists you like"). */
+    private val _suggestions = MutableStateFlow<List<String>>(emptyList())
+    val suggestions: StateFlow<List<String>> = _suggestions.asStateFlow()
+    private var suggestionsJob: Job? = null
+
     private val listener = object : RideListener {
         override fun onProgress(progress: RideProgress) {
-            _ui.update { if (it is RideUi.Building) it.copy(progress = progress) else it }
+            _ui.update {
+                when {
+                    it is RideUi.Building -> it.copy(progress = progress)
+                    it is RideUi.Preview && it.rebuilding != null -> it.copy(rebuilding = it.rebuilding.copy(progress = progress))
+                    else -> it
+                }
+            }
         }
     }
 
@@ -239,7 +263,7 @@ class RideSession(private val app: HomefiApplication) {
     fun startChat() {
         if (_chat.value.started) return
         val ready = app.ai.ready() ?: return
-        val session = ExerciseSession(ready.config, ready.key, _form.value.toRequest(), languageTag())
+        val session = ExerciseSession(ready.config, ready.key, _form.value.toRequest(settings.taste), languageTag())
         chatSession = session
         _chat.value = RideChat(thinking = true)
         scope.launch {
@@ -284,30 +308,63 @@ class RideSession(private val app: HomefiApplication) {
 
     // -------------------------------------------------------------- build
 
-    fun build() {
+    /** Builds the ride of the form from the setup (the build screen shows the steps). */
+    fun build() = launchBuild(inPlace = false)
+
+    /**
+     * "New songs" from the preview: the same ride built again while the plan stays on screen with the progress
+     * in it. The core reuses what the last build found, so it is quick; a failure keeps this plan.
+     */
+    fun rebuild() = launchBuild(inPlace = _ui.value is RideUi.Preview)
+
+    private fun launchBuild(inPlace: Boolean) {
         buildJob?.cancel()
         buildJob = scope.launch {
             val form = _form.value
+            val request = form.toRequest(settings.taste)
             val ready = if (form.useAi) withContext(Dispatchers.IO) { app.ai.ready() } else null
-            _ui.value = RideUi.Building(null, ready?.info?.name)
+            val building = RideUi.Building(null, ready?.info?.name)
+            val previous = _ui.value as? RideUi.Preview
+            _ui.value = if (inPlace && previous != null) previous.copy(rebuilding = building, rebuildError = null) else building
             try {
                 val built = app.engine.exerciseBuild(
-                    form.toRequest(), settings, ready?.config, ready?.key, languageTag(), libraryRefs(), listener,
+                    request, settings, ready?.config, ready?.key, languageTag(), libraryRefs(), listener,
                 )
                 // every successful build is kept in "My rides" so a good one can be ridden again without the AI
-                val saved = app.rides.autoSave(form.toRequest(), built, languageTag(), settings.rideHistoryMax)
+                val saved = app.rides.autoSave(request, built, languageTag(), settings.rideHistoryMax)
                 _ui.value = RideUi.Preview(built, saved)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _ui.value = RideUi.Failed(e.userMessage())
+                val shown = _ui.value
+                _ui.value = if (shown is RideUi.Preview) shown.copy(rebuilding = null, rebuildError = e.userMessage())
+                else RideUi.Failed(e.userMessage())
             }
         }
     }
 
+    /** Stops the build: back to the setup, or (for "new songs") to the plan that was on screen. */
     fun cancelBuild() {
         buildJob?.cancel()
-        _ui.value = RideUi.Setup
+        _ui.update { if (it is RideUi.Preview) it.copy(rebuilding = null) else RideUi.Setup }
+    }
+
+    // -------------------------------------------------------------- taste
+
+    /** The taste answers are settings: every change is saved and the next ride starts from it. */
+    fun updateTaste(transform: (RideTaste) -> RideTaste) {
+        val current = settings
+        app.settings.setExercise(current.copy(taste = transform(current.taste)))
+    }
+
+    /** Re-reads the artists to suggest for [genres] (off the main thread; the newest call wins). */
+    fun loadSuggestions(genres: Set<String>) {
+        suggestionsJob?.cancel()
+        suggestionsJob = scope.launch {
+            _suggestions.value = withContext(Dispatchers.Default) {
+                runCatching { exerciseArtistSuggestions(app.library.refs(), genres.toList()) }.getOrDefault(emptyList())
+            }
+        }
     }
 
     private suspend fun libraryRefs(): List<LibraryRef> = withContext(Dispatchers.Default) { app.library.refs() }
@@ -377,14 +434,16 @@ class RideSession(private val app: HomefiApplication) {
             ticks = 0
             lyricsJob?.cancel()
             lyricsSig = null
-            val audioToTv = settings.tvEnabled && settings.tvAudio == TvAudio.TV
+            // on a TV the ride is drawn by this TV's own WebView, from the local server, and its music plays here
+            val onTv = app.deviceForm == DeviceForm.TV
+            val audioToTv = !onTv && settings.tvEnabled && settings.tvAudio == TvAudio.TV
             app.player.playItems(
                 items.items, 0, false, built.playlist.source(), autoplay = !audioToTv, repeatMode = Player.REPEAT_MODE_OFF,
             )
             _ui.value = RideUi.Riding(built.plan)
             _open.value = true
             startLoop()
-            if (settings.tvEnabled) startTv(built.plan, audioToTv, built.playlist.name)
+            if (settings.tvEnabled || onTv) startTv(built.plan, audioToTv, built.playlist.name)
         }
     }
 
@@ -562,7 +621,8 @@ class RideSession(private val app: HomefiApplication) {
             ),
         )
         _tv.value = RideTvStatus(url = url.getOrNull(), audioOnTv = listen != null, waitingForTv = listen != null)
-        url.getOrNull()?.let(app.tvPairings::sendRide) // a paired TV opens the ride by itself
+        // a paired TV opens the ride by itself (a TV that runs the ride has no one to tell)
+        if (app.deviceForm != DeviceForm.TV) url.getOrNull()?.let(app.tvPairings::sendRide)
         if (listen == null) {
             if (audioToTv) _notice.value = R.string.ex_tv_audio_fallback
             app.player.player?.play()

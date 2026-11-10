@@ -11,6 +11,7 @@
   import Mountain from "./Mountain.svelte";
   import SavedRides from "./SavedRides.svelte";
   import StylePicker from "./StylePicker.svelte";
+  import TasteChips from "./TasteChips.svelte";
   import WhereToWatch from "./WhereToWatch.svelte";
   import Icon from "../Icon.svelte";
 
@@ -88,6 +89,8 @@
             </div>
           </div>
         {/if}
+
+        <TasteChips />
 
         <label class="lbl sentence" for="ex-sentence">Or tell the AI in a sentence (optional)</label>
         <input

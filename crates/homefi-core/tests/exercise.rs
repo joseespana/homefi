@@ -11,9 +11,9 @@ use homefi_core::ai::{AiConfig, AiProvider};
 use homefi_core::api::{TidalApi, TidalClient};
 use homefi_core::dj::DjAnalysis;
 use homefi_core::exercise::{
-    beginner_caps, build, Analyzer, BpmSource, BuildContext, ExerciseSession, ExerciseSettings, Interval, MusicWish,
-    Position, PresetId, PulseSource, RideProgress, RideRequest, RpmRange, Segment, SegmentKind, SourcesMode, Target,
-    Workout,
+    beginner_caps, build, build_with_memory, Analyzer, BpmSource, BuildContext, ExerciseSession, ExerciseSettings,
+    Interval, MusicWish, Position, PresetId, PulseSource, RideProgress, RideRequest, RpmRange, Segment, SegmentKind,
+    SourcesMode, Target, Workout,
 };
 use homefi_core::humane::Lang;
 use homefi_core::playlist::{LibraryIndex, LibraryRef, PlaylistEntry, PlaylistOrigin};
@@ -133,7 +133,7 @@ impl Fixture {
 fn request(workout: Workout, genres: &[&str], mix: bool) -> RideRequest {
     RideRequest {
         minutes: 15,
-        wish: MusicWish { genres: genres.iter().map(|g| (*g).to_owned()).collect(), mix, sentence: String::new() },
+        wish: MusicWish { genres: genres.iter().map(|g| (*g).to_owned()).collect(), mix, ..MusicWish::default() },
         workout: Some(workout),
         ..RideRequest::default()
     }
@@ -272,7 +272,7 @@ async fn the_ais_candidates_are_resolved_and_kept_only_when_their_tempo_fits() {
         .find(|r| r.method.as_str() == "POST")
         .map(|r| String::from_utf8_lossy(&r.body).into_owned())
         .unwrap();
-    assert!(body.contains("segment 2") && body.contains("BPM") && body.contains("only rock"));
+    assert!(body.contains("segment 2") && body.contains("BPM") && body.contains("only <genres>rock</genres>"));
     assert!(!body.contains("sk-test"));
 }
 
@@ -536,4 +536,150 @@ async fn the_ride_ends_close_to_the_length_asked_whatever_the_songs_and_songs_ar
             }
         }
     }
+}
+
+/// Tidal's search for "<artist> <title>" as the AI wrote it: the track that comes back may be by someone
+/// else (a cover band). Rows: (artist asked, title, artist of the track found, tempo).
+struct Catalog(&'static [(&'static str, &'static str, &'static str, i64)]);
+
+impl Respond for Catalog {
+    fn respond(&self, request: &Request) -> ResponseTemplate {
+        let query =
+            request.url.query_pairs().find(|(k, _)| k == "query").map(|(_, v)| v.into_owned()).unwrap_or_default();
+        let items = self
+            .0
+            .iter()
+            .enumerate()
+            .filter(|(_, (asked, title, _, _))| query == format!("{asked} {title}"))
+            .map(|(i, (_, title, found, bpm))| track(700 + i as i64, title, found, Some(*bpm), SONG_SECONDS))
+            .collect();
+        ResponseTemplate::new(200).set_body_json(page(items))
+    }
+}
+
+fn two_flats() -> Workout {
+    let flat = seg(SegmentKind::SeatedFlat, (85, 100), Position::Seated, None);
+    Workout { segments: vec![flat.clone(), flat], ..four_segments() }
+}
+
+async fn requests_to(server: &MockServer, verb: &str) -> Vec<String> {
+    let sent = server.received_requests().await.unwrap();
+    sent.iter().filter(|r| r.method.as_str() == verb).map(|r| String::from_utf8_lossy(&r.body).into_owned()).collect()
+}
+
+#[tokio::test]
+async fn a_rebuild_reuses_what_was_found_plays_new_songs_and_asks_the_ai_only_when_nothing_new_is_left() {
+    let server = MockServer::start().await;
+    const ROWS: &[(&str, &str, &str, i64)] = &[
+        ("Metallica", "Enter Sandman", "Metallica", 92),
+        ("Iron Maiden", "The Trooper", "Iron Maiden", 90),
+        ("Megadeth", "Symphony of Destruction", "Megadeth", 94),
+        ("Slayer", "Raining Blood", "Slayer", 96),
+    ];
+    Mock::given(method("GET")).and(path("/v1/search")).respond_with(Catalog(ROWS)).mount(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/messages"))
+        .respond_with(proposals(&[
+            &[("Enter Sandman", "Metallica"), ("The Trooper", "Iron Maiden")],
+            &[("Symphony of Destruction", "Megadeth"), ("Raining Blood", "Slayer")],
+        ]))
+        .mount(&server)
+        .await;
+    let api = tidal_api(&server);
+    let ai = ai_config(&server);
+    let fx = Fixture::new();
+    let ctx = fx.ctx(Some(&api), Some(&ai), None);
+    let ask = request(two_flats(), &["metal"], false);
+    let titles = |b: &homefi_core::exercise::RideBuilt| -> Vec<String> {
+        b.plan.songs.iter().map(|s| s.entry.title.clone()).collect()
+    };
+
+    let (first, memory) = build_with_memory(&ask, &ctx, &|_| {}, None).await.unwrap();
+    assert_eq!(titles(&first), ["Enter Sandman", "Symphony of Destruction"], "the AI's best-known first");
+    let (searches, ai_calls) = (requests_to(&server, "GET").await.len(), requests_to(&server, "POST").await.len());
+    assert_eq!((searches, ai_calls), (4, 1));
+
+    // "new songs": the same request plays the songs not played yet, with no call at all
+    let (second, memory) = build_with_memory(&ask, &ctx, &|_| {}, Some(memory)).await.unwrap();
+    assert_eq!(titles(&second), ["The Trooper", "Raining Blood"]);
+    assert_eq!(requests_to(&server, "GET").await.len(), searches, "nothing searched again");
+    assert_eq!(requests_to(&server, "POST").await.len(), ai_calls, "the AI is not asked when new songs are left");
+
+    // nothing new is left: the AI is asked again, told what it proposed before
+    let (third, memory) = build_with_memory(&ask, &ctx, &|_| {}, Some(memory)).await.unwrap();
+    assert_eq!(third.plan.songs.len(), 2, "an old song is better than none");
+    let posts = requests_to(&server, "POST").await;
+    assert_eq!(posts.len(), 2);
+    assert!(posts[1].contains("do not propose any of these again") && posts[1].contains("Metallica - Enter Sandman"));
+
+    // other inputs: the memory is not used, everything is found again
+    let other = request(two_flats(), &["rock"], false);
+    build_with_memory(&other, &ctx, &|_| {}, Some(memory)).await.unwrap();
+    assert_eq!(requests_to(&server, "POST").await.len(), 3);
+}
+
+#[tokio::test]
+async fn a_proposal_that_resolves_to_another_artist_is_left_out() {
+    let server = MockServer::start().await;
+    const ROWS: &[(&str, &str, &str, i64)] = &[
+        // Tidal answers a lullaby cover for the asked song: same title, someone else
+        ("Metallica", "Enter Sandman", "Rockabye Baby!", 92),
+        ("Iron Maiden", "The Trooper", "Iron Maiden", 90),
+    ];
+    Mock::given(method("GET")).and(path("/v1/search")).respond_with(Catalog(ROWS)).mount(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/messages"))
+        .respond_with(proposals(&[&[("Enter Sandman", "Metallica"), ("The Trooper", "Iron Maiden")]]))
+        .mount(&server)
+        .await;
+    let api = tidal_api(&server);
+    let ai = ai_config(&server);
+    let fx = Fixture::new();
+    let workout = Workout { segments: two_flats().segments[..1].to_vec(), ..four_segments() };
+    let built =
+        build(&request(workout, &["metal"], false), &fx.ctx(Some(&api), Some(&ai), None), &|_| {}).await.unwrap();
+    assert_eq!(built.plan.songs[0].entry.artist, "Iron Maiden", "the cover is not the song asked for");
+}
+
+/// Reads only songs with a file, like the phone's analyzer.
+struct FilesOnly(FakeAnalyzer);
+
+impl Analyzer for FilesOnly {
+    fn can_read(&self, entry: &PlaylistEntry) -> bool {
+        entry.local_path.is_some()
+    }
+
+    fn analyze<'a>(
+        &'a self,
+        entry: &'a PlaylistEntry,
+    ) -> Pin<Box<dyn Future<Output = Option<DjAnalysis>> + Send + 'a>> {
+        self.0.analyze(entry)
+    }
+}
+
+#[tokio::test]
+async fn songs_the_analyzer_cannot_read_do_not_use_up_the_budget() {
+    let server = MockServer::start().await;
+    // the AI's first pick is a Tidal-only song with no tempo, its second a library file with no tag
+    Mock::given(method("GET")).and(path("/v1/search")).respond_with(SongSearch).mount(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/messages"))
+        .respond_with(proposals(&[&[("Unknown Tempo", "Mystery"), ("Song 0", "Artist 0")]]))
+        .mount(&server)
+        .await;
+    let api = tidal_api(&server);
+    let ai = ai_config(&server);
+    let fx = Fixture {
+        settings: ExerciseSettings { analysis_budget: 1, ..ExerciseSettings::default() },
+        library: LibraryIndex::new(vec![library_song(0, "Metal", None, SONG_SECONDS as u64)]),
+    };
+    let analyzer = FilesOnly(FakeAnalyzer { calls: AtomicUsize::new(0) });
+    let workout = Workout { segments: two_flats().segments[..1].to_vec(), ..four_segments() };
+    let built = build(&request(workout, &["metal"], false), &fx.ctx(Some(&api), Some(&ai), Some(&analyzer)), &|_| {})
+        .await
+        .unwrap();
+    let song = &built.plan.songs[0];
+    assert_eq!(song.entry.title, "Song 0");
+    assert_eq!(song.source, Some(BpmSource::Analysis), "the one analysis went to the file, not the Tidal-only song");
+    assert_eq!(analyzer.0.calls.load(Ordering::SeqCst), 1);
 }

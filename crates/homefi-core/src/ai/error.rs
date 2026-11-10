@@ -37,6 +37,8 @@ pub enum AiErrorKind {
     NoWebSearch,
 }
 
+const TRUNCATED: &str = "answer cut off at the output limit";
+
 /// An AI call that failed. `Display` is the technical text for logs;
 /// [`AiError::humane_in`] is for screens.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -57,6 +59,16 @@ impl AiError {
             kind,
             detail: scrub(detail.into(), config),
         }
+    }
+
+    /// The answer hit the output cap and was cut off: what came back can't be trusted.
+    pub(crate) fn truncated(config: &AiConfig) -> Self {
+        Self::new(config, AiErrorKind::BadAnswer, TRUNCATED)
+    }
+
+    /// True for [`AiError::truncated`].
+    pub fn is_truncated(&self) -> bool {
+        self.kind == AiErrorKind::BadAnswer && self.detail == TRUNCATED
     }
 
     /// From a failed request (no answer at all).
@@ -167,6 +179,10 @@ impl AiError {
             AiErrorKind::Timeout => (
                 format!("{p} is taking too long to answer. Try again in a moment."),
                 format!("{p} está tardando demasiado en responder. Vuelve a intentarlo en un momento."),
+            ),
+            AiErrorKind::BadAnswer if self.is_truncated() => (
+                format!("{p} ran out of room before it finished the answer. Try again, or ask for something shorter."),
+                format!("{p} se quedó sin espacio antes de terminar la respuesta. Vuelve a intentarlo o pide algo más corto."),
             ),
             AiErrorKind::BadAnswer => (
                 format!("{p} sent something unexpected. Try again or pick another model."),

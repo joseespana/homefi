@@ -20,7 +20,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::chat::{chat, Message, Tool};
+use super::chat::{chat_with, ChatOptions, Message, Tool, REACTION_TOKENS};
 use super::eq_assistant::{scope_arg, OutputKind};
 use super::{resolve_model, AiConfig};
 use crate::dsp::taste::hz;
@@ -325,6 +325,36 @@ fn band_step(bands: &[TasteBand], spot: Spot, delta: f32, es: bool) -> Option<Ve
     Some(out)
 }
 
+/// How many sounds besides the one for the scope and the playing one go to the model.
+const NEIGHBOUR_RULES: usize = 3;
+
+/// The sounds the model needs, not the whole library (a long list costs tokens on every tap):
+/// the one covering the default scope, the playing one, and up to [`NEIGHBOUR_RULES`] more that
+/// cover the other scopes it may choose (what plays now).
+fn relevant_rules<'a>(ctx: &'a ReactionContext, playing: Option<&str>) -> Vec<&'a TasteRule> {
+    let output = ctx.active_output.as_deref();
+    let mut out: Vec<&TasteRule> = Vec::new();
+    let add = |rule: &'a TasteRule, room: usize, out: &mut Vec<&'a TasteRule>| {
+        if out.len() < room && !out.iter().any(|r| r.id == rule.id) {
+            out.push(rule);
+        }
+    };
+    let own = ctx.default_scope().and_then(|s| ctx.taste.sound_covering(&s, output));
+    own.into_iter().for_each(|r| add(r, usize::MAX, &mut out));
+    playing
+        .and_then(|id| ctx.taste.rules.iter().find(|r| r.id == id))
+        .into_iter()
+        .for_each(|r| add(r, usize::MAX, &mut out));
+    let room = out.len() + NEIGHBOUR_RULES;
+    let genres = ctx.now_playing.genres.iter().map(|g| TasteScope::Genre { name: g.clone() });
+    for scope in ctx.now_playing.scopes().into_iter().chain(genres) {
+        if let Some(rule) = ctx.taste.sound_covering(&scope, output) {
+            add(rule, room, &mut out);
+        }
+    }
+    out
+}
+
 /// The reaction with AI: one short call that chooses the scope and words the
 /// line (`set_taste_rule`), validated like [`react_guided`]; on any failure
 /// (no key, offline, no tool call) the fixed steps answer instead.
@@ -357,7 +387,7 @@ async fn react_ai(reaction: SoundReaction, ctx: &ReactionContext, config: &AiCon
         "nowPlaying": ctx.now_playing,
         "scopeHint": ctx.scope_hint,
         "builtInSpeaker": ctx.small_speaker(),
-        "rules": ctx.taste.rules,
+        "rules": relevant_rules(ctx, playing.as_deref()),
         "playingRuleId": playing,
         "suggestedByFixedSteps": guided.rule.as_ref().map(|r| json!({ "scope": ctx.default_scope(), "tilt": r.tilt, "bands": r.bands })),
     });
@@ -399,14 +429,16 @@ async fn react_ai(reaction: SoundReaction, ctx: &ReactionContext, config: &AiCon
                         "required": ["kind", "freqHz", "gainDb", "q"]
                     }
                 },
-                "label": { "type": "string", "description": "Short rule name in the user's language" },
-                "message": { "type": "string", "description": "One line for the user" }
+                "label": { "type": "string", "description": "Short rule name in the user's language" }
             },
-            "required": ["scope", "tilt", "message"]
+            "required": ["scope", "tilt"]
         }),
     };
     let kick = if es { "(El oyente tocó una reacción.)" } else { "(The listener tapped a reaction.)" };
-    let reply = chat(&config, &system, &[Message::User { text: kick.into() }], std::slice::from_ref(&tool)).await?;
+    let options = ChatOptions { max_tokens: Some(REACTION_TOKENS), ..Default::default() };
+    let reply =
+        chat_with(&config, &system, &[Message::User { text: kick.into() }], std::slice::from_ref(&tool), &options)
+            .await?;
     let Some(call) = reply.tool_calls.into_iter().find(|c| c.name == "set_taste_rule") else { return Ok(None) };
     let args = &call.arguments;
     let Ok(scope) = scope_arg(args.get("scope")) else { return Ok(None) };
@@ -438,9 +470,7 @@ async fn react_ai(reaction: SoundReaction, ctx: &ReactionContext, config: &AiCon
     let mut out =
         ReactionResult { taste: ctx.taste.clone(), loudness: ctx.loudness, by_ai: true, ..Default::default() };
     finish(&mut out, rule, &scope, base, &base_bands, es);
-    if let Some(m) = args.get("message").and_then(Value::as_str).map(str::trim).filter(|m| !m.is_empty()) {
-        out.message = m.lines().next().unwrap_or(m).chars().take(140).collect();
-    }
+    // the line for the user is the app's (`finish`): it says what really changed after the limits
     Ok(Some(out))
 }
 
@@ -551,8 +581,8 @@ something is missing (bass, air, voices). On a built-in speaker never add more t
 150 Hz. Typical changes per tap at the Balanced intensity (scale by intensity: Subtle x0.6, Bold x1.5; the app allows at \
 most {step_db} dB per tap, per knob or band, at the listener's intensity, `intensity` in the facts):
 {examples}
-`message`: one short line in {language} saying what changed and for which music (\"-3 dB at 3.5 kHz for Rock: softer \
-cymbals\"). Facts (JSON): {facts}"
+`label`, if you send one, and the `note` of each band are in {language}; the app words the message for the listener \
+itself. Facts (JSON): {facts}"
     )
 }
 
@@ -1003,7 +1033,7 @@ mod tests {
                         {"kind": "highShelf", "freqHz": 9000, "gainDb": -1, "q": 0.7},
                         {"kind": "bell", "freqHz": 60, "gainDb": 1, "q": 1}
                     ],
-                    "message": "Menos filo para Electronic."
+                    "message": "Not in the schema any more, and ignored"
                 }}],
                 "stop_reason": "tool_use"
             })))
@@ -1031,7 +1061,34 @@ mod tests {
         assert_eq!(rule.bands[0].band.freq_hz, 3400.0);
         assert_eq!(rule.bands[0].note, "menos filo");
         assert_eq!((rule.bands[1].band.freq_hz, rule.bands[1].band.gain_db), (7000.0, -2.0));
-        assert_eq!(r.message, "Menos filo para Electronic.");
+        // the line is the app's, about what really changed, never the model's
+        assert!(r.message.ends_with("para Electronic."), "{}", r.message);
+        assert!(!r.message.contains("ignored"), "{}", r.message);
+    }
+
+    #[test]
+    fn the_model_sees_only_the_rules_around_the_scope() {
+        let mut c = ctx("en");
+        let named =
+            |scope: TasteScope, label: &str| TasteRule::for_target(scope, Tilt::default(), label, TasteCreator::Manual);
+        let genre = |n: &str| TasteScope::Genre { name: n.into() };
+        c.taste.upsert(named(genre("Electronic"), "own"));
+        c.taste.upsert(named(genre("House"), "near house"));
+        c.taste.upsert(named(TasteScope::Artist { id: String::new(), name: "Daft Punk".into() }, "near artist"));
+        // far away from what plays: never sent
+        for i in 0..20 {
+            c.taste.upsert(named(genre(&format!("Other {i}")), "far"));
+        }
+        let sent = relevant_rules(&c, None);
+        let labels: Vec<_> = sent.iter().map(|r| r.label.as_str()).collect();
+        // the most specific sound that plays (the artist's) comes first
+        assert_eq!(labels[0], "near artist");
+        assert!(labels.len() <= 1 + NEIGHBOUR_RULES, "{labels:?}");
+        assert!(!labels.contains(&"far"), "{labels:?}");
+        assert!(labels.contains(&"near house") && labels.contains(&"own"), "{labels:?}");
+        // no duplicates when the playing rule is the one for the scope
+        let playing = sent[0].id.clone();
+        assert_eq!(relevant_rules(&c, Some(&playing)).iter().filter(|r| r.id == playing).count(), 1);
     }
 
     #[test]
@@ -1123,7 +1180,7 @@ mod tests {
                     "scope": {"kind": "artist", "name": "daft punk"},
                     "tilt": {"bassDb": 12},
                     "label": "Daft Punk con más bajo",
-                    "message": "Le subí el bajo a Daft Punk.\nOtra línea"
+                    "message": "Lowered the bass a lot"
                 }}],
                 "stop_reason": "tool_use"
             })))
@@ -1136,7 +1193,7 @@ mod tests {
         assert_eq!(rule.main_target(), Some(&TasteScope::Artist { id: String::new(), name: "Daft Punk".into() }));
         assert_eq!(rule.tilt.bass_db, TasteIntensity::Balanced.limits().step_db, "at most 3 dB per tap");
         assert_eq!(rule.created_by, TasteCreator::Ai);
-        assert_eq!(r.message, "Le subí el bajo a Daft Punk.");
+        assert_eq!(r.message, "+3 dB de bajo para Daft Punk.");
     }
 
     #[tokio::test]

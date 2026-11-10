@@ -6,6 +6,9 @@ part, what comes next and how to set up a new machine.
 Rules from the owner (José):
 
 - Talk to him in Spanish.
+- The main law of the system: security, performance and user experience ("seguridad,
+  performance y experiencia de usuario son la principal ley del sistema"). Every change is
+  judged against the three; when they conflict, security wins, then what the user feels.
 - Everything is configurable, on Android and desktop alike ("que todo sea
   configurable en phone y en desktop todo porque es nuestra filosofia"). A new
   look or behaviour is a setting on both platforms.
@@ -26,6 +29,8 @@ Rules from the owner (José):
   integrates their work; the main session launches them, since subagents can't); those agents
   (`frontend-developer`, `backend-developer`, `rust-pro`, `kotlin-specialist`, `mobile-developer`,
   `ui-designer`) run on Sonnet 5.5.
+  `performance-engineer` measures and fixes speed, memory and size; `prompt-engineer` reviews the
+  AI prompts inside `homefi-core` (both Sonnet 5.5).
   HomeFi's own guides are the `homefi-*` skills; the installed generic skills are references.
 - Before saying something is done: `make check`, `pnpm check` in
   `apps/desktop`, and `./gradlew -q compileDebugKotlin -Phomefi.skipRust=true`

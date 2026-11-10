@@ -18,6 +18,7 @@ mod error;
 mod gemini;
 pub mod guided;
 mod openai;
+pub(crate) mod prompt;
 pub mod reactions;
 pub(crate) mod replies;
 mod web_search;
@@ -30,7 +31,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::humane::Lang;
 
-pub use chat::{chat, chat_with, ChatOptions, ChatReply, Message, Tool, ToolCall, ToolResult};
+pub use chat::{
+    chat, chat_system, chat_with, ChatOptions, ChatReply, Message, System, Tool, ToolCall, ToolResult,
+    MAX_OUTPUT_CEILING,
+};
 pub use eq_assistant::{
     AssistantContext, AssistantState, AssistantTurn, AudioOutput, EqAssistant, EqProposal, EqSession, ListeningSummary,
     OutputKind, SavedSession, TranscriptLine,

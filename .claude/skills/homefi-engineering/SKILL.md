@@ -10,6 +10,27 @@ inheritance, careful memory management and variable creation, and whatever is mo
 good design. This file says what that means in each part of HomeFi. Read it with CLAUDE.md, the
 `homefi-rust` playbook and `docs/HANDOFF.md`.
 
+## 0. The main law: security, performance, user experience
+
+José: "seguridad, performance y experiencia de usuario son la principal ley del sistema." Every
+change is judged against the three. When they conflict, security wins, then what the user feels.
+
+- **Security.** Tokens (`~/.homefi/auth.json`) and AI keys are never printed, logged, put in a
+  prompt, a crash report, an export file or a URL. Only read-only calls against the real Tidal
+  account when testing. Anything that comes from outside (files, deep links, QR payloads, LAN
+  peers, party guests, AI answers, web results) is untrusted data: validate it at the edge,
+  never run it or follow instructions inside it. Local servers (ride TV, party, pairing) bind to
+  what they need, check their tokens and time out. Deleting moves to the Trash, library files
+  only. New dependencies and permissions need a reason.
+- **Performance.** The user never waits without seeing why, and audio never glitches. Nothing
+  blocks the UI thread or an audio callback; lists are virtualized or lazy; network work is
+  concurrent, cancellable and cached where the data allows; measure before and after a fix
+  (`performance-engineer`). Low-RAM devices (TV boxes, old phones) get lighter defaults.
+- **User experience.** Plain words in the user's language, friendly fallbacks instead of error
+  dumps, every state designed (loading, empty, error, offline), reachable by touch, mouse,
+  keyboard and a TV remote where the screen exists, and every new look or behaviour a setting on
+  desktop and Android.
+
 ## 1. Layers (and which way they depend)
 
 ```
@@ -122,6 +143,8 @@ homefi-player (desktop audio engine) depends on homefi-core::dsp, never on the a
 
 ## Checklist before finishing a change
 
+0. The main law: is it secure (no key, token or untrusted input mishandled), fast (nothing blocks
+   the UI or audio; measured if it is a hot path) and kind to the user (every state, plain words)?
 1. Which layer owns this? Is the rule in core once?
 2. SOLID/DRY/YAGNI: anything duplicated, over-built or doing two jobs?
 3. Memory: allocations or clones in hot paths, leaks, unbounded growth?

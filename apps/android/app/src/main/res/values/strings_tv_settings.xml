@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- TV Settings: pages (docs/TV_UI.md 6.9) -->
+    <string name="tv_set_cat_look">Look</string>
+    <string name="tv_set_cat_look_about">Theme, skin, motion, text size and screen margins.</string>
+    <string name="tv_set_cat_player">Player</string>
+    <string name="tv_set_cat_player_about">The full-screen player: panel, controls, seek step and the signal chain.</string>
+    <string name="tv_set_cat_sound">Sound and DJ</string>
+    <string name="tv_set_cat_sound_about">Equalizer step, Sound buttons and DJ mode (it needs a mouse).</string>
+    <string name="tv_set_cat_downloads">Downloads</string>
+    <string name="tv_set_cat_downloads_about">Quality, where music is saved, free space and the tags it carries.</string>
+    <string name="tv_set_cat_tidal">TIDAL</string>
+    <string name="tv_set_cat_tidal_about">Your account and how TIDAL lists and albums load.</string>
+    <string name="tv_set_cat_party">Party</string>
+    <string name="tv_set_cat_party_about">When this TV hosts a party: who adds songs, notices and the speaker delay.</string>
+    <string name="tv_set_cat_tv">This TV</string>
+    <string name="tv_set_cat_tv_about">Screensaver, keeping the screen on, voice input and updates.</string>
+    <string name="tv_set_cat_lyrics">Lyrics</string>
+    <string name="tv_set_cat_lyrics_about">How the lyrics and karaoke look and keep time.</string>
+    <string name="tv_set_cat_ai_about">Your own AI key makes the chats, sounds and playlists talk. It stays on this TV.</string>
+    <string name="tv_set_cat_about">About</string>
+    <string name="tv_set_cat_about_about">What\'s new, updates and the version.</string>
+
+    <!-- values -->
+    <string name="tv_set_value_default">Default</string>
+    <string name="tv_set_on">On</string>
+    <string name="tv_set_off">Off</string>
+    <string name="tv_set_never">Never</string>
+    <string name="tv_set_seconds">%1$d s</string>
+    <string name="tv_set_minutes">%1$d min</string>
+    <string name="tv_set_mb">%1$d MB</string>
+    <string name="tv_set_gb">%1$d GB</string>
+    <string name="tv_set_percent">%1$d%%</string>
+    <string name="tv_set_count">%1$d</string>
+    <string name="tv_set_allowed">Allowed</string>
+    <string name="tv_set_not_allowed">Not allowed</string>
+    <string name="tv_set_updates_off">Not in this build</string>
+
+    <!-- rows -->
+    <string name="tv_set_progress_style">Progress bar style</string>
+    <string name="tv_set_text_size">Text size</string>
+    <string name="tv_set_text_size_hint">Makes every word on the TV smaller or bigger.</string>
+    <string name="tv_set_safe_margins">Keep inside the safe margins</string>
+    <string name="tv_set_safe_margins_hint">Turn it off on a TV that shows the whole picture.</string>
+    <string name="tv_set_player_panel">Panel the player opens on</string>
+    <string name="tv_set_player_panel_hint">Up on the remote switches panels while you listen.</string>
+    <string name="tv_set_panel_lyrics">Lyrics</string>
+    <string name="tv_set_panel_mascot">HomeFito</string>
+    <string name="tv_set_panel_visualizer">Visualizer</string>
+    <string name="tv_set_panel_queue">Queue</string>
+    <string name="tv_set_player_colours">Use the skin\'s colours in the player</string>
+    <string name="tv_set_player_colours_hint">Off uses the plain TV colours.</string>
+    <string name="tv_set_controls_hide">Hide the controls after</string>
+    <string name="tv_set_controls_hide_hint">Never keeps them on the screen.</string>
+    <string name="tv_set_seek">Skip step</string>
+    <string name="tv_set_seek_hint">What a held left / right, fast-forward and rewind move.</string>
+    <string name="tv_set_eq_step">Equalizer step</string>
+    <string name="tv_set_eq_step_hint">How far one press of up / down moves a band.</string>
+    <string name="tv_set_sound_button">Sound button in the player</string>
+    <string name="tv_set_tilt">Bass, treble and clarity sliders</string>
+    <string name="tv_set_dj_entry">DJ mode</string>
+    <string name="tv_set_dj_entry_hint">Automatic shows it only while a mouse is connected.</string>
+    <string name="tv_set_dj_auto">With a mouse</string>
+    <string name="tv_set_download_target">Save downloads to</string>
+    <string name="tv_set_download_target_hint">Ask me lets you pick the internal storage or a USB drive every time.</string>
+    <string name="tv_set_min_free">Keep this much free</string>
+    <string name="tv_set_min_free_hint">A drive under it is not written to.</string>
+    <string name="tv_set_usb_access">USB drive access</string>
+    <string name="tv_set_usb_access_hint">All files access lets HomeFi save in a HomeFi folder on the drive; without it, it uses its own folder there.</string>
+    <string name="tv_set_forget_drives">Forget remembered drives</string>
+    <string name="tv_set_forget_drives_hint">Drives whose songs the library keeps listed. The files stay on the drive.</string>
+    <string name="tv_set_stream_cache">TIDAL stream cache</string>
+    <string name="tv_set_stream_cache_hint">Space used to keep the songs you stream.</string>
+    <string name="tv_set_threads">Songs downloaded at once</string>
+    <string name="tv_set_account">TIDAL account</string>
+    <string name="tv_set_party_auto">Let guests\' songs in without asking</string>
+    <string name="tv_set_party_auto_hint">Off: every song a guest adds waits for your OK.</string>
+    <string name="tv_set_max_per_guest">Waiting songs per guest</string>
+    <string name="tv_set_notice_seconds">Notices stay on screen</string>
+    <string name="tv_set_start_wait">Wait for everyone on a new song</string>
+    <string name="tv_set_speaker_delay">Speaker delay</string>
+    <string name="tv_set_ui_form">Which app opens</string>
+    <string name="tv_set_ui_form_hint">Automatic follows the device. Change it only to test.</string>
+    <string name="tv_set_ui_auto">Automatic</string>
+    <string name="tv_set_ui_phone">Phone</string>
+    <string name="tv_set_ui_tv">TV</string>
+    <string name="tv_set_ambient">Screensaver after</string>
+    <string name="tv_set_ambient_hint">While music plays and nobody presses a key.</string>
+    <string name="tv_set_ambient_style">Screensaver shows</string>
+    <string name="tv_set_ambient_cover">The cover</string>
+    <string name="tv_set_ambient_karaoke">Karaoke lines</string>
+    <string name="tv_set_ambient_mascot">HomeFito</string>
+    <string name="tv_set_ambient_clock">Only the clock</string>
+    <string name="tv_set_keep_awake">Keep the screen on while music plays</string>
+    <string name="tv_set_keep_awake_hint">Off lets the TV go to sleep as it normally would.</string>
+    <string name="tv_set_awake_after">After pausing, keep it on for</string>
+    <string name="tv_set_awake_after_hint">Then the system screensaver can take over.</string>
+    <string name="tv_set_voice">Voice input</string>
+    <string name="tv_set_voice_hint">A mic button next to search and the AI chats. Your words go to Google\'s speech service.</string>
+    <string name="tv_set_ride_open">Open a phone\'s ride after</string>
+    <string name="tv_set_ride_open_hint">Off only shows the banner.</string>
+    <string name="tv_set_auto_update">Download updates by themselves</string>
+    <string name="tv_set_auto_update_hint">Installing still asks for your OK.</string>
+    <string name="tv_set_lyrics_timing">Lyrics timing</string>
+
+    <!-- AI page -->
+    <string name="tv_ai_key_type">Press OK and type the key with the on-screen keyboard.</string>
+    <string name="tv_ai_get_key">Get a key at %1$s</string>
+    <string name="tv_ai_loading">Loading…</string>
+    <string name="tv_ai_privacy">Your key stays on this TV, encrypted with the Android Keystore. HomeFi only sends it to %1$s, only to talk to the assistant.</string>
+
+    <!-- keyboard -->
+    <string name="tv_kb_symbols">#+= symbols</string>
+    <string name="tv_kb_letters">ABC letters</string>
+    <string name="tv_kb_shift">Shift</string>
+    <string name="tv_kb_show">Show</string>
+    <string name="tv_kb_hide">Hide</string>
+
+    <!-- DJ -->
+    <string name="tv_dj_ready_body">Two decks, a crossfader and pads, made for the mouse. Press Back to leave DJ mode.</string>
+    <string name="tv_dj_open">Open DJ mode</string>
+
+    <!-- USB access -->
+    <string name="tv_dl_paused_access">Paused: waiting for the USB access</string>
+    <string name="tv_dl_access_wait">Waiting for USB access</string>
+    <string name="tv_dl_access_wait_body">%1$d downloads wait for you to allow All files access. Come back and they go on, or press Resume to be asked again.</string>
+
+    <!-- Train on the TV -->
+    <string name="tv_train_here">Start a ride on this TV</string>
+    <string name="tv_train_phone_more">On the phone you can also pick genres, chat with the AI and reuse saved rides.</string>
+    <string name="tv_train_done">Done</string>
+</resources>

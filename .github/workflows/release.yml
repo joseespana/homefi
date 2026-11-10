@@ -5,7 +5,7 @@
 #   Linux (x86_64, arm64) .deb, .rpm and .AppImage. Each one also carries a minisign signature for
 #   the in-app updater (TAURI_SIGNING_PRIVATE_KEY secrets), and a tag gets `latest.json`.
 # - CLI archives for the same platforms
-# - Android APK (arm64-v8a, armeabi-v7a, x86_64)
+# - Android APK (arm64-v8a, armeabi-v7a)
 name: Release
 
 on:
@@ -286,7 +286,8 @@ jobs:
           HOMEFI_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           HOMEFI_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           HOMEFI_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew assembleRelease
+        # arm64 + armv7 only: x86_64 (emulators, Chromebooks) adds ~20 MB for almost no phones
+        run: ./gradlew assembleRelease -Phomefi.abis=arm64-v8a,armeabi-v7a
       - run: |
           mkdir -p pkg
           /bin/cp apps/android/app/build/outputs/apk/release/homefi-*-release.apk \

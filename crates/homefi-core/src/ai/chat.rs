@@ -107,6 +107,45 @@ pub struct ChatReply {
 pub struct ChatOptions {
     /// Let the model search the web with its provider's own tool.
     pub web_search: Option<WebSearch>,
+    /// Cap on the answer's tokens for this call; `None` is [`MAX_TOKENS`].
+    pub max_tokens: Option<u32>,
+}
+
+impl ChatOptions {
+    /// The cap for this call, never above [`MAX_OUTPUT_CEILING`].
+    pub(crate) fn output_cap(&self) -> u32 {
+        self.max_tokens.map_or(MAX_TOKENS, |t| t.clamp(MIN_OUTPUT_TOKENS, MAX_OUTPUT_CEILING))
+    }
+}
+
+/// A system prompt in two parts: `fixed` is the same bytes on every round (so Anthropic can
+/// cache it), `dynamic` changes with the app's state. Every other provider gets them joined,
+/// fixed first.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct System<'a> {
+    pub fixed: &'a str,
+    pub dynamic: &'a str,
+}
+
+impl<'a> System<'a> {
+    pub fn new(fixed: &'a str, dynamic: &'a str) -> Self {
+        Self { fixed, dynamic }
+    }
+
+    /// Both parts as one text.
+    pub fn joined(&self) -> std::borrow::Cow<'a, str> {
+        match (self.fixed.is_empty(), self.dynamic.is_empty()) {
+            (_, true) => self.fixed.into(),
+            (true, false) => self.dynamic.into(),
+            (false, false) => format!("{}{}", self.fixed, self.dynamic).into(),
+        }
+    }
+}
+
+impl<'a> From<&'a str> for System<'a> {
+    fn from(whole: &'a str) -> Self {
+        Self { fixed: "", dynamic: whole }
+    }
 }
 
 impl ChatReply {
@@ -116,8 +155,20 @@ impl ChatReply {
     }
 }
 
-/// Up to this many tokens per answer: plenty for a short chat turn.
+/// Up to this many tokens per answer when the call doesn't ask for more or less.
 pub(crate) const MAX_TOKENS: u32 = 4096;
+
+/// A chat turn: a few sentences and one or two tool calls.
+pub(crate) const CHAT_TURN_TOKENS: u32 = 2048;
+
+/// A reaction to a tap: a short message and one small change.
+pub(crate) const REACTION_TOKENS: u32 = 1024;
+
+/// A call's own cap never goes below this (a cap too small only truncates)...
+const MIN_OUTPUT_TOKENS: u32 = 256;
+
+/// ...or above this: every provider's current models accept it, and it bounds what one call can cost.
+pub const MAX_OUTPUT_CEILING: u32 = 16_384;
 
 /// Sends the conversation and returns the model's next answer.
 /// `config.model` must be set (see [`super::resolve_model`]).
@@ -134,6 +185,17 @@ pub async fn chat_with(
     tools: &[Tool],
     options: &ChatOptions,
 ) -> crate::Result<ChatReply> {
+    chat_system(config, &System::from(system), messages, tools, options).await
+}
+
+/// [`chat_with`] with the system prompt in a fixed and a dynamic part.
+pub async fn chat_system(
+    config: &AiConfig,
+    system: &System<'_>,
+    messages: &[Message],
+    tools: &[Tool],
+    options: &ChatOptions,
+) -> crate::Result<ChatReply> {
     config.check()?;
     if config.model.trim().is_empty() {
         return Err(AiError::new(config, AiErrorKind::ModelNotFound, "no model chosen").into());
@@ -146,11 +208,12 @@ pub async fn chat_with(
             .search_api()
             .ok_or_else(|| AiError::new(config, AiErrorKind::NoWebSearch, "no web search"))?,
     };
+    let cap = options.output_cap();
     let reply = match api {
-        Api::Anthropic => anthropic::chat(config, system, messages, tools, search).await?,
-        Api::OpenAiResponses => openai::responses(config, system, messages, tools, search).await?,
-        Api::ChatCompletions => openai::chat_completions(config, system, messages, tools, search).await?,
-        Api::Gemini => gemini::chat(config, system, messages, tools, search).await?,
+        Api::Anthropic => anthropic::chat(config, system, messages, tools, search, cap).await?,
+        Api::OpenAiResponses => openai::responses(config, system, messages, tools, search, cap).await?,
+        Api::ChatCompletions => openai::chat_completions(config, system, messages, tools, search, cap).await?,
+        Api::Gemini => gemini::chat(config, system, messages, tools, search, cap).await?,
     };
     Ok(reply)
 }
@@ -227,5 +290,21 @@ mod tests {
         assert_eq!(arguments(Some(&json!(""))), json!({}));
         assert_eq!(arguments(None), json!({}));
         assert_eq!(arguments(Some(&json!("oops"))), json!({"_raw": "oops"}));
+    }
+
+    #[test]
+    fn the_output_cap_is_the_default_or_the_calls_within_bounds() {
+        assert_eq!(ChatOptions::default().output_cap(), MAX_TOKENS);
+        let cap = |t| ChatOptions { max_tokens: Some(t), ..Default::default() }.output_cap();
+        assert_eq!(cap(1024), 1024);
+        assert_eq!(cap(1), MIN_OUTPUT_TOKENS);
+        assert_eq!(cap(u32::MAX), MAX_OUTPUT_CEILING);
+    }
+
+    #[test]
+    fn the_system_parts_join_fixed_first() {
+        assert_eq!(System::new("a", "b").joined(), "ab");
+        assert_eq!(System::new("a", "").joined(), "a");
+        assert_eq!(System::from("whole").joined(), "whole");
     }
 }

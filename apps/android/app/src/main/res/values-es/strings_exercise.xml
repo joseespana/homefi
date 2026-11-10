@@ -64,7 +64,7 @@
     <string name="ex_ratio_half">a medio tiempo</string>
     <string name="ex_ratio_double">a doble tiempo</string>
     <string name="ex_start">Empezar</string>
-    <string name="ex_another_mix">Volver a armar</string>
+    <string name="ex_another_mix">Canciones nuevas</string>
     <string name="ex_change">Cambiar</string>
     <string name="ex_kind_warm_up">Calentamiento</string>
     <string name="ex_kind_flat">Plano sentado</string>
@@ -202,4 +202,21 @@
     <string name="ex_look_alpine">Alpino</string>
     <string name="ex_look_stage">Escenario</string>
     <string name="ex_set_course_summits">Poner en las cumbres su tiempo</string>
+    <!-- gustos: qué tan famosas, época, artistas (ajustes guardados) -->
+    <string name="ex_taste_popularity">Qué tan famosas</string>
+    <string name="ex_pop_hits">Grandes éxitos</string>
+    <string name="ex_pop_mix">Mezcla</string>
+    <string name="ex_pop_discover">Descubrir</string>
+    <string name="ex_taste_era">Época</string>
+    <string name="ex_era_any">Cualquiera</string>
+    <string name="ex_taste_artists">Artistas (opcional)</string>
+    <string name="ex_taste_artists_count">Artistas (%1$d)</string>
+    <string name="ex_taste_like">Artistas que te gustan</string>
+    <string name="ex_taste_like_add">Agrega un artista que te guste</string>
+    <string name="ex_taste_avoid">Nunca poner</string>
+    <string name="ex_taste_avoid_add">Un artista que no quieras</string>
+    <string name="ex_taste_remove">Quitar %1$s</string>
+    <string name="ex_taste_add_suggestion">Agregar %1$s</string>
+    <string name="ex_rebuilding">Buscando canciones nuevas…</string>
+    <string name="ex_rebuild_failed">No se pudieron encontrar canciones nuevas. Esta rutina sigue lista.</string>
 </resources>
