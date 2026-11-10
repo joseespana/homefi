@@ -7,6 +7,8 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.12] - 2026-11-10
+
 ### Fixed
 - Exercise: with OpenRouter (and OpenAI's thinking models) a ride was never built by the AI. The
   model spent its whole answer thinking and never wrote the songs, so every ride fell back to a
