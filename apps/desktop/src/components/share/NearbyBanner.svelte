@@ -32,7 +32,7 @@
     gap: 12px;
     padding: 10px 12px;
     border-radius: var(--r-md);
-    background: color-mix(in srgb, var(--surface) 90%, transparent);
+    background: var(--surface-solid);
     border: 1px solid var(--border);
     box-shadow: var(--shadow);
     backdrop-filter: blur(18px) saturate(1.3);

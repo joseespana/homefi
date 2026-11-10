@@ -16,7 +16,7 @@ pub const DEFAULT_COUNTDOWN_SECONDS: u8 = 3;
 pub const MIN_NOTICE_SECONDS: u8 = 5;
 pub const MAX_NOTICE_SECONDS: u8 = 30;
 pub const DEFAULT_NOTICE_SECONDS: u8 = 10;
-pub const DEFAULT_CUE_VOLUME: f32 = 0.8;
+pub const DEFAULT_CUE_VOLUME: f32 = 0.6;
 pub const MAX_PULSE_OFFSET_MS: i16 = 500;
 pub const MIN_TV_PORT: u16 = 1024;
 pub const DEFAULT_TV_PORT: u16 = 47801;
@@ -233,7 +233,7 @@ mod tests {
         assert_eq!(s.tv_audio, TvAudio::Phone);
         assert_eq!((s.ride_minutes, s.cadence_tolerance_rpm, s.analysis_budget), (30, 4, 12));
         assert_eq!((s.countdown_seconds, s.segment_notice_seconds, s.tv_port), (3, 10, 47801));
-        assert_eq!((s.cue_volume, s.pulse_offset_ms, s.tempo_nudge_pct), (0.8, 0, 0));
+        assert_eq!((s.cue_volume, s.pulse_offset_ms, s.tempo_nudge_pct), (0.6, 0, 0));
         assert_eq!(
             (s.default_preset, s.sources, s.pulse_style),
             (PresetId::FirstRide, SourcesMode::LibraryFirst, PulseStyle::Ring)
@@ -267,7 +267,7 @@ mod tests {
         };
         let c = wild.clamped();
         assert_eq!((c.ride_minutes, c.cadence_tolerance_rpm, c.analysis_budget), (90, 2, 50));
-        assert_eq!((c.countdown_seconds, c.segment_notice_seconds, c.cue_volume), (10, 5, 0.8));
+        assert_eq!((c.countdown_seconds, c.segment_notice_seconds, c.cue_volume), (10, 5, 0.6));
         assert_eq!((c.pulse_offset_ms, c.tv_port, c.tempo_nudge_pct), (-500, 1024, 8));
         assert_eq!(c.tv_window_display, TV_DISPLAY_AUTO, "a blank name means auto");
         assert_eq!(c.ride_history_max, MIN_RIDE_HISTORY);

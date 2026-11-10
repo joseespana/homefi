@@ -17,6 +17,7 @@
   --bg: #08090c;
   --sidebar: rgb(10 12 16 / 0.32);
   --surface: rgb(22 24 30 / 0.72);
+  --surface-solid: #16181e;
   --surface-2: rgb(255 255 255 / 0.08);
   --surface-3: rgb(255 255 255 / 0.15);
   --border: rgb(255 255 255 / 0.1);
@@ -41,6 +42,7 @@
   --bg: #f4f4f6;
   --sidebar: rgb(255 255 255 / 0.4);
   --surface: rgb(255 255 255 / 0.78);
+  --surface-solid: #ffffff;
   --surface-2: rgb(255 255 255 / 0.5);
   --surface-3: rgb(255 255 255 / 0.75);
   --border: rgb(20 24 32 / 0.08);

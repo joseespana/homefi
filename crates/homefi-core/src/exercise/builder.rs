@@ -175,10 +175,10 @@ pub async fn build(request: &RideRequest, ctx: &BuildContext<'_>, progress: Prog
     build_with_memory(request, ctx, progress, None).await.map(|(built, _)| built)
 }
 
-/// [`build`] that remembers what it found. Given the memory of the previous build of the same inputs (not
-/// older than [`MEMORY_TTL`]), it searches nothing again: it plays songs the earlier builds did not, asking
-/// the AI only for the segments with nothing new left. Any other memory is ignored. The answer carries the
-/// memory for the next build; the caller keeps it (a cancelled build leaves the caller's copy as it was).
+/// [`build`] for "new songs": it searches everything again, and given the memory of the previous build of the
+/// same inputs (not older than [`MEMORY_TTL`]) it tells the AI what it proposed before and plays the songs
+/// already heard last. Any other memory is ignored. The answer carries the memory for the next build; the
+/// caller keeps it (a cancelled build leaves the caller's copy as it was).
 pub async fn build_with_memory(
     request: &RideRequest,
     ctx: &BuildContext<'_>,
@@ -259,17 +259,14 @@ impl Pool {
     }
 }
 
-/// What a build found, kept by the app so "new songs" for the same ride reuses the songs already found
-/// (no new search) and plays different ones. The app holds the newest one and passes it to the next build
-/// ([`build_with_memory`]); a build for other inputs, or after [`MEMORY_TTL`], starts afresh.
+/// What earlier builds of a ride proposed and played, kept by the app so "new songs" (which searches everything
+/// again) asks the AI for other songs and plays the ones already heard last. The app holds the newest one and
+/// passes it to the next build ([`build_with_memory`]); it is ignored for other inputs or after [`MEMORY_TTL`].
 #[derive(Debug, Clone)]
 pub struct BuildMemory {
     /// The inputs it was found for ([`memory_key`]).
     key: String,
     made: Instant,
-    pool: Pool,
-    /// Notes of the gathering (no AI, the AI failed, no Tidal), said again by every build from it.
-    notes: Vec<String>,
     /// Every song the AI proposed for this ride, so a rebuild does not ask for them again.
     asked: Vec<SongCandidate>,
     /// Tidal ids and library paths of the songs earlier builds of this ride played.
@@ -334,20 +331,16 @@ async fn build_inner(
     let key = memory_key(request, &wish, &settings, ctx);
     let gatherer = Gatherer { ctx, api, wish: &wish, tolerance: &tolerance, settings: &settings, prefer_library };
 
-    let reused = memory.filter(|m| m.usable_for(&key));
-    let again = reused.is_some();
-    let BuildMemory { mut pool, notes: gathered, mut asked, played, .. } = match reused {
-        Some(memory) => memory,
-        None => gatherer.gather(key.clone(), &asked_workout, progress).await,
+    // "new songs" searches everything again; what earlier builds of this ride proposed and played only
+    // tells the AI what not to repeat and puts the songs already heard last
+    let (earlier_asked, played) = match memory.filter(|m| m.usable_for(&key)) {
+        Some(m) => (m.asked, m.played),
+        None => (Vec::new(), HashSet::new()),
     };
-    let mut notes = gathered.clone();
+    let (mut pool, mut notes, fresh_asked) = gatherer.gather(&asked_workout, &earlier_asked, progress).await;
+    let mut asked = earlier_asked;
+    asked.extend(fresh_asked);
     let liked: HashSet<String> = taste.artists.iter().map(|a| artist_key(a)).filter(|a| !a.is_empty()).collect();
-    if again {
-        // "new songs": the parts with nothing fresh left ask the AI for more, the rest come from what was found
-        let known = known_artists(&asked, &liked);
-        let fresh = Freshness { played: &played, known: &known, taste, allow_explicit: settings.allow_explicit };
-        gatherer.top_up(&mut pool, &mut asked, &asked_workout, &fresh, progress).await;
-    }
     let known = known_artists(&asked, &liked);
 
     // long segments become several parts when the songs found are short, so no song has to stretch
@@ -392,7 +385,7 @@ async fn build_inner(
     for pick in picks.iter().flatten() {
         played.extend(pool.songs[pick.candidate].keys().map(str::to_owned));
     }
-    let memory = BuildMemory { key, made: Instant::now(), pool, notes: gathered, asked, played };
+    let memory = BuildMemory { key, made: Instant::now(), asked, played };
     Ok((built, memory))
 }
 
@@ -418,8 +411,14 @@ impl Gatherer<'_> {
         Resolver { api: self.api, library: self.ctx.library, prefer_library: self.prefer_library }
     }
 
-    /// A first build: everything is searched.
-    async fn gather(&self, key: String, workout: &Workout, progress: Progress<'_>) -> BuildMemory {
+    /// Searches everything: the library, the AI (told not to repeat `earlier`) and Tidal. Returns the pool, the
+    /// notes and what the AI proposed this time.
+    async fn gather(
+        &self,
+        workout: &Workout,
+        earlier: &[SongCandidate],
+        progress: Progress<'_>,
+    ) -> (Pool, Vec<String>, Vec<SongCandidate>) {
         let lang = self.ctx.lang;
         let mut pool = Pool::new(&self.wish.taste);
         let mut notes = Vec::new();
@@ -428,7 +427,7 @@ impl Gatherer<'_> {
         let mut with_ai = false;
         if let Some(ai) = self.ctx.ai {
             progress(RideProgress::Searching { with_ai: true });
-            match propose_songs(ai, workout, self.wish, self.tolerance, self.settings.allow_explicit, &[]).await {
+            match propose_songs(ai, workout, self.wish, self.tolerance, self.settings.allow_explicit, earlier).await {
                 Ok(proposals) if !proposals.is_empty() => {
                     with_ai = true;
                     asked.extend(proposals.iter().map(|p| p.candidate.clone()));
@@ -453,58 +452,7 @@ impl Gatherer<'_> {
         if self.api.is_none() {
             notes.push(crate::concert::words::no_tidal_note(lang));
         }
-        BuildMemory { key, made: Instant::now(), pool, notes, asked, played: HashSet::new() }
-    }
-
-    /// A rebuild: only the segments of `workout` with no fresh song that fits are asked of the AI again,
-    /// with the songs it proposed before excluded. Without an AI, or when every segment has one, no call.
-    async fn top_up(
-        &self,
-        pool: &mut Pool,
-        asked: &mut Vec<SongCandidate>,
-        workout: &Workout,
-        fresh: &Freshness<'_>,
-        progress: Progress<'_>,
-    ) {
-        let Some(ai) = self.ctx.ai else { return };
-        let thin: Vec<usize> = (0..workout.segments.len())
-            .filter(|&i| !pool.songs.iter().any(|c| fresh.fits(c, &workout.segments[i], self.tolerance)))
-            .collect();
-        if thin.is_empty() {
-            return;
-        }
-        let part = Workout { segments: thin.iter().map(|&i| workout.segments[i].clone()).collect(), ..workout.clone() };
-        progress(RideProgress::Searching { with_ai: true });
-        match propose_songs(ai, &part, self.wish, self.tolerance, self.settings.allow_explicit, asked).await {
-            Ok(mut proposals) => {
-                for p in &mut proposals {
-                    p.segment = thin[p.segment];
-                }
-                asked.extend(proposals.iter().map(|p| p.candidate.clone()));
-                add_proposals(pool, &self.resolver(), proposals, progress).await;
-            }
-            // the songs found before still make a ride
-            Err(e) => tracing::warn!("{e}"),
-        }
-    }
-}
-
-/// Is a candidate a new song worth playing on a rebuild?
-struct Freshness<'a> {
-    played: &'a HashSet<String>,
-    known: &'a HashSet<String>,
-    taste: &'a RideTaste,
-    allow_explicit: bool,
-}
-
-impl Freshness<'_> {
-    fn fits(&self, c: &Candidate, seg: &Segment, tolerance: &Tolerance) -> bool {
-        let wanted =
-            self.taste.popularity != Popularity::Hits || c.proposed_for.is_some() || self.known.contains(&c.artist);
-        wanted
-            && (self.allow_explicit || !c.entry.explicit)
-            && !c.keys().any(|k| self.played.contains(k))
-            && c.bpm.is_some_and(|(bpm, _)| fit(bpm, &seg.target, tolerance).is_some())
+        (pool, notes, asked)
     }
 }
 

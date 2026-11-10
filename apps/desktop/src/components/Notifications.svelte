@@ -42,7 +42,7 @@
     gap: 10px;
     padding: 10px 10px 10px 12px;
     border-radius: var(--r-md);
-    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    background: var(--surface-solid);
     border: 1px solid var(--border);
     border-left: 3px solid var(--room-accent);
     box-shadow: var(--shadow);

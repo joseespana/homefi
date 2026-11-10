@@ -64,6 +64,10 @@ impl CueKind {
 
 /// Notes (Hz) of the finish arpeggio: C5, E5, G5, C6.
 const FINISH_NOTES: [f32; 4] = [523.25, 659.25, 783.99, 1046.5];
+/// Cues sit well under the music: half of the DJ pads' peak (-6 dB), before the user's cue volume.
+const CUE_LEVEL: f32 = 0.5;
+/// Soft attack of the tonal cues: a quick swell instead of a hard edge that makes the rider jump.
+const SOFT_ATTACK_S: f32 = 0.02;
 
 /// Mono samples of `kind` at `sample_rate` Hz.
 pub fn render(kind: CueKind, sample_rate: u32) -> Vec<f32> {
@@ -80,30 +84,33 @@ pub fn render(kind: CueKind, sample_rate: u32) -> Vec<f32> {
             match kind {
                 CueKind::Countdown3 | CueKind::Countdown2 | CueKind::Countdown1 => {
                     let hz = match kind {
-                        CueKind::Countdown3 => 660.0,
-                        CueKind::Countdown2 => 740.0,
-                        _ => 830.0,
+                        CueKind::Countdown3 => 523.25,
+                        CueKind::Countdown2 => 587.33,
+                        _ => 659.25,
                     };
-                    a.sin(hz, rate) * (t / 0.005).min(1.0) * tail
+                    a.sin(hz, rate) * (t / SOFT_ATTACK_S).min(1.0) * tail
                 }
                 CueKind::Change => {
-                    // two notes: a ding up
-                    let hz = if u < 0.4 { 660.0 } else { 880.0 };
-                    (a.sin(hz, rate) + 0.3 * b.sin(hz * 2.0, rate)) * (-3.0 * u).exp() * tail
+                    // two soft notes, a third up (C5, E5)
+                    let hz = if u < 0.4 { 523.25 } else { 659.25 };
+                    (a.sin(hz, rate) + 0.12 * b.sin(hz * 2.0, rate))
+                        * (t / SOFT_ATTACK_S).min(1.0)
+                        * (-3.0 * u).exp()
+                        * tail
                 }
                 CueKind::Standing => {
-                    let hz = 520.0 + 260.0 * u;
-                    (a.sin(hz, rate) + 0.25 * b.sin(hz * 2.0, rate)) * (t / 0.01).min(1.0) * tail
+                    let hz = 440.0 + 220.0 * u;
+                    (a.sin(hz, rate) + 0.12 * b.sin(hz * 2.0, rate)) * (t / SOFT_ATTACK_S).min(1.0) * tail
                 }
                 CueKind::Seated => {
-                    let hz = 780.0 - 260.0 * u;
-                    (a.sin(hz, rate) + 0.25 * b.sin(hz * 2.0, rate)) * (t / 0.01).min(1.0) * tail
+                    let hz = 660.0 - 220.0 * u;
+                    (a.sin(hz, rate) + 0.12 * b.sin(hz * 2.0, rate)) * (t / SOFT_ATTACK_S).min(1.0) * tail
                 }
                 CueKind::SprintGo => {
-                    // a short horn: three saw tones (a chord), a vibrato, a fast attack
+                    // a warm major chord (sines, a slight vibrato) that swells in: energy without a blast
                     let vibrato = 1.0 + 0.004 * (TAU * 6.0 * t).sin();
-                    (a.saw(466.0 * vibrato, rate) + b.saw(587.0 * vibrato, rate) + c.saw(698.0 * vibrato, rate))
-                        * (t / 0.015).min(1.0)
+                    (a.sin(392.0 * vibrato, rate) + b.sin(493.88 * vibrato, rate) + c.sin(587.33 * vibrato, rate))
+                        * (t / 0.06).min(1.0)
                         * tail
                 }
                 CueKind::Recover => {
@@ -118,12 +125,13 @@ pub fn render(kind: CueKind, sample_rate: u32) -> Vec<f32> {
                         * (1.0 - 0.6 * into)
                         * tail
                 }
-                CueKind::Click => (a.sin(1_500.0, rate) * 0.9 + noise.next() * 0.1) * (-6.0 * u).exp(),
+                CueKind::Click => (a.sin(1_000.0, rate) * 0.9 + noise.next() * 0.1) * (-6.0 * u).exp(),
             }
         })
         .collect();
     fade_ends(&mut out, rate);
     normalize(&mut out);
+    out.iter_mut().for_each(|s| *s *= CUE_LEVEL);
     out
 }
 
@@ -174,9 +182,9 @@ mod tests {
                 assert!(s.len() as f32 <= MAX_CUE_SECONDS * rate as f32 + 1.0, "{kind:?}");
                 assert!(s.iter().all(|x| x.is_finite()), "{kind:?}");
                 let peak = s.iter().fold(0.0f32, |p, x| p.max(x.abs()));
-                assert!(peak <= 0.85 + 1e-4 && peak > 0.5, "{kind:?} peak {peak}");
+                assert!(peak <= 0.85 * CUE_LEVEL + 1e-4 && peak > 0.5 * CUE_LEVEL, "{kind:?} peak {peak}");
                 let rms = (s.iter().map(|x| x * x).sum::<f32>() / s.len() as f32).sqrt();
-                assert!(rms > 0.02, "{kind:?} is nearly silent ({rms})");
+                assert!(rms > 0.01, "{kind:?} is nearly silent ({rms})");
                 assert!(s[0].abs() < 0.05 && s[s.len() - 1].abs() < 0.05, "{kind:?} clicks at the ends");
             }
         }

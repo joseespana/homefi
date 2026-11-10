@@ -7,6 +7,22 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Added
+- Android TV: the Train setup now has the phone's genres, how famous the songs are, the era and
+  "My rides" (ride a saved one again with no AI call), all with the remote; the form scrolls.
+  Liked and avoided artists and the AI chat stay on the phone.
+
+### Fixed
+- Desktop: the update notice, the notifications and the "nearby" banner were see-through in the
+  Immersive skin and hard to read over the cover. They now have a solid background.
+- Exercise: the ride's sounds (countdown, part change, sprint, finish) were loud and sharp enough to
+  startle. They are 6 dB quieter, lower and softer (a gentle swell, no horn), and the default cue
+  volume is 60 %. The volume and "Sounds" switch stay in the exercise settings.
+- Exercise: "Build my ride" and "New songs" could come back in a moment without asking the AI,
+  with leftover songs (some outside the genres picked): they reused what an earlier build had found.
+  Every build now searches again: the AI is asked each time (on "New songs" it is told what it
+  proposed before, so it picks others) and the songs already heard go last.
+
 ## [1.5.10] - 2026-11-10
 
 ### Added

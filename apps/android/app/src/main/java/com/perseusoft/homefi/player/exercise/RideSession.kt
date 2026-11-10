@@ -313,7 +313,7 @@ class RideSession(private val app: HomefiApplication) {
 
     /**
      * "New songs" from the preview: the same ride built again while the plan stays on screen with the progress
-     * in it. The core reuses what the last build found, so it is quick; a failure keeps this plan.
+     * in it. Everything is searched again and the AI is asked for other songs; a failure keeps this plan.
      */
     fun rebuild() = launchBuild(inPlace = _ui.value is RideUi.Preview)
 
@@ -329,6 +329,7 @@ class RideSession(private val app: HomefiApplication) {
             try {
                 val built = app.engine.exerciseBuild(
                     request, settings, ready?.config, ready?.key, languageTag(), libraryRefs(), listener,
+                    inPlace && previous != null,
                 )
                 // every successful build is kept in "My rides" so a good one can be ridden again without the AI
                 val saved = app.rides.autoSave(request, built, languageTag(), settings.rideHistoryMax)

@@ -976,8 +976,9 @@ impl ex::Analyzer for FileAnalyzer {
 #[uniffi::export]
 impl HomefiEngine {
     /// Builds the ride (not saved: the app saves `playlist` when the ride starts). The AI's key travels apart
-    /// and is never stored. Cancelling the coroutine stops the work between songs. Building the same request
-    /// again ("new songs") reuses what the last build found and plays songs it did not.
+    /// and is never stored. Cancelling the coroutine stops the work between songs.
+    /// Every build searches everything; with `again` ("new songs" for the plan on screen) the AI is told what it
+    /// proposed for this ride before and the songs already heard come last.
     #[allow(clippy::too_many_arguments)]
     pub async fn exercise_build(
         self: Arc<Self>,
@@ -988,6 +989,7 @@ impl HomefiEngine {
         language: String,
         library: Vec<LibraryRef>,
         listener: Box<dyn RideListener>,
+        again: bool,
     ) -> Result<RideBuilt> {
         crate::runtime::run(async move {
             // signed out is not an error: only the library and the AI are used
@@ -1008,8 +1010,8 @@ impl HomefiEngine {
                 analyzer: Some(&analyzer),
                 lang: Lang::from_code(&language),
             };
-            // the last build's memory: "new songs" for the same ride reuses what it found
-            let memory = self.ride_memory();
+            // what earlier builds of this ride proposed and played, for "new songs"
+            let memory = if again { self.ride_memory() } else { None };
             let (built, memory) =
                 ex::build_with_memory(&request.into(), &ctx, &|p| listener.on_progress(p.into()), memory).await?;
             self.remember_ride(memory);

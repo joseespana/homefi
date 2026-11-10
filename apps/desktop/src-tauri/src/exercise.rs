@@ -177,7 +177,7 @@ pub struct Exercise {
     ride: Mutex<RideState>,
     /// The TV's LAN server, while it runs.
     tv: Mutex<Option<TvServer>>,
-    /// What the last build found: "new songs" for the same ride reuses it instead of searching again.
+    /// What earlier builds of the ride proposed and played: "new songs" searches again and asks for others.
     memory: Mutex<Option<BuildMemory>>,
 }
 
@@ -412,6 +412,7 @@ pub async fn exercise_build(
     app: AppHandle,
     mut request: RideRequest,
     language: String,
+    again: bool,
     on_progress: Channel<RideProgress>,
 ) -> CmdResult<RideBuiltView> {
     // the taste answers are settings (the setup saves them), so every build uses the latest ones
@@ -426,7 +427,7 @@ pub async fn exercise_build(
     emit_state(&app);
     let playlists = app.state::<Playlists>();
     let rx = playlists.begin();
-    let result = run_build(&app, &request, &language, on_progress, rx.clone()).await;
+    let result = run_build(&app, &request, &language, again, on_progress, rx.clone()).await;
     playlists.finish(&rx);
     // every successful build is saved (so riding it again needs no AI); a failed save never fails the ride
     let saved = match &result {
@@ -448,6 +449,7 @@ async fn run_build(
     app: &AppHandle,
     request: &RideRequest,
     language: &str,
+    again: bool,
     on_progress: Channel<RideProgress>,
     cancel: tokio::sync::watch::Receiver<bool>,
 ) -> CmdResult<RideBuilt> {
@@ -469,8 +471,9 @@ async fn run_build(
     let progress = move |p: RideProgress| {
         let _ = on_progress.send(p);
     };
-    // a copy: a cancelled build leaves the kept memory as it was
-    let memory = lock(&app.state::<Exercise>().memory).clone();
+    // "new songs" tells the AI what earlier builds proposed (a copy: a cancelled build leaves it as it was); a new build
+    // searches afresh
+    let memory = if again { lock(&app.state::<Exercise>().memory).clone() } else { None };
     let (built, memory) = tokio::select! {
         r = ex::build_with_memory(request, &ctx, &progress, memory) => r.map_err(err)?,
         () = cancelled(cancel) => return Err(cancelled_text()),

@@ -127,6 +127,6 @@
 
     <!-- Train on the TV -->
     <string name="tv_train_here">Empezar una rodada en esta tele</string>
-    <string name="tv_train_phone_more">En el móvil también puedes elegir géneros, hablar con la IA y repetir rodadas guardadas.</string>
+    <string name="tv_train_phone_more">En el móvil también puedes elegir artistas favoritos o a evitar y hablar con la IA.</string>
     <string name="tv_train_done">Listo</string>
 </resources>

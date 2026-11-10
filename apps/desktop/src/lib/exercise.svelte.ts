@@ -315,7 +315,7 @@ class ExerciseStore {
     this.rebuildError = null;
     this.editing = false;
     try {
-      this.built = await exerciseApi.build($state.snapshot(this.request) as RideRequest, EX_LANGUAGE, (p) => (this.progress = p));
+      this.built = await exerciseApi.build($state.snapshot(this.request) as RideRequest, EX_LANGUAGE, again, (p) => (this.progress = p));
     } catch (e) {
       if (!this.cancelled) {
         if (this.rebuilding) this.rebuildError = errorText(e);
@@ -381,7 +381,7 @@ class ExerciseStore {
     await this.stop();
     if (this.plan) await this.start();
   }
-  /** "Same ride, new songs": the same request built again, on the preview (the backend reuses what it found). */
+  /** "Same ride, new songs": the same request built again, on the preview (searched again, with other songs). */
   async rebuild() {
     if (this.stage === "riding" || this.stage === "finished") await this.stop();
     await this.gated(() => this.runBuild(true));

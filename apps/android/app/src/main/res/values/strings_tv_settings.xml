@@ -127,6 +127,6 @@
 
     <!-- Train on the TV -->
     <string name="tv_train_here">Start a ride on this TV</string>
-    <string name="tv_train_phone_more">On the phone you can also pick genres, chat with the AI and reuse saved rides.</string>
+    <string name="tv_train_phone_more">On the phone you can also pick liked and avoided artists and chat with the AI.</string>
     <string name="tv_train_done">Done</string>
 </resources>

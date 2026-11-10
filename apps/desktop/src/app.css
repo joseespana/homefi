@@ -43,6 +43,8 @@
   --brand-teal: #0891b2;
   --brand-green: #10b981;
   --gradient: linear-gradient(135deg, #1d4ed8 0%, #0891b2 55%, #10b981 100%);
+  /* floating notices (update, toasts, nearby): always opaque, so text over a cover stays readable */
+  --surface-solid: var(--surface);
 
   --bg: #0a121d;
   --sidebar: #0c1522;

@@ -4,6 +4,20 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
+import com.perseusoft.homefi.core.Popularity
+import com.perseusoft.homefi.core.exerciseDecades
+import com.perseusoft.homefi.tv.TvRow
+import com.perseusoft.homefi.ui.exercise.Genre
+import com.perseusoft.homefi.ui.exercise.decadeLabel
+import com.perseusoft.homefi.ui.exercise.labelRes
+import com.perseusoft.homefi.ui.exercise.rideLine
+import com.perseusoft.homefi.ui.exercise.toggleDecade
+import com.perseusoft.homefi.ui.exercise.toggleGenre
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,13 +76,17 @@ import com.perseusoft.homefi.ui.playlists.languageTag
 
 /** Minutes the length row steps through. */
 private val MINUTES = (10..90 step 5).toList()
-private val FORM_WIDTH = 560.dp
+private val FORM_WIDTH = 640.dp
+private val CHIP_HEIGHT = 34.dp
+
+/** Saved rides listed on the TV (the phone has the rest). */
+private const val FIRST_RIDES = 6
 
 /**
  * Setting up a ride on this TV, made for the D-pad: the length and the style as value rows (LEFT / RIGHT change
  * them), "Build my ride", then the plan with Start. Everything is the phone's [RideSession]: the form, the
  * build, the plan, "start". BACK steps out of a plan, cancels a build, or leaves ([onExit]) from the first page.
- * The ride itself is [TvRideOverlay]. The finer choices (taste, AI chat, saved rides) stay on the phone.
+ * The ride itself is [TvRideOverlay]. Genres, fame, era and saved rides are here too; liked and avoided artists and the AI chat stay on the phone.
  */
 @Composable
 fun TvRideSetup(entryKey: Int, onExit: () -> Unit) {
@@ -79,6 +97,9 @@ fun TvRideSetup(entryKey: Int, onExit: () -> Unit) {
     val settings by app.settings.exercise.collectAsStateWithLifecycle()
     val language = languageTag()
     val presets = remember(language) { exercisePresets(language) }
+    val decades = remember { exerciseDecades() }
+    val rides by app.rides.list.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { app.rides.refresh() }
     var notice by remember { mutableStateOf(false) }
     BackHandler {
         when (ui) {
@@ -94,7 +115,10 @@ fun TvRideSetup(entryKey: Int, onExit: () -> Unit) {
     ) {
         Text(stringResource(R.string.tv_train_here), style = TvType.title, color = look.ink, maxLines = 1)
         when (val state = ui) {
-            RideUi.Setup -> Column(Modifier.width(FORM_WIDTH), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            RideUi.Setup -> Column(
+                Modifier.width(FORM_WIDTH).weight(1f).verticalScroll(rememberScrollState()).padding(vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 val minutesIndex = nearestIndex(MINUTES, form.minutes)
                 ValueLine(
                     stringResource(R.string.ex_duration), "${MINUTES[minutesIndex]} min", MINUTES.size, minutesIndex,
@@ -105,10 +129,46 @@ fun TvRideSetup(entryKey: Int, onExit: () -> Unit) {
                     stringResource(R.string.ex_style), presets.getOrNull(styleIndex)?.name.orEmpty(), presets.size, styleIndex,
                     Modifier.tvLeftToDrawer(),
                 ) { i -> presets.getOrNull(i)?.let { p -> session.updateForm { it.copy(style = p.id) } } }
+                val popularity = settings.taste.popularity
+                ValueLine(
+                    stringResource(R.string.ex_taste_popularity), stringResource(popularity.labelRes()), Popularity.entries.size,
+                    Popularity.entries.indexOf(popularity), Modifier.tvLeftToDrawer(),
+                ) { i -> session.updateTaste { it.copy(popularity = Popularity.entries[i]) } }
+                ChipGroup(stringResource(R.string.ex_music)) {
+                    Genre.entries.forEachIndexed { i, genre ->
+                        TvPill(
+                            stringResource(genre.label), { session.updateForm { it.copy(genres = toggleGenre(it.genres, genre.token)) } },
+                            Modifier.chipEdge(i), selected = genre.token in form.genres, height = CHIP_HEIGHT,
+                        )
+                    }
+                }
+                ChipGroup(stringResource(R.string.ex_taste_era)) {
+                    TvPill(
+                        stringResource(R.string.ex_era_any), { session.updateTaste { it.copy(eras = emptyList()) } },
+                        Modifier.chipEdge(0), selected = settings.taste.eras.isEmpty(), height = CHIP_HEIGHT,
+                    )
+                    decades.forEach { decade ->
+                        TvPill(
+                            decadeLabel(decade), { session.updateTaste { it.copy(eras = toggleDecade(it.eras, decade)) } },
+                            selected = decade in settings.taste.eras, height = CHIP_HEIGHT,
+                        )
+                    }
+                }
                 TvPill(
                     stringResource(R.string.ex_build), { if (settings.healthNoticeSeen) session.build() else notice = true },
                     Modifier.padding(top = 8.dp).tvLeftToDrawer(), icon = Icons.Rounded.AutoAwesome, primary = true, height = 40.dp,
                 )
+                if (rides.isNotEmpty()) {
+                    Text(stringResource(R.string.rides_title), style = TvType.section, color = look.ink, modifier = Modifier.padding(top = 8.dp))
+                    rides.take(FIRST_RIDES).forEach { ride ->
+                        key(ride.id) {
+                            TvRow(
+                                ride.name, rideLine(ride), { session.rideAgain(ride.id) }, Modifier.tvLeftToDrawer(),
+                                coverIcon = Icons.Rounded.PlayArrow,
+                            )
+                        }
+                    }
+                }
                 Text(stringResource(R.string.tv_train_phone_more), style = TvType.secondary, color = look.ink3)
             }
             is RideUi.Building -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -137,6 +197,23 @@ fun TvRideSetup(entryKey: Int, onExit: () -> Unit) {
         )
     }
 }
+
+/** A titled, horizontally scrolling row of toggle chips; focus brings the chip into view. */
+@Composable
+private fun ChipGroup(title: String, chips: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    val look = LocalTvLook.current
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, style = TvType.secondary, color = look.ink2, modifier = Modifier.padding(start = 4.dp))
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            content = chips,
+        )
+    }
+}
+
+/** LEFT from the first chip of a row goes to the drawer. */
+private fun Modifier.chipEdge(index: Int): Modifier = if (index == 0) tvLeftToDrawer() else this
 
 /** What the build is doing, as the core reports it (the same words as the phone's build screen). */
 @Composable

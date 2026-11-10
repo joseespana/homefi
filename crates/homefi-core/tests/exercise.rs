@@ -568,7 +568,7 @@ async fn requests_to(server: &MockServer, verb: &str) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn a_rebuild_reuses_what_was_found_plays_new_songs_and_asks_the_ai_only_when_nothing_new_is_left() {
+async fn new_songs_searches_again_asks_the_ai_for_others_and_plays_new_songs_first() {
     let server = MockServer::start().await;
     const ROWS: &[(&str, &str, &str, i64)] = &[
         ("Metallica", "Enter Sandman", "Metallica", 92),
@@ -599,23 +599,20 @@ async fn a_rebuild_reuses_what_was_found_plays_new_songs_and_asks_the_ai_only_wh
     let (searches, ai_calls) = (requests_to(&server, "GET").await.len(), requests_to(&server, "POST").await.len());
     assert_eq!((searches, ai_calls), (4, 1));
 
-    // "new songs": the same request plays the songs not played yet, with no call at all
+    // "new songs": everything is searched again, the AI is told what it proposed, and unheard songs come first
     let (second, memory) = build_with_memory(&ask, &ctx, &|_| {}, Some(memory)).await.unwrap();
-    assert_eq!(titles(&second), ["The Trooper", "Raining Blood"]);
-    assert_eq!(requests_to(&server, "GET").await.len(), searches, "nothing searched again");
-    assert_eq!(requests_to(&server, "POST").await.len(), ai_calls, "the AI is not asked when new songs are left");
-
-    // nothing new is left: the AI is asked again, told what it proposed before
-    let (third, memory) = build_with_memory(&ask, &ctx, &|_| {}, Some(memory)).await.unwrap();
-    assert_eq!(third.plan.songs.len(), 2, "an old song is better than none");
     let posts = requests_to(&server, "POST").await;
-    assert_eq!(posts.len(), 2);
+    assert_eq!(posts.len(), 2, "the AI is asked again");
     assert!(posts[1].contains("do not propose any of these again") && posts[1].contains("Metallica - Enter Sandman"));
+    assert!(requests_to(&server, "GET").await.len() > searches, "Tidal is searched again");
+    assert_eq!(titles(&second), ["The Trooper", "Raining Blood"]);
 
-    // other inputs: the memory is not used, everything is found again
+    // other inputs: the memory is not used, the AI is not told about the other ride
     let other = request(two_flats(), &["rock"], false);
     build_with_memory(&other, &ctx, &|_| {}, Some(memory)).await.unwrap();
-    assert_eq!(requests_to(&server, "POST").await.len(), 3);
+    let posts = requests_to(&server, "POST").await;
+    assert_eq!(posts.len(), 3);
+    assert!(!posts[2].contains("do not propose any of these again"));
 }
 
 #[tokio::test]

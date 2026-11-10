@@ -128,24 +128,6 @@ private fun StyleCard(name: String, description: String, segments: List<RideSegm
     }
 }
 
-/** Genres of the setup chips: the core and Tidal search by the token (English), the chip shows the label. */
-internal enum class Genre(val token: String, val label: Int) {
-    ROCK("rock", R.string.ex_genre_rock),
-    METAL("metal", R.string.ex_genre_metal),
-    POP("pop", R.string.ex_genre_pop),
-    DANCE("dance", R.string.ex_genre_dance),
-    HIP_HOP("hip-hop", R.string.ex_genre_hip_hop),
-    LATIN("latin", R.string.ex_genre_latin),
-    FUNK("funk", R.string.ex_genre_funk),
-    EIGHTIES("80s", R.string.ex_genre_80s),
-    INDIE("indie", R.string.ex_genre_indie),
-    PUNK("punk", R.string.ex_genre_punk);
-
-    companion object {
-        fun ofToken(token: String): Genre? = entries.firstOrNull { it.token == token }
-    }
-}
-
 /** Step 1: how long, what kind of ride, which music. Everything else is in Settings → Exercise. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -229,7 +211,7 @@ fun RideSetup(form: RideForm, chat: RideChat) {
                         selected = genre.token in form.genres,
                         onClick = {
                             session.updateForm { f ->
-                                f.copy(genres = if (genre.token in f.genres) f.genres - genre.token else f.genres + genre.token)
+                                f.copy(genres = toggleGenre(f.genres, genre.token))
                             }
                         },
                         label = { Text(stringResource(genre.label)) },
@@ -330,22 +312,6 @@ fun BuildBar() {
 
 private const val MAX_SENTENCE = 200
 
-private fun Popularity.labelRes(): Int = when (this) {
-    Popularity.HITS -> R.string.ex_pop_hits
-    Popularity.MIX -> R.string.ex_pop_mix
-    Popularity.DISCOVER -> R.string.ex_pop_discover
-}
-
-/** First year of the decades written in full ("2000s"): "00s" or "20s" would be unclear. */
-private const val FULL_DECADE_FROM = 2000
-private const val YEARS_PER_CENTURY = 100
-
-/** "80s", "2000s". */
-private fun decadeLabel(decade: UShort): String {
-    val year = decade.toInt()
-    return if (year < FULL_DECADE_FROM) "${year % YEARS_PER_CENTURY}s" else "${year}s"
-}
-
 /**
  * The taste questions under the genres, compact with smart defaults (big hits, any era, no artists): how famous,
  * which era, and folded away the artists liked (with the library's suggestions) and the ones never to play.
@@ -379,7 +345,7 @@ private fun TasteBlock(taste: RideTaste, suggestions: List<String>, onTaste: ((R
         decades.forEach { decade ->
             FilterChip(
                 selected = decade in taste.eras,
-                onClick = { onTaste { t -> t.copy(eras = if (decade in t.eras) t.eras - decade else (t.eras + decade).sorted()) } },
+                onClick = { onTaste { t -> t.copy(eras = toggleDecade(t.eras, decade)) } },
                 label = { Text(decadeLabel(decade)) },
             )
         }
