@@ -112,9 +112,11 @@ pub(crate) async fn responses(
     tools: &[Tool],
     search: Option<&WebSearch>,
     max_tokens: u32,
+    light: bool,
 ) -> Result<ChatReply, AiError> {
     let url = format!("{}/responses", config.base());
     let mut payload = responses_body(config, system, messages, tools, max_tokens);
+    light_reasoning(config, &mut payload, light);
     match search {
         // xAI searches through Responses too, with the bare tool
         Some(_) if config.provider == AiProvider::XAi => web_search::xai_request(&mut payload),
@@ -123,6 +125,15 @@ pub(crate) async fn responses(
     }
     let req = bearer(config, http().post(url)).timeout(CHAT_TIMEOUT).json(&payload);
     parse_responses(config, send(config, req, false).await?)
+}
+
+/// A quick list task ([`super::chat::ChatOptions::light_reasoning`]): a thinking model keeps its reasoning
+/// short, or it can spend the whole answer thinking and never call the tool. OpenAI's Responses and
+/// OpenRouter take `reasoning.effort`; turning reasoning off is refused by some models, "low" works on all.
+fn light_reasoning(config: &AiConfig, payload: &mut Value, light: bool) {
+    if light && matches!(config.provider, AiProvider::OpenAi | AiProvider::OpenRouter) {
+        payload["reasoning"]["effort"] = json!("low");
+    }
 }
 
 // ----------------------------------------------------------- Chat Completions
@@ -219,9 +230,11 @@ pub(crate) async fn chat_completions(
     tools: &[Tool],
     search: Option<&WebSearch>,
     max_tokens: u32,
+    light: bool,
 ) -> Result<ChatReply, AiError> {
     let url = format!("{}/chat/completions", config.base());
     let mut payload = chat_body(config, system, messages, tools, max_tokens);
+    light_reasoning(config, &mut payload, light);
     if search.is_some() {
         web_search::openrouter_request(&mut payload);
     }
@@ -296,6 +309,19 @@ mod tests {
     }
 
     #[test]
+    fn quick_tasks_ask_thinking_models_for_low_effort() {
+        for provider in [AiProvider::OpenRouter, AiProvider::OpenAi] {
+            let mut body = json!({});
+            light_reasoning(&cfg(provider, "http://x"), &mut body, true);
+            assert_eq!(body["reasoning"]["effort"], "low");
+        }
+        let mut body = json!({});
+        light_reasoning(&cfg(AiProvider::OpenRouter, "http://x"), &mut body, false);
+        light_reasoning(&cfg(AiProvider::Mistral, "http://x"), &mut body, true);
+        assert!(body.get("reasoning").is_none(), "only when asked, and only where it is understood");
+    }
+
+    #[test]
     fn responses_requests_keep_nothing_on_the_server() {
         let b = responses_body(&cfg(AiProvider::OpenAi, "http://x"), &"sys".into(), &history(), &[tool()], 4096);
         assert_eq!(b["instructions"], "sys");
@@ -341,8 +367,9 @@ mod tests {
             .mount(&server)
             .await;
         let c = cfg(AiProvider::OpenAi, &server.uri());
-        let reply =
-            responses(&c, &"s".into(), &[Message::User { text: "hi".into() }], &[tool()], None, 4096).await.unwrap();
+        let reply = responses(&c, &"s".into(), &[Message::User { text: "hi".into() }], &[tool()], None, 4096, false)
+            .await
+            .unwrap();
         assert_eq!(reply.text, "Buscando…");
         assert_eq!(
             reply.tool_calls,
@@ -373,9 +400,10 @@ mod tests {
             .mount(&server)
             .await;
         let c = AiConfig::new(AiProvider::Ollama, "qwen3:8b", None).with_base_url(server.uri());
-        let reply = chat_completions(&c, &"s".into(), &[Message::User { text: "hi".into() }], &[tool()], None, 4096)
-            .await
-            .unwrap();
+        let reply =
+            chat_completions(&c, &"s".into(), &[Message::User { text: "hi".into() }], &[tool()], None, 4096, false)
+                .await
+                .unwrap();
         assert_eq!(reply.tool_calls[0].id, "call_0");
         assert_eq!(reply.tool_calls[0].arguments, json!({"q": 1}));
         // reasoning goes back to the same provider

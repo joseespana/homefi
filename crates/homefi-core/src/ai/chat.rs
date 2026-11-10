@@ -109,6 +109,9 @@ pub struct ChatOptions {
     pub web_search: Option<WebSearch>,
     /// Cap on the answer's tokens for this call; `None` is [`MAX_TOKENS`].
     pub max_tokens: Option<u32>,
+    /// A quick task (a list of songs): ask a thinking model for low reasoning effort, so its thinking does not
+    /// use up the answer before the tool call (OpenAI and OpenRouter; the others think little unless asked).
+    pub light_reasoning: bool,
 }
 
 impl ChatOptions {
@@ -211,8 +214,12 @@ pub async fn chat_system(
     let cap = options.output_cap();
     let reply = match api {
         Api::Anthropic => anthropic::chat(config, system, messages, tools, search, cap).await?,
-        Api::OpenAiResponses => openai::responses(config, system, messages, tools, search, cap).await?,
-        Api::ChatCompletions => openai::chat_completions(config, system, messages, tools, search, cap).await?,
+        Api::OpenAiResponses => {
+            openai::responses(config, system, messages, tools, search, cap, options.light_reasoning).await?
+        }
+        Api::ChatCompletions => {
+            openai::chat_completions(config, system, messages, tools, search, cap, options.light_reasoning).await?
+        }
         Api::Gemini => gemini::chat(config, system, messages, tools, search, cap).await?,
     };
     Ok(reply)

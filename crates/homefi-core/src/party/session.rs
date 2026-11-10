@@ -412,7 +412,8 @@ impl PartySession {
         let mut conversation = self.messages.clone();
         conversation.push(Message::User { text: instruction });
         let tools = [propose_songs_tool()];
-        let options = ChatOptions { max_tokens: Some(build_output_tokens(count)), ..Default::default() };
+        let options =
+            ChatOptions { max_tokens: Some(build_output_tokens(count)), light_reasoning: true, ..Default::default() };
         let reply = chat_with(config, &build_system_prompt(&self.brief), &conversation, &tools, &options).await?;
         let arguments = match reply.tool_calls.iter().find(|c| c.name == PROPOSE_SONGS) {
             Some(call) => call.arguments.clone(),

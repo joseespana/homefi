@@ -7,6 +7,16 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Fixed
+- Exercise: with OpenRouter (and OpenAI's thinking models) a ride was never built by the AI. The
+  model spent its whole answer thinking and never wrote the songs, so every ride fell back to a
+  plain Tidal search for the genre (bands with "Metal" in their name, the same list every time).
+  Song lists now ask for short thinking: a 30-minute metal ride takes about 10 seconds and brings
+  Metallica, Slayer, Black Sabbath, Judas Priest… The party playlist builder gets the same fix.
+- Exercise: building the same ride again gave the same songs. Every build of a ride within half an
+  hour (not only "New songs") now tells the AI what it proposed before, so it picks other songs,
+  and the songs already heard go last, with or without an AI.
+
 ## [1.5.11] - 2026-11-10
 
 ### Added

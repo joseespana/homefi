@@ -597,11 +597,10 @@ export const exerciseApi = {
   open: (request: RideRequest, language: string) => invoke<ExerciseTurn>("exercise_open", { request, language }),
   reply: (text: string) => invoke<ExerciseTurn>("exercise_reply", { text }),
   close: () => invoke<void>("exercise_close"),
-  /** `again`: "new songs" for the plan on screen (searched again, the AI told what it proposed before). */
-  build: (request: RideRequest, language: string, again: boolean, onProgress: (p: RideProgress) => void) => {
+  build: (request: RideRequest, language: string, onProgress: (p: RideProgress) => void) => {
     const channel = new Channel<RideProgress>();
     channel.onmessage = onProgress;
-    return invoke<RideBuilt>("exercise_build", { request, language, again, onProgress: channel });
+    return invoke<RideBuilt>("exercise_build", { request, language, onProgress: channel });
   },
   cancel: () => invoke<void>("exercise_cancel"),
   start: (plan: RidePlan) => invoke<ExerciseState>("exercise_start", { plan }),

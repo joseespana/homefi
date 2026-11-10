@@ -569,7 +569,11 @@ pub(crate) async fn propose_songs(
         config.model = resolve_model(&config).await?;
     }
     let messages = [Message::User { text: instruction(workout, tolerance, exclude) }];
-    let options = ChatOptions { max_tokens: Some(build_output_tokens(workout.segments.len())), ..Default::default() };
+    let options = ChatOptions {
+        max_tokens: Some(build_output_tokens(workout.segments.len())),
+        light_reasoning: true,
+        ..Default::default()
+    };
     let reply =
         chat_with(&config, &build_system_prompt(wish, allow_explicit), &messages, &[propose_tool()], &options).await?;
     let arguments = match reply.tool_calls.iter().find(|c| c.name == PROPOSE_RIDE_SONGS) {

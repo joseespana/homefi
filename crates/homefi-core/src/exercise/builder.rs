@@ -175,7 +175,7 @@ pub async fn build(request: &RideRequest, ctx: &BuildContext<'_>, progress: Prog
     build_with_memory(request, ctx, progress, None).await.map(|(built, _)| built)
 }
 
-/// [`build`] for "new songs": it searches everything again, and given the memory of the previous build of the
+/// [`build`] that varies: it searches everything again, and given the memory of the previous build of the
 /// same inputs (not older than [`MEMORY_TTL`]) it tells the AI what it proposed before and plays the songs
 /// already heard last. Any other memory is ignored. The answer carries the memory for the next build; the
 /// caller keeps it (a cancelled build leaves the caller's copy as it was).
@@ -259,8 +259,8 @@ impl Pool {
     }
 }
 
-/// What earlier builds of a ride proposed and played, kept by the app so "new songs" (which searches everything
-/// again) asks the AI for other songs and plays the ones already heard last. The app holds the newest one and
+/// What earlier builds of a ride proposed and played, kept by the app so the next build of the same ride (which
+/// searches everything again) asks the AI for other songs and plays the ones already heard last. The app holds the newest one and
 /// passes it to the next build ([`build_with_memory`]); it is ignored for other inputs or after [`MEMORY_TTL`].
 #[derive(Debug, Clone)]
 pub struct BuildMemory {
@@ -331,7 +331,7 @@ async fn build_inner(
     let key = memory_key(request, &wish, &settings, ctx);
     let gatherer = Gatherer { ctx, api, wish: &wish, tolerance: &tolerance, settings: &settings, prefer_library };
 
-    // "new songs" searches everything again; what earlier builds of this ride proposed and played only
+    // every build searches everything again; what earlier builds of this ride proposed and played only
     // tells the AI what not to repeat and puts the songs already heard last
     let (earlier_asked, played) = match memory.filter(|m| m.usable_for(&key)) {
         Some(m) => (m.asked, m.played),

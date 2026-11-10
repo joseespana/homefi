@@ -329,7 +329,6 @@ class RideSession(private val app: HomefiApplication) {
             try {
                 val built = app.engine.exerciseBuild(
                     request, settings, ready?.config, ready?.key, languageTag(), libraryRefs(), listener,
-                    inPlace && previous != null,
                 )
                 // every successful build is kept in "My rides" so a good one can be ridden again without the AI
                 val saved = app.rides.autoSave(request, built, languageTag(), settings.rideHistoryMax)
