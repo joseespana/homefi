@@ -7,6 +7,9 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.13] - 2026-11-10
+
+
 ### Fixed
 - Exercise: when the AI could not pick the songs, the ride said so only in a small grey note, so it
   looked like the app kept returning a saved list. The reason now shows in a red notice at the top
