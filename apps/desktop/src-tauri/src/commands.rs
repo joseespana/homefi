@@ -21,6 +21,11 @@ type CmdResult<T> = Result<T, String>;
 
 /// An error as the screen shows it: plain words, no URLs or codes (see
 /// `homefi_core::humane`). The technical text goes to the log.
+/// Locks a std mutex, recovering the data when another thread panicked while holding it.
+pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 pub(crate) fn err<E: std::fmt::Display + 'static>(e: E) -> String {
     use homefi_core::Error;
     let any = &e as &dyn std::any::Any;

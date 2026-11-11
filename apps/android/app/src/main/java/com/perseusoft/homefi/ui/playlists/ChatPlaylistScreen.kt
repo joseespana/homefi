@@ -13,7 +13,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -22,31 +21,28 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.perseusoft.homefi.R
 import com.perseusoft.homefi.core.ChatBrief
 import com.perseusoft.homefi.core.HomePlaylist
-import com.perseusoft.homefi.core.SongSeed
 import com.perseusoft.homefi.ui.library.ScreenHeader
 
 /**
  * "Make a playlist with AI": a simple chat with the user's AI (the party session without the
  * questions), a one-line summary of what it understood, then the same preview the other modes
- * have. With [replace] (a saved chat playlist) the chat starts from its brief and building saves
- * over it, and a [seed] song opens the chat asking for a playlist like it. Build waits for the first message. Without an AI it only offers to set one up.
+ * have. It shows the open chat [conversationId] (kept in [com.perseusoft.homefi.data.AiConversations], so it goes on when
+ * this screen closes); a saved playlist's chat starts from its brief and building saves over it, and a seed song opens
+ * the chat asking for a playlist like it. Build waits for the first message. Without an AI it only offers to set one up.
  */
 @Composable
-fun ChatPlaylistScreen(
-    replace: HomePlaylist?,
-    seed: SongSeed?,
-    onBack: () -> Unit,
-    onDelete: (HomePlaylist) -> Unit,
-    vm: PartyViewModel = viewModel(key = "chat-${replace?.id}-${seed?.artist}-${seed?.title}"),
-) {
+fun ChatPlaylistScreen(conversationId: String, onBack: () -> Unit, onDelete: (HomePlaylist) -> Unit) {
+    ConversationHost(conversationId, onBack) { ChatPlaylistBody(it, onBack, onDelete) }
+}
+
+@Composable
+private fun ChatPlaylistBody(vm: PartyConversation, onBack: () -> Unit, onDelete: (HomePlaylist) -> Unit) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     var setup by rememberSaveable { mutableStateOf(false) }
     val list = rememberLazyListState()
-    LaunchedEffect(Unit) { vm.open(replace, PartyMode.CHAT, seed) }
     BackHandler(enabled = ui is PartyUi.Building) { vm.cancel() }
 
     val state = ui

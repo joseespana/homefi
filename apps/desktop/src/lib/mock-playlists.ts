@@ -7,6 +7,7 @@
 // "Make a party playlist": ?party opens the screen, ?partychat starts the chat, ?partybuilt builds
 // a ~2 h playlist, ?partybuilding stays at "Finding the songs: 9 of 40", ?partyshort builds one
 // with a shortfall note, ?partynoai is the no-AI state (also makes `concert_sources` say so).
+// ?chats (screenshots): three AI chats already going (building, failed, waiting) and the AI chats menu open.
 // "Make a playlist with AI": ?chat opens the screen (tap a suggestion to talk), ?chatbuilt sends a
 // first message and builds, ?chatbuilding stays at "Finding the songs: 9 of 30", ?chatnoai is the
 // no-AI state.
@@ -44,6 +45,8 @@ const defaults: PlaylistSettings = {
   chat_curve: "steady",
   chat_allow_explicit: true,
   chat_from_song: true,
+  chat_max_open: 3,
+  chat_done_notice: true,
   tidal_auto_save: false,
   tidal_delete_with: false,
 };
@@ -57,7 +60,7 @@ function clamp(s: PlaylistSettings): PlaylistSettings {
   const always = pct(s.concert_thresholds.always_pct);
   const usually = Math.min(always, pct(s.concert_thresholds.usually_pct));
   const sometimes = Math.min(usually, pct(s.concert_thresholds.sometimes_pct));
-  return { ...s, concert_shows: Math.min(15, Math.max(3, s.concert_shows)), search_budget: Math.min(10, Math.max(1, s.search_budget)), party_minutes: roundMinutes(s.party_minutes), chat_minutes: roundMinutes(s.chat_minutes), party_max_per_artist: Math.min(10, Math.max(1, s.party_max_per_artist)), concert_thresholds: { always_pct: always, usually_pct: usually, sometimes_pct: sometimes, encore_pct: pct(s.concert_thresholds.encore_pct) } };
+  return { ...s, concert_shows: Math.min(15, Math.max(3, s.concert_shows)), search_budget: Math.min(10, Math.max(1, s.search_budget)), party_minutes: roundMinutes(s.party_minutes), chat_minutes: roundMinutes(s.chat_minutes), party_max_per_artist: Math.min(10, Math.max(1, s.party_max_per_artist)), chat_max_open: Math.min(10, Math.max(1, s.chat_max_open)), concert_thresholds: { always_pct: always, usually_pct: usually, sometimes_pct: sometimes, encore_pct: pct(s.concert_thresholds.encore_pct) } };
 }
 
 // ---- data
@@ -268,10 +271,23 @@ const MAX_CHAT_TURNS = 6;
 const MAX_FREE_CHAT_TURNS = 12;
 
 const DEFAULT_BRIEF: PartyBrief = { guests: "friends", ages: [], vibe: "dance", minutes: 120, curve: "arc", allow_explicit: true, notes: "" };
-let partyBrief: PartyBrief | null = null;
-/** The open session's brief when it is a chat ("Make a playlist with AI"); null for a party. */
-let chatBrief: ChatBrief | null = null;
-let partyTurns = 0;
+/** One open AI chat of the mock (the backend keeps one session per conversation id). */
+interface MockSession {
+  partyBrief: PartyBrief | null;
+  /** The brief when it is a chat ("Make a playlist with AI"); null for a party. */
+  chatBrief: ChatBrief | null;
+  turns: number;
+  abort: (() => void) | null;
+}
+const sessions = new Map<string, MockSession>();
+const NO_SESSION = "The conversation was closed. Start it again from Playlists.";
+function session(id: string): MockSession {
+  const s = sessions.get(id);
+  if (!s) throw NO_SESSION;
+  return s;
+}
+/** The chat title the mock's core gives: the AI's, else the wish, else plain words. */
+const titleOf = (s: MockSession) => s.chatBrief?.title || s.chatBrief?.wish.slice(0, 40) || (s.chatBrief ? "Playlist with AI" : `${VIBE_NAME[(s.partyBrief ?? DEFAULT_BRIEF).vibe]} party`);
 
 const CHAT_OPENER: PartyTurn = {
   text: "What kind of playlist do you want today? Tell me how you feel, a decade, a language, a genre, how long…",
@@ -340,77 +356,89 @@ function chatList(brief: ChatBrief, id: string, createdMs: number): HomePlaylist
   };
 }
 
-async function partyBuild({ replaceId, onProgress }: { replaceId: string | null; onProgress: { id: number } }): Promise<PartyBuilt> {
-  const cancelled = new Promise<never>((_, reject) => (abort = () => reject("cancelled")));
+async function partyBuild({ conversation, replaceId, onProgress }: { conversation: string; replaceId: string | null; onProgress: { id: number } }): Promise<PartyBuilt> {
+  const ses = session(conversation);
+  const cancelled = new Promise<never>((_, reject) => (ses.abort = () => reject("cancelled")));
+  // the dev chats: a wish with "slow" never finishes, one with "fail" ends with an error
+  const wish = ses.chatBrief?.wish ?? "";
   const run = async (): Promise<PartyBuilt> => {
     emit(onProgress, { kind: "asking", round: 0 });
     await wait(900);
-    const total = chatBrief ? 30 : 40;
+    const total = ses.chatBrief ? 30 : 40;
     for (let done = 1; done <= total; done++) {
       emit(onProgress, { kind: "resolving", done, total });
-      if (url.has(chatBrief ? "chatbuilding" : "partybuilding") && done === 9) await new Promise(() => {});
+      if ((/slow/i.test(wish) || url.has(ses.chatBrief ? "chatbuilding" : "partybuilding")) && done === 9) await new Promise(() => {});
       await wait(50);
     }
+    if (/fail/i.test(wish)) throw "Your AI didn't answer in time. Try again in a moment.";
     const created = saved.find((p) => p.id === replaceId)?.created_ms ?? NOW_MS;
-    if (chatBrief) return { playlist: chatList(chatBrief, replaceId ?? newId(), created), note: null };
-    return { playlist: partyList(partyBrief ?? DEFAULT_BRIEF, replaceId ?? newId(), created), note: url.has("partyshort") ? "20 min short of 2 h: not enough of the suggested songs were found." : null };
+    if (ses.chatBrief) return { playlist: chatList(ses.chatBrief, replaceId ?? newId(), created), note: null };
+    return { playlist: partyList(ses.partyBrief ?? DEFAULT_BRIEF, replaceId ?? newId(), created), note: url.has("partyshort") ? "20 min short of 2 h: not enough of the suggested songs were found." : null };
   };
   try {
     return await Promise.race([run(), cancelled]);
   } finally {
-    abort = null;
+    ses.abort = null;
   }
+}
+
+/** Opens (or replaces) a conversation, like the backend: at the cap the open is refused. */
+function openSession(id: string, init: Pick<MockSession, "partyBrief" | "chatBrief">): string {
+  if (!sources().ai) throw "Playlists with AI are made by your AI. Set one up in Settings → AI.";
+  if (!sessions.has(id) && sessions.size >= settings.chat_max_open) throw `You already have ${settings.chat_max_open} AI chats open. Close one to start another.`;
+  sessions.get(id)?.abort?.();
+  const ses: MockSession = { ...init, turns: 0, abort: null };
+  sessions.set(id, ses);
+  return titleOf(ses);
 }
 
 const partyHandlers: Record<string, (args: any) => unknown> = {
   party_default_brief: (): PartyBrief => ({ guests: "friends", ages: [], vibe: "dance", minutes: settings.party_minutes, curve: settings.party_curve, allow_explicit: settings.party_allow_explicit, notes: "" }),
-  party_open: ({ brief }: { brief: PartyBrief }) => {
-    if (!sources().ai) throw "Party playlists are made by your AI. Set one up in Settings → AI.";
-    partyBrief = brief;
-    chatBrief = null;
-    partyTurns = 0;
-  },
+  party_open: ({ conversation, brief }: { conversation: string; brief: PartyBrief }) => openSession(conversation, { partyBrief: brief, chatBrief: null }),
   chat_default_brief: (): ChatBrief => ({ wish: "", title: "", minutes: settings.chat_minutes, curve: settings.chat_curve, allow_explicit: settings.chat_allow_explicit }),
   chat_song_wish: ({ seed }: { seed: SongSeed }) => {
     const detail = [seed.year, seed.genre].filter(Boolean).join(", ");
     return `A playlist like “${seed.title}” by ${seed.artist}${detail ? ` (${detail})` : ""}: same style, era and mood. Start with it.`;
   },
-  chat_open: ({ brief }: { brief: ChatBrief }) => {
-    if (!sources().ai) throw "Playlists with AI are made by your AI. Set one up in Settings → AI.";
-    chatBrief = brief;
-    partyBrief = null;
-    partyTurns = 0;
+  chat_open: ({ conversation, brief }: { conversation: string; brief: ChatBrief }) => openSession(conversation, { partyBrief: null, chatBrief: brief }),
+  party_set_brief: ({ conversation, brief }: { conversation: string; brief: PartyBrief }) => {
+    const ses = session(conversation);
+    ses.partyBrief = brief;
+    return titleOf(ses);
   },
-  party_set_brief: ({ brief }: { brief: PartyBrief }) => {
-    partyBrief = brief;
-  },
-  party_start: async () => {
-    partyTurns = 0;
+  party_start: async ({ conversation }: { conversation: string }): Promise<PartyTurn> => {
+    const ses = session(conversation);
+    ses.turns = 0;
     // the chat's first line is fixed words, no AI call: instant
-    if (chatBrief) return CHAT_OPENER;
+    if (ses.chatBrief) return { ...CHAT_OPENER, title: titleOf(ses) };
     await wait(PARTY_TURN_DELAY_MS);
-    return PARTY_QUESTIONS[0];
+    return { ...PARTY_QUESTIONS[0], title: titleOf(ses) };
   },
-  party_reply: async ({ text }: { text: string }) => {
+  party_reply: async ({ conversation, text }: { conversation: string; text: string }): Promise<PartyTurn> => {
+    const ses = session(conversation);
     await wait(PARTY_TURN_DELAY_MS);
-    partyTurns++;
-    if (chatBrief) {
+    ses.turns++;
+    if (ses.chatBrief) {
       // the first message becomes the wish; the AI names the playlist and may change the facts
-      chatBrief = { ...chatBrief, wish: chatBrief.wish || text, title: CHAT_TITLE, minutes: /30 min/i.test(text) ? 30 : /2 hours?/i.test(text) ? 120 : chatBrief.minutes, allow_explicit: /no explicit/i.test(text) ? false : chatBrief.allow_explicit };
-      const done = partyTurns >= MAX_FREE_CHAT_TURNS;
+      const brief = ses.chatBrief;
+      const wish = brief.wish || text;
+      const title = /slow|fail/i.test(wish) ? wish.slice(0, 40) : CHAT_TITLE;
+      ses.chatBrief = { ...brief, wish, title, minutes: /30 min/i.test(text) ? 30 : /2 hours?/i.test(text) ? 120 : brief.minutes, allow_explicit: /no explicit/i.test(text) ? false : brief.allow_explicit };
+      const done = ses.turns >= MAX_FREE_CHAT_TURNS;
       return {
-        text: done ? CHAT_LIMIT_TURN.text : `Got it: ${CHAT_TITLE.toLowerCase()}. ${CHAT_FOLLOW_UPS[(partyTurns - 1) % CHAT_FOLLOW_UPS.length]}`,
-        quick_replies: done ? [] : CHAT_SUGGESTIONS[(partyTurns - 1) % CHAT_SUGGESTIONS.length],
-        chat_brief: chatBrief,
+        text: done ? CHAT_LIMIT_TURN.text : `Got it: ${title.toLowerCase()}. ${CHAT_FOLLOW_UPS[(ses.turns - 1) % CHAT_FOLLOW_UPS.length]}`,
+        quick_replies: done ? [] : CHAT_SUGGESTIONS[(ses.turns - 1) % CHAT_SUGGESTIONS.length],
+        chat_brief: ses.chatBrief,
+        title: titleOf(ses),
       };
     }
-    return partyTurns >= MAX_CHAT_TURNS ? CHAT_LIMIT_TURN : PARTY_QUESTIONS[partyTurns % PARTY_QUESTIONS.length];
+    return { ...(ses.turns >= MAX_CHAT_TURNS ? CHAT_LIMIT_TURN : PARTY_QUESTIONS[ses.turns % PARTY_QUESTIONS.length]), title: titleOf(ses) };
   },
   party_build: partyBuild,
-  party_cancel: () => abort?.(),
-  party_close: () => {
-    partyBrief = null;
-    chatBrief = null;
+  party_cancel: ({ conversation }: { conversation: string }) => sessions.get(conversation)?.abort?.(),
+  party_close: ({ conversation }: { conversation: string }) => {
+    sessions.get(conversation)?.abort?.();
+    sessions.delete(conversation);
   },
 };
 

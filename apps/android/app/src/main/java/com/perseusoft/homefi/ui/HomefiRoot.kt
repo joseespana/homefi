@@ -42,6 +42,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.AutoAwesome
+import com.perseusoft.homefi.ui.playlists.ConversationsSheet
 import androidx.compose.material.icons.automirrored.rounded.DirectionsBike
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Search
@@ -188,10 +190,13 @@ fun HomefiRoot(destinations: Flow<Destination>) {
         }
     }
 
-    // "Playlist like this": the player closes and the library opens the AI chat with the song
-    val songSeed by app.songSeeds.request.collectAsStateWithLifecycle()
-    LaunchedEffect(songSeed) {
-        if (songSeed != null) {
+    // "Playlist like this" or a chat picked in the chats menu: the player closes and the library opens the AI chat
+    val chatRequest by app.chatRequests.request.collectAsStateWithLifecycle()
+    val aiChats by app.conversations.list.collectAsStateWithLifecycle()
+    val aiChatsBusy by app.conversations.busy.collectAsStateWithLifecycle()
+    val chatsMenu by app.conversations.menuOpen.collectAsStateWithLifecycle()
+    LaunchedEffect(chatRequest) {
+        if (chatRequest != null) {
             playerOpen = false
             tab = Tab.LIBRARY
         }
@@ -222,6 +227,15 @@ fun HomefiRoot(destinations: Flow<Destination>) {
                     },
                     actions = {
                         // one Sound control; in a room the Groups icon mirrors the desktop's sharing status
+                        if (aiChats.any { !it.unavailable }) {
+                            IconButton(onClick = { app.conversations.menuOpen.value = true }) {
+                                if (aiChatsBusy) {
+                                    BadgedBox(badge = { Badge() }) { Icon(Icons.Rounded.AutoAwesome, stringResource(R.string.pl_chats_title)) }
+                                } else {
+                                    Icon(Icons.Rounded.AutoAwesome, stringResource(R.string.pl_chats_title))
+                                }
+                            }
+                        }
                         if (settings.djEntry) {
                             IconButton(onClick = app.dj::open) { Icon(Icons.Rounded.Headphones, stringResource(R.string.dj_title)) }
                         }
@@ -425,6 +439,7 @@ fun HomefiRoot(destinations: Flow<Destination>) {
         // rides and DJ setups: saved, imported, a refused file
         NoteNotices(soundSnackbar)
         IncomingFileDialog()
+        if (chatsMenu) ConversationsSheet(onDismiss = { app.conversations.menuOpen.value = false })
         SnackbarHost(soundSnackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 72.dp))
 
         // the hub's discreet notices, over every screen

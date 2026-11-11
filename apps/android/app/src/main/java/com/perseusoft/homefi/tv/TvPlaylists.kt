@@ -37,6 +37,7 @@ import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -68,7 +69,8 @@ import com.perseusoft.homefi.library.EmbeddedCover
 import com.perseusoft.homefi.ui.formatDuration
 import com.perseusoft.homefi.ui.playlists.PartyMode
 import com.perseusoft.homefi.ui.playlists.PartyUi
-import com.perseusoft.homefi.ui.playlists.PartyViewModel
+import com.perseusoft.homefi.ui.playlists.PartyConversation
+import com.perseusoft.homefi.ui.playlists.ChatRequest
 import com.perseusoft.homefi.ui.playlists.chatSummary
 import com.perseusoft.homefi.ui.playlists.enqueuePlaylist
 import com.perseusoft.homefi.ui.playlists.playPlaylist
@@ -93,7 +95,7 @@ private sealed interface PlaylistsPage {
  * Playlists (docs/TV_UI.md 6.11): the ones HomeFi made (with the card that starts the AI chat) and the user's
  * TIDAL playlists, a playlist page (play, shuffle, queue, save or update on TIDAL, Sound for it) and the
  * chat that makes a playlist from words, with quick replies, voice and the on-screen keyboard. It reads the
- * phone's state holders ([app.playlists][com.perseusoft.homefi.data.HomePlaylists], [PartyViewModel]).
+ * phone's state holders ([app.playlists][com.perseusoft.homefi.data.HomePlaylists], [PartyConversation]).
  */
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -102,7 +104,7 @@ fun TvPlaylists(entryKey: Int) {
     val tidal: TidalViewModel = viewModel()
     val homeLists by app.playlists.list.collectAsStateWithLifecycle()
     val account by app.account.account.collectAsStateWithLifecycle()
-    val songSeed by app.songSeeds.request.collectAsStateWithLifecycle()
+    val songSeed by app.chatRequests.request.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(PlaylistTab.HOMEFI) }
     var openId by rememberSaveable { mutableStateOf<String?>(null) }
     var chatOpen by rememberSaveable { mutableStateOf(false) }
@@ -114,12 +116,13 @@ fun TvPlaylists(entryKey: Int) {
     LaunchedEffect(Unit) { app.playlists.refresh() }
     // "Playlist like this" from a song's menu: the chat opens with that song
     LaunchedEffect(songSeed) {
-        songSeed?.let {
-            seed = it
+        val request = songSeed ?: return@LaunchedEffect
+        app.chatRequests.consume()
+        if (request is ChatRequest.LikeSong) {
+            seed = request.seed
             chatReplace = null
             generation++
             chatOpen = true
-            app.songSeeds.consume()
         }
     }
     val signedIn = account != null
@@ -477,9 +480,15 @@ private fun TvPlaylistChat(
     val nav = LocalTvNav.current
     val look = LocalTvLook.current
     val safe = tvSafePadding()
-    val vm: PartyViewModel = viewModel(key = "tv-chat-${replace?.id}-$generation")
+    // the TV keeps one chat at a time and closes it on leaving (no chats menu here)
+    val chat = remember(generation) {
+        app.conversations.list.value.forEach { app.conversations.close(it.id) }
+        app.conversations.open(PartyMode.CHAT, replace, seed)
+    }
+    DisposableEffect(chat) { onDispose { chat?.let { app.conversations.close(it.id) } } }
+    if (chat == null) return
+    val vm = chat
     val ui by vm.ui.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { vm.open(replace, PartyMode.CHAT, seed) }
     // a build in progress is cancelled by BACK first
     BackHandler(enabled = ui is PartyUi.Building) { vm.cancel() }
 
@@ -580,7 +589,7 @@ private fun BuildingPane(state: PartyUi.Building, onCancel: () -> Unit) {
 
 /** The built list: Play, Save (HomeFi only), Build again, Discard; the songs under them, OK plays from one. */
 @Composable
-private fun androidx.compose.foundation.layout.ColumnScope.BuiltPane(state: PartyUi.Built, vm: PartyViewModel, onOpenSaved: (String) -> Unit) {
+private fun androidx.compose.foundation.layout.ColumnScope.BuiltPane(state: PartyUi.Built, vm: PartyConversation, onOpenSaved: (String) -> Unit) {
     val app = LocalContext.current.homefi
     val nav = LocalTvNav.current
     val look = LocalTvLook.current

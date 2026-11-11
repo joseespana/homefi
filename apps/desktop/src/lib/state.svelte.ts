@@ -4,6 +4,7 @@ import { Paged } from "./paged.svelte";
 import { api, errorText, on, type Account, type LibraryKind, type AppInfo, type DownloadEvent, type Hit, type Kind, type PlayerState, type Settings, type StreamItem, type Theme, type Track, type PlayerLayout, type Upcoming, type SourceContext, type TasteScope, type VersionHit, type AlbumVersionPrefs, type SongSeed, DEFAULT_PLAYLIST_SETTINGS } from "./api";
 import { fixedTheme } from "./layouts";
 import { TERMS_VERSION } from "./terms";
+import { conversations } from "./party.svelte";
 
 export type View =
   | { name: "room" }
@@ -16,10 +17,10 @@ export type View =
   | { name: "playlist"; path: string }
   /** "Get ready for a concert": type an artist, get the songs of their tour. */
   | { name: "concert" }
-  /** "Make a party playlist"; `replace` is a saved playlist's id to rebuild ("Change answers"). */
-  | { name: "party"; replace?: string }
-  /** "Make a playlist with AI"; `replace` is a saved chat playlist's id to keep chatting ("Keep chatting"). */
-  | { name: "chat-playlist"; replace?: string; seed?: SongSeed }
+  /** "Make a party playlist": the AI chat (see `conversations`) with this id. */
+  | { name: "party"; conversation: string }
+  /** "Make a playlist with AI": the AI chat with this id. */
+  | { name: "chat-playlist"; conversation: string }
   /** A playlist HomeFi made (saved only in HomeFi). */
   | { name: "home-playlist"; id: string }
   | { name: "search" }
@@ -237,7 +238,7 @@ class AppState {
 
   /** Opens the AI chat with a wish made from this song. */
   playlistLike(seed: SongSeed) {
-    this.view = { name: "chat-playlist", seed };
+    conversations.begin("chat", { seed });
   }
 
   /** Opens "Play next / Add to queue" next to the clicked button (or at the pointer, on right-click). */

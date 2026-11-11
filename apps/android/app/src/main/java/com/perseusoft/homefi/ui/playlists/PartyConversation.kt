@@ -1,8 +1,7 @@
 package com.perseusoft.homefi.ui.playlists
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
+import com.perseusoft.homefi.HomefiApplication
+import com.perseusoft.homefi.R
 import com.perseusoft.homefi.core.ChatBrief
 import com.perseusoft.homefi.core.HomePlaylist
 import com.perseusoft.homefi.core.PartyBrief
@@ -17,9 +16,11 @@ import com.perseusoft.homefi.core.chatSongWish
 import com.perseusoft.homefi.core.chatDefaultBrief
 import com.perseusoft.homefi.core.partyDefaultBrief
 import com.perseusoft.homefi.data.userMessage
-import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.ui.eq.ChatLine
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -79,26 +80,82 @@ sealed interface PartyUi {
     data class Built(val form: PartyForm, val built: PartyBuilt, val saved: Boolean = false) : PartyUi
 }
 
+/** What a conversation is doing, in the words of the chats menu. */
+sealed interface ChatStatus {
+    /** Open, nothing in flight: it waits for the user. */
+    data object Waiting : ChatStatus
+    data object Thinking : ChatStatus
+
+    /** [fraction] is null until the core reports how many songs it found. */
+    data class Building(val fraction: Float?) : ChatStatus
+    data object Ready : ChatStatus
+    data class Failed(val message: String) : ChatStatus
+}
+
+/** The menu's status for a state; [buildFailure] is the last build's error while no newer action cleared it. */
+internal fun chatStatus(ui: PartyUi, buildFailure: String?): ChatStatus = when (ui) {
+    PartyUi.NeedsAi -> ChatStatus.Waiting
+    is PartyUi.Building -> {
+        val p = ui.progress as? PartyProgress.Resolving
+        ChatStatus.Building(p?.takeIf { it.total > 0u }?.let { it.done.toFloat() / it.total.toFloat() })
+    }
+    is PartyUi.Built -> ChatStatus.Ready
+    is PartyUi.Asking -> when {
+        buildFailure != null -> ChatStatus.Failed(buildFailure)
+        ui.form.chat.thinking -> ChatStatus.Thinking
+        else -> ChatStatus.Waiting
+    }
+}
+
 /**
- * Drives the party screen: the answers, the optional chat with the user's AI and the build. The
- * session lives here (closed when replaced or cleared); the listener runs on a Rust thread, so it
- * only touches the thread-safe state flow. A cancelled coroutine aborts the Rust task.
+ * One AI playlist conversation (party answers or free chat): the answers, the optional chat with
+ * the user's AI and the build. It lives in [AiConversations] (application scope), so it keeps
+ * going when its screen closes. The session closes with [close]; the listener runs on a Rust
+ * thread, so it only touches the thread-safe state flow. A cancelled coroutine aborts the Rust task.
  */
-class PartyViewModel(app: Application) : AndroidViewModel(app) {
-    private val home = app.homefi
+class PartyConversation internal constructor(
+    val id: String,
+    val mode: PartyMode,
+    private val app: HomefiApplication,
+    parent: Job?,
+) {
+    private val scope = CoroutineScope(SupervisorJob(parent) + Dispatchers.Main.immediate)
     private val _ui = MutableStateFlow<PartyUi>(PartyUi.NeedsAi)
     val ui: StateFlow<PartyUi> = _ui.asStateFlow()
+
+    private val _title = MutableStateFlow(
+        app.getString(if (mode == PartyMode.CHAT) R.string.pl_chat_title else R.string.pl_party_title),
+    )
+    /** What the core calls this conversation (the AI's title, the wish's first words, the party name). */
+    val title: StateFlow<String> = _title.asStateFlow()
+
+    private val _lastActivityMs = MutableStateFlow(System.currentTimeMillis())
+    val lastActivityMs: StateFlow<Long> = _lastActivityMs.asStateFlow()
+
+    private val _buildFailure = MutableStateFlow<String?>(null)
+    /** The last build's error until the next action (the chat stays usable). */
+    val buildFailure: StateFlow<String?> = _buildFailure.asStateFlow()
+
+    val status: ChatStatus get() = chatStatus(_ui.value, _buildFailure.value)
+
+    /** No AI is set up: the screen only offers to set one up, and the chat doesn't count toward the cap. */
+    @Volatile
+    var unavailable = false
+        private set
 
     private var session: PartySession? = null
     private var aiName: String = ""
     private var replaceId: String? = null
-    private var mode = PartyMode.PARTY
     private var opened = false
+    private var closed = false
     private var job: Job? = null
     private var briefJob: Job? = null
     private var seedJob: Job? = null
     private var songSeed: SongSeed? = null
     private var nextLineId = 0
+
+    /** True once the user (or the answers of a replaced playlist) saved the draft. */
+    val isSaved: Boolean get() = (_ui.value as? PartyUi.Built)?.saved == true
 
     private val listener = object : PartyListener {
         override fun onProgress(progress: PartyProgress) {
@@ -106,16 +163,19 @@ class PartyViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private fun touch() {
+        _lastActivityMs.value = System.currentTimeMillis()
+    }
+
     /**
      * Starts the screen. With [replace] (a saved playlist of the same [mode]) the answers are its
      * brief and a build saves over it; otherwise they come from the Settings defaults. In chat mode
      * the opener shows at once, and a [seed] (a song to make a playlist like) is then sent as the
-     * first message. Runs once per ViewModel.
+     * first message. Runs once per conversation.
      */
-    fun open(replace: HomePlaylist?, mode: PartyMode = PartyMode.PARTY, seed: SongSeed? = null) {
+    fun open(replace: HomePlaylist?, seed: SongSeed? = null) {
         if (opened) return
         opened = true
-        this.mode = mode
         songSeed = seed.takeIf { mode == PartyMode.CHAT }
         replaceId = replace?.id
         when (mode) {
@@ -130,22 +190,28 @@ class PartyViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun startSession(savedParty: PartyBrief?, savedChat: ChatBrief?) {
-        viewModelScope.launch {
-            val ready = withContext(Dispatchers.IO) { home.ai.ready() }
+        scope.launch {
+            val ready = withContext(Dispatchers.IO) { app.ai.ready() }
+            unavailable = ready == null
             if (ready == null) {
                 _ui.value = PartyUi.NeedsAi
                 return@launch
             }
-            val settings = home.settings.playlists.value
+            val settings = app.settings.playlists.value
             val brief = savedParty ?: partyDefaultBrief(settings)
             val chatBrief = if (mode == PartyMode.CHAT) savedChat ?: chatDefaultBrief(settings) else null
             val fresh = withContext(Dispatchers.IO) {
                 if (chatBrief != null) PartySession.newChat(ready.config, ready.key, chatBrief, languageTag())
                 else PartySession(ready.config, ready.key, brief, languageTag())
             }
+            if (closed) {
+                fresh.close()
+                return@launch
+            }
             session?.close()
             session = fresh
             aiName = ready.info.name
+            runCatching { fresh.title() }.onSuccess { _title.value = it }
             _ui.value = PartyUi.Asking(PartyForm(brief, PartyChat(maxTurns = mode.maxTurns), chatBrief = chatBrief))
             if (mode == PartyMode.CHAT) {
                 talk()
@@ -158,7 +224,7 @@ class PartyViewModel(app: Application) : AndroidViewModel(app) {
     private fun sendSongWish() {
         val seed = songSeed ?: return
         songSeed = null
-        seedJob = viewModelScope.launch {
+        seedJob = scope.launch {
             job?.join()
             val wish = withContext(Dispatchers.Default) { chatSongWish(seed, languageTag()) }
             send(wish)
@@ -176,9 +242,10 @@ class PartyViewModel(app: Application) : AndroidViewModel(app) {
         }
         val current = session ?: return
         val before = briefJob
-        briefJob = viewModelScope.launch {
+        briefJob = scope.launch {
             before?.join()
             runCatching { current.setBrief(brief) }
+                .onSuccess { runCatching { current.title() }.onSuccess { t -> _title.value = t } }
         }
     }
 
@@ -207,11 +274,15 @@ class PartyViewModel(app: Application) : AndroidViewModel(app) {
             userTurns = if (user != null) chat.userTurns + 1 else chat.userTurns,
         )
         updateForm { it.copy(chat = asked, error = null) }
+        _buildFailure.value = null
+        touch()
         job?.cancel()
-        job = viewModelScope.launch {
+        job = scope.launch {
             try {
                 briefJob?.join()
                 val reply = call(current)
+                if (reply.title.isNotBlank()) _title.value = reply.title
+                touch()
                 updateForm {
                     val line = ChatLine(nextLineId++, false, reply.text)
                     it.copy(
@@ -235,15 +306,18 @@ class PartyViewModel(app: Application) : AndroidViewModel(app) {
         val previous = (state as? PartyUi.Built)?.built
         val current = session ?: return
         job?.cancel()
+        _buildFailure.value = null
+        touch()
         _ui.value = PartyUi.Building(form.copy(error = null), null, aiName, previous)
-        job = viewModelScope.launch {
+        job = scope.launch {
             try {
                 briefJob?.join()
                 if (mode == PartyMode.PARTY) current.setBrief(form.brief)
-                val built = home.engine.partyBuild(current, home.settings.playlists.value, home.libraryRefs(), replaceId, listener)
+                val built = app.engine.partyBuild(current, app.settings.playlists.value, app.libraryRefs(), replaceId, listener)
                 val id = replaceId
                 if (id != null) {
-                    val error = home.playlists.save(built.playlist)
+                    val error = app.playlists.save(built.playlist)
+                    if (error != null) _buildFailure.value = error
                     _ui.value = if (error == null) PartyUi.Built(form, built, saved = true) else PartyUi.Asking(form.copy(error = error))
                 } else {
                     _ui.value = PartyUi.Built(form, built)
@@ -251,8 +325,11 @@ class PartyViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _ui.value = PartyUi.Asking(form.copy(error = e.userMessage()))
+                val message = e.userMessage()
+                _buildFailure.value = message
+                _ui.value = PartyUi.Asking(form.copy(error = message))
             }
+            touch()
         }
     }
 
@@ -273,8 +350,8 @@ class PartyViewModel(app: Application) : AndroidViewModel(app) {
     /** Saves the draft in HomeFi (only there; nothing goes to Tidal). */
     fun save() {
         val built = (_ui.value as? PartyUi.Built)?.takeIf { !it.saved } ?: return
-        viewModelScope.launch {
-            val error = home.playlists.save(built.built.playlist)
+        scope.launch {
+            val error = app.playlists.save(built.built.playlist)
             _ui.value = if (error == null) built.copy(saved = true) else built.copy(form = built.form.copy(error = error))
         }
     }
@@ -305,9 +382,12 @@ class PartyViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    override fun onCleared() {
+    /** Stops everything and frees the session; the conversation is not used afterwards. */
+    fun close() {
+        if (closed) return
+        closed = true
+        scope.cancel()
         session?.close()
         session = null
-        super.onCleared()
     }
 }

@@ -14,19 +14,28 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/**
- * "Playlist like this": a song picked in a menu waits here until the library opens the AI chat
- * with it. Held in a flow so it survives the player closing and the tab changing.
- */
-class SongSeeds {
-    private val _request = MutableStateFlow<SongSeed?>(null)
-    val request: StateFlow<SongSeed?> = _request.asStateFlow()
+/** What asks the library to open an AI chat. */
+sealed interface ChatRequest {
+    /** "Playlist like this": a new chat that opens with this song. */
+    data class LikeSong(val seed: SongSeed) : ChatRequest
 
-    fun open(seed: SongSeed) {
-        _request.value = seed
+    /** A chat that is already open (from the chats menu or a notice). */
+    data class Resume(val id: String) : ChatRequest
+}
+
+/**
+ * A request picked in a menu or a notice waits here until the library opens the chat. Held in a
+ * flow so it survives the player closing and the tab changing.
+ */
+class ChatRequests {
+    private val _request = MutableStateFlow<ChatRequest?>(null)
+    val request: StateFlow<ChatRequest?> = _request.asStateFlow()
+
+    fun open(request: ChatRequest) {
+        _request.value = request
     }
 
-    /** The library took the song: it won't open the chat again. */
+    /** The library took the request: it won't open the chat again. */
     fun consume() {
         _request.value = null
     }
@@ -40,7 +49,7 @@ class SongSeeds {
 fun songSeedAction(seed: () -> SongSeed): (() -> Unit)? {
     val app = LocalContext.current.homefi
     val enabled by app.settings.playlists.collectAsStateWithLifecycle()
-    return if (enabled.chatFromSong) ({ app.songSeeds.open(seed()) }) else null
+    return if (enabled.chatFromSong) ({ app.chatRequests.open(ChatRequest.LikeSong(seed())) }) else null
 }
 
 private fun String.orNullIfBlank(): String? = takeIf { it.isNotBlank() }

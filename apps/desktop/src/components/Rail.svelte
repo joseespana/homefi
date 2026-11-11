@@ -6,6 +6,8 @@
   import { exercise } from "../lib/exercise.svelte";
   import { app, type View } from "../lib/state.svelte";
   import { pop } from "../lib/motion";
+  import { conversations } from "../lib/party.svelte";
+  import ConversationsMenu from "./playlists/ConversationsMenu.svelte";
   import Icon from "./Icon.svelte";
 
   const base: { view: View["name"]; label: string; icon: string }[] = [
@@ -99,6 +101,8 @@
   }
   const busy = (view: string) => (view === "downloads" && app.busy) || (view === "disc" && disc.ripping) || (view === "dj" && dj.on) || (view === "exercise" && exercise.busy);
 
+  let chatsBtn = $state<HTMLElement>();
+  const chatsLabel = $derived(`AI chats · ${conversations.live.length}`);
   const tidalLabel = $derived(app.account ? `Tidal · ${app.account.countryCode}` : "Connect Tidal");
   const shareLabel = $derived(
     share.sharing ? `Sharing · ${share.hub.guests.length} guests` : share.inRoom ? `In ${share.guest.session_name}` : "Share or join music",
@@ -146,6 +150,28 @@
   {/if}
   <div class="spacer"></div>
   <div class="bottom" bind:this={bottom}>
+  {#if conversations.live.length}
+    <!-- AI playlist chats keep going when their screen is left; this brings them back -->
+    <button
+      class="item"
+      class:active={conversations.menuOpen || conversations.list.some((c) => conversations.isShown(c.id))}
+      bind:this={chatsBtn}
+      onclick={() => {
+        hide();
+        conversations.menuOpen = !conversations.menuOpen;
+      }}
+      aria-label="AI chats"
+      aria-haspopup="menu"
+      aria-expanded={conversations.menuOpen}
+      onmouseenter={(e) => !conversations.menuOpen && show(e, chatsLabel)}
+      onmouseleave={hide}
+      onfocus={(e) => !conversations.menuOpen && show(e, chatsLabel)}
+      onblur={hide}
+    >
+      <Icon name="ai" size={20} />
+      {#if conversations.busy}<span class="dot"></span>{/if}
+    </button>
+  {/if}
   <button
     class="item"
     class:active={app.view.name === "guest" || share.panelOpen}
@@ -187,6 +213,7 @@
     {/each}
   </div>
 {/if}
+<ConversationsMenu anchor={chatsBtn} />
 <svelte:window onkeydown={(e) => more && e.key === "Escape" && (more = null)} />
 {#if tip}<div class="tip" role="tooltip" style:top="{tip.y}px">{tip.text}</div>{/if}
 

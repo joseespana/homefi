@@ -3,8 +3,9 @@
 //! account is written only to save a HomeFi playlist there (the button, or the
 //! "save to TIDAL automatically" setting) and to delete that copy (its own setting).
 
+use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use homefi_core::ai::AiProvider;
 use homefi_core::concert::{self, BuildContext, ConcertBuilt, ConcertProgress, ConcertRequest};
@@ -20,21 +21,33 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{watch, Mutex as AsyncMutex};
 
-use crate::commands::{err, AppState, TrackView};
+use crate::commands::{err, lock, AppState, TrackView};
 
 type CmdResult<T> = Result<T, String>;
 
-/// Playlist state of the app: the store and the cancel switch of the running build.
+/// Playlist state of the app: the store, the cancel switch of the running concert or exercise
+/// build, and the open AI chats.
 pub struct Playlists {
     store: PlaylistStore,
+    /// Concert and exercise builds (one at a time, a new one cancels the last).
     cancel: Mutex<Option<watch::Sender<bool>>>,
-    /// The open party conversation (held across awaits, hence the async mutex).
-    party: AsyncMutex<Option<PartySession>>,
+    /// Open AI chats by the id the UI gave them; each has its own cancel switch.
+    conversations: Mutex<HashMap<String, Conversation>>,
+}
+
+/// One open AI chat. The session is held across awaits, hence the async mutex.
+struct Conversation {
+    session: Arc<AsyncMutex<PartySession>>,
+    cancel: watch::Sender<bool>,
 }
 
 impl Playlists {
     pub fn new(app_dir: &Path) -> Self {
-        Self { store: PlaylistStore::in_app_dir(app_dir), cancel: Mutex::new(None), party: AsyncMutex::new(None) }
+        Self {
+            store: PlaylistStore::in_app_dir(app_dir),
+            cancel: Mutex::new(None),
+            conversations: Mutex::new(HashMap::new()),
+        }
     }
 
     /// The playlist store (the Exercise ride saves its playlist here).
@@ -45,7 +58,7 @@ impl Playlists {
     /// Registers a new running job, cancelling the one before it.
     pub(crate) fn begin(&self) -> watch::Receiver<bool> {
         let (tx, rx) = watch::channel(false);
-        if let Some(previous) = self.cancel.lock().unwrap().replace(tx) {
+        if let Some(previous) = lock(&self.cancel).replace(tx) {
             let _ = previous.send(true);
         }
         rx
@@ -53,15 +66,64 @@ impl Playlists {
 
     /// Clears the switch, unless a newer job already took its place.
     pub(crate) fn finish(&self, rx: &watch::Receiver<bool>) {
-        let mut slot = self.cancel.lock().unwrap();
+        let mut slot = lock(&self.cancel);
         if slot.as_ref().is_some_and(|tx| tx.subscribe().same_channel(rx)) {
             *slot = None;
         }
     }
 
     pub(crate) fn cancel(&self) {
-        if let Some(tx) = self.cancel.lock().unwrap().as_ref() {
+        if let Some(tx) = lock(&self.cancel).as_ref() {
             let _ = tx.send(true);
+        }
+    }
+
+    /// Registers (or replaces) a chat. `Err` with the humane text when `max` other chats are
+    /// already open (the UI enforces the cap first; this is the safety net).
+    fn insert_conversation(&self, id: String, session: PartySession, max: u8, lang: Lang) -> CmdResult<()> {
+        let mut open = lock(&self.conversations);
+        if !open.contains_key(&id) && open.len() >= usize::from(max) {
+            return Err(party::too_many_chats_message(lang, max));
+        }
+        let (cancel, _) = watch::channel(false);
+        let conversation = Conversation { session: Arc::new(AsyncMutex::new(session)), cancel };
+        if let Some(previous) = open.insert(id, conversation) {
+            let _ = previous.cancel.send(true);
+        }
+        Ok(())
+    }
+
+    /// The chat's session; the std guard is dropped before the caller awaits anything.
+    fn session(&self, id: &str) -> CmdResult<Arc<AsyncMutex<PartySession>>> {
+        lock(&self.conversations)
+            .get(id)
+            .map(|c| Arc::clone(&c.session))
+            .ok_or_else(|| party::no_session_message(humane::language()))
+    }
+
+    /// Starts a build: the session and a fresh cancel receiver. A build still running for this
+    /// chat is cancelled (the old switch may already be `true` from an earlier cancel).
+    fn begin_build(&self, id: &str) -> CmdResult<(Arc<AsyncMutex<PartySession>>, watch::Receiver<bool>)> {
+        let mut open = lock(&self.conversations);
+        let conversation = open.get_mut(id).ok_or_else(|| party::no_session_message(humane::language()))?;
+        let (tx, rx) = watch::channel(false);
+        let previous = std::mem::replace(&mut conversation.cancel, tx);
+        let _ = previous.send(true);
+        Ok((Arc::clone(&conversation.session), rx))
+    }
+
+    /// Stops the chat's build, if any; the chat stays open.
+    fn cancel_conversation(&self, id: &str) {
+        if let Some(conversation) = lock(&self.conversations).get(id) {
+            let _ = conversation.cancel.send(true);
+        }
+    }
+
+    /// Cancels the chat's build and forgets it. `true` is sent before the sender is dropped:
+    /// [`cancelled`] pends forever on a dropped switch.
+    fn close_conversation(&self, id: &str) {
+        if let Some(conversation) = lock(&self.conversations).remove(id) {
+            let _ = conversation.cancel.send(true);
         }
     }
 }
@@ -254,26 +316,44 @@ pub fn chat_default_brief(app: AppHandle) -> ChatBrief {
     ChatBrief::from_settings(&app.state::<AppState>().settings().playlists)
 }
 
-/// Opens (replacing) the party conversation; the error is the "needs an AI" text when none is set up.
-#[tauri::command]
-pub async fn party_open(app: AppHandle, brief: PartyBrief, language: String) -> CmdResult<()> {
-    let lang = Lang::from_code(&language);
-    let Some(config) = crate::ai::settings_config(&app).await else {
-        return Err(party::needs_ai_message(lang));
-    };
-    *app.state::<Playlists>().party.lock().await = Some(PartySession::new(config, brief, lang));
-    Ok(())
+/// The cap from the settings, read when a chat opens.
+fn max_open_chats(app: &AppHandle) -> u8 {
+    app.state::<AppState>().settings().playlists.chat_max_open
 }
 
-/// Opens (replacing) the "Playlist with AI" conversation in the same slot; `party_start` gives the opener.
-#[tauri::command]
-pub async fn chat_open(app: AppHandle, brief: ChatBrief, language: String) -> CmdResult<()> {
-    let lang = Lang::from_code(&language);
-    let Some(config) = crate::ai::settings_config(&app).await else {
+/// Registers a chat under `id`; its title is what the list of open chats shows. The error is the
+/// "needs an AI" text when none is set up, or the humane "too many chats" text at the cap.
+async fn open_conversation(
+    app: &AppHandle,
+    id: String,
+    brief: impl Into<party::Brief>,
+    language: &str,
+) -> CmdResult<String> {
+    let lang = Lang::from_code(language);
+    let Some(config) = crate::ai::settings_config(app).await else {
         return Err(party::needs_ai_message(lang));
     };
-    *app.state::<Playlists>().party.lock().await = Some(PartySession::new(config, brief, lang));
-    Ok(())
+    let session = PartySession::new(config, brief, lang);
+    let title = session.title();
+    app.state::<Playlists>().insert_conversation(id, session, max_open_chats(app), lang)?;
+    Ok(title)
+}
+
+/// Opens (replacing the same id) a party conversation; answers its title.
+#[tauri::command]
+pub async fn party_open(
+    app: AppHandle,
+    conversation: String,
+    brief: PartyBrief,
+    language: String,
+) -> CmdResult<String> {
+    open_conversation(&app, conversation, brief, &language).await
+}
+
+/// Opens (replacing the same id) a "Playlist with AI" conversation; `party_start` gives the opener.
+#[tauri::command]
+pub async fn chat_open(app: AppHandle, conversation: String, brief: ChatBrief, language: String) -> CmdResult<String> {
+    open_conversation(&app, conversation, brief, &language).await
 }
 
 /// The first chat message for "Playlist like this song" (`language`: "en" or "es").
@@ -282,41 +362,42 @@ pub fn chat_song_wish(seed: SongSeed, language: String) -> String {
     party::song_wish(&seed, Lang::from_code(&language))
 }
 
+/// New answers for the chat; answers its title.
 #[tauri::command]
-pub async fn party_set_brief(app: AppHandle, brief: PartyBrief) -> CmdResult<()> {
-    let playlists = app.state::<Playlists>();
-    let mut slot = playlists.party.lock().await;
-    slot.as_mut().ok_or_else(|| party::no_session_message(humane::language()))?.set_brief(brief);
-    Ok(())
+pub async fn party_set_brief(app: AppHandle, conversation: String, brief: PartyBrief) -> CmdResult<String> {
+    let session = app.state::<Playlists>().session(&conversation)?;
+    let mut session = session.lock().await;
+    session.set_brief(brief);
+    Ok(session.title())
 }
 
 #[tauri::command]
-pub async fn party_start(app: AppHandle) -> CmdResult<PartyTurn> {
-    let playlists = app.state::<Playlists>();
-    let mut slot = playlists.party.lock().await;
-    let session = slot.as_mut().ok_or_else(|| party::no_session_message(humane::language()))?;
+pub async fn party_start(app: AppHandle, conversation: String) -> CmdResult<PartyTurn> {
+    let session = app.state::<Playlists>().session(&conversation)?;
+    let mut session = session.lock().await;
     session.start().await.map_err(err)
 }
 
 #[tauri::command]
-pub async fn party_reply(app: AppHandle, text: String) -> CmdResult<PartyTurn> {
-    let playlists = app.state::<Playlists>();
-    let mut slot = playlists.party.lock().await;
-    let session = slot.as_mut().ok_or_else(|| party::no_session_message(humane::language()))?;
+pub async fn party_reply(app: AppHandle, conversation: String, text: String) -> CmdResult<PartyTurn> {
+    let session = app.state::<Playlists>().session(&conversation)?;
+    let mut session = session.lock().await;
     session.reply(&text).await.map_err(err)
 }
 
+/// Builds from the chat. Only this chat's own switch cancels it (`party_cancel`/`party_close`);
+/// concert and exercise builds don't touch it.
 #[tauri::command]
 pub async fn party_build(
     app: AppHandle,
+    conversation: String,
     replace_id: Option<String>,
     on_progress: Channel<PartyProgress>,
 ) -> CmdResult<PartyBuilt> {
     let playlists = app.state::<Playlists>();
-    let rx = playlists.begin();
+    let (session, rx) = playlists.begin_build(&conversation)?;
     let result = async {
-        let mut slot = playlists.party.lock().await;
-        let session = slot.as_mut().ok_or_else(|| party::no_session_message(humane::language()))?;
+        let mut session = session.lock().await;
         let sources = sources(&app).await?;
         let ctx = PartyContext { settings: &sources.settings, api: sources.api.as_ref(), library: &sources.library };
         let progress = move |p: PartyProgress| {
@@ -328,7 +409,6 @@ pub async fn party_build(
         }
     }
     .await;
-    playlists.finish(&rx);
     let mut built = result?;
     if let Some(id) = replace_id {
         if let Ok(old) = playlists.store.load(&id) {
@@ -339,13 +419,13 @@ pub async fn party_build(
 }
 
 #[tauri::command]
-pub fn party_cancel(playlists: State<'_, Playlists>) {
-    playlists.cancel();
+pub fn party_cancel(playlists: State<'_, Playlists>, conversation: String) {
+    playlists.cancel_conversation(&conversation);
 }
 
 #[tauri::command]
-pub async fn party_close(app: AppHandle) {
-    *app.state::<Playlists>().party.lock().await = None;
+pub fn party_close(playlists: State<'_, Playlists>, conversation: String) {
+    playlists.close_conversation(&conversation);
 }
 
 #[tauri::command]
@@ -461,6 +541,7 @@ pub async fn home_playlist_delete(app: AppHandle, id: String) -> CmdResult<bool>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn library_refs_map_every_field() {
@@ -558,10 +639,68 @@ mod tests {
         assert_eq!(serde_json::to_string(&failed).unwrap(), r#"{"kind":"failed","id":"p1","message":"m"}"#);
     }
 
-    #[tokio::test]
-    async fn the_party_slot_starts_empty() {
+    fn chat() -> PartySession {
+        let config = homefi_core::ai::AiConfig::new(AiProvider::Anthropic, "m", Some("k".into()));
+        PartySession::new(config, ChatBrief::default(), Lang::En)
+    }
+
+    #[test]
+    fn conversations_start_empty() {
         let p = Playlists::new(Path::new("/nonexistent"));
-        assert!(p.party.lock().await.is_none());
+        assert!(lock(&p.conversations).is_empty());
+        assert!(p.session("x").is_err());
+    }
+
+    #[tokio::test]
+    async fn closing_a_conversation_cancels_only_its_build() {
+        let p = Playlists::new(Path::new("/nonexistent"));
+        p.insert_conversation("a".into(), chat(), 3, Lang::En).unwrap();
+        p.insert_conversation("b".into(), chat(), 3, Lang::En).unwrap();
+        let (_, rx_a) = p.begin_build("a").unwrap();
+        let (_, rx_b) = p.begin_build("b").unwrap();
+        p.close_conversation("a");
+        cancelled(rx_a).await;
+        let still_running = tokio::time::timeout(Duration::from_millis(50), cancelled(rx_b.clone())).await;
+        assert!(still_running.is_err(), "the other chat's build keeps going");
+        assert!(p.session("a").is_err() && p.session("b").is_ok());
+        p.cancel_conversation("b");
+        cancelled(rx_b).await;
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_chat_can_build_again() {
+        let p = Playlists::new(Path::new("/nonexistent"));
+        p.insert_conversation("a".into(), chat(), 3, Lang::En).unwrap();
+        let (_, first) = p.begin_build("a").unwrap();
+        p.cancel_conversation("a");
+        cancelled(first).await;
+        let (_, second) = p.begin_build("a").unwrap();
+        let fresh = tokio::time::timeout(Duration::from_millis(50), cancelled(second)).await;
+        assert!(fresh.is_err(), "a new build starts with a clean switch");
+    }
+
+    #[tokio::test]
+    async fn a_concert_job_does_not_cancel_a_chat() {
+        let p = Playlists::new(Path::new("/nonexistent"));
+        p.insert_conversation("a".into(), chat(), 3, Lang::En).unwrap();
+        let (_, rx) = p.begin_build("a").unwrap();
+        let _job = p.begin();
+        p.cancel();
+        assert!(tokio::time::timeout(Duration::from_millis(50), cancelled(rx)).await.is_err());
+    }
+
+    #[test]
+    fn the_cap_refuses_the_next_open() {
+        let p = Playlists::new(Path::new("/nonexistent"));
+        for id in ["a", "b"] {
+            p.insert_conversation(id.into(), chat(), 2, Lang::En).unwrap();
+        }
+        let refused = p.insert_conversation("c".into(), chat(), 2, Lang::En).unwrap_err();
+        assert_eq!(refused, "You already have 2 AI chats open. Close one to start another.");
+        assert!(p.session("c").is_err());
+        p.insert_conversation("a".into(), chat(), 2, Lang::En).expect("reopening an id is not a new chat");
+        p.close_conversation("b");
+        p.insert_conversation("c".into(), chat(), 2, Lang::En).unwrap();
     }
 
     #[tokio::test]
@@ -571,7 +710,7 @@ mod tests {
         let second = p.begin();
         cancelled(first.clone()).await;
         p.finish(&first);
-        assert!(p.cancel.lock().unwrap().is_some());
+        assert!(lock(&p.cancel).is_some());
         p.cancel();
         cancelled(second).await;
     }

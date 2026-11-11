@@ -28,6 +28,10 @@ private const val THRESHOLD_STEP_PCT = 5
 private const val MIN_SEARCH_BUDGET = 1
 private const val MAX_SEARCH_BUDGET = 10
 private const val MIN_PER_ARTIST = 1
+
+/** Chats open at once; mirrors the core's `MIN_OPEN_CHATS`..`MAX_OPEN_CHATS` (the core clamps it). */
+private const val MIN_OPEN_CHATS = 1
+private const val MAX_OPEN_CHATS = 10
 private const val MAX_PER_ARTIST = 10
 
 /** Settings → Playlists summary: "8 shows · always from 80%". */
@@ -118,6 +122,17 @@ internal fun PlaylistsSettings() {
             stringResource(R.string.pl_set_chat_from_song), s.chatFromSong,
             hint = stringResource(R.string.pl_set_chat_from_song_hint),
         ) { set(s.copy(chatFromSong = it)) }
+        RowDivider()
+        CountSlider(
+            stringResource(R.string.pl_set_chat_max_open), s.chatMaxOpen.toInt(), MIN_OPEN_CHATS..MAX_OPEN_CHATS, step = 1,
+            readout = { it.toString() },
+            hint = stringResource(R.string.pl_set_chat_max_open_hint),
+        ) { set(s.copy(chatMaxOpen = it.toUByte())) }
+        RowDivider()
+        SwitchRow(
+            stringResource(R.string.pl_set_chat_done_notice), s.chatDoneNotice,
+            hint = stringResource(R.string.pl_set_chat_done_notice_hint),
+        ) { set(s.copy(chatDoneNotice = it)) }
     }
     SettingsGroup(title = stringResource(R.string.pl_settings_title)) {
         SwitchRow(stringResource(R.string.pl_set_home_section), s.homeSection) { set(s.copy(homeSection = it)) }

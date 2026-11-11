@@ -4,8 +4,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::concert::{ConcertThresholds, DEFAULT_CONCERT_SHOWS, MAX_CONCERT_SHOWS, MIN_CONCERT_SHOWS};
 use crate::party::{
-    round_minutes, EnergyCurve, DEFAULT_CHAT_MINUTES, DEFAULT_PARTY_MINUTES, DEFAULT_PER_ARTIST, MAX_PER_ARTIST,
-    MIN_PER_ARTIST,
+    round_minutes, EnergyCurve, DEFAULT_CHAT_MINUTES, DEFAULT_OPEN_CHATS, DEFAULT_PARTY_MINUTES, DEFAULT_PER_ARTIST,
+    MAX_OPEN_CHATS, MAX_PER_ARTIST, MIN_OPEN_CHATS, MIN_PER_ARTIST,
 };
 
 pub const MIN_SEARCH_BUDGET: u8 = 1;
@@ -42,6 +42,10 @@ pub struct PlaylistSettings {
     pub chat_allow_explicit: bool,
     /// "Playlist like this" in song menus and the player (opens the chat from a song).
     pub chat_from_song: bool,
+    /// Most AI playlist chats open at once (party and chat), 1..=10.
+    pub chat_max_open: u8,
+    /// A notice when a chat's playlist finishes (or fails) while another screen is open.
+    pub chat_done_notice: bool,
     /// A playlist HomeFi saves is also saved to the TIDAL account (new ones are created there,
     /// edits of one already there update it).
     pub tidal_auto_save: bool,
@@ -68,6 +72,8 @@ impl Default for PlaylistSettings {
             chat_curve: EnergyCurve::Steady,
             chat_allow_explicit: true,
             chat_from_song: true,
+            chat_max_open: DEFAULT_OPEN_CHATS,
+            chat_done_notice: true,
             tidal_auto_save: false,
             tidal_delete_with: false,
         }
@@ -83,6 +89,7 @@ impl PlaylistSettings {
             party_minutes: round_minutes(self.party_minutes),
             chat_minutes: round_minutes(self.chat_minutes),
             party_max_per_artist: self.party_max_per_artist.clamp(MIN_PER_ARTIST, MAX_PER_ARTIST),
+            chat_max_open: self.chat_max_open.clamp(MIN_OPEN_CHATS, MAX_OPEN_CHATS),
             ..self
         }
     }
@@ -116,6 +123,7 @@ mod tests {
             "covers_original_artist": true, "show_sources": true, "home_section": true,
             "party_minutes": 120, "party_curve": "arc", "party_allow_explicit": true, "party_max_per_artist": 3,
             "chat_minutes": 60, "chat_curve": "steady", "chat_allow_explicit": true, "chat_from_song": true,
+            "chat_max_open": 3, "chat_done_notice": true,
             "tidal_auto_save": false, "tidal_delete_with": false
         });
         assert_eq!(json, expected);
@@ -158,6 +166,11 @@ mod tests {
         assert!(s.chat_from_song, "old files get the song entry");
         let off: PlaylistSettings = serde_json::from_str(r#"{"chat_from_song":false}"#).unwrap();
         assert!(!off.chat_from_song);
+        assert_eq!((s.chat_max_open, s.chat_done_notice), (3, true), "old files get the defaults");
+        let s = PlaylistSettings { chat_max_open: 0, ..PlaylistSettings::default() }.clamped();
+        assert_eq!(s.chat_max_open, 1);
+        let s = PlaylistSettings { chat_max_open: 99, ..PlaylistSettings::default() }.clamped();
+        assert_eq!(s.chat_max_open, 10);
     }
 
     #[test]

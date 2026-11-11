@@ -1155,6 +1155,8 @@ export interface PartyTurn {
   quick_replies: string[];
   /** The brief as the AI understands it so far (chat mode only). */
   chat_brief?: ChatBrief | null;
+  /** The conversation's title as the core sees it (the AI chats menu). */
+  title?: string;
 }
 export interface PartyBuilt {
   playlist: HomePlaylist;
@@ -1240,6 +1242,10 @@ export interface PlaylistSettings {
   chat_allow_explicit: boolean;
   /** Offer “Playlist like this” in song menus (default true). */
   chat_from_song: boolean;
+  /** Most AI chats open at once, 1..10 (default 3). */
+  chat_max_open: number;
+  /** A notice when a chat's playlist finishes or fails while another screen is shown (default true). */
+  chat_done_notice: boolean;
   /** Saving a HomeFi playlist also saves it to the TIDAL account (default false). */
   tidal_auto_save: boolean;
   /** Deleting a HomeFi playlist also deletes its TIDAL copy (default false). */
@@ -1260,6 +1266,9 @@ export function partyLength(minutes: number, long = false): string {
   const mins = long ? `${m} ${m === 1 ? "minute" : "minutes"}` : `${m} min`;
   return !h ? mins : m ? `${hours} ${mins}` : hours;
 }
+/** Chats open at once (Settings → Playlists); the backend clamps the same range. */
+export const CHAT_OPEN_RANGE = { min: 1, max: 10 } as const;
+
 export const DEFAULT_PLAYLIST_SETTINGS: PlaylistSettings = {
   concert_shows: 8,
   concert_thresholds: { always_pct: 80, usually_pct: 50, sometimes_pct: 25, encore_pct: 50 },
@@ -1277,6 +1286,8 @@ export const DEFAULT_PLAYLIST_SETTINGS: PlaylistSettings = {
   chat_curve: "steady",
   chat_allow_explicit: true,
   chat_from_song: true,
+  chat_max_open: 3,
+  chat_done_notice: true,
   tidal_auto_save: false,
   tidal_delete_with: false,
 };
@@ -1643,18 +1654,19 @@ export const api = {
   partyDefaultBrief: () => invoke<PartyBrief>("party_default_brief"),
   chatDefaultBrief: () => invoke<ChatBrief>("chat_default_brief"),
   chatSongWish: (seed: SongSeed, language: "en" | "es") => invoke<string>("chat_song_wish", { seed, language }),
-  chatOpen: (brief: ChatBrief, language: "en" | "es") => invoke<void>("chat_open", { brief, language }),
-  partyOpen: (brief: PartyBrief, language: "en" | "es") => invoke<void>("party_open", { brief, language }),
-  partySetBrief: (brief: PartyBrief) => invoke<void>("party_set_brief", { brief }),
-  partyStart: () => invoke<PartyTurn>("party_start"),
-  partyReply: (text: string) => invoke<PartyTurn>("party_reply", { text }),
-  partyBuild: (replaceId: string | null, onProgress: (p: PartyProgress) => void) => {
+  // every AI chat is its own session in the backend, by the id the UI gave it (`conversation`)
+  chatOpen: (conversation: string, brief: ChatBrief, language: "en" | "es") => invoke<string>("chat_open", { conversation, brief, language }),
+  partyOpen: (conversation: string, brief: PartyBrief, language: "en" | "es") => invoke<string>("party_open", { conversation, brief, language }),
+  partySetBrief: (conversation: string, brief: PartyBrief) => invoke<string>("party_set_brief", { conversation, brief }),
+  partyStart: (conversation: string) => invoke<PartyTurn>("party_start", { conversation }),
+  partyReply: (conversation: string, text: string) => invoke<PartyTurn>("party_reply", { conversation, text }),
+  partyBuild: (conversation: string, replaceId: string | null, onProgress: (p: PartyProgress) => void) => {
     const channel = new Channel<PartyProgress>();
     channel.onmessage = onProgress;
-    return invoke<PartyBuilt>("party_build", { replaceId, onProgress: channel });
+    return invoke<PartyBuilt>("party_build", { conversation, replaceId, onProgress: channel });
   },
-  partyCancel: () => invoke<void>("party_cancel"),
-  partyClose: () => invoke<void>("party_close"),
+  partyCancel: (conversation: string) => invoke<void>("party_cancel", { conversation }),
+  partyClose: (conversation: string) => invoke<void>("party_close", { conversation }),
   homePlaylists: () => invoke<HomePlaylist[]>("home_playlists"),
   // discs
   discDrives: () => invoke<DriveView[]>("disc_drives"),

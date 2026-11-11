@@ -12,7 +12,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.heightIn
 import com.perseusoft.homefi.core.PlaylistOrigin
-import com.perseusoft.homefi.core.SongSeed
 import androidx.compose.runtime.LaunchedEffect
 import com.perseusoft.homefi.core.HomePlaylist
 import com.perseusoft.homefi.ui.playlists.ChatBadge
@@ -22,6 +21,9 @@ import com.perseusoft.homefi.ui.playlists.HomePlaylistScreen
 import com.perseusoft.homefi.ui.playlists.NotRealSetlistBadge
 import com.perseusoft.homefi.ui.playlists.PartyBadge
 import com.perseusoft.homefi.ui.playlists.PartyScreen
+import com.perseusoft.homefi.ui.playlists.PartyMode
+import com.perseusoft.homefi.ui.playlists.ChatRequest
+import androidx.compose.runtime.saveable.listSaver
 import com.perseusoft.homefi.ui.playlists.concert
 import com.perseusoft.homefi.ui.playlists.deleteWithUndo
 import com.perseusoft.homefi.core.SetlistSource
@@ -157,30 +159,36 @@ fun LibraryScreen() {
     var artistName by rememberSaveable { mutableStateOf<String?>(null) }
     var playlistPath by rememberSaveable { mutableStateOf<String?>(null) }
     var concertOpen by rememberSaveable { mutableStateOf(false) }
-    // the party screen: closed, new, or rebuilding the saved playlist with this id
-    var partyOpen by rememberSaveable { mutableStateOf(false) }
-    var partyReplaceId by rememberSaveable { mutableStateOf<String?>(null) }
-    // the "Playlist with AI" chat: closed, new, or continuing the saved playlist with this id
-    var chatOpen by rememberSaveable { mutableStateOf(false) }
-    var chatReplaceId by rememberSaveable { mutableStateOf<String?>(null) }
-    // "Playlist like this": the song the chat opens with (not restored after the process dies)
-    var chatSeed by remember { mutableStateOf<SongSeed?>(null) }
+    // the AI chat on screen (party answers or free chat), by its id in app.conversations; closed when null.
+    // Leaving the screen does not close the chat: it goes on in the background (the chats menu lists it).
+    var aiChat by rememberSaveable(stateSaver = AiChatSaver) { mutableStateOf<AiChat?>(null) }
+    val openChats by app.conversations.list.collectAsStateWithLifecycle()
+    val leaveChat = {
+        aiChat?.let { app.conversations.leave(it.id) }
+        aiChat = null
+    }
     var homeListId by rememberSaveable { mutableStateOf<String?>(null) }
     val homeLists by app.playlists.list.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
 
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { app.library.refresh() }
 
-    // a song sent here from a menu opens the chat with it
+    // a song sent here from a menu opens a chat with it; a chat picked in the chats menu or a notice comes back
     LaunchedEffect(Unit) {
-        app.songSeeds.request.collect { seed ->
-            if (seed == null) return@collect
-            app.songSeeds.consume()
+        app.chatRequests.request.collect { request ->
+            if (request == null) return@collect
+            app.chatRequests.consume()
             concertOpen = false
-            partyOpen = false
-            chatReplaceId = null
-            chatSeed = seed
-            chatOpen = true
+            when (request) {
+                is ChatRequest.LikeSong -> {
+                    leaveChat()
+                    app.conversations.open(PartyMode.CHAT, seed = request.seed)?.let { aiChat = AiChat(it.id, PartyMode.CHAT) }
+                }
+                is ChatRequest.Resume -> app.conversations.get(request.id)?.let {
+                    if (aiChat?.id != it.id) leaveChat()
+                    aiChat = AiChat(it.id, it.mode)
+                }
+            }
         }
     }
 
@@ -192,8 +200,8 @@ fun LibraryScreen() {
     val motion = LocalMotion.current
     val page = when {
         concertOpen -> LibraryPage.Concert
-        partyOpen -> LibraryPage.Party(partyReplaceId)
-        chatOpen -> LibraryPage.Chat(chatReplaceId, chatSeed)
+        // after the process died the chat is gone: back to the list
+        aiChat != null && openChats.any { it.id == aiChat!!.id } -> LibraryPage.Chat(aiChat!!)
         homeListId != null && homeLists.any { it.id == homeListId } -> LibraryPage.HomeList(homeListId!!)
         albumKey != null && albums.any { it.key == albumKey } -> LibraryPage.AlbumPage(albumKey!!)
         playlistPath != null && state.playlists.any { it.path == playlistPath } -> LibraryPage.PlaylistPage(playlistPath!!)
@@ -203,8 +211,7 @@ fun LibraryScreen() {
     BackHandler(enabled = page != LibraryPage.Root) {
         when (page) {
             LibraryPage.Concert -> concertOpen = false
-            is LibraryPage.Party -> { partyOpen = false; partyReplaceId = null }
-            is LibraryPage.Chat -> { chatOpen = false; chatReplaceId = null; chatSeed = null }
+            is LibraryPage.Chat -> leaveChat()
             is LibraryPage.HomeList -> homeListId = null
             is LibraryPage.AlbumPage -> albumKey = null
             is LibraryPage.PlaylistPage -> playlistPath = null
@@ -223,25 +230,27 @@ fun LibraryScreen() {
                 onBack = { concertOpen = false },
                 onDelete = { deleteWithUndo(app, snackbar, it) },
             )
-            is LibraryPage.Party -> PartyScreen(
-                replace = homeLists.firstOrNull { it.id == shown.replaceId },
-                onBack = { partyOpen = false; partyReplaceId = null },
-                onDelete = { partyOpen = false; partyReplaceId = null; deleteWithUndo(app, snackbar, it) },
-            )
-            is LibraryPage.Chat -> ChatPlaylistScreen(
-                replace = homeLists.firstOrNull { it.id == shown.replaceId },
-                seed = shown.seed,
-                onBack = { chatOpen = false; chatReplaceId = null; chatSeed = null },
-                onDelete = { chatOpen = false; chatReplaceId = null; chatSeed = null; deleteWithUndo(app, snackbar, it) },
-            )
+            is LibraryPage.Chat -> if (shown.chat.mode == PartyMode.PARTY) {
+                PartyScreen(
+                    conversationId = shown.chat.id,
+                    onBack = leaveChat,
+                    onDelete = { leaveChat(); deleteWithUndo(app, snackbar, it) },
+                )
+            } else {
+                ChatPlaylistScreen(
+                    conversationId = shown.chat.id,
+                    onBack = leaveChat,
+                    onDelete = { leaveChat(); deleteWithUndo(app, snackbar, it) },
+                )
+            }
             is LibraryPage.HomeList -> HomePlaylistScreen(
                 id = shown.id,
                 onBack = { homeListId = null },
                 onDelete = { homeListId = null; deleteWithUndo(app, snackbar, it) },
                 // a saved playlist goes back to the screen that made it
                 onChangeAnswers = {
-                    if (it.origin is PlaylistOrigin.Chat) { chatReplaceId = it.id; chatOpen = true }
-                    else { partyReplaceId = it.id; partyOpen = true }
+                    val mode = if (it.origin is PlaylistOrigin.Chat) PartyMode.CHAT else PartyMode.PARTY
+                    app.conversations.open(mode, replace = it)?.let { chat -> aiChat = AiChat(chat.id, mode) }
                 },
             )
             is LibraryPage.AlbumPage -> albums.firstOrNull { it.key == shown.key }?.let { album ->
@@ -298,9 +307,9 @@ fun LibraryScreen() {
                 onArtist = { artistName = it.name },
                 onPlaylist = { playlistPath = it.path },
                 onSound = app.sound::openMenu,
-                onChat = { chatReplaceId = null; chatSeed = null; chatOpen = true },
+                onChat = { app.conversations.open(PartyMode.CHAT)?.let { aiChat = AiChat(it.id, PartyMode.CHAT) } },
                 onConcert = { concertOpen = true },
-                onParty = { partyReplaceId = null; partyOpen = true },
+                onParty = { app.conversations.open(PartyMode.PARTY)?.let { aiChat = AiChat(it.id, PartyMode.PARTY) } },
                 onHomeList = { homeListId = it.id },
             )
         }
@@ -310,11 +319,18 @@ fun LibraryScreen() {
 }
 
 /** What the library shows: its tabs, or an album / playlist / artist opened from them. */
+/** The AI chat on screen: its id in `app.conversations` and which screen shows it. */
+private data class AiChat(val id: String, val mode: PartyMode)
+
+private val AiChatSaver = listSaver<AiChat?, String>(
+    save = { chat -> listOfNotNull(chat?.id, chat?.mode?.name) },
+    restore = { saved -> if (saved.size == 2) AiChat(saved[0], PartyMode.valueOf(saved[1])) else null },
+)
+
 private sealed interface LibraryPage {
     data object Root : LibraryPage
     data object Concert : LibraryPage
-    data class Party(val replaceId: String?) : LibraryPage
-    data class Chat(val replaceId: String?, val seed: SongSeed?) : LibraryPage
+    data class Chat(val chat: AiChat) : LibraryPage
     data class HomeList(val id: String) : LibraryPage
     data class AlbumPage(val key: String) : LibraryPage
     data class PlaylistPage(val path: String) : LibraryPage

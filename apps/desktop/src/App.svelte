@@ -76,6 +76,7 @@
         const [name, page] = location.hash.slice(1).split(":");
         app.view = (page ? { name, page } : { name }) as typeof app.view;
       }
+      if (import.meta.env.DEV && new URLSearchParams(location.search).has("chats")) void import("./lib/dev-chats").then((m) => m.seedDevChats());
       ready = true;
       whatsNew.checkOnce();
     });
@@ -187,6 +188,9 @@
       case "playlist":
       case "folder":
         return `${v.name}:${v.path}`;
+      case "party":
+      case "chat-playlist":
+        return `${v.name}:${v.conversation}`;
       case "tidal-item":
         return `tidal-item:${v.kind}:${v.id}`;
       default:

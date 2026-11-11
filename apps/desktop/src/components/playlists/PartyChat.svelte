@@ -3,31 +3,31 @@
   // quick replies; tap one or type. Text only (never HTML). After the last turn the field is
   // replaced by a line, so there is no dead input.
   import { tick } from "svelte";
-  import { party } from "../../lib/party.svelte";
+  import type { Conversation } from "../../lib/party.svelte";
   import { fade, rise } from "../../lib/motion";
   import Icon from "../Icon.svelte";
 
-  let { disabled = false }: { disabled?: boolean } = $props();
+  let { chat, disabled = false }: { chat: Conversation; disabled?: boolean } = $props();
 
   let text = $state("");
   let input = $state<HTMLInputElement | null>(null);
   let log = $state<HTMLElement | null>(null);
 
-  const closed = $derived(party.chatClosed && !party.thinking);
-  const busy = $derived(disabled || party.thinking);
+  const closed = $derived(chat.chatClosed && !chat.thinking);
+  const busy = $derived(disabled || chat.thinking);
 
   $effect(() => {
-    party.messages.length;
-    party.thinking;
+    chat.messages.length;
+    chat.thinking;
     tick().then(() => log?.scrollTo({ top: log.scrollHeight }));
   });
 
   // a message the AI couldn't answer comes back to the field, ready to send again
   $effect(() => {
-    const back = party.retryText;
+    const back = chat.retryText;
     if (back == null) return;
     text = back;
-    party.retryText = null;
+    chat.retryText = null;
     tick().then(() => input?.focus());
   });
 
@@ -36,27 +36,27 @@
     const t = text.trim();
     if (!t || busy) return;
     text = "";
-    party.send(t).then(() => tick()).then(() => input?.focus());
+    chat.send(t).then(() => tick()).then(() => input?.focus());
   }
 </script>
 
 <section class="chat" aria-label="Chat with your AI">
   <div class="log" role="log" bind:this={log} aria-live="polite" in:rise={{ y: 6, duration: 180 }}>
-    {#each party.messages as m, i (i)}
+    {#each chat.messages as m, i (i)}
       <div class="row" class:me={m.fromUser}>
         {#if !m.fromUser}<span class="avatar" aria-hidden="true"><Icon name="ai" size={15} /></span>{/if}
         <p class="bubble" class:me={m.fromUser}>{m.text}</p>
       </div>
     {/each}
-    {#if party.thinking}
+    {#if chat.thinking}
       <div class="row">
         <span class="avatar" aria-hidden="true"><Icon name="ai" size={15} /></span>
         <div class="bubble typing" role="status" aria-label="Thinking" in:fade><i></i><i></i><i></i></div>
       </div>
     {/if}
-    {#if party.quickReplies.length && !busy && !closed}
+    {#if chat.quickReplies.length && !busy && !closed}
       <div class="replies">
-        {#each party.quickReplies as q (q)}<button type="button" class="chip" onclick={() => party.send(q)}>{q}</button>{/each}
+        {#each chat.quickReplies as q (q)}<button type="button" class="chip" onclick={() => chat.send(q)}>{q}</button>{/each}
       </div>
     {/if}
   </div>
@@ -67,7 +67,7 @@
     {:else}
       <form class="field" onsubmit={send}>
         <input bind:this={input} bind:value={text} maxlength="500" placeholder="Type an answer or tap one" aria-label="Your answer" disabled={disabled} autocomplete="off" />
-        <span class="count" title="Answers so far">{party.userTurns}/{party.maxTurns}</span>
+        <span class="count" title="Answers so far">{chat.userTurns}/{chat.maxTurns}</span>
         <button class="send" aria-label="Send" title="Send" disabled={!text.trim() || busy}><Icon name="send" size={16} /></button>
       </form>
     {/if}

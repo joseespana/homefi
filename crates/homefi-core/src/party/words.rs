@@ -1,7 +1,7 @@
 //! Every user-facing word of the party playlist, once, in English and Spanish.
 //! The text is returned already translated, so the apps only show it.
 
-use super::{AgeGroup, PartyGuests, PartyVibe};
+use super::{AgeGroup, PartyGuests, PartyVibe, MAX_TITLE_CHARS};
 use crate::concert::words::say;
 use crate::error::Error;
 use crate::humane::Lang;
@@ -10,6 +10,11 @@ const NAME_SEPARATOR: &str = " · ";
 const MINUTES_PER_HOUR: u16 = 60;
 /// Characters of the wish used as a name when the AI gave no title.
 const CHAT_NAME_WISH_CHARS: usize = 40;
+
+/// The refusal when `max` chats are already open.
+pub fn too_many_chats_message(lang: Lang, max: u8) -> String {
+    problem(lang, Problem::TooManyChats { max }).to_string()
+}
 
 pub(crate) fn needs_ai(lang: Lang) -> String {
     say(
@@ -79,6 +84,10 @@ pub(crate) enum Problem {
         failed: usize,
         asked: usize,
     },
+    /// More chats open than the setting allows.
+    TooManyChats {
+        max: u8,
+    },
 }
 
 pub(crate) fn problem(lang: Lang, p: Problem) -> Error {
@@ -103,6 +112,11 @@ pub(crate) fn problem(lang: Lang, p: Problem) -> Error {
             lang,
             format!("TIDAL didn't answer {failed} of the {asked} searches, so the songs couldn't be checked. Try again in a minute."),
             format!("TIDAL no respondió {failed} de las {asked} búsquedas, así que no se pudieron comprobar las canciones. Inténtalo de nuevo en un minuto."),
+        ),
+        Problem::TooManyChats { max } => say(
+            lang,
+            format!("You already have {max} AI chats open. Close one to start another."),
+            format!("Ya tienes {max} chats con IA abiertos. Cierra uno para empezar otro."),
         ),
         Problem::NothingAsked => say(
             lang,
@@ -216,19 +230,31 @@ pub(crate) fn age_word(lang: Lang, age: AgeGroup) -> &'static str {
 
 /// "Sad 90s in English · 1 h"; without a title the start of the wish names it.
 pub(crate) fn chat_name(lang: Lang, title: &str, wish: &str, minutes: u16) -> String {
-    let length = length(minutes);
+    format!("{}{NAME_SEPARATOR}{}", chat_title(lang, title, wish), length(minutes))
+}
+
+/// The chat's name without the length: the AI's title, else the wish up to its first colon when
+/// that fits ("A playlist like “Hotel California” by Eagles (1976)"), else its first words.
+pub(crate) fn chat_title(lang: Lang, title: &str, wish: &str) -> String {
     let (title, wish) = (title.trim(), wish.trim());
     if !title.is_empty() {
-        return format!("{title}{NAME_SEPARATOR}{length}");
+        return title.to_owned();
     }
-    if !wish.is_empty() {
-        let mut head: String = wish.chars().take(CHAT_NAME_WISH_CHARS).collect();
-        if wish.chars().count() > CHAT_NAME_WISH_CHARS {
-            head = format!("{}…", head.trim_end());
+    if wish.is_empty() {
+        return say(lang, "Playlist with AI".into(), "Playlist con IA".into());
+    }
+    if let Some((head, _)) = wish.split_once(':') {
+        let head = head.trim();
+        if !head.is_empty() && head.chars().count() <= MAX_TITLE_CHARS {
+            return head.to_owned();
         }
-        return format!("{head}{NAME_SEPARATOR}{length}");
     }
-    say(lang, format!("Playlist with AI{NAME_SEPARATOR}{length}"), format!("Playlist con IA{NAME_SEPARATOR}{length}"))
+    let head: String = wish.chars().take(CHAT_NAME_WISH_CHARS).collect();
+    if wish.chars().count() > CHAT_NAME_WISH_CHARS {
+        format!("{}…", head.trim_end())
+    } else {
+        head
+    }
 }
 
 /// The chat's first line, fixed words. With a `wish` it recalls what was asked last time.
@@ -295,6 +321,29 @@ mod tests {
         assert_eq!(chat_name(Lang::En, "", &long, 30), format!("{}… · 30 min", "ñ".repeat(40)));
         assert_eq!(chat_name(Lang::Es, "", "", 30), "Playlist con IA · 30 min");
         assert_eq!(chat_name(Lang::En, "", "", 30), "Playlist with AI · 30 min");
+    }
+
+    #[test]
+    fn chat_titles_cut_the_wish_sensibly() {
+        assert_eq!(chat_title(Lang::En, " Sad 90s ", "x"), "Sad 90s");
+        let like = "A playlist like “Hotel California” by Eagles (1976): same style, era and mood";
+        assert_eq!(chat_title(Lang::En, "", like), "A playlist like “Hotel California” by Eagles (1976)");
+        let long_head = format!("{}: rest", "ñ".repeat(MAX_TITLE_CHARS + 1));
+        assert_eq!(chat_title(Lang::En, "", &long_head), format!("{}…", "ñ".repeat(40)));
+        assert_eq!(chat_title(Lang::Es, "", " "), "Playlist con IA");
+        assert_eq!(chat_title(Lang::En, "", ""), "Playlist with AI");
+    }
+
+    #[test]
+    fn too_many_chats_words() {
+        assert_eq!(
+            too_many_chats_message(Lang::En, 3),
+            "You already have 3 AI chats open. Close one to start another."
+        );
+        assert_eq!(
+            too_many_chats_message(Lang::Es, 3),
+            "Ya tienes 3 chats con IA abiertos. Cierra uno para empezar otro."
+        );
     }
 
     #[test]

@@ -22,7 +22,8 @@ pub(crate) mod words;
 pub use arrange::{arrange, cap_per_artist, pick_for_duration, Picked};
 pub use chat::{song_wish, AskedSong, ChatBrief, SongSeed, MAX_ASKED_SONGS};
 pub use session::{
-    needs_ai_message, no_session_message, PartyBuilt, PartyContext, PartyProgress, PartySession, PartyTurn,
+    needs_ai_message, no_session_message, too_many_chats_message, PartyBuilt, PartyContext, PartyProgress,
+    PartySession, PartyTurn,
 };
 
 pub const MIN_PARTY_MINUTES: u16 = 30;
@@ -33,6 +34,10 @@ pub const PARTY_MINUTES_STEP: u16 = 15;
 pub const MIN_PER_ARTIST: u8 = 1;
 pub const MAX_PER_ARTIST: u8 = 10;
 pub const DEFAULT_PER_ARTIST: u8 = 3;
+/// AI playlist chats open at once (party and chat), the setting's range.
+pub const MIN_OPEN_CHATS: u8 = 1;
+pub const MAX_OPEN_CHATS: u8 = 10;
+pub const DEFAULT_OPEN_CHATS: u8 = 3;
 /// Longest "anything else" text kept (chars).
 pub const MAX_NOTES_CHARS: usize = 500;
 /// User turns in the optional chat.
@@ -196,6 +201,14 @@ impl Brief {
         match self {
             Self::Party(b) => words::name(lang, b.vibe, b.minutes),
             Self::Chat(b) => words::chat_name(lang, &b.title, &b.wish, b.minutes),
+        }
+    }
+
+    /// The conversation's title: [`Self::name`] without the length for chats.
+    pub(crate) fn title(&self, lang: Lang) -> String {
+        match self {
+            Self::Party(b) => words::name(lang, b.vibe, b.minutes),
+            Self::Chat(b) => words::chat_title(lang, &b.title, &b.wish),
         }
     }
 

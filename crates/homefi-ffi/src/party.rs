@@ -21,11 +21,13 @@ pub struct PartyTurn {
     pub quick_replies: Vec<String>,
     /// The brief as the AI now understands it (chat sessions only).
     pub chat_brief: Option<ChatBrief>,
+    /// The conversation's title as the core sees it now (for the list of open chats).
+    pub title: String,
 }
 
 impl From<core_party::PartyTurn> for PartyTurn {
     fn from(t: core_party::PartyTurn) -> Self {
-        Self { text: t.text, quick_replies: t.quick_replies, chat_brief: t.chat_brief.map(Into::into) }
+        Self { text: t.text, quick_replies: t.quick_replies, chat_brief: t.chat_brief.map(Into::into), title: t.title }
     }
 }
 
@@ -101,6 +103,11 @@ impl PartySession {
         self.inner.lock().await.set_brief(core_party::PartyBrief::from(brief));
     }
 
+    /// The conversation's title: the AI's, else the start of the wish, else fixed words (party: its name).
+    pub async fn title(&self) -> String {
+        self.inner.lock().await.title()
+    }
+
     /// Clears the chat. Party: the AI's first question. Chat: the fixed opener, no network.
     pub async fn start(&self) -> Result<PartyTurn> {
         let inner = self.inner.clone();
@@ -111,6 +118,12 @@ impl PartySession {
         let inner = self.inner.clone();
         crate::runtime::run(async move { Ok(inner.lock().await.reply(&text).await?.into()) }).await
     }
+}
+
+/// "You already have N AI chats open. Close one…" in `language`, for when the app refuses a new chat.
+#[uniffi::export]
+pub fn too_many_chats_message(language: String, max: u8) -> String {
+    core_party::too_many_chats_message(Lang::from_code(&language), max)
 }
 
 #[uniffi::export]
@@ -207,8 +220,12 @@ mod tests {
             text: "Hi".into(),
             quick_replies: vec!["A".into()],
             chat_brief: None,
+            title: String::new(),
         });
-        assert_eq!(turn, PartyTurn { text: "Hi".into(), quick_replies: vec!["A".into()], chat_brief: None });
+        assert_eq!(
+            turn,
+            PartyTurn { text: "Hi".into(), quick_replies: vec!["A".into()], chat_brief: None, title: String::new() }
+        );
         let built =
             PartyBuilt::from(core_party::PartyBuilt { playlist: pl::HomePlaylist::default(), note: Some("n".into()) });
         assert_eq!(built.note.as_deref(), Some("n"));
@@ -221,8 +238,21 @@ mod tests {
             text: String::new(),
             quick_replies: Vec::new(),
             chat_brief: Some(brief.clone()),
+            title: String::new(),
         });
         assert_eq!(turn.chat_brief, Some(brief.into()));
+    }
+
+    #[test]
+    fn turn_converts_the_title() {
+        let turn = PartyTurn::from(core_party::PartyTurn { title: "Sad 90s".into(), ..Default::default() });
+        assert_eq!(turn.title, "Sad 90s");
+    }
+
+    #[test]
+    fn the_cap_message_follows_the_language() {
+        assert!(too_many_chats_message("en".into(), 3).starts_with("You already have 3 AI chats open"));
+        assert!(too_many_chats_message("es".into(), 3).starts_with("Ya tienes 3 chats"));
     }
 
     #[test]

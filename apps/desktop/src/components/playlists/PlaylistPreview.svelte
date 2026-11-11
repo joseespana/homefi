@@ -4,6 +4,7 @@
   // the artist plays them, the ones that weren't found, the shows they came from, and the
   // actions (play, queue with Sounds, sources, save / search again / delete, save to TIDAL).
   import { DEFAULT_PLAYLIST_SETTINGS, formatTime, type HomePlaylist } from "../../lib/api";
+  import { conversations } from "../../lib/party.svelte";
   import { isChat, isConcert, playable, playlists, requestOf } from "../../lib/playlists.svelte";
   import { app } from "../../lib/state.svelte";
   import Cover from "../Cover.svelte";
@@ -103,9 +104,9 @@
           {#if concert}
             <button class="btn tonal" disabled={playlists.building} onclick={() => playlists.build(requestOf(concert), concert.id)}><Icon name="refresh" size={16} /> Search again</button>
           {:else if rebuildable && isChat(playlist)}
-            <button class="btn tonal" onclick={() => (app.view = { name: "chat-playlist", replace: playlist.id })}><Icon name="edit" size={16} /> Keep chatting</button>
+            <button class="btn tonal" onclick={() => conversations.begin("chat", { replaceId: playlist.id })}><Icon name="edit" size={16} /> Keep chatting</button>
           {:else if rebuildable}
-            <button class="btn tonal" onclick={() => (app.view = { name: "party", replace: playlist.id })}><Icon name="edit" size={16} /> Change answers</button>
+            <button class="btn tonal" onclick={() => conversations.begin("party", { replaceId: playlist.id })}><Icon name="edit" size={16} /> Change answers</button>
           {/if}
           {#if tidalReady}
             <button class="btn tonal" disabled={tidalSaving} aria-busy={tidalSaving} onclick={() => playlists.saveToTidal(playlist)}>

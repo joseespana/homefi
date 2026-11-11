@@ -2,7 +2,7 @@
   // Settings → Playlists: how "Get ready for a concert" reads the shows, and what the playlists
   // HomeFi makes look like. The thresholds' order (Always >= Usually >= Sometimes) is kept by the
   // core; what it answers is what is shown here.
-  import { CONCERT_SHOWS_RANGE, DEFAULT_PLAYLIST_SETTINGS, ENERGY_CURVES, PARTY_MINUTES_RANGE, PER_ARTIST_RANGE, SEARCH_BUDGET_RANGE, THRESHOLD_PCT_RANGE, partyLength, type ConcertThresholds, type PlaylistSettings, type Settings } from "../../../lib/api";
+  import { CHAT_OPEN_RANGE, CONCERT_SHOWS_RANGE, DEFAULT_PLAYLIST_SETTINGS, ENERGY_CURVES, PARTY_MINUTES_RANGE, PER_ARTIST_RANGE, SEARCH_BUDGET_RANGE, THRESHOLD_PCT_RANGE, partyLength, type ConcertThresholds, type PlaylistSettings, type Settings } from "../../../lib/api";
   import { useSettings } from "../model.svelte";
   import SettingsGroup from "../SettingsGroup.svelte";
   import SegmentedRow from "../SegmentedRow.svelte";
@@ -109,6 +109,24 @@
   <SegmentedRow label="Energy" options={ENERGY_CURVES} value={pl.chat_curve} onchange={(id) => save({ chat_curve: id })} />
   <SwitchRow label="Explicit lyrics allowed" checked={pl.chat_allow_explicit} onchange={(on) => save({ chat_allow_explicit: on })} />
   <SwitchRow label="“Playlist like this” in song menus" hint="Make an AI playlist from a song you found" checked={pl.chat_from_song} onchange={(on) => save({ chat_from_song: on })} />
+</SettingsGroup>
+
+<SettingsGroup title="AI chats" description="Playlist chats keep going when you leave their screen; the AI chats button brings you back.">
+  <SliderRow
+    label="Chats open at once"
+    hint="Each AI chat keeps going in the background; the AI chats menu brings you back."
+    min={CHAT_OPEN_RANGE.min}
+    max={CHAT_OPEN_RANGE.max}
+    step={1}
+    value={pl.chat_max_open}
+    onchange={(n) => save({ chat_max_open: n })}
+  />
+  <SwitchRow
+    label="Tell me when a chat's playlist is ready"
+    hint="A notice when a playlist finishes while you're on another screen."
+    checked={pl.chat_done_notice}
+    onchange={(on) => save({ chat_done_notice: on })}
+  />
 </SettingsGroup>
 
 <SettingsGroup title="Playlists">

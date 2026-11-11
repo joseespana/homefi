@@ -7,6 +7,14 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Added
+- Playlists: AI playlist chats ("Playlist like this", "Make a playlist with AI", party playlists)
+  keep going when you move to another screen. Several can run at once (Settings › Playlists ›
+  "Chats open at once", 3 by default), and the new "AI chats" button (the Rail on desktop, the top
+  bar on the phone) lists them with how each one is going: waiting for you, thinking, building, ready
+  or failed. Tap one to go back to it. A notice with "Open" tells you when a playlist is ready or
+  failed while you were elsewhere (it can be turned off).
+
 ## [1.5.13] - 2026-11-10
 
 

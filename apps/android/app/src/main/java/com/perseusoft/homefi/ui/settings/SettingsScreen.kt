@@ -250,6 +250,7 @@ private enum class SettingsPage(val title: Int, val icon: ImageVector, val secti
             R.string.pl_set_party, R.string.pl_set_party_minutes, R.string.pl_set_party_curve,
             R.string.pl_set_party_explicit, R.string.pl_set_party_per_artist,
             R.string.pl_set_chat, R.string.pl_set_chat_explicit, R.string.pl_set_chat_from_song, R.string.pl_set_chat_from_song_keywords,
+            R.string.pl_set_chat_max_open, R.string.pl_set_chat_done_notice,
             R.string.pl_set_tidal, R.string.pl_set_tidal_auto, R.string.pl_set_tidal_delete, R.string.pl_set_tidal_keywords,
         ),
     ),

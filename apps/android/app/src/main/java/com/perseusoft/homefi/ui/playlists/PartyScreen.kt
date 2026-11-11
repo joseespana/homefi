@@ -14,7 +14,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -24,7 +23,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.perseusoft.homefi.R
 import com.perseusoft.homefi.core.HomePlaylist
 import com.perseusoft.homefi.core.partyDefaultBrief
@@ -36,16 +34,16 @@ internal const val MIN_TOUCH_DP = 48
 
 /**
  * "Make a party playlist": a few questions, an optional short chat with the user's AI, then the
- * same preview concert mode has. With [replace] (a saved party playlist) the answers start as its
- * brief and building saves over it. Without an AI it only offers to set one up.
+ * same preview concert mode has. It shows the open chat [conversationId] (it goes on when this screen closes); a saved
+ * party playlist's chat starts with its brief as the answers and building saves over it. Without an AI it only offers to set one up.
  */
 @Composable
-fun PartyScreen(
-    replace: HomePlaylist?,
-    onBack: () -> Unit,
-    onDelete: (HomePlaylist) -> Unit,
-    vm: PartyViewModel = viewModel(key = "party-${replace?.id}"),
-) {
+fun PartyScreen(conversationId: String, onBack: () -> Unit, onDelete: (HomePlaylist) -> Unit) {
+    ConversationHost(conversationId, onBack) { PartyBody(it, onBack, onDelete) }
+}
+
+@Composable
+private fun PartyBody(vm: PartyConversation, onBack: () -> Unit, onDelete: (HomePlaylist) -> Unit) {
     val app = LocalContext.current.homefi
     val ui by vm.ui.collectAsStateWithLifecycle()
     val settings by app.settings.playlists.collectAsStateWithLifecycle()
@@ -53,7 +51,6 @@ fun PartyScreen(
     var moreOpen by rememberSaveable { mutableStateOf<Boolean?>(null) }
     var setup by rememberSaveable { mutableStateOf(false) }
     val list = rememberLazyListState()
-    LaunchedEffect(Unit) { vm.open(replace) }
     BackHandler(enabled = ui is PartyUi.Building) { vm.cancel() }
 
     val state = ui

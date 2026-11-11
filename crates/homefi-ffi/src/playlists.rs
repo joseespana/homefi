@@ -702,6 +702,8 @@ pub struct PlaylistSettings {
     pub chat_curve: EnergyCurve,
     pub chat_allow_explicit: bool,
     pub chat_from_song: bool,
+    pub chat_max_open: u8,
+    pub chat_done_notice: bool,
     pub tidal_auto_save: bool,
     pub tidal_delete_with: bool,
 }
@@ -725,6 +727,8 @@ impl From<pl::PlaylistSettings> for PlaylistSettings {
             chat_curve: s.chat_curve.into(),
             chat_allow_explicit: s.chat_allow_explicit,
             chat_from_song: s.chat_from_song,
+            chat_max_open: s.chat_max_open,
+            chat_done_notice: s.chat_done_notice,
             tidal_auto_save: s.tidal_auto_save,
             tidal_delete_with: s.tidal_delete_with,
         }
@@ -750,6 +754,8 @@ impl From<PlaylistSettings> for pl::PlaylistSettings {
             chat_curve: s.chat_curve.into(),
             chat_allow_explicit: s.chat_allow_explicit,
             chat_from_song: s.chat_from_song,
+            chat_max_open: s.chat_max_open,
+            chat_done_notice: s.chat_done_notice,
             tidal_auto_save: s.tidal_auto_save,
             tidal_delete_with: s.tidal_delete_with,
         }
@@ -1181,11 +1187,14 @@ mod tests {
         let defaults = playlist_default_settings();
         assert_eq!((defaults.chat_minutes, defaults.chat_curve), (60, EnergyCurve::Steady));
         assert!(defaults.chat_allow_explicit && defaults.chat_from_song);
+        assert_eq!((defaults.chat_max_open, defaults.chat_done_notice), (3, true));
         let custom = PlaylistSettings {
             chat_minutes: 90,
             chat_curve: EnergyCurve::Arc,
             chat_allow_explicit: false,
             chat_from_song: false,
+            chat_max_open: 5,
+            chat_done_notice: false,
             ..defaults
         };
         assert_eq!(playlist_settings_from_json(playlist_settings_to_json(custom)), custom);

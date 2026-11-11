@@ -4,7 +4,9 @@ import android.content.ActivityNotFoundException
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -121,7 +123,12 @@ private const val MIME_ANY_BINARY = "application/octet-stream"
 fun NoteNotices(host: SnackbarHostState) {
     val app = LocalContext.current.homefi
     LaunchedEffect(host) {
-        app.notes.flow.collect { text -> launch { host.showSnackbar(text) } }
+        app.notes.flow.collect { note ->
+            launch {
+                val result = host.showSnackbar(note.text, actionLabel = note.action?.label, duration = SnackbarDuration.Long)
+                if (result == SnackbarResult.ActionPerformed) note.action?.run?.invoke()
+            }
+        }
     }
 }
 

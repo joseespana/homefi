@@ -32,7 +32,8 @@ import com.perseusoft.homefi.player.dj.DjSession
 import com.perseusoft.homefi.player.exercise.RideSession
 import com.perseusoft.homefi.player.SoundLayers
 import com.perseusoft.homefi.share.ShareManager
-import com.perseusoft.homefi.ui.playlists.SongSeeds
+import com.perseusoft.homefi.ui.playlists.ChatRequests
+import com.perseusoft.homefi.data.AiConversations
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -109,8 +110,11 @@ class HomefiApplication : Application(), SingletonImageLoader.Factory {
     /** Shared control / party mode, as hub or guest. */
     lateinit var share: ShareManager
         private set
-    /** "Playlist like this": a song waiting to open the AI chat. */
-    val songSeeds = SongSeeds()
+    /** "Playlist like this" and "open that chat": a request waiting for the library to open an AI chat. */
+    val chatRequests = ChatRequests()
+    /** The AI playlist chats that are open; they keep going when their screen closes. */
+    lateinit var conversations: AiConversations
+        private set
 
     /** "HomeFi X is available" (official build only; nothing about the user is sent). */
     lateinit var updates: AppUpdater
@@ -151,6 +155,7 @@ class HomefiApplication : Application(), SingletonImageLoader.Factory {
         downloads = DownloadRepository(this, engine, settings, appScope)
         library = LibraryRepository(this, engine, downloads, appScope)
         playlists = HomePlaylists(engine, appScope, settings.playlists) { account.isLoggedIn }
+        conversations = AiConversations(this, appScope, settings.playlists, notes, chatRequests)
         equalizer = Equalizer(settings, outputs, appScope)
         ai = AiSetup(settings, KeyVault(this))
         sound = SoundLayers(this, equalizer, outputs, appScope)

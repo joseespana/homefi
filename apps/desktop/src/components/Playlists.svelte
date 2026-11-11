@@ -7,6 +7,7 @@
   import { api, errorText, type Hit, type LocalPlaylist } from "../lib/api";
   import { app } from "../lib/state.svelte";
   import { DEFAULT_PLAYLIST_SETTINGS, formatTime } from "../lib/api";
+  import { conversations } from "../lib/party.svelte";
   import { isChat, isConcert, isParty, playlists } from "../lib/playlists.svelte";
   import Cover from "./Cover.svelte";
   import Icon from "./Icon.svelte";
@@ -112,9 +113,9 @@
     </div>
     <div class="actions fold" use:foldLabels>
       <div class="filter"><Icon name="search" size={16} /><input placeholder="Filter playlists" bind:value={filter} /></div>
-      <button class="btn primary" onclick={() => (app.view = { name: "chat-playlist" })}><Icon name="ai" size={16} /> Make a playlist with AI</button>
+      <button class="btn primary" onclick={() => conversations.begin("chat")}><Icon name="ai" size={16} /> Make a playlist with AI</button>
       <button class="btn tonal" onclick={() => (app.view = { name: "concert" })}><Icon name="mic" size={16} /> Get ready for a concert</button>
-      <button class="btn tonal" onclick={() => (app.view = { name: "party" })}><Icon name="music" size={16} /> Make a party playlist</button>
+      <button class="btn tonal" onclick={() => conversations.begin("party")}><Icon name="music" size={16} /> Make a party playlist</button>
       <button class="icon-btn" title="Refresh" aria-label="Refresh" onclick={() => load(true)} disabled={loading}><Icon name="refresh" /></button>
       {#if app.account}
         <button class="btn tonal" onclick={() => (app.newPlaylist = { trackIds: [] })}><Icon name="plus" size={16} /> New playlist</button>

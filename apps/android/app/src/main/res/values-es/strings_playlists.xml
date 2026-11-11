@@ -161,4 +161,22 @@
     <string name="pl_set_tidal_delete">Borrar también la copia en TIDAL</string>
     <string name="pl_set_tidal_delete_hint">Al borrar una playlist en HomeFi también se borra la copia que HomeFi guardó en tu cuenta de TIDAL.</string>
     <string name="pl_set_tidal_keywords">TIDAL, cuenta, sincronizar, subir, todos los dispositivos, copia, automático</string>
+    <string name="pl_set_chat_max_open">Chats abiertos a la vez</string>
+    <string name="pl_set_chat_max_open_hint">Cada chat con IA sigue en segundo plano; el menú Chats con IA te trae de vuelta.</string>
+    <string name="pl_set_chat_done_notice">Avísame cuando una playlist esté lista</string>
+    <string name="pl_set_chat_done_notice_hint">Un aviso cuando una playlist termina mientras estás en otra pantalla.</string>
+    <string name="pl_chats_title">Chats con IA</string>
+    <string name="pl_chats_open">Abrir chats</string>
+    <string name="pl_chats_empty">No hay chats con IA abiertos. Empieza uno desde Playlists.</string>
+    <string name="pl_chat_status_waiting">Esperando tu respuesta</string>
+    <string name="pl_chat_status_thinking">Pensando…</string>
+    <string name="pl_chat_status_building_pct">Armando · %1$d %%</string>
+    <string name="pl_chat_status_building">Armando…</string>
+    <string name="pl_chat_status_ready">Playlist lista</string>
+    <string name="pl_chat_status_failed">No se pudo</string>
+    <string name="pl_chat_close">Cerrar el chat “%1$s”</string>
+    <string name="pl_chat_ready">“%1$s” está lista</string>
+    <string name="pl_chat_failed">“%1$s” no se armó: %2$s</string>
+    <string name="pl_chat_open">Abrir</string>
+    <string name="pl_chat_closed">Este chat se cerró.</string>
 </resources>

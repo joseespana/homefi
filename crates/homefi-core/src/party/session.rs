@@ -82,6 +82,9 @@ pub struct PartyTurn {
     /// The brief as the AI now understands it (chat mode only; party turns carry `None`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat_brief: Option<ChatBrief>,
+    /// The conversation's title as the core now sees it (for the list of open chats).
+    #[serde(default)]
+    pub title: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -127,6 +130,11 @@ pub fn no_session_message(lang: Lang) -> String {
     words::no_session(lang)
 }
 
+/// "You already have N AI chats open…" in `lang`.
+pub fn too_many_chats_message(lang: Lang, max: u8) -> String {
+    words::too_many_chats_message(lang, max)
+}
+
 impl PartySession {
     pub fn new(config: AiConfig, brief: impl Into<Brief>, lang: Lang) -> Self {
         Self {
@@ -143,6 +151,12 @@ impl PartySession {
         &self.brief
     }
 
+    /// Chat: the AI's title, else the start of the wish, else fixed words. Party: its name without
+    /// the length.
+    pub fn title(&self) -> String {
+        self.brief.title(self.lang)
+    }
+
     /// New answers; the chat so far is kept.
     pub fn set_brief(&mut self, brief: impl Into<Brief>) {
         self.brief = brief.into().clamped();
@@ -156,6 +170,7 @@ impl PartySession {
         if let Brief::Chat(brief) = &self.brief {
             let mut turn = opener(self.lang, &brief.wish);
             turn.chat_brief = Some(brief.clone());
+            turn.title = self.title();
             return Ok(turn);
         }
         let undo = self.checkpoint();
@@ -170,7 +185,8 @@ impl PartySession {
         }
         if self.user_turns >= self.brief.max_chat_turns() {
             let chat_brief = self.brief.as_chat().cloned();
-            return Ok(PartyTurn { text: words::chat_limit(self.lang), quick_replies: Vec::new(), chat_brief });
+            let title = self.title();
+            return Ok(PartyTurn { text: words::chat_limit(self.lang), quick_replies: Vec::new(), chat_brief, title });
         }
         let undo = self.checkpoint();
         let text = text.trim();
@@ -259,6 +275,7 @@ impl PartySession {
             turn.text = words::empty_turn(self.lang, title);
         }
         turn.chat_brief = self.brief.as_chat().cloned();
+        turn.title = self.title();
         Ok(turn)
     }
 
@@ -752,6 +769,36 @@ mod tests {
         assert_eq!(turn.quick_replies.len(), 4);
         assert_eq!(turn.chat_brief, Some(ChatBrief::default()));
         assert!(session.messages.is_empty());
+    }
+
+    #[test]
+    fn the_title_prefers_the_ai_then_the_wish_then_fixed_words() {
+        let server_less = AiConfig::new(crate::ai::AiProvider::Anthropic, "m", Some("k".into()));
+        let titled = |brief: ChatBrief, lang| PartySession::new(server_less.clone(), brief, lang).title();
+        assert_eq!(titled(ChatBrief::default(), Lang::En), "Playlist with AI");
+        assert_eq!(titled(ChatBrief::default(), Lang::Es), "Playlist con IA");
+        let wish = "A playlist like “Hotel California” by Eagles (1976): same style".to_owned();
+        let brief = ChatBrief { wish: wish.clone(), ..ChatBrief::default() };
+        assert_eq!(titled(brief, Lang::En), "A playlist like “Hotel California” by Eagles (1976)");
+        let brief = ChatBrief { wish, title: "Soft rock".into(), ..ChatBrief::default() };
+        assert_eq!(titled(brief, Lang::En), "Soft rock");
+        let party = PartyBrief { minutes: 120, ..PartyBrief::default() };
+        assert_eq!(
+            PartySession::new(server_less, party, Lang::En).title(),
+            words::name(Lang::En, PartyBrief::default().vibe, 120)
+        );
+    }
+
+    #[tokio::test]
+    async fn turns_carry_the_title() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(anthropic(json!([{ "type": "text", "text": "Nice." }])))
+            .mount(&server)
+            .await;
+        let mut session = chat_session(&server);
+        assert_eq!(session.start().await.unwrap().title, "Playlist with AI");
+        assert_eq!(session.reply("sad 90s").await.unwrap().title, "sad 90s");
     }
 
     #[tokio::test]

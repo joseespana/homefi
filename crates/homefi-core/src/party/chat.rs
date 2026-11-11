@@ -215,6 +215,7 @@ pub(crate) fn opener(lang: Lang, wish: &str) -> PartyTurn {
         text: words::chat_opener_text(lang, wish),
         quick_replies: words::chat_opener_replies(lang),
         chat_brief: None,
+        title: String::new(),
     }
 }
 

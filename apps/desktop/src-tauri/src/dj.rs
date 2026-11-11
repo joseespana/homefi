@@ -26,7 +26,7 @@ use homefi_player::Status;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::commands::AppState;
+use crate::commands::{lock, AppState};
 use crate::stream::StreamItem;
 
 type CmdResult<T> = Result<T, String>;
@@ -44,10 +44,6 @@ const MAX_BPM_LOOKUPS: usize = 200;
 pub struct Dj {
     player: Mutex<Option<DjPlayer>>,
     picks: Mutex<[Option<DjPick>; 2]>,
-}
-
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 impl Dj {

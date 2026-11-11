@@ -36,7 +36,7 @@ use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Mutex as AsyncMutex;
 
-use crate::commands::{err, AppState};
+use crate::commands::{err, lock, AppState};
 use crate::playlists::{cancelled, cancelled_text, library_refs, Playlists};
 use crate::stream::StreamItem;
 
@@ -57,10 +57,6 @@ const TV_NAME: &str = "HomeFi ride";
 /// Wall-clock milliseconds, the ride clock's `now_ms`.
 fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or_default()
-}
-
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 // ------------------------------------------------------------------ state

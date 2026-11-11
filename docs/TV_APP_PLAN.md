@@ -95,7 +95,7 @@ tv/install/                 nothing: the "Put HomeFi on your TV" helper lives in
 
 - **Shared, untouched:** `data/*`, `player/*`, `share/*`, `library/*`, `lyrics/*`, all ViewModels
   (`LoginViewModel`, `SearchViewModel`, `TidalViewModel`, `EqViewModel`, `AssistantViewModel`,
-  `PartyViewModel`, `ConcertViewModel`), `ui/theme/*`, `ui/player/{Mascot,Dance,Mood,Hair,Mosh,
+  `PartyConversation`, `ConcertViewModel`), `ui/theme/*`, `ui/player/{Mascot,Dance,Mood,Hair,Mosh,
   BeatFollower users}`, `ui/player/ProgressBars`, `SignalChain`, `RoomViews` (visualizer, VU),
   `ui/eq/EqCurve`, `ui/login/{QrCode,TermsNotice}`, `ui/ReleaseNotesDialog`, `ui/UpdateCard` state.
 - **Phase 0 splits (SRP, no behaviour change on the phone):** `LyricsView.kt` keeps the touch

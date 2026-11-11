@@ -161,4 +161,22 @@
     <string name="pl_set_tidal_delete">Delete the TIDAL copy too</string>
     <string name="pl_set_tidal_delete_hint">Deleting a playlist in HomeFi also deletes the copy HomeFi saved in your TIDAL account.</string>
     <string name="pl_set_tidal_keywords">TIDAL, account, sync, upload, every device, copy, automatic</string>
+    <string name="pl_set_chat_max_open">Chats open at once</string>
+    <string name="pl_set_chat_max_open_hint">Each AI chat keeps going in the background; the AI chats menu brings you back.</string>
+    <string name="pl_set_chat_done_notice">Tell me when a chat\'s playlist is ready</string>
+    <string name="pl_set_chat_done_notice_hint">A notice when a playlist finishes while you\'re on another screen.</string>
+    <string name="pl_chats_title">AI chats</string>
+    <string name="pl_chats_open">Open chats</string>
+    <string name="pl_chats_empty">No AI chats open. Start one from Playlists.</string>
+    <string name="pl_chat_status_waiting">Waiting for you</string>
+    <string name="pl_chat_status_thinking">Thinking…</string>
+    <string name="pl_chat_status_building_pct">Building · %1$d %%</string>
+    <string name="pl_chat_status_building">Building…</string>
+    <string name="pl_chat_status_ready">Playlist ready</string>
+    <string name="pl_chat_status_failed">Didn\'t work</string>
+    <string name="pl_chat_close">Close chat “%1$s”</string>
+    <string name="pl_chat_ready">“%1$s” is ready</string>
+    <string name="pl_chat_failed">“%1$s” didn\'t build: %2$s</string>
+    <string name="pl_chat_open">Open</string>
+    <string name="pl_chat_closed">This chat was closed.</string>
 </resources>
