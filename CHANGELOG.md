@@ -7,6 +7,9 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.14] - 2026-11-11
+
+
 ### Added
 - Playlists: AI playlist chats ("Playlist like this", "Make a playlist with AI", party playlists)
   keep going when you move to another screen. Several can run at once (Settings › Playlists ›
