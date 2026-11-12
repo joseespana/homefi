@@ -3,6 +3,7 @@ package com.perseusoft.homefi.ui.playlists
 import androidx.media3.common.MediaItem
 import com.perseusoft.homefi.core.HomePlaylist
 import com.perseusoft.homefi.core.LibraryTrack
+import com.perseusoft.homefi.core.PlaylistEntry
 import com.perseusoft.homefi.core.SourceContext
 import com.perseusoft.homefi.player.PlayerController
 import com.perseusoft.homefi.player.Sources
@@ -24,19 +25,25 @@ class PlaylistQueue(
 }
 
 /**
- * Library copy first (when the file is still there), else the Tidal track, else skipped.
- * [find] looks a file up by path.
+ * What one playlist entry plays: the library copy first (when the file is still there), else the Tidal
+ * track, else null (nothing to play). [find] looks a file up by path.
  */
+fun entryMediaItem(entry: PlaylistEntry, find: (String) -> LibraryTrack?): MediaItem? {
+    val local = entry.localPath?.let(find)
+    val tidalId = entry.tidalId
+    return when {
+        local != null -> local.toMediaItem()
+        tidalId != null -> tidalMediaItem(tidalId, entry.title, entry.artist, entry.album, entry.coverUrl)
+        else -> null
+    }
+}
+
+/** The playlist's entries in order, each through [entryMediaItem]; entries that can't play are skipped. */
 fun HomePlaylist.queue(find: (String) -> LibraryTrack?): PlaylistQueue {
     val items = ArrayList<MediaItem>(entries.size)
     val map = IntArray(entries.size) { -1 }
     entries.forEachIndexed { index, entry ->
-        val local = entry.localPath?.let(find)
-        val item = when {
-            local != null -> local.toMediaItem()
-            entry.tidalId != null -> tidalMediaItem(entry.tidalId!!, entry.title, entry.artist, entry.album, entry.coverUrl)
-            else -> null
-        }
+        val item = entryMediaItem(entry, find)
         if (item != null) {
             map[index] = items.size
             items += item

@@ -21,6 +21,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.perseusoft.homefi.R
+import com.perseusoft.homefi.core.HotPoint
 import com.perseusoft.homefi.core.ProfilePoint
 import com.perseusoft.homefi.core.RideSegment
 import com.perseusoft.homefi.core.SegmentKind
@@ -45,6 +46,7 @@ fun MountainProfile(
     modifier: Modifier = Modifier,
     segments: List<RideSegment>? = null,
     paused: Boolean = false,
+    hotPoints: List<HotPoint> = emptyList(),
 ) {
     if (profile.size < 2) {
         Spacer(modifier)
@@ -63,7 +65,9 @@ fun MountainProfile(
         val part = model.parts[i]
         "${part.kind?.let(kindNames::get).orEmpty()} ${mmss(part.startS - (elapsed ?: 0f))}".trim()
     }.orEmpty()
-    val scene = rememberUpdatedState(CourseScene(elapsed, current, pinPart, pinText, settings.courseSummits, null))
+    // the tags show only while the climbs' steps are on; thumbnails and the dot-only rider never draw the glyph
+    val tags = if (settings.climbSteps > 0u) hotPoints else emptyList()
+    val scene = rememberUpdatedState(CourseScene(elapsed, current, pinPart, pinText, settings.courseSummits, null, settings.courseRider, tags, paused))
 
     val animate = LocalMotion.current.moves && elapsed != null && !paused
     var clock by remember { mutableStateOf(0f) }
@@ -83,11 +87,13 @@ fun MountainProfile(
     }
     val animated = rememberUpdatedState(animate)
     val total = mmss(model.totalS)
-    val description = if (elapsed == null) {
+    val base = if (elapsed == null) {
         stringResource(R.string.ex_mountain_cd, total)
     } else {
         stringResource(R.string.ex_mountain_cd_live, mmss(elapsed), total, model.parts.getOrNull(current ?: 0)?.kind?.let(kindNames::get).orEmpty())
     }
+    val description = if (tags.isEmpty()) base else "$base ${stringResource(R.string.ex_mountain_steps, tags.size)}"
+
     val look = settings.courseLook
 
     Spacer(
@@ -98,8 +104,7 @@ fun MountainProfile(
                 // rebuilt only when the size, the course or the look changes; the per-frame state is read in the draw block
                 val layers = buildCourseLayers(model, look, size.width / density, size.height / density, density, measurer)
                 onDrawWithContent {
-                    val s = scene.value
-                    drawCourse(layers, model, CourseScene(s.ridden, s.current, s.pinPart, s.pinText, s.summits, if (animated.value) clock else null), measurer)
+                    drawCourse(layers, model, scene.value.withClock(if (animated.value) clock else null), measurer)
                 }
             },
     )

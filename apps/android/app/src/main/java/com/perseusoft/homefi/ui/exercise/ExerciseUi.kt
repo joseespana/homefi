@@ -40,9 +40,13 @@ import com.perseusoft.homefi.core.PulseStyle
 import com.perseusoft.homefi.core.RidePosition
 import com.perseusoft.homefi.core.RidePulse
 import com.perseusoft.homefi.core.RideSegment
+import com.perseusoft.homefi.core.ShownTarget
+import com.perseusoft.homefi.core.TargetUnit
 import com.perseusoft.homefi.core.SegmentKind
 import kotlin.math.max
 import kotlin.math.pow
+import kotlin.math.roundToInt
+import androidx.compose.ui.res.stringResource
 
 // The look of Exercise lives in this file and a few small composables, so a restyle touches little.
 // Zone colours: one per kind of segment, readable on dark and light surfaces.
@@ -82,6 +86,27 @@ fun RidePosition.nameRes(): Int = when (this) {
     RidePosition.Seated -> R.string.ex_pos_seated
     RidePosition.Standing -> R.string.ex_pos_standing
     is RidePosition.Alternating -> R.string.ex_pos_alternating
+}
+
+fun TargetUnit.labelRes(): Int = when (this) {
+    TargetUnit.KPH -> R.string.ex_console_kph
+    TargetUnit.MPH -> R.string.ex_console_mph
+    TargetUnit.RPM -> R.string.ex_rpm
+}
+
+/** The big number of a target: the cadence in RPM, the speed with one decimal otherwise. */
+fun ShownTarget.valueText(): String = if (unit == TargetUnit.RPM) rpm.toString() else "%.1f".format(value)
+
+/** "75 RPM" or "17.5 km/h". */
+@Composable
+fun ShownTarget.withUnit(): String = "${valueText()} ${stringResource(unit.labelRes())}"
+
+/** "70-80 RPM" or "17.4-19.2 km/h" (one number when the range is a single value). */
+@Composable
+fun ShownTarget.rangeWithUnit(): String {
+    val unitText = stringResource(unit.labelRes())
+    val (lo, hi) = if (unit == TargetUnit.RPM) min.roundToInt().toString() to max.roundToInt().toString() else "%.1f".format(min) to "%.1f".format(max)
+    return if (lo == hi) "$lo $unitText" else "$lo-$hi $unitText"
 }
 
 /** Effort as words plus the number ("Comfortable 4"): a resistance cue, not a measurement. */

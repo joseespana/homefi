@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.media.SoundPool
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import com.perseusoft.homefi.core.CueKind
 import com.perseusoft.homefi.core.RideCue
@@ -84,6 +85,45 @@ class RideCues(context: Context, private val scope: CoroutineScope) {
         if (inMs <= 0) play(CueKind.CLICK, volume) else main.postDelayed({ play(CueKind.CLICK, volume) }, inMs)
     }
 
+    private var clickTrain: Runnable? = null
+
+    /**
+     * The bike calibration's metronome: one click per pedal turn at [rpm] (80 RPM = 750 ms) for [seconds], at
+     * [volume] (0..1), then [onDone]. Each click is scheduled from the start time, so the beat does not drift.
+     * A train already running is replaced.
+     */
+    fun playClickTrain(seconds: Int, rpm: Int, volume: Float, onDone: () -> Unit = {}) {
+        stopClickTrain()
+        val intervalMs = MS_PER_MINUTE / rpm.coerceIn(MIN_TRAIN_RPM, MAX_TRAIN_RPM)
+        val total = (seconds.coerceIn(1, MAX_TRAIN_SECONDS) * 1000L / intervalMs).toInt().coerceAtLeast(1)
+        val startMs = SystemClock.uptimeMillis()
+        var played = 0
+        val step = object : Runnable {
+            override fun run() {
+                play(CueKind.CLICK, volume)
+                if (++played >= total) {
+                    // the last click is heard before the sheet says it is over
+                    val done = Runnable {
+                        clickTrain = null
+                        onDone()
+                    }
+                    clickTrain = done
+                    main.postDelayed(done, intervalMs)
+                    return
+                }
+                main.postAtTime(this, startMs + played * intervalMs)
+            }
+        }
+        clickTrain = step
+        main.post(step)
+    }
+
+    /** Stops the calibration clicks at once. */
+    fun stopClickTrain() {
+        clickTrain?.let(main::removeCallbacks)
+        clickTrain = null
+    }
+
     /** Playback paused: cues still waiting will be offered again by the next views, at their new moments. */
     fun hold() {
         waiting.forEach { (id, task) ->
@@ -111,5 +151,9 @@ class RideCues(context: Context, private val scope: CoroutineScope) {
         const val MAX_STREAMS = 3
         const val SAMPLE_RATE_HZ = 44_100u
         const val LATE_TOLERANCE_MS = 400L
+        const val MS_PER_MINUTE = 60_000L
+        const val MIN_TRAIN_RPM = 20
+        const val MAX_TRAIN_RPM = 200
+        const val MAX_TRAIN_SECONDS = 120
     }
 }

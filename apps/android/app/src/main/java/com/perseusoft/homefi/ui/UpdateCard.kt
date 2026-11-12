@@ -1,5 +1,9 @@
 package com.perseusoft.homefi.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.rounded.NewReleases
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -9,16 +13,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.SystemUpdate
-import androidx.compose.material3.AlertDialog
 import com.perseusoft.homefi.ui.theme.Button
 import com.perseusoft.homefi.ui.theme.Card
 import androidx.compose.material3.CardDefaults
@@ -29,10 +29,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -73,30 +71,30 @@ fun releaseNotesText(markdown: String): AnnotatedString = buildAnnotatedString {
 /** "What's new in HomeFi X": the release notes, and the release page. */
 @Composable
 fun WhatsNewDialog(release: AppRelease, onDismiss: () -> Unit, onOpenPage: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.update_whats_new_title, release.version)) },
-        text = {
-            Text(
-                release.notes.takeIf { it.isNotBlank() }?.let(::releaseNotesText) ?: AnnotatedString(stringResource(R.string.update_no_notes)),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
-            )
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.update_close)) } },
-        dismissButton = { TextButton(onClick = onOpenPage) { Text(stringResource(R.string.update_release_page)) } },
-    )
+    HomefiDialog(
+        title = stringResource(R.string.update_whats_new_title, release.version),
+        icon = Icons.Rounded.NewReleases,
+        primary = DialogAction(stringResource(R.string.update_close), onClick = onDismiss),
+        others = listOf(DialogAction(stringResource(R.string.update_release_page), icon = Icons.AutoMirrored.Rounded.OpenInNew, onClick = onOpenPage)),
+        onDismiss = onDismiss,
+    ) {
+        Text(
+            release.notes.takeIf { it.isNotBlank() }?.let(::releaseNotesText) ?: AnnotatedString(stringResource(R.string.update_no_notes)),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
 }
 
 /** Android asks to allow installing apps from HomeFi once: what to do there. */
 @Composable
 fun InstallPermissionDialog(onOpen: () -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.update_permission_title)) },
-        text = { Text(stringResource(R.string.update_permission_text)) },
-        confirmButton = { Button(onClick = onOpen) { Text(stringResource(R.string.update_permission_open)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.update_later)) } },
+    HomefiDialog(
+        title = stringResource(R.string.update_permission_title),
+        text = stringResource(R.string.update_permission_text),
+        icon = Icons.Rounded.SystemUpdate,
+        primary = DialogAction(stringResource(R.string.update_permission_open), onClick = onOpen),
+        dismiss = stringResource(R.string.update_later),
+        onDismiss = onDismiss,
     )
 }
 

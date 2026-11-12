@@ -57,7 +57,6 @@
     <string name="ex_no_playable">Ninguna canción de esta rutina se puede reproducir ahora.</string>
     <string name="ex_busy_sharing">Deja de compartir, o sal de la sesión compartida, antes de una rutina.</string>
     <string name="ex_plan_summary">%1$s · %2$d partes · %3$d canciones</string>
-    <string name="ex_segment_line">%1$s · %2$s RPM · esfuerzo %3$d</string>
     <string name="ex_bpm_fit">%1$d BPM · %2$s → %3$d RPM</string>
     <string name="ex_bpm_metronome">Metrónomo</string>
     <string name="ex_ratio_whole">1:1</string>
@@ -177,7 +176,6 @@
     <string name="ex_set_always_dark">Siempre oscuro durante la rutina</string>
     <string name="ex_set_haptics">Vibrar en los cambios de parte</string>
     <string name="ex_next_label">Siguiente</string>
-    <string name="ex_next_line">%1$d RPM · %2$s</string>
     <string name="ex_next_countdown">en %1$s</string>
     <string name="ex_style_first_d">Buena para la primera vez: esfuerzos suaves y cortos</string>
     <string name="ex_style_easy_d">Suave para las piernas, constante todo el rato</string>
@@ -219,4 +217,59 @@
     <string name="ex_taste_add_suggestion">Agregar %1$s</string>
     <string name="ex_rebuilding">Buscando canciones nuevas…</string>
     <string name="ex_rebuild_failed">No se pudieron encontrar canciones nuevas. Esta rutina sigue lista.</string>
+
+    <!-- Rediseño del recorrido: bici, escalones, cambio de canción, fundido, ciclista -->
+    <string name="ex_step_chip">Resistencia +%1$d · %2$d de %3$d</string>
+    <string name="ex_level_of">nivel %1$d/%2$d</string>
+    <string name="ex_ring_approx_rpm">≈ %1$d RPM</string>
+    <string name="ex_target_speed">Meta %1$s %2$s, unos %3$d RPM</string>
+    <string name="ex_next_line_unit">%1$s · %2$s</string>
+    <string name="ex_segment_line_unit">%1$s · %2$s · esfuerzo %3$d</string>
+    <string name="ex_swap_song_cd">Cambiar esta canción: %1$s</string>
+    <string name="ex_swap_title">¿Cambiar esta canción?</string>
+    <string name="ex_swap_body">HomeFi pondrá otra que encaje en %1$s.</string>
+    <string name="ex_swap_do">Cambiar</string>
+    <string name="ex_swap_next">Cambiar la siguiente</string>
+    <string name="ex_swap_keep">Dejarla</string>
+    <string name="ex_swap_working">Buscando otra canción…</string>
+    <string name="ex_swap_plan_cd">Cambiar esta canción</string>
+    <string name="ex_mountain_steps">%1$d escalones de resistencia</string>
+    <string name="ex_set_group_bike">Mi bici</string>
+    <string name="ex_set_console">La consola muestra</string>
+    <string name="ex_set_console_hint">La unidad de las metas en el recorrido, el plan y la TV.</string>
+    <string name="ex_console_rpm">RPM</string>
+    <string name="ex_console_kph">km/h</string>
+    <string name="ex_console_mph">mph</string>
+    <string name="ex_console_none">Nada</string>
+    <string name="ex_set_levels">Niveles de resistencia</string>
+    <string name="ex_set_levels_hint">Cuántas posiciones tiene la perilla de resistencia. 0 = no sé.</string>
+    <string name="ex_set_levels_unknown">No sé</string>
+    <string name="ex_set_calibrate">Calibrar la velocidad</string>
+    <string name="ex_set_calibrate_none">Sin calibrar: los objetivos se muestran en RPM</string>
+    <string name="ex_set_calibrate_done">1 RPM ≈ %1$s km/h</string>
+    <string name="ex_set_calibrate_do">Calibrar</string>
+    <string name="ex_cal_body">Pedalea al ritmo de los clics %1$d s (%2$d RPM) y escribe la velocidad de tu consola.</string>
+    <string name="ex_cal_start">Empezar los clics</string>
+    <string name="ex_cal_stop">Parar</string>
+    <string name="ex_cal_left">Faltan %1$d s</string>
+    <string name="ex_cal_speed">Velocidad en la consola (%1$s)</string>
+    <string name="ex_cal_save">Guardar</string>
+    <string name="ex_cal_clear">Borrar</string>
+    <string name="ex_cal_invalid">Esa velocidad no parece correcta. Prueba otra vez.</string>
+    <string name="ex_cal_needs_console">Elige km/h o mph arriba primero.</string>
+    <string name="ex_set_climb_steps">Escalones de resistencia en las subidas</string>
+    <string name="ex_set_climb_steps_hint">Cada subida pide una vuelta más de resistencia dos o tres veces, como en clase: el mapa marca los puntos y un sonido avisa cuándo.</string>
+    <string name="ex_set_steps_off">No</string>
+    <string name="ex_set_crossfade">Fundido entre las canciones del recorrido</string>
+    <string name="ex_set_crossfade_hint">Cuánto dura la entrada de la siguiente canción al terminar una parte. 0 deja el corte.</string>
+    <string name="ex_set_crossfade_off">No</string>
+    <string name="ex_set_rider">Ciclista en el mapa</string>
+    <string name="ex_rider_bike">Bici</string>
+    <string name="ex_rider_dot">Punto</string>
+    <string name="ex_set_big_controls">Botones grandes en el recorrido</string>
+    <string name="ex_set_big_controls_hint">Un botón grande de Pausa y una columna de controles en vez de la fila de iconos.</string>
+    <string name="ex_set_swap">Cambiar una canción durante el recorrido</string>
+    <string name="ex_set_swap_hint">Un toque en la canción pone otra que encaje con el ritmo de la parte.</string>
+    <string name="ex_set_swap_ai">Pedir el reemplazo a la IA</string>
+    <string name="ex_set_swap_ai_hint">Cuando nada de lo ya encontrado encaja, la IA propone una (usa tu llave); apagado, solo se busca en Tidal y la biblioteca.</string>
 </resources>

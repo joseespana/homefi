@@ -1,24 +1,23 @@
 package com.perseusoft.homefi.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.FileDownload
 import android.content.ActivityNotFoundException
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.perseusoft.homefi.data.ExportKind
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.perseusoft.homefi.R
@@ -139,11 +138,12 @@ fun IncomingFileDialog() {
     val file by app.incoming.pending.collectAsStateWithLifecycle()
     val incoming = file ?: return
     val name = incoming.fileName.ifBlank { stringResource(R.string.xfer_this_file) }
-    AlertDialog(
-        onDismissRequest = app.incoming::dismiss,
-        title = { Text(stringResource(if (incoming.kind == ExportKind.RIDE) R.string.xfer_open_ride else R.string.xfer_open_setup)) },
-        text = { Text(stringResource(R.string.xfer_open_text, name)) },
-        confirmButton = { TextButton(onClick = app.incoming::confirm) { Text(stringResource(R.string.xfer_add)) } },
-        dismissButton = { TextButton(onClick = app.incoming::dismiss) { Text(stringResource(R.string.xfer_cancel)) } },
+    HomefiDialog(
+        title = stringResource(if (incoming.kind == ExportKind.RIDE) R.string.xfer_open_ride else R.string.xfer_open_setup),
+        text = stringResource(R.string.xfer_open_text, name),
+        icon = Icons.Rounded.FileDownload,
+        primary = DialogAction(stringResource(R.string.xfer_add), onClick = app.incoming::confirm),
+        dismiss = stringResource(R.string.xfer_cancel),
+        onDismiss = app.incoming::dismiss,
     )
 }

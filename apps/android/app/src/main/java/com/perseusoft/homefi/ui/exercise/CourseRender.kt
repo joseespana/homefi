@@ -10,6 +10,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -32,6 +34,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import com.perseusoft.homefi.core.CourseLook
+import com.perseusoft.homefi.core.CourseRider
+import com.perseusoft.homefi.core.HotPoint
 import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -314,7 +318,15 @@ internal class CourseScene(
     val summits: Boolean,
     /** Animation clock in seconds; null = calm: steady dot with a static double ring, halo at its middle value. */
     val clock: Float?,
-)
+    /** The rider's drawing on the ridge (a thumbnail always gets the dot). */
+    val rider: CourseRider = CourseRider.BIKE,
+    /** The climbs' resistance steps, drawn as tags on the ridge; empty draws none. */
+    val hotPoints: List<HotPoint> = emptyList(),
+    /** The ride is paused: the rider glyph dims. */
+    val paused: Boolean = false,
+) {
+    fun withClock(clock: Float?) = CourseScene(ridden, current, pinPart, pinText, summits, clock, rider, hotPoints, paused)
+}
 
 private fun DrawScope.strokeRidge(g: CourseLayout, xa: Float, xb: Float, brush: Brush?, color: Color, width: Float, dash: PathEffect? = null) {
     var started = false
@@ -440,8 +452,9 @@ private fun DrawScope.drawOverlay(layers: CourseLayers, model: CourseModel, scen
             val sx = g.xs[s]
             val sy = g.ys[s]
             val nearRider = live && kotlin.math.abs(sx - xr) < 34
+            val nearTag = !g.mini && scene.hotPoints.any { kotlin.math.abs(sx - g.xOfT(it.tS.toFloat(), total)) < TAG_CLEAR_DP }
             val underPin = pinBox != null && sx + 20 > pinBox.left && sx - 20 < pinBox.right && sy - 28 < pinBox.bottom
-            if (nearRider || underPin) continue
+            if (nearRider || underPin || nearTag) continue
             val col = if (scene.ridden != null && sx < xr) Color(190 / 255f, 200 / 255f, 225 / 255f).copy(alpha = 0.5f) else Color.White.copy(alpha = 0.9f)
             drawPath(Path().apply { moveTo(sx, sy - 5); lineTo(sx - 3.5f, sy - 11); lineTo(sx + 3.5f, sy - 11); close() }, col)
             val label = measurer.label(mmss((s - 1f) / (g.m - 1) * total), text, FontWeight.SemiBold)
@@ -449,7 +462,8 @@ private fun DrawScope.drawOverlay(layers: CourseLayers, model: CourseModel, scen
         }
     }
 
-    if (live) drawRider(g, xr, glowPart?.kind.rgb(), clock)
+    if (!g.mini) drawHotPoints(g, model, scene, measurer)
+    if (live) drawRider(g, xr, glowPart?.kind.rgb(), clock, scene.rider, paused = scene.paused)
     if (!g.mini) drawTicks(layers)
 }
 
@@ -462,8 +476,8 @@ private fun DrawScope.drawTicks(layers: CourseLayers) {
     }
 }
 
-/** The "you are here" marker: a still halo, a hairline down to the ribbon, the dot on the ridge and its beacon. */
-private fun DrawScope.drawRider(g: CourseLayout, xr: Float, zc: Color, clock: Float?) {
+/** The "you are here" marker: a still halo, a hairline down to the ribbon, the rider on the ridge, the dot and its beacon. */
+private fun DrawScope.drawRider(g: CourseLayout, xr: Float, zc: Color, clock: Float?, rider: CourseRider, paused: Boolean) {
     val yr = g.ridgeY(xr)
     val h = g.h
     val dr = clamp(h * 0.035f, 4f, 9f)
@@ -484,32 +498,97 @@ private fun DrawScope.drawRider(g: CourseLayout, xr: Float, zc: Color, clock: Fl
         drawCircle(fade(zc, 0.28f), dr * 3.2f, c, style = Stroke(max(1.5f, 0.3f * dr)))
         blink = 1f
     }
-    if (h >= CYCLIST_H) {
-        val ang = clamp(atan2(g.ridgeY(xr + 9) - g.ridgeY(xr - 9), 18f), -0.6f, 0.6f)
-        drawCyclist(xr, yr - dr - 3, clamp(h * 0.064f, 8f, 21f), ang, zc)
+    // the bike sits on the ridge just ahead of the dot; no height threshold, only a thumbnail or "Dot" keeps the dot alone
+    if (!g.mini && rider == CourseRider.BIKE) {
+        val ang = clamp(atan2(g.ridgeY(xr + RIDER_SLOPE_SPAN) - g.ridgeY(xr - RIDER_SLOPE_SPAN), 2 * RIDER_SLOPE_SPAN), -RIDER_MAX_TILT, RIDER_MAX_TILT)
+        drawRiderGlyph(xr, yr - dr, dr, ang, zc, if (paused) RIDER_PAUSED_ALPHA else 1f)
     }
     drawCircle(fade(INK, 0.55f * blink), dr + 0.75f, c)
     drawCircle(fade(zc, blink), dr, c)
     drawCircle(Color.White.copy(alpha = blink), dr * 0.5f, c)
 }
 
-private fun DrawScope.drawCyclist(px: Float, py: Float, s: Float, ang: Float, col: Color) {
+/**
+ * The shared rider silhouette (docs spec S9; the desktop and the TV draw the same path): rear-wheel contact point
+ * at ([px], [py]), height 2.4 x [dr], rotated by [ang] to the slope, the zone colour with a 1 dp ink outline.
+ */
+private fun DrawScope.drawRiderGlyph(px: Float, py: Float, dr: Float, ang: Float, col: Color, alpha: Float) {
+    val k = RIDER_HEIGHT_PER_DOT * dr / GLYPH_UNITS
     translate(px, py) {
         rotate(ang * 180f / PI.toFloat(), pivot = Offset.Zero) {
-            translate(0f, -0.55f * s) {
-                val width = max(1.3f, 0.13f * s)
-                val st = Stroke(width, cap = StrokeCap.Round, join = StrokeJoin.Round)
-                // a soft halo in the zone colour keeps it readable on any ground
-                drawCircle(fade(col, 0.35f), s * 1.6f, Offset(0f, -0.4f * s))
-                fun line(a: Float, b: Float, c: Float, e: Float) = drawLine(Color.White, Offset(a * s, b * s), Offset(c * s, e * s), width, StrokeCap.Round)
-                drawCircle(Color.White, 0.55f * s, Offset(-s, 0f), style = st)
-                drawCircle(Color.White, 0.55f * s, Offset(s, 0f), style = st)
-                line(-1f, 0f, -0.15f, 0f); line(-0.15f, 0f, -0.35f, -0.75f); line(-0.35f, -0.75f, -1f, 0f)
-                line(-0.35f, -0.75f, 0.7f, -0.7f); line(-0.15f, 0f, 0.7f, -0.7f); line(0.7f, -0.7f, 1f, 0f)
-                line(-0.4f, -0.85f, 0.3f, -1.4f); line(0.3f, -1.4f, 0.72f, -0.82f)
-                line(-0.4f, -0.85f, 0.2f, -0.38f); line(0.2f, -0.38f, 0.02f, 0.12f)
-                drawCircle(Color.White, 0.22f * s, Offset(0.5f * s, -1.72f * s))
+            scale(k, k, pivot = Offset.Zero) {
+                translate(-RIDER_ANCHOR_X, -GLYPH_UNITS) {
+                    drawPath(RIDER_PATH, fade(col, alpha))
+                    drawPath(RIDER_PATH, fade(INK, RIDER_OUTLINE_ALPHA * alpha), style = Stroke(1f / k, join = StrokeJoin.Round))
+                }
             }
         }
     }
 }
+
+/** A tag per resistance step on the ridge: upcoming, the active one (glowing, a little bigger) and passed (dimmed). */
+private fun DrawScope.drawHotPoints(g: CourseLayout, model: CourseModel, scene: CourseScene, measurer: TextMeasurer) {
+    if (scene.hotPoints.isEmpty()) return
+    val total = model.totalS
+    val ridden = scene.ridden
+    val base = clamp(g.h * 0.085f, TAG_SCALE_MIN, TAG_SCALE_MAX)
+    // the active step is the last one the rider has passed
+    val active = if (ridden == null) -1 else scene.hotPoints.indexOfLast { it.tS.toFloat() <= ridden }
+    scene.hotPoints.forEachIndexed { i, point ->
+        val x = g.xOfT(point.tS.toFloat(), total)
+        val zc = model.parts.getOrNull(partIndexAt(model.parts, point.tS.toFloat()))?.kind.rgb()
+        val passed = ridden != null && i < active
+        val on = i == active
+        val k = base * (if (on) TAG_ACTIVE_SCALE else 1f)
+        val tipY = g.ridgeY(x) - TAG_LIFT
+        val left = x - TAG_TIP_X * k
+        val top = tipY - TAG_H * k
+        if (on) {
+            val r = TAG_W * k * TAG_GLOW_RADIUS
+            val centre = Offset(x, top + TAG_H * k / 2)
+            drawCircle(Brush.radialGradient(0f to fade(zc, 0.7f), 0.4f to fade(zc, 0.22f), 1f to fade(zc, 0f), center = centre, radius = r), r, centre)
+        }
+        val fill = if (passed) fade(dimmed(zc), TAG_PASSED_ALPHA) else fade(zc, TAG_UPCOMING_ALPHA)
+        translate(left, top) {
+            scale(k, k, pivot = Offset.Zero) {
+                drawPath(TAG_PATH, fill)
+                drawPath(TAG_PATH, fade(INK, RIDER_OUTLINE_ALPHA), style = Stroke(1f / k, join = StrokeJoin.Round))
+            }
+        }
+        // each step is one more turn of resistance: the label is the literal "+1"
+        val label = measurer.label(TAG_LABEL, TAG_LABEL_UNITS * k, FontWeight.ExtraBold)
+        drawText(label, INK, Offset(x - label.size.width / 2f, top + TAG_LABEL_Y * k - label.size.height / 2f))
+    }
+}
+
+private fun parsedPath(d: String): Path = PathParser().parsePathString(d).toPath().apply { fillType = PathFillType.NonZero }
+
+// Box 0..24, rider faces right, one path, non-zero fill; rear wheel (5, 24) is the anchor.
+private const val RIDER_D = "M0 19a5 5 0 1 0 10 0a5 5 0 1 0 -10 0ZM1.1 19a3.9 3.9 0 1 1 7.8 0a3.9 3.9 0 1 1 -7.8 0ZM14 19a5 5 0 1 0 10 0a5 5 0 1 0 -10 0ZM15.1 19a3.9 3.9 0 1 1 7.8 0a3.9 3.9 0 1 1 -7.8 0ZM5.5 19.24L9.5 10.84L8.5 10.36L4.5 18.76ZM4.98 19.55L10.98 19.75L11.02 18.65L5.02 18.45ZM8.46 10.72L10.46 19.32L11.54 19.08L9.54 10.48ZM9.02 11.2L16.62 11L16.58 9.8L8.98 10ZM11.55 19.55L17.15 10.75L16.05 10.05L10.45 18.85ZM16.02 10.56L18.42 19.16L19.58 18.84L17.18 10.24ZM7.6 10.1L11.4 10.1L11.4 8.9L7.6 8.9ZM10.32 9.42L15.32 5.92L13.88 3.88L8.88 7.38ZM14.01 5.28L17.01 9.98L18.19 9.22L15.19 4.52ZM8.83 9.11L13.23 13.91L14.77 12.49L10.37 7.69ZM13.18 12.96L11.38 19.16L13.02 19.64L14.82 13.44ZM17.06 10.78L18.06 9.58L17.14 8.82L16.14 10.02ZM8.2 8.4a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0 -2.8 0ZM13 13.2a1 1 0 1 0 2 0a1 1 0 1 0 -2 0ZM13.3 4.9a1.3 1.3 0 1 0 2.6 0a1.3 1.3 0 1 0 -2.6 0ZM16.7 9.3a0.9 0.9 0 1 0 1.8 0a0.9 0.9 0 1 0 -1.8 0ZM14.8 2.5a2.1 2.1 0 1 0 4.2 0a2.1 2.1 0 1 0 -4.2 0Z"
+private val RIDER_PATH: Path by lazy { parsedPath(RIDER_D) }
+
+// The hot-point tag: unit box 16 x 14, tip at (8, 14).
+private const val TAG_D = "M3.5 0H12.5A3.5 3.5 0 0 1 16 3.5V7.5A3.5 3.5 0 0 1 12.5 11H10L8 14L6 11H3.5A3.5 3.5 0 0 1 0 7.5V3.5A3.5 3.5 0 0 1 3.5 0Z"
+private val TAG_PATH: Path by lazy { parsedPath(TAG_D) }
+
+private const val GLYPH_UNITS = 24f
+private const val RIDER_ANCHOR_X = 5f
+private const val RIDER_HEIGHT_PER_DOT = 2.4f
+private const val RIDER_SLOPE_SPAN = 9f
+private const val RIDER_MAX_TILT = 0.6f
+private const val RIDER_OUTLINE_ALPHA = 0.55f
+private const val RIDER_PAUSED_ALPHA = 0.6f
+private const val TAG_W = 16f
+private const val TAG_H = 14f
+private const val TAG_TIP_X = 8f
+private const val TAG_LIFT = 3f
+private const val TAG_SCALE_MIN = 1.25f
+private const val TAG_SCALE_MAX = 1.7f
+private const val TAG_ACTIVE_SCALE = 1.15f
+private const val TAG_GLOW_RADIUS = 1.6f
+private const val TAG_UPCOMING_ALPHA = 0.92f
+private const val TAG_PASSED_ALPHA = 0.8f
+private const val TAG_CLEAR_DP = 22f
+private const val TAG_LABEL = "+1"
+private const val TAG_LABEL_UNITS = 7f
+private const val TAG_LABEL_Y = 5.5f

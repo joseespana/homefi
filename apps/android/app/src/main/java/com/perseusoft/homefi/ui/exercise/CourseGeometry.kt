@@ -27,7 +27,6 @@ class CourseModel(val profile: List<CoursePoint>, val parts: List<CoursePart>) {
 }
 
 internal const val MINI_H = 72f // under this height: no ribbon, ticks or pin
-internal const val CYCLIST_H = 200f
 private val TICK_STEPS_S = intArrayOf(60, 120, 300, 600, 900, 1200, 1800)
 private const val TICKS_MOST = 9
 private const val TICKS_MOST_NARROW = 4
@@ -170,8 +169,8 @@ internal fun tickStep(total: Float, w: Float): Int {
     return TICK_STEPS_S.firstOrNull { total / it <= most } ?: TICK_STEPS_S.last()
 }
 
-/** Where the plot starts on the left (and ends on the right): room for the cyclist at both ends. */
-internal fun plotPad(w: Float, h: Float): Float = if (h >= CYCLIST_H) clamp(h * 0.12f, 28f, 40f) else clamp(w * 0.012f, 8f, 16f)
+/** Where the plot starts on the left (and ends on the right): room for the rider glyph at both ends (thumbnails need none). */
+internal fun plotPad(w: Float, h: Float): Float = if (h >= MINI_H) clamp(h * 0.1f, 18f, 40f) else clamp(w * 0.012f, 8f, 16f)
 
 /** The card's measures and the ridge's samples, with a flat run-out sample at each end. */
 internal class CourseLayout(

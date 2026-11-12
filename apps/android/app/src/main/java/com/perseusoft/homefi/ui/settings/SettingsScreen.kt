@@ -277,6 +277,8 @@ private enum class SettingsPage(val title: Int, val icon: ImageVector, val secti
             R.string.ex_set_cue_volume, R.string.ex_set_countdown, R.string.ex_set_notice, R.string.ex_set_click,
             R.string.ex_set_pulse, R.string.ex_set_offset, R.string.ex_set_keep_on, R.string.ex_set_course_look, R.string.ex_set_course_summits, R.string.ex_set_tv, R.string.ex_set_tv_lyrics, R.string.ex_tv_audio,
             R.string.ex_set_port, R.string.ex_set_health, R.string.ex_set_always_dark, R.string.ex_set_haptics,
+            R.string.ex_set_group_bike, R.string.ex_set_console, R.string.ex_set_levels, R.string.ex_set_calibrate, R.string.ex_set_climb_steps,
+            R.string.ex_set_crossfade, R.string.ex_set_rider, R.string.ex_set_big_controls, R.string.ex_set_swap, R.string.ex_set_swap_ai,
         ),
     ),
     AI(

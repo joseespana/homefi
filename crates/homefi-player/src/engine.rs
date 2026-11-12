@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cpal::traits::DeviceTrait;
-use homefi_core::dsp::crossfade::{CrossfadeSettings, TrackInfo, MAX_TRIM_SECONDS};
+use homefi_core::dsp::crossfade::{CrossfadeSettings, FadeCurve, TrackInfo, MAX_TRIM_SECONDS};
 use homefi_core::dsp::{
     self, EqDesign, EqSettings, LoudnessSettings, NowPlayingContext, ReplayGain, SoundPlan, TasteAudition, TasteScope,
     TasteSettings, TrackSound,
@@ -33,6 +33,8 @@ const LOOKAHEAD_BUDGET: Duration = Duration::from_millis(3);
 const MIN_FADE_SECONDS: f32 = 0.25;
 /// Extra look-ahead past the fade and the trimmed silence.
 const HOLD_MARGIN_SECONDS: f32 = 0.5;
+/// Longest fade a ride may ask for (the settings' own limit).
+const MAX_RIDE_FADE_SECONDS: f32 = 8.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -150,6 +152,8 @@ enum Command {
     Loudness(LoudnessSettings),
     SoundSource(SoundSource),
     Crossfade(CrossfadeSettings),
+    RideFade(Option<f32>),
+    NextFade,
     Output(OutputOptions),
     Stop,
     Park(bool),
@@ -238,6 +242,11 @@ impl Player {
     pub fn next(&self) {
         self.send(Command::Next)
     }
+    /// Next song with the ride's own fade (see [`Player::set_ride_fade`]); a
+    /// plain next when it can't fade.
+    pub fn next_fade(&self) {
+        self.send(Command::NextFade)
+    }
     pub fn previous(&self) {
         self.send(Command::Previous)
     }
@@ -298,6 +307,14 @@ impl Player {
     /// the next transition.
     pub fn set_crossfade(&self, settings: CrossfadeSettings) {
         self.send(Command::Crossfade(settings))
+    }
+    /// The fade [`Player::next_fade`] uses, in seconds, whatever the crossfade
+    /// setting says (a ride cuts songs at a part change). `None`, zero or
+    /// NaN: off. While set, the end of each track is decoded ahead so the
+    /// cut doesn't decode on the engine thread. Natural track ends still
+    /// follow [`Player::set_crossfade`].
+    pub fn set_ride_fade(&self, seconds: Option<f32>) {
+        self.send(Command::RideFade(seconds))
     }
     /// Surround spreading and resampler quality; the track playing restarts
     /// where it is to pick them up.
@@ -394,6 +411,8 @@ struct Engine {
     loudness: LoudnessSettings,
     sound_source: Option<SoundSource>,
     crossfade: CrossfadeSettings,
+    /// Fade of [`Player::next_fade`] (seconds), independent of `crossfade`.
+    ride_fade: Option<f32>,
     output_options: OutputOptions,
     /// Silent for another engine (see [`Player::set_parked`]).
     parked: Option<Parked>,
@@ -447,6 +466,7 @@ impl Engine {
             loudness: LoudnessSettings::default(),
             sound_source: None,
             crossfade: CrossfadeSettings::default(),
+            ride_fade: None,
             output_options: OutputOptions::default(),
             parked: None,
         }
@@ -514,6 +534,19 @@ impl Engine {
             Command::Next => {
                 if let Some(pos) = self.next_pos(self.current_pos(), false) {
                     self.skip_to(pos);
+                }
+            }
+            Command::NextFade => {
+                if let Some(pos) = self.next_pos(self.current_pos(), false) {
+                    let shape = self.ride_fade.map(|seconds| FadeShape {
+                        seconds,
+                        curve: self.crossfade.curve,
+                        smart: false,
+                        checked: false,
+                    });
+                    if !shape.is_some_and(|shape| self.manual_fade(pos, shape)) {
+                        self.skip_to(pos);
+                    }
                 }
             }
             Command::Previous => {
@@ -590,6 +623,9 @@ impl Engine {
                 self.replan();
             }
             Command::Crossfade(settings) => self.crossfade = settings.clamped(),
+            Command::RideFade(seconds) => {
+                self.ride_fade = seconds.filter(|s| s.is_finite() && *s > 0.0).map(|s| s.min(MAX_RIDE_FADE_SECONDS));
+            }
             Command::Output(options) => {
                 let changed = options != self.output_options;
                 self.output_options = options;
@@ -915,16 +951,17 @@ impl Engine {
         self.pushed_frames + (self.pending.len() / channels) as u64
     }
 
-    /// Crossfade on: the end of each track is decoded ahead.
+    /// Crossfade on, or a ride fade set: the end of each track is decoded ahead.
     fn holding(&self) -> bool {
-        self.crossfade.is_on() && self.output.is_some()
+        (self.crossfade.is_on() || self.ride_fade.is_some()) && self.output.is_some()
     }
 
     /// Samples to hold back (0 when not holding).
     fn hold_target(&self) -> usize {
         match &self.output {
-            Some(o) if self.crossfade.is_on() => hold_frames(&self.crossfade, o.rate) * o.channels.max(1) as usize,
-            _ => 0,
+            Some(_) if !self.holding() => 0,
+            Some(o) => hold_frames(&self.crossfade, self.ride_fade, o.rate) * o.channels.max(1) as usize,
+            None => 0,
         }
     }
 
@@ -1141,21 +1178,34 @@ impl Engine {
         }
         let Some(source) = source else { return false };
         let tail: Vec<f32> = self.held.drain(..).collect();
-        self.begin_fade(next, path, source, sound, tail, false)
+        let shape = FadeShape {
+            seconds: self.crossfade.fade_seconds(false),
+            curve: self.crossfade.curve,
+            smart: self.crossfade.smart,
+            checked: true,
+        };
+        self.begin_fade(next, path, source, sound, tail, false, shape)
     }
 
     /// A skip or a pick while playing: a short fade when the settings allow
     /// it, else a hard start.
     fn skip_to(&mut self, pos: usize) {
-        if !self.manual_fade(pos) {
+        let skip_fades = self.crossfade.is_on() && self.crossfade.on_manual_skip;
+        let shape = FadeShape {
+            seconds: self.crossfade.fade_seconds(true),
+            curve: self.crossfade.curve,
+            smart: self.crossfade.smart,
+            checked: true,
+        };
+        if !(skip_fades && self.manual_fade(pos, shape)) {
             self.start(pos, 0);
         }
     }
 
-    fn manual_fade(&mut self, pos: usize) -> bool {
-        let ready = self.crossfade.is_on()
-            && self.crossfade.on_manual_skip
-            && self.status == Status::Playing
+    /// Fades into `order[pos]` over `shape`, `false` (nothing changed) when
+    /// the state doesn't allow it.
+    fn manual_fade(&mut self, pos: usize, shape: FadeShape) -> bool {
+        let ready = self.status == Status::Playing
             && !self.fade.as_ref().is_some_and(Fade::mixing)
             && self.after_drain.is_none()
             && !self.source_eof
@@ -1169,11 +1219,11 @@ impl Engine {
         let Some(from) = self.segments.back() else { return false };
         let to = TrackInfo::of(&sound.context, source.duration_ms);
         let from_info = TrackInfo::of(&from.sound.context, from.duration_ms);
-        if !wants_fade(&self.crossfade, &from_info, Some(&to), self.shuffle, self.repeat, true) {
+        if shape.checked && !wants_fade(&self.crossfade, &from_info, Some(&to), self.shuffle, self.repeat, true) {
             return false;
         }
         // the outgoing track fades from what comes right after the samples already queued
-        let want = (self.crossfade.fade_seconds(true) * rate) as usize * channels;
+        let want = (shape.seconds * rate) as usize * channels;
         let mut tail: Vec<f32> = Vec::with_capacity(want);
         tail.extend(self.held.drain(..want.min(self.held.len())));
         self.held.clear();
@@ -1190,12 +1240,13 @@ impl Engine {
         self.decoded.clear();
         tail.truncate(want);
         self.deck = None;
-        self.begin_fade(pos, path, source, sound, tail, true)
+        self.begin_fade(pos, path, source, sound, tail, true, shape)
     }
 
     /// Starts mixing `order[pos]` over `tail` (the outgoing track's last
     /// samples). On failure the tail goes to the ring as is and it returns
     /// `false` (the caller makes a normal transition).
+    #[allow(clippy::too_many_arguments)]
     fn begin_fade(
         &mut self,
         pos: usize,
@@ -1204,6 +1255,7 @@ impl Engine {
         sound: TrackSound,
         mut tail: Vec<f32>,
         manual: bool,
+        shape: FadeShape,
     ) -> bool {
         let Some(out) = self.output.as_ref() else {
             self.pending.extend_from_slice(&tail);
@@ -1213,12 +1265,12 @@ impl Engine {
         let format = self.deck_format(out);
         let device = out.device_name.clone();
         // smart: the fade ends where the outgoing music does
-        let end = if self.crossfade.smart && !manual { music_end(&tail, channels) } else { tail.len() };
-        let Some(frames) = fade_frames(&self.crossfade, manual, end / channels, rate) else {
+        let end = if shape.smart && !manual { music_end(&tail, channels) } else { tail.len() };
+        let Some(frames) = fade_frames(shape.seconds, end / channels, rate) else {
             self.pending.extend_from_slice(&tail);
             return false;
         };
-        let lead = if self.crossfade.smart { (MAX_TRIM_SECONDS * rate as f32) as u64 } else { 0 };
+        let lead = if shape.smart { (MAX_TRIM_SECONDS * rate as f32) as u64 } else { 0 };
         let deck = match Deck::new(source, format, lead) {
             Ok(d) => d,
             Err(e) => {
@@ -1241,7 +1293,7 @@ impl Engine {
             tail,
             channels,
             FadeSpec {
-                curve: self.crossfade.curve,
+                curve: shape.curve,
                 start_frame,
                 glide: dsp::glide_frames(rate) as usize,
                 from_design,
@@ -1493,9 +1545,24 @@ fn upcoming_queue(played: Vec<PathBuf>, decoded: Option<PathBuf>, tracks: Vec<Pa
 
 /// Frames of look-ahead a crossfade needs at `rate`: the fade, the trailing
 /// silence the smart trim may skip, and a margin.
-fn hold_frames(settings: &CrossfadeSettings, rate: u32) -> usize {
-    let trim = if settings.smart { MAX_TRIM_SECONDS } else { 0.0 };
-    ((settings.fade_seconds(false) + trim + HOLD_MARGIN_SECONDS) * rate as f32) as usize
+/// A ride fade (seconds) counts even with the crossfade off; the longer wins.
+fn hold_frames(settings: &CrossfadeSettings, ride_fade: Option<f32>, rate: u32) -> usize {
+    let global = settings.is_on().then(|| {
+        let trim = if settings.smart { MAX_TRIM_SECONDS } else { 0.0 };
+        settings.fade_seconds(false) + trim
+    });
+    let seconds = global.unwrap_or(0.0).max(ride_fade.unwrap_or(0.0));
+    ((seconds + HOLD_MARGIN_SECONDS) * rate as f32) as usize
+}
+
+/// How one fade runs: its length, curve and whether the smart trim applies.
+#[derive(Clone, Copy)]
+struct FadeShape {
+    seconds: f32,
+    curve: FadeCurve,
+    smart: bool,
+    /// Ask the crossfade settings (`wants_fade`) first; the ride's fade doesn't.
+    checked: bool,
 }
 
 /// Whether going from `from` to `to` crossfades. `to` is `None` when the next
@@ -1519,8 +1586,8 @@ fn wants_fade(
 /// Frames the fade lasts when `music_frames` of the outgoing track are left
 /// to fade over: the setting, shortened to what there is, `None` when too
 /// little is left.
-fn fade_frames(settings: &CrossfadeSettings, manual: bool, music_frames: usize, rate: u32) -> Option<usize> {
-    let wanted = (settings.fade_seconds(manual) * rate as f32) as usize;
+fn fade_frames(seconds: f32, music_frames: usize, rate: u32) -> Option<usize> {
+    let wanted = (seconds * rate as f32) as usize;
     let frames = wanted.min(music_frames);
     (frames as f32 >= MIN_FADE_SECONDS * rate as f32).then_some(frames)
 }
@@ -1663,21 +1730,26 @@ mod tests {
     #[test]
     fn look_ahead_covers_the_fade_and_the_trim() {
         // 6 s fade + 10 s of silence that may be trimmed + 0.5 s margin
-        assert_eq!(hold_frames(&on(), 48_000), (16.5 * 48_000.0) as usize);
+        assert_eq!(hold_frames(&on(), None, 48_000), (16.5 * 48_000.0) as usize);
         let plain = CrossfadeSettings { smart: false, seconds: 3.0, ..on() };
-        assert_eq!(hold_frames(&plain, 44_100), (3.5 * 44_100.0) as usize);
+        assert_eq!(hold_frames(&plain, None, 44_100), (3.5 * 44_100.0) as usize);
+        // crossfade off: only the ride fade holds; the longer of the two otherwise
+        let off = CrossfadeSettings::default();
+        assert_eq!(hold_frames(&off, Some(3.0), 48_000), (3.5 * 48_000.0) as usize);
+        assert_eq!(hold_frames(&plain, Some(8.0), 44_100), (8.5 * 44_100.0) as usize);
+        assert_eq!(hold_frames(&plain, Some(1.0), 44_100), (3.5 * 44_100.0) as usize);
     }
 
     #[test]
     fn fade_length_follows_what_is_left() {
         let s = on();
-        assert_eq!(fade_frames(&s, false, 1_000_000, 48_000), Some(6 * 48_000));
+        assert_eq!(fade_frames(s.fade_seconds(false), 1_000_000, 48_000), Some(6 * 48_000));
         // the outgoing music ends sooner (short track, slow decoding): a shorter fade
-        assert_eq!(fade_frames(&s, false, 48_000, 48_000), Some(48_000));
+        assert_eq!(fade_frames(s.fade_seconds(false), 48_000, 48_000), Some(48_000));
         // almost nothing left: a normal transition
-        assert_eq!(fade_frames(&s, false, 1000, 48_000), None);
+        assert_eq!(fade_frames(s.fade_seconds(false), 1000, 48_000), None);
         // a skip: the short fade
-        assert_eq!(fade_frames(&s, true, 1_000_000, 48_000), Some(72_000));
+        assert_eq!(fade_frames(s.fade_seconds(true), 1_000_000, 48_000), Some(72_000));
     }
 
     #[test]

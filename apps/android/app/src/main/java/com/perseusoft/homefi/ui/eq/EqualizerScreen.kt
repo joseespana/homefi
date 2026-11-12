@@ -1,5 +1,9 @@
 package com.perseusoft.homefi.ui.eq
 
+import androidx.compose.runtime.setValue
+import com.perseusoft.homefi.ui.DialogAction
+import com.perseusoft.homefi.ui.HomefiDialog
+import androidx.compose.material.icons.rounded.Tune
 import com.perseusoft.homefi.ui.AiIcon
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -40,7 +44,6 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -60,7 +63,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -520,20 +522,21 @@ private fun PresetChip(name: String, selected: Boolean, onClick: () -> Unit, onL
 @Composable
 private fun PresetNameDialog(initial: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
     var name by rememberSaveable { mutableStateOf(initial) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.eq_save_preset)) },
-        text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it.take(40) },
-                label = { Text(stringResource(R.string.eq_preset_name)) },
-                singleLine = true,
-            )
-        },
-        confirmButton = { TextButton(onClick = { onSave(name) }, enabled = name.isNotBlank()) { Text(stringResource(R.string.ai_save)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
-    )
+    HomefiDialog(
+        title = stringResource(R.string.eq_save_preset),
+        icon = Icons.Rounded.Tune,
+        primary = DialogAction(stringResource(R.string.ai_save), enabled = name.isNotBlank()) { onSave(name) },
+        dismiss = stringResource(R.string.cancel),
+        onDismiss = onDismiss,
+    ) {
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it.take(40) },
+            label = { Text(stringResource(R.string.eq_preset_name)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }
 
 @Composable

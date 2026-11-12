@@ -1,7 +1,8 @@
 //! Every user-facing word of Exercise mode, once, in English and Spanish. The text is returned already
 //! translated, so the apps only show it.
 
-use super::model::{Position, PresetId, SegmentKind};
+use super::bike::{BikeProfile, ShownTarget, TargetUnit};
+use super::model::{Position, PresetId, RpmRange, SegmentKind};
 use crate::concert::words::say;
 use crate::error::Error;
 use crate::humane::Lang;
@@ -31,8 +32,9 @@ pub(crate) fn position_word(lang: Lang, position: Position) -> &'static str {
     }
 }
 
-/// "Comfortable 4", "Hard 7": a resistance cue, not a measurement.
-pub(crate) fn effort_label(lang: Lang, effort: u8) -> String {
+/// "Comfortable 4", "Hard 7", with the bike's knob position when known: "Hard 7 · level 6/8". A resistance cue,
+/// not a measurement. `level` is (position, positions).
+pub(crate) fn effort_label(lang: Lang, effort: u8, level: Option<(u8, u8)>) -> String {
     let (en, es) = match effort {
         0..=2 => ("Very easy", "Muy suave"),
         3..=4 => ("Comfortable", "Cómodo"),
@@ -40,7 +42,30 @@ pub(crate) fn effort_label(lang: Lang, effort: u8) -> String {
         7..=8 => ("Hard", "Duro"),
         _ => ("All out", "A fondo"),
     };
-    format!("{} {effort}", pick(lang, en, es))
+    let label = format!("{} {effort}", pick(lang, en, es));
+    match level {
+        Some((at, of)) => format!("{label} · {} {at}/{of}", pick(lang, "level", "nivel")),
+        None => label,
+    }
+}
+
+/// "Resistance +1 · 2 of 3": shown a few seconds after a resistance step (`index` is 1-based and counts the
+/// climb's first level).
+pub(crate) fn step_chip(lang: Lang, index: u8, count: u8) -> String {
+    say(lang, format!("Resistance +1 · {index} of {count}"), format!("Resistencia +1 · {index} de {count}"))
+}
+
+/// A shown target's number: whole RPM, a speed with one decimal.
+pub(crate) fn shown_value(unit: TargetUnit, value: f32) -> String {
+    match unit {
+        TargetUnit::Rpm => format!("{value:.0}"),
+        TargetUnit::Kph | TargetUnit::Mph => format!("{value:.1}"),
+    }
+}
+
+/// "Standing climb · 14.3 km/h" without the segment: the number and its unit.
+pub(crate) fn shown_text(shown: &ShownTarget) -> String {
+    format!("{} {}", shown_value(shown.unit, shown.value), shown.unit.label())
 }
 
 pub(crate) fn style_name(lang: Lang, style: PresetId) -> &'static str {
@@ -100,9 +125,20 @@ pub(crate) fn ride_description(lang: Lang, genres: &[String]) -> String {
     say(lang, format!("A HomeFi ride · {list}"), format!("Un paseo de HomeFi · {list}"))
 }
 
-/// "Warm-up · 80-95 RPM · 90 BPM", the note of a playlist entry.
-pub(crate) fn song_note(lang: Lang, kind: SegmentKind, min_rpm: u16, max_rpm: u16, bpm: Option<u16>) -> String {
-    let mut note = format!("{} · {min_rpm}-{max_rpm} RPM", segment_name(lang, kind));
+/// "Warm-up · 80-95 RPM · 90 BPM", the note of a playlist entry; with a calibrated bike the speed follows the
+/// RPM: "Warm-up · 80-95 RPM (17-19 km/h) · 90 BPM".
+pub(crate) fn song_note(
+    lang: Lang,
+    kind: SegmentKind,
+    range: RpmRange,
+    bpm: Option<u16>,
+    bike: &BikeProfile,
+) -> String {
+    let mut note = format!("{} · {}-{} RPM", segment_name(lang, kind), range.min_rpm, range.max_rpm);
+    let shown = bike.target(range);
+    if shown.unit != TargetUnit::Rpm {
+        note.push_str(&format!(" ({:.0}-{:.0} {})", shown.min, shown.max, shown.unit.label()));
+    }
     if let Some(bpm) = bpm {
         note.push_str(&format!(" · {bpm} BPM"));
     }
@@ -167,6 +203,10 @@ pub(crate) enum Problem {
     NoSongs,
     TooSlow,
     NoRide,
+    /// The swap found no other song that fits the part.
+    NoReplacement,
+    /// The rider turned the swap off in the settings.
+    SwapOff,
     TvBusy(u16),
 }
 
@@ -188,6 +228,16 @@ pub(crate) fn problem(lang: Lang, p: Problem) -> Error {
             "Armar el paseo tardó demasiado. Vuelve a intentarlo.".into(),
         ),
         Problem::NoRide => say(lang, "This ride has no segments.".into(), "Este paseo no tiene segmentos.".into()),
+        Problem::NoReplacement => say(
+            lang,
+            "HomeFi found no other song that fits this part. Try again in a moment.".into(),
+            "HomeFi no encontró otra canción que encaje en esta parte. Vuelve a intentarlo en un momento.".into(),
+        ),
+        Problem::SwapOff => say(
+            lang,
+            "Changing songs is turned off in the Exercise settings.".into(),
+            "Cambiar canciones está apagado en los ajustes de Ejercicio.".into(),
+        ),
         Problem::TvBusy(port) => say(
             lang,
             format!("Port {port} is in use. Pick another one in the Exercise settings."),
@@ -322,10 +372,20 @@ mod tests {
     #[test]
     fn words_in_both_languages() {
         assert_eq!(segment_name(Lang::Es, SegmentKind::StandingClimb), "Subida de pie");
-        assert_eq!(effort_label(Lang::En, 7), "Hard 7");
-        assert_eq!(effort_label(Lang::Es, 4), "Cómodo 4");
-        assert_eq!(song_note(Lang::En, SegmentKind::WarmUp, 80, 95, Some(90)), "Warm-up · 80-95 RPM · 90 BPM");
-        assert_eq!(song_note(Lang::En, SegmentKind::WarmUp, 80, 95, None), "Warm-up · 80-95 RPM");
+        assert_eq!(effort_label(Lang::En, 7, None), "Hard 7");
+        assert_eq!(effort_label(Lang::Es, 4, None), "Cómodo 4");
+        assert_eq!(effort_label(Lang::En, 7, Some((6, 8))), "Hard 7 · level 6/8");
+        assert_eq!(effort_label(Lang::Es, 7, Some((6, 8))), "Duro 7 · nivel 6/8");
+        assert_eq!(step_chip(Lang::En, 2, 3), "Resistance +1 · 2 of 3");
+        assert_eq!(step_chip(Lang::Es, 3, 3), "Resistencia +1 · 3 de 3");
+        let (rpm, none) = (RpmRange::new(80, 95), BikeProfile::default());
+        assert_eq!(song_note(Lang::En, SegmentKind::WarmUp, rpm, Some(90), &none), "Warm-up · 80-95 RPM · 90 BPM");
+        assert_eq!(song_note(Lang::En, SegmentKind::WarmUp, rpm, None, &none), "Warm-up · 80-95 RPM");
+        let kph = BikeProfile { console: crate::exercise::bike::ConsoleUnit::Kph, kph_per_rpm: 0.22, ..none };
+        assert_eq!(
+            song_note(Lang::En, SegmentKind::WarmUp, rpm, Some(90), &kph),
+            "Warm-up · 80-95 RPM (18-21 km/h) · 90 BPM"
+        );
         assert_eq!(ride_name(Lang::En, "", PresetId::Easy, 30), "Easy ride · 30 min");
         assert!(problem(Lang::Es, Problem::TvBusy(47801)).to_string().contains("47801"));
     }

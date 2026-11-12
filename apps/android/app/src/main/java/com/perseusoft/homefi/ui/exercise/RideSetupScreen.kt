@@ -1,5 +1,7 @@
 package com.perseusoft.homefi.ui.exercise
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,8 +19,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import com.perseusoft.homefi.ui.DialogAction
+import com.perseusoft.homefi.ui.HomefiDialog
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -59,11 +62,9 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.ui.draw.shadow
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -294,18 +295,17 @@ fun BuildBar() {
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
     )
     if (notice) {
-        AlertDialog(
-            onDismissRequest = { notice = false },
-            title = { Text(stringResource(R.string.ex_health_title)) },
-            text = { Text(exerciseHealthNotice(language)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    notice = false
-                    app.settings.setExercise(settings.copy(healthNoticeSeen = true))
-                    session.build()
-                }) { Text(stringResource(R.string.ex_health_ok)) }
+        HomefiDialog(
+            title = stringResource(R.string.ex_health_title),
+            text = exerciseHealthNotice(language),
+            icon = Icons.Rounded.FavoriteBorder,
+            primary = DialogAction(stringResource(R.string.ex_health_ok)) {
+                notice = false
+                app.settings.setExercise(settings.copy(healthNoticeSeen = true))
+                session.build()
             },
-            dismissButton = { TextButton(onClick = { notice = false }) { Text(stringResource(R.string.ex_cancel)) } },
+            dismiss = stringResource(R.string.ex_cancel),
+            onDismiss = { notice = false },
         )
     }
 }

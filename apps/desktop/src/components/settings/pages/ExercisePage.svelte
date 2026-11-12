@@ -4,11 +4,14 @@
   import {
     DEFAULT_EXERCISE_SETTINGS,
     EX_ANALYSIS_BUDGET,
+    EX_CLIMB_STEPS,
     EX_COUNTDOWN_S,
+    EX_CROSSFADE_S,
     EX_HISTORY,
     EX_MINUTES,
     EX_NOTICE_S,
     EX_PULSE_OFFSET_MS,
+    EX_RESISTANCE_LEVELS,
     EX_TOLERANCE_RPM,
     EX_TV_DISPLAY_AUTO,
     EX_TV_PORT,
@@ -16,7 +19,9 @@
     STYLE_INFO,
     exerciseApi,
     exerciseSettingsOf,
+    type ConsoleUnit,
     type CourseLook,
+    type CourseRider,
     type ExerciseSettings,
     type MonitorView,
     type PresetId,
@@ -30,6 +35,7 @@
   import FieldRow from "../FieldRow.svelte";
   import SegmentedRow from "../SegmentedRow.svelte";
   import SettingRow from "../SettingRow.svelte";
+  import BikeCalibration from "./BikeCalibration.svelte";
   import SettingsGroup from "../SettingsGroup.svelte";
   import SettingsIntro from "../SettingsIntro.svelte";
   import SliderRow from "../SliderRow.svelte";
@@ -58,6 +64,20 @@
     { id: "alpine", label: "Alpine", hint: "Calm slate ground with snow on the high ground" },
     { id: "stage", label: "Stage", hint: "A dark stage with the zone colour washing down from the ridge" },
   ];
+  const RIDERS: SegmentOption<CourseRider>[] = [
+    { id: "bike", label: "Bike", hint: "A small bike silhouette rides the mountain" },
+    { id: "dot", label: "Dot", hint: "Only the position dot" },
+  ];
+  const CONSOLES: SegmentOption<ConsoleUnit>[] = [
+    { id: "rpm", label: "RPM", hint: "Your console shows the cadence" },
+    { id: "kph", label: "km/h", hint: "Your console shows the speed in kilometres an hour" },
+    { id: "mph", label: "mph", hint: "Your console shows the speed in miles an hour" },
+    { id: "none", label: "Nothing", hint: "Targets show in RPM" },
+  ];
+  const STEPS: SegmentOption<string>[] = [
+    { id: String(EX_CLIMB_STEPS.off), label: "Off", hint: "A climb keeps one resistance" },
+    ...EX_CLIMB_STEPS.options.map((n) => ({ id: String(n), label: String(n), hint: `${n} levels of resistance in each climb` })),
+  ];
   const AUDIO: SegmentOption<TvAudio>[] = [
     { id: "tv", label: "On the TV", hint: "The TV plays the music too (HomeFi for Android TV)" },
     { id: "phone", label: "Here", hint: "Pictures only on the TV; the music stays on this computer" },
@@ -71,6 +91,13 @@
   $effect(() => {
     exerciseApi.monitors().then((list) => (monitors = list)).catch(() => {});
   });
+
+  // the bike: what the console shows, how many positions the knob has, and the speed calibration
+  const bike = $derived(e.bike);
+  const saveBike = (patch: Partial<ExerciseSettings["bike"]>) => save({ bike: { ...bike, ...patch } });
+  const canCalibrate = $derived(bike.console === "kph" || bike.console === "mph");
+  let calibrating = $state(false);
+  const factorText = (f: number) => `1 RPM ≈ ${(bike.console === "mph" ? f / 1.609344 : f).toFixed(2)} ${bike.console === "mph" ? "mph" : "km/h"}`;
 
   const port = (value: string) => {
     const n = Math.round(Number(value));
@@ -87,8 +114,26 @@
   <SliderRow label="Default length" hint="What the setup starts with." min={EX_MINUTES.min} max={EX_MINUTES.max} step={EX_MINUTES.step} value={e.ride_minutes} format={(n) => `${n} min`} onchange={(ride_minutes) => save({ ride_minutes })} />
 </SettingsGroup>
 
+<SettingsGroup title="My bike" description="So targets read the way your console does. Without it, everything is in RPM.">
+  <SegmentedRow label="The console shows" options={CONSOLES} value={bike.console} onchange={(console) => saveBike({ console })} />
+  <SliderRow label="Resistance levels" hint="How many positions your knob has. 0 if you don't know: effort shows as 1 to 10 only." min={EX_RESISTANCE_LEVELS.min} max={EX_RESISTANCE_LEVELS.max} step={1} value={bike.resistance_levels} format={(n) => (n === 0 ? "Don't know" : `${n} levels`)} onchange={(resistance_levels) => saveBike({ resistance_levels })} />
+  <ActionRow label="Calibrate speed" hint={!canCalibrate ? "Choose km/h or mph above first." : bike.kph_per_rpm > 0 ? `Calibrated: ${factorText(bike.kph_per_rpm)}.` : "Not calibrated: targets show in RPM."} disabled={!canCalibrate}>
+    <button class="btn tonal" type="button" disabled={!canCalibrate || calibrating} onclick={() => (calibrating = true)}>Calibrate…</button>
+    <button class="btn tonal" type="button" disabled={bike.kph_per_rpm <= 0} onclick={() => saveBike({ kph_per_rpm: 0 })}>Clear</button>
+  </ActionRow>
+  {#if calibrating && canCalibrate}
+    <BikeCalibration console={bike.console} volume={e.cue_volume} onsave={(kph_per_rpm) => ((calibrating = false), saveBike({ kph_per_rpm }))} onclose={() => (calibrating = false)} />
+  {/if}
+</SettingsGroup>
+
 <SettingsGroup title="Saved rides" description="Every ride HomeFi builds is saved by itself, so you can ride it again without the AI. They are in Exercise → My rides.">
   <SliderRow label="Automatic rides to keep" hint="When there are more, the oldest automatic ones go. Rides you keep, star or import are never removed." min={EX_HISTORY.min} max={EX_HISTORY.max} step={EX_HISTORY.step} value={e.ride_history_max} format={(n) => `${n} rides`} onchange={(ride_history_max) => save({ ride_history_max })} />
+</SettingsGroup>
+
+<SettingsGroup title="Climbs and songs">
+  <SegmentedRow label="Resistance steps on climbs" hint="Each climb asks for one more turn of resistance two or three times, like a class: the map marks the spots and a sound says when." options={STEPS} value={String(e.climb_steps)} onchange={(n) => save({ climb_steps: Number(n) })} />
+  <SwitchRow label="Change a song during the ride" hint="A tap on the song puts another that fits the part's pace." checked={e.ride_swap} onchange={(ride_swap) => save({ ride_swap })} />
+  <SwitchRow label="Ask the AI for the replacement" hint="When nothing already found fits, the AI proposes one (uses your key); off, only TIDAL and the library are searched." checked={e.swap_uses_ai} disabled={!e.ride_swap} onchange={(swap_uses_ai) => save({ swap_uses_ai })} />
 </SettingsGroup>
 
 <SettingsGroup title="Music" description="How songs are matched to the beat of each part.">
@@ -103,6 +148,7 @@
 <SettingsGroup title="Cues and beat">
   <SwitchRow label="Sounds for changes" hint="A short sound when the part changes, you stand up or sit down, a sprint starts or ends." checked={e.audible_cues} onchange={(audible_cues) => save({ audible_cues })} />
   <SliderRow label="Cue volume" min={0} max={100} step={5} value={Math.round(e.cue_volume * 100)} format={(n) => `${n} %`} disabled={!e.audible_cues} onchange={(n) => save({ cue_volume: n / 100 })} />
+  <SliderRow label="Crossfade between the ride's songs" hint="How long the next song fades in when a part ends. 0 keeps the cut." min={EX_CROSSFADE_S.min} max={EX_CROSSFADE_S.max} step={EX_CROSSFADE_S.step} value={e.crossfade_seconds} format={(n) => (n === 0 ? "Off" : `${n} s`)} onchange={(crossfade_seconds) => save({ crossfade_seconds })} />
   <SliderRow label="Countdown before a change" hint="3-2-1 over the ring. 0 turns it off." min={EX_COUNTDOWN_S.min} max={EX_COUNTDOWN_S.max} step={1} value={e.countdown_seconds} format={seconds} onchange={(countdown_seconds) => save({ countdown_seconds })} />
   <SliderRow label="Next-part notice" hint="How long before a change the Next card fills in." min={EX_NOTICE_S.min} max={EX_NOTICE_S.max} step={1} value={e.segment_notice_seconds} format={seconds} onchange={(segment_notice_seconds) => save({ segment_notice_seconds })} />
   <SwitchRow label="Click on the beat" hint="A soft click on every pedal stroke, for when you can't look at the screen." checked={e.metronome_click} onchange={(metronome_click) => save({ metronome_click })} />
@@ -115,6 +161,7 @@
 
 <SettingsGroup title="Course" description="The mountain that shows the ride: setup, preview, the ride itself, the summary and the TV.">
   <SegmentedRow label="Course look" options={LOOKS} value={e.course_look} onchange={(course_look) => save({ course_look })} />
+  <SegmentedRow label="Rider on the map" options={RIDERS} value={e.course_rider} onchange={(course_rider) => save({ course_rider })} />
   <SwitchRow label="Summit times" hint="Marks the tallest summits with the time you reach them." checked={e.course_summits} onchange={(course_summits) => save({ course_summits })} />
 </SettingsGroup>
 

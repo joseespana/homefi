@@ -19,7 +19,7 @@ use super::bpm::{fit, ladder, BpmSource, Fit, Rung, Tolerance};
 use super::model::{
     round_minutes, MusicWish, Popularity, RideRequest, RideTaste, Segment, Workout, MAX_ROUNDS, MAX_SEGMENTS,
 };
-use super::presets::{beginner_caps, preset};
+use super::presets::{apply_climb_steps, beginner_caps, preset};
 use super::profile::{profile, ProfilePoint};
 use super::settings::{ExerciseSettings, SourcesMode};
 use super::words::{self, Problem};
@@ -143,6 +143,9 @@ pub struct PlannedSong {
     /// The song is cut here (ms of the song): the segment ends and the app must go to the next song at this
     /// position. `None` = the song plays to its end (it is not longer than its segment).
     pub play_ms: Option<u64>,
+    /// The song's position 0 is this instant of its segment (ms): a song swapped in mid-segment starts from its
+    /// beginning while the segment's clock goes on. 0 for every song of a plan as built.
+    pub at_segment_ms: u64,
 }
 
 /// The ride: segments snapped to the songs, one song per segment, in play order.
@@ -179,7 +182,7 @@ pub enum RideProgress {
     Matching,
 }
 
-type Progress<'a> = &'a (dyn Fn(RideProgress) + Send + Sync);
+pub(super) type Progress<'a> = &'a (dyn Fn(RideProgress) + Send + Sync);
 
 /// Builds the ride for `request`. Dropping the future cancels it between songs.
 pub async fn build(request: &RideRequest, ctx: &BuildContext<'_>, progress: Progress<'_>) -> Result<RideBuilt> {
@@ -213,8 +216,8 @@ pub(crate) async fn build_within(
 
 /// A song that could be in the ride.
 #[derive(Debug, Clone)]
-struct Candidate {
-    entry: PlaylistEntry,
+pub(super) struct Candidate {
+    pub(super) entry: PlaylistEntry,
     /// [`artist_key`] of the entry's artist, worked out once.
     artist: String,
     bpm: Option<(f32, BpmSource)>,
@@ -237,7 +240,7 @@ impl Candidate {
         Self { entry, artist, bpm, grid: None, genre, proposed_for: None, rank: 0, popularity: None, analyzed: false }
     }
 
-    fn duration_fits(&self, seg: &Segment) -> bool {
+    pub(super) fn duration_fits(&self, seg: &Segment) -> bool {
         let wanted = seg.seconds as f32 * MS_PER_S as f32;
         // a longer song is cut to the segment; a shorter one must nearly cover it
         self.entry.duration_ms == 0 || self.entry.duration_ms as f32 >= wanted * (1.0 - DURATION_SLACK)
@@ -245,25 +248,30 @@ impl Candidate {
 
     /// Its Tidal id and library path: how an earlier build's song is recognized.
     fn keys(&self) -> impl Iterator<Item = &str> {
-        [self.entry.tidal_id.as_deref(), self.entry.local_path.as_deref()].into_iter().flatten()
+        entry_keys(&self.entry)
     }
+}
+
+/// An entry's Tidal id and library path: how a song is recognized across builds and swaps.
+pub(super) fn entry_keys(entry: &PlaylistEntry) -> impl Iterator<Item = &str> {
+    [entry.tidal_id.as_deref(), entry.local_path.as_deref()].into_iter().flatten()
 }
 
 /// Everything found so far. Songs by an avoided artist never get in.
 #[derive(Debug, Clone)]
-struct Pool {
-    songs: Vec<Candidate>,
+pub(super) struct Pool {
+    pub(super) songs: Vec<Candidate>,
     seen: SeenEntries,
     avoid: HashSet<String>,
 }
 
 impl Pool {
-    fn new(taste: &RideTaste) -> Self {
+    pub(super) fn new(taste: &RideTaste) -> Self {
         let avoid = taste.avoid.iter().map(|a| artist_key(a)).filter(|a| !a.is_empty()).collect();
         Self { songs: Vec::new(), seen: SeenEntries::default(), avoid }
     }
 
-    fn add(&mut self, candidate: Candidate) {
+    pub(super) fn add(&mut self, candidate: Candidate) {
         if !self.avoid.contains(&candidate.artist) && self.seen.first_time(&candidate.entry) {
             self.songs.push(candidate);
         }
@@ -282,12 +290,50 @@ pub struct BuildMemory {
     asked: Vec<SongCandidate>,
     /// Tidal ids and library paths of the songs earlier builds of this ride played.
     played: HashSet<String>,
+    /// Songs the rider sent away (a swap): they never come back to this ride, whatever the age of the memory.
+    rejected: HashSet<String>,
+    /// What the last build found, with the tempos read, so a swap needs no search (see [`kept_pool`]).
+    pool: Vec<Candidate>,
 }
 
 impl BuildMemory {
     fn usable_for(&self, key: &str) -> bool {
         self.key == key && self.made.elapsed() < MEMORY_TTL
     }
+
+    /// A swap happens in the middle of a ride, long after the build: the age does not count.
+    pub(super) fn usable_for_swap(&self, key: &str) -> bool {
+        self.key == key
+    }
+
+    /// The memory of a swap: the same ride (and the same age: the next build's TTL does not restart), with the
+    /// songs it asked for, played and sent away.
+    pub(super) fn after_swap(
+        key: String,
+        made: Instant,
+        asked: Vec<SongCandidate>,
+        played: HashSet<String>,
+        rejected: HashSet<String>,
+        songs: Vec<Candidate>,
+    ) -> Self {
+        Self { key, made, asked, played, rejected, pool: kept_pool(songs) }
+    }
+
+    /// The parts of the memory a swap works with: (made, asked, played, rejected, pool).
+    #[allow(clippy::type_complexity)]
+    pub(super) fn into_parts(self) -> (Instant, Vec<SongCandidate>, HashSet<String>, HashSet<String>, Vec<Candidate>) {
+        (self.made, self.asked, self.played, self.rejected, self.pool)
+    }
+}
+
+/// Candidates a memory keeps, the ones with a tempo first: a big library must not weigh on every ride.
+const MEMORY_POOL_MAX: usize = 600;
+
+fn kept_pool(mut songs: Vec<Candidate>) -> Vec<Candidate> {
+    // stable: the order the search found them in stays within each group
+    songs.sort_by_key(|c| c.bpm.is_none());
+    songs.truncate(MEMORY_POOL_MAX);
+    songs
 }
 
 fn positive_bpm(b: i64) -> Option<f32> {
@@ -296,7 +342,12 @@ fn positive_bpm(b: i64) -> Option<f32> {
 
 /// The inputs that decide which songs are found: the request (taste included), the settings the search
 /// reads, the AI, whether Tidal and the library are there, and the language of the notes.
-fn memory_key(request: &RideRequest, wish: &MusicWish, settings: &ExerciseSettings, ctx: &BuildContext<'_>) -> String {
+pub(super) fn memory_key(
+    request: &RideRequest,
+    wish: &MusicWish,
+    settings: &ExerciseSettings,
+    ctx: &BuildContext<'_>,
+) -> String {
     serde_json::json!({
         "minutes": request.minutes,
         "style": request.style,
@@ -344,9 +395,9 @@ async fn build_inner(
 
     // every build searches everything again; what earlier builds of this ride proposed and played only
     // tells the AI what not to repeat and puts the songs already heard last
-    let (earlier_asked, played) = match memory.filter(|m| m.usable_for(&key)) {
-        Some(m) => (m.asked, m.played),
-        None => (Vec::new(), HashSet::new()),
+    let (earlier_asked, played, rejected) = match memory.filter(|m| m.usable_for(&key)) {
+        Some(m) => (m.asked, m.played, m.rejected),
+        None => (Vec::new(), HashSet::new(), HashSet::new()),
     };
     let Gathered { mut pool, mut notes, ai_problem, asked: fresh_asked } =
         gatherer.gather(&asked_workout, &earlier_asked, progress).await;
@@ -370,9 +421,11 @@ async fn build_inner(
         known: &known,
         liked: &liked,
         played: &played,
+        rejected: &rejected,
         origin: &origin,
         // with the AI's picks for big hits, songs of artists nobody named are not worth decoding
         analyze_strangers: taste.popularity != Popularity::Hits || asked.is_empty(),
+        strict_length: false,
     };
     analyze_unknowns(&mut pool, &workout, ctx.analyzer, &mut budget, &judge, progress).await;
 
@@ -399,12 +452,12 @@ async fn build_inner(
     for pick in picks.iter().flatten() {
         played.extend(pool.songs[pick.candidate].keys().map(str::to_owned));
     }
-    let memory = BuildMemory { key, made: Instant::now(), asked, played };
+    let memory = BuildMemory { key, made: Instant::now(), asked, played, rejected, pool: kept_pool(pool.songs) };
     Ok((built, memory))
 }
 
 /// Artist keys the AI proposed or the rider likes: songs of theirs are "known" ones.
-fn known_artists(asked: &[SongCandidate], liked: &HashSet<String>) -> HashSet<String> {
+pub(super) fn known_artists(asked: &[SongCandidate], liked: &HashSet<String>) -> HashSet<String> {
     asked.iter().map(|c| artist_key(&c.artist)).filter(|a| !a.is_empty()).chain(liked.iter().cloned()).collect()
 }
 
@@ -483,7 +536,7 @@ struct Gathered {
 }
 
 /// Library songs whose genre tag names a wish genre (every song when the wish has no genre).
-fn add_library(pool: &mut Pool, library: &LibraryIndex, wish: &MusicWish) {
+pub(super) fn add_library(pool: &mut Pool, library: &LibraryIndex, wish: &MusicWish) {
     let wanted: Vec<(String, &String)> =
         wish.genres.iter().map(|g| (fold(g), g)).filter(|(f, _)| !f.is_empty()).collect();
     let mut unknown = 0usize;
@@ -516,7 +569,12 @@ fn same_artist(found: &str, asked: &str) -> bool {
     found == asked || contains(&found, &asked) || contains(&asked, &found)
 }
 
-async fn add_proposals(pool: &mut Pool, resolver: &Resolver<'_>, proposals: Vec<Proposal>, progress: Progress<'_>) {
+pub(super) async fn add_proposals(
+    pool: &mut Pool,
+    resolver: &Resolver<'_>,
+    proposals: Vec<Proposal>,
+    progress: Progress<'_>,
+) {
     let (places, candidates): (Vec<(usize, usize)>, Vec<SongCandidate>) =
         proposals.into_iter().map(|p| ((p.segment, p.rank), p.candidate)).unzip();
     let resolved =
@@ -547,7 +605,7 @@ async fn add_proposals(pool: &mut Pool, resolver: &Resolver<'_>, proposals: Vec<
 }
 
 /// What the widening search adds to each genre: hits for big hits, workout music otherwise.
-fn widen_words(popularity: Popularity) -> &'static str {
+pub(super) fn widen_words(popularity: Popularity) -> &'static str {
     match popularity {
         Popularity::Hits => "hits",
         Popularity::Mix | Popularity::Discover => "workout",
@@ -556,7 +614,7 @@ fn widen_words(popularity: Popularity) -> &'static str {
 
 /// `(genre, query)` pairs: the genre alone and with the rider's sentence (`extra` appended to each), then
 /// each artist the rider likes.
-fn search_queries(wish: &MusicWish, extra: &str) -> Vec<(String, String)> {
+pub(super) fn search_queries(wish: &MusicWish, extra: &str) -> Vec<(String, String)> {
     let join = |parts: &[&str]| parts.iter().filter(|p| !p.is_empty()).copied().collect::<Vec<_>>().join(" ");
     let mut queries = Vec::new();
     if wish.genres.is_empty() {
@@ -590,7 +648,7 @@ async fn search_tracks(api: &TidalApi, query: &str) -> Vec<Track> {
     }
 }
 
-async fn add_searches(
+pub(super) async fn add_searches(
     pool: &mut Pool,
     api: &TidalApi,
     library: &LibraryIndex,
@@ -707,7 +765,7 @@ fn genre_playlists(playlists: Vec<Playlist>, genre: &str, hits: bool) -> Vec<Pla
 
 /// Reads the tempo of candidates that have none, within `budget` songs: the AI's own picks first, then
 /// songs of known artists, then the rest (unless the judge says strangers are not worth it).
-async fn analyze_unknowns(
+pub(super) async fn analyze_unknowns(
     pool: &mut Pool,
     workout: &Workout,
     analyzer: Option<&dyn Analyzer>,
@@ -747,16 +805,16 @@ async fn analyze_unknowns(
 // ------------------------------------------------------------------ choosing
 
 #[derive(Debug, Clone, Copy)]
-struct Pick {
-    candidate: usize,
-    fit: Option<Fit>,
-    rung: usize,
-    metronome: bool,
+pub(super) struct Pick {
+    pub(super) candidate: usize,
+    pub(super) fit: Option<Fit>,
+    pub(super) rung: usize,
+    pub(super) metronome: bool,
 }
 
 /// How much fame counts against the tempo fit, for one [`Popularity`] (RPM-equivalents; lower wins).
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct FameWeights {
+pub(super) struct FameWeights {
     /// Bonus of a song the AI proposed for this very segment.
     proposed_here: f32,
     /// Bonus of a song the AI proposed for another segment: still the kind of song asked for.
@@ -771,7 +829,7 @@ struct FameWeights {
 
 /// Big hits outweigh any fit inside the tolerance ([`super::settings::MAX_TOLERANCE_RPM`] at most): a famous
 /// song that fits always beats an unknown one; discovering lets the tempo decide.
-fn fame_weights(popularity: Popularity) -> FameWeights {
+pub(super) fn fame_weights(popularity: Popularity) -> FameWeights {
     match popularity {
         Popularity::Hits => FameWeights {
             proposed_here: 3.0,
@@ -798,24 +856,33 @@ fn fame_weights(popularity: Popularity) -> FameWeights {
 }
 
 /// Everything the scoring reads besides the candidate.
-struct Judge<'a> {
-    weights: FameWeights,
-    mix: bool,
-    allow_explicit: bool,
+pub(super) struct Judge<'a> {
+    pub(super) weights: FameWeights,
+    pub(super) mix: bool,
+    pub(super) allow_explicit: bool,
     /// Artist keys the AI proposed or the rider likes.
-    known: &'a HashSet<String>,
-    liked: &'a HashSet<String>,
+    pub(super) known: &'a HashSet<String>,
+    pub(super) liked: &'a HashSet<String>,
     /// Songs earlier builds of this ride played (Tidal ids, library paths).
-    played: &'a HashSet<String>,
+    pub(super) played: &'a HashSet<String>,
+    /// Songs that must not be in the ride at all (sent away by a swap, or already in it).
+    pub(super) rejected: &'a HashSet<String>,
     /// For each segment of the (split) workout, the segment of the asked workout it came from.
-    origin: &'a [usize],
+    pub(super) origin: &'a [usize],
     /// Decode songs of artists nobody named.
-    analyze_strangers: bool,
+    pub(super) analyze_strangers: bool,
+    /// Even the last rung (any song, a metronome) takes only songs that cover the segment: a swap never shrinks a
+    /// part by more than the slack.
+    pub(super) strict_length: bool,
 }
 
 impl Judge<'_> {
     fn is_known(&self, c: &Candidate) -> bool {
         c.proposed_for.is_some() || self.known.contains(&c.artist)
+    }
+
+    fn is_rejected(&self, c: &Candidate) -> bool {
+        c.keys().any(|k| self.rejected.contains(k))
     }
 
     fn was_played(&self, c: &Candidate) -> bool {
@@ -873,7 +940,7 @@ impl Judge<'_> {
 }
 
 /// One pass of the ladder: every segment still without a song takes the best candidate that fits `rung`.
-fn select_rung(
+pub(super) fn select_rung(
     pool: &[Candidate],
     workout: &Workout,
     picks: &mut [Option<Pick>],
@@ -891,8 +958,8 @@ fn select_rung(
         let best = pool
             .iter()
             .enumerate()
-            .filter(|(i, c)| !used.contains(i) && (judge.allow_explicit || !c.entry.explicit))
-            .filter(|(_, c)| rung.metronome || c.duration_fits(seg))
+            .filter(|(i, c)| !used.contains(i) && (judge.allow_explicit || !c.entry.explicit) && !judge.is_rejected(c))
+            .filter(|(_, c)| (rung.metronome && !judge.strict_length) || c.duration_fits(seg))
             .filter_map(|(i, c)| {
                 let fit = match c.bpm {
                     Some((bpm, _)) => fit(bpm, &seg.target, &rung.tolerance),
@@ -926,7 +993,9 @@ pub(crate) fn snap_to_bars(seconds: u32, beat_ms: f64) -> u32 {
 /// work and rest are whole bars and its rounds fill the segment.
 fn snap_segment(seg: &mut Segment, song: &PlannedSong) {
     if song.entry.duration_ms > 0 {
-        seg.seconds = seg.seconds.min((song.entry.duration_ms as f64 / MS_PER_S as f64).round() as u32);
+        // a song swapped in mid-segment covers the segment from where it came in
+        let covered_ms = song.at_segment_ms + song.entry.duration_ms;
+        seg.seconds = seg.seconds.min((covered_ms as f64 / MS_PER_S as f64).round() as u32);
     }
     if let Some(iv) = &mut seg.interval {
         if let Some(grid) = song.grid {
@@ -991,6 +1060,59 @@ fn agrees(measured: f32, known: f32) -> bool {
     [1.0, 0.5, 2.0].iter().any(|k| ((measured * k) / known - 1.0).abs() <= GRID_AGREE)
 }
 
+/// Where a song is cut (ms of the song) so it ends with its segment: `None` when it is no longer than what is
+/// left of the segment from `at_segment_ms`, where its position 0 falls. A song of unknown length is always cut.
+pub(super) fn cut_ms(duration_ms: u64, segment_ms: u64, at_segment_ms: u64) -> Option<u64> {
+    let room_ms = segment_ms.saturating_sub(at_segment_ms);
+    (duration_ms == 0 || duration_ms > room_ms).then_some(room_ms)
+}
+
+/// One candidate as the song of `seg` (the segment at `segment_index`) and the segment as that song leaves it:
+/// the grid read when there is budget (trusted only if it agrees with the known tempo), the pulse, the
+/// segment shortened to a shorter song and its note. `at_segment_ms` is where the song's position 0 falls in
+/// the segment (0 for a song of a built plan). `play_ms` is left to the caller: it needs the final segment.
+pub(super) async fn plan_song(
+    c: &mut Candidate,
+    pick: &Pick,
+    seg: &Segment,
+    segment_index: usize,
+    at_segment_ms: u64,
+    ctx: &BuildContext<'_>,
+    budget: &mut usize,
+) -> (PlannedSong, Segment) {
+    // a song with a tempo but no grid: read the grid when there is budget, trust it only if it agrees; what
+    // is read stays in the pool, so a rebuild that plays the song again reads nothing
+    if c.grid.is_none() && !c.analyzed && *budget > 0 && !pick.metronome {
+        if let Some(analyzer) = ctx.analyzer.filter(|a| a.can_read(&c.entry)) {
+            *budget -= 1;
+            c.analyzed = true;
+            if let Some(a) = analyzer.analyze(&c.entry).await.filter(|a| a.bpm > 0.0) {
+                if c.bpm.is_none_or(|(known, _)| agrees(a.bpm as f32, known)) {
+                    c.grid = a.grid();
+                    c.bpm = c.bpm.or(Some((a.bpm as f32, BpmSource::Analysis)));
+                }
+            }
+        }
+    }
+    let (grid, bpm) = (c.grid, c.bpm);
+    let mut song = PlannedSong {
+        segment_index,
+        entry: c.entry.clone(),
+        bpm: bpm.map(|(b, _)| b.round() as u16),
+        source: bpm.map(|(_, s)| s),
+        fit: pick.fit,
+        grid,
+        pulse: if grid.is_some() { PulseSource::SongBeat } else { PulseSource::Metronome },
+        play_ms: None,
+        at_segment_ms,
+    };
+    let mut seg = seg.clone();
+    snap_segment(&mut seg, &song);
+    song.entry.note = words::song_note(ctx.lang, seg.kind, seg.cadence(), song.bpm, &ctx.settings.bike.clamped());
+    seg.note.clone_from(&song.entry.note);
+    (song, seg)
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn assemble(
     request: &RideRequest,
@@ -1011,49 +1133,21 @@ async fn assemble(
             notes.push(words::no_song_note(lang, seg.kind));
             continue;
         };
-        let c = &mut pool.songs[pick.candidate];
-        // a song with a tempo but no grid: read the grid when there is budget, trust it only if it agrees; what
-        // is read stays in the pool, so a rebuild that plays the song again reads nothing
-        if c.grid.is_none() && !c.analyzed && *budget > 0 && !pick.metronome {
-            if let Some(analyzer) = ctx.analyzer.filter(|a| a.can_read(&c.entry)) {
-                *budget -= 1;
-                c.analyzed = true;
-                if let Some(a) = analyzer.analyze(&c.entry).await.filter(|a| a.bpm > 0.0) {
-                    if c.bpm.is_none_or(|(known, _)| agrees(a.bpm as f32, known)) {
-                        c.grid = a.grid();
-                        c.bpm = c.bpm.or(Some((a.bpm as f32, BpmSource::Analysis)));
-                    }
-                }
-            }
-        }
-        let (grid, bpm) = (c.grid, c.bpm);
         if pick.rung > 0 && !pick.metronome {
             notes.push(words::no_fit_note(lang, seg.kind));
         }
         if pick.metronome {
             notes.push(words::metronome_note(lang, seg.kind));
         }
-        let mut song = PlannedSong {
-            segment_index: segments.len(),
-            entry: c.entry.clone(),
-            bpm: bpm.map(|(b, _)| b.round() as u16),
-            source: bpm.map(|(_, s)| s),
-            fit: pick.fit,
-            grid,
-            pulse: if grid.is_some() { PulseSource::SongBeat } else { PulseSource::Metronome },
-            play_ms: None,
-        };
-        let mut seg = seg.clone();
-        snap_segment(&mut seg, &song);
-        let range = seg.cadence();
-        song.entry.note = words::song_note(lang, seg.kind, range.min_rpm, range.max_rpm, song.bpm);
-        seg.note.clone_from(&song.entry.note);
+        let (song, seg) = plan_song(&mut pool.songs[pick.candidate], pick, seg, segments.len(), 0, ctx, budget).await;
         segments.push(seg);
         songs.push(song);
     }
     if songs.is_empty() {
         return Err(words::problem(lang, Problem::NoSongs));
     }
+    // the climbs ask for resistance steps once their final length is known; the caps then cap the steps too
+    apply_climb_steps(&mut segments, settings.climb_steps);
     // bar snapping may have stretched a rest: the caps and the interval's fit hold again
     let mut final_workout = beginner_caps(&Workout { segments, ..workout }.sanitized(), settings);
     if final_workout.id.trim().is_empty() {
@@ -1061,8 +1155,7 @@ async fn assemble(
     }
     // a song longer than its (final) segment is cut where the segment ends
     for (song, seg) in songs.iter_mut().zip(&final_workout.segments) {
-        let segment_ms = u64::from(seg.seconds) * MS_PER_S;
-        song.play_ms = (song.entry.duration_ms == 0 || song.entry.duration_ms > segment_ms).then_some(segment_ms);
+        song.play_ms = cut_ms(song.entry.duration_ms, u64::from(seg.seconds) * MS_PER_S, song.at_segment_ms);
     }
     // the caps can change a segment's length (a sprint that needs a longer rest): the songs are untouched
     let total_minutes = (final_workout.total_seconds() as f32 / 60.0).round() as u32;
@@ -1164,6 +1257,15 @@ mod tests {
     }
 
     #[test]
+    fn a_song_is_cut_where_its_segment_ends_counting_from_where_it_came_in() {
+        assert_eq!(cut_ms(240_000, 200_000, 0), Some(200_000));
+        assert_eq!(cut_ms(200_000, 200_000, 0), None, "a song as long as its part plays to its end");
+        assert_eq!(cut_ms(150_000, 200_000, 60_000), Some(140_000), "swapped in 60 s into the part");
+        assert_eq!(cut_ms(0, 200_000, 0), Some(200_000), "unknown length: always cut");
+        assert_eq!(cut_ms(100_000, 200_000, 300_000), Some(0), "never underflows");
+    }
+
+    #[test]
     fn tempos_agree_in_any_octave() {
         assert!(agrees(170.0, 85.0) && agrees(85.0, 170.0) && agrees(128.0, 127.0));
         assert!(!agrees(100.0, 128.0));
@@ -1188,6 +1290,7 @@ mod tests {
         known: HashSet<String>,
         liked: HashSet<String>,
         played: HashSet<String>,
+        rejected: HashSet<String>,
         origin: Vec<usize>,
     }
 
@@ -1197,6 +1300,7 @@ mod tests {
                 known: known.iter().map(|a| artist_key(a)).collect(),
                 liked: HashSet::new(),
                 played: HashSet::new(),
+                rejected: HashSet::new(),
                 origin: vec![0, 1],
             }
         }
@@ -1209,8 +1313,10 @@ mod tests {
                 known: &self.known,
                 liked: &self.liked,
                 played: &self.played,
+                rejected: &self.rejected,
                 origin: &self.origin,
                 analyze_strangers: true,
+                strict_length: false,
             }
         }
     }

@@ -8,6 +8,8 @@ const CUE_RATE_HZ = 44_100;
 /** Clicks are scheduled this far ahead of the newest view. */
 const CLICK_HORIZON_S = 0.6;
 const MS_PER_S = 1000;
+/** The first click of a train waits this long, so it never starts late. */
+const CLICK_TRAIN_LEAD_S = 0.2;
 
 export interface CueOptions {
   /** The 3-2-1 and change sounds. */
@@ -128,6 +130,32 @@ export class CuePlayer {
       if (pending) pending.source = source;
       else if (id === null) this.#clickSources.add(source);
     });
+  }
+
+  /**
+   * `count` clicks, one every `everyMs`, scheduled on the audio clock from now (the bike calibration's pace). Answers false when
+   * the sound can't play. `stop()` cancels what has not sounded.
+   */
+  async clickTrain(count: number, everyMs: number, volume: number): Promise<boolean> {
+    const ctx = this.#context();
+    if (!ctx || !this.#gain) return false;
+    await ctx.resume().catch(() => {});
+    const buffer = await this.#buffer("click");
+    if (!buffer) return false;
+    this.#gain.gain.value = Math.min(1, Math.max(0, volume));
+    const first = ctx.currentTime + CLICK_TRAIN_LEAD_S;
+    for (let i = 0; i < count; i++) {
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(this.#gain);
+      source.onended = () => {
+        source.disconnect();
+        this.#clickSources.delete(source);
+      };
+      source.start(first + (i * everyMs) / MS_PER_S);
+      this.#clickSources.add(source);
+    }
+    return true;
   }
 
   /** The ride paused: what has not sounded yet is cancelled, and will be listed again on resume. */

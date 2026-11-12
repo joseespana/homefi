@@ -1,5 +1,10 @@
 package com.perseusoft.homefi.ui.playlists
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import com.perseusoft.homefi.ui.DialogAction
+import com.perseusoft.homefi.ui.HomefiDialog
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.annotation.StringRes
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -28,7 +33,6 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -39,11 +43,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -277,15 +279,17 @@ private fun PreviewHeader(playlist: HomePlaylist, fallbackNote: String?, aiName:
     }
     if (sourcesOpen) SourcesSheet(playlist, aiName, settings.showSources) { sourcesOpen = false }
     if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text(stringResource(R.string.pl_delete)) },
-            text = {
-                val words = if (app.playlists.deletesTidalCopy(playlist)) R.string.pl_delete_confirm_tidal else R.string.pl_delete_confirm
-                Text(stringResource(words, playlist.name))
-            },
-            confirmButton = { TextButton(onClick = { confirmDelete = false; actions.onDelete() }) { Text(stringResource(R.string.pl_delete)) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.pl_cancel)) } },
+        HomefiDialog(
+            title = stringResource(R.string.pl_delete),
+            text = stringResource(
+                if (app.playlists.deletesTidalCopy(playlist)) R.string.pl_delete_confirm_tidal else R.string.pl_delete_confirm,
+                playlist.name,
+            ),
+            icon = Icons.Rounded.DeleteOutline,
+            accent = MaterialTheme.colorScheme.error,
+            primary = DialogAction(stringResource(R.string.pl_delete), danger = true) { confirmDelete = false; actions.onDelete() },
+            dismiss = stringResource(R.string.pl_cancel),
+            onDismiss = { confirmDelete = false },
         )
     }
 }

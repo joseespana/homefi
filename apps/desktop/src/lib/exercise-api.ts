@@ -34,6 +34,13 @@ export interface Segment {
   position: Position;
   interval: Interval | null;
   note: string;
+  /** Resistance steps inside a climb: from `at_s` into the part the effort is `effort`. Absent in older plans. */
+  steps?: EffortStep[];
+}
+
+export interface EffortStep {
+  at_s: number;
+  effort: number;
 }
 
 export interface Workout {
@@ -107,6 +114,8 @@ export interface PlannedSong {
   source: BpmSource | null;
   fit: Fit | null;
   pulse: "song_beat" | "metronome";
+  /** Song position 0 is this instant of the part (a live swap keeps the part's clock). Absent in older plans. */
+  at_segment_ms?: number;
 }
 
 export interface RidePlan {
@@ -130,11 +139,43 @@ export interface IntervalView {
   phase_remaining_s: number;
 }
 
+/** What the target is shown in: the console's unit (homefi_core::exercise::bike). */
+export type TargetUnit = "rpm" | "kph" | "mph";
+
+export interface ShownTarget {
+  unit: TargetUnit;
+  /** In `unit` (speeds with one decimal). */
+  value: number;
+  min: number;
+  max: number;
+  /** The centre cadence. */
+  rpm: number;
+}
+
 export interface NextView {
   kind: SegmentKind;
   position: Position;
   target_rpm: number;
   seconds: number;
+  shown?: ShownTarget;
+  /** The knob position of the next part's starting effort (null: the bike's levels are unknown). */
+  level?: number | null;
+}
+
+/** A resistance step of the part now: `index` 1 is the climb's start, 2 and up are "Resistance +1". */
+export interface StepView {
+  index: number;
+  count: number;
+  effort: number;
+  next_in_s: number | null;
+}
+
+/** A resistance step as a spot on the mountain. */
+export interface HotPoint {
+  t_s: number;
+  effort: number;
+  level: number;
+  count: number;
 }
 
 export interface PulseView {
@@ -148,7 +189,7 @@ export interface PulseView {
   song_position_ms: number;
 }
 
-export type CueKind = "countdown3" | "countdown2" | "countdown1" | "change" | "standing" | "seated" | "sprint_go" | "recover" | "finish" | "click";
+export type CueKind = "countdown3" | "countdown2" | "countdown1" | "change" | "standing" | "seated" | "sprint_go" | "recover" | "finish" | "click" | "resistance";
 
 export interface Cue {
   /** Stable across views: a cue seen twice plays once. */
@@ -168,6 +209,12 @@ export interface RideView {
   effort: number;
   target_rpm: number;
   range: RpmRange;
+  /** The target in the console's unit (RPM until the bike is calibrated). */
+  shown?: ShownTarget;
+  /** The knob position of the effort (null: unknown) and how many positions there are. */
+  level?: number | null;
+  level_count?: number;
+  step?: StepView | null;
   segment_seconds: number;
   segment_start_s: number;
   remaining_s: number;
@@ -296,7 +343,20 @@ export interface MonitorView {
 export type PulseStyle = "ring" | "bar" | "flash";
 /** How the course mountain is drawn (docs/MOUNTAIN.md). */
 export type CourseLook = "ribbon" | "alpine" | "stage";
+/** The rider on the mountain: the bike silhouette or just the dot. */
+export type CourseRider = "bike" | "dot";
+/** What the bike's console shows. */
+export type ConsoleUnit = "rpm" | "kph" | "mph" | "none";
 export type SourcesMode = "library_first" | "tidal_first" | "library_only";
+
+/** homefi_core::exercise::BikeProfile */
+export interface BikeProfile {
+  console: ConsoleUnit;
+  /** The knob positions (0 = don't know). */
+  resistance_levels: number;
+  /** km/h per RPM from the calibration (0 = not calibrated). */
+  kph_per_rpm: number;
+}
 
 export interface ExerciseSettings {
   show_entry: boolean;
@@ -330,6 +390,19 @@ export interface ExerciseSettings {
   /** Label the tallest summits with their time. */
   course_summits: boolean;
   ride_always_dark: boolean;
+  /** The bike: console unit, resistance levels, the speed calibration. */
+  bike: BikeProfile;
+  /** How many resistance steps a climb has (0 = off). */
+  climb_steps: number;
+  /** Seconds the next song fades in at a part's change (0 = the cut). */
+  crossfade_seconds: number;
+  course_rider: CourseRider;
+  /** Android only; the big pause button. Kept so the JSON round-trips. */
+  ride_big_controls: boolean;
+  /** Swap a song during the ride. */
+  ride_swap: boolean;
+  /** The swap may ask the AI for the replacement. */
+  swap_uses_ai: boolean;
   /** Android only; kept so the JSON round-trips. */
   haptic_cues: boolean;
   health_notice_seen: boolean;
@@ -347,6 +420,11 @@ export const EX_ANALYSIS_BUDGET = { min: 0, max: 50 } as const;
 export const EX_COUNTDOWN_S = { min: 0, max: 10 } as const;
 export const EX_NOTICE_S = { min: 5, max: 30 } as const;
 export const EX_PULSE_OFFSET_MS = { min: -500, max: 500, step: 10 } as const;
+export const EX_CLIMB_STEPS = { off: 0, options: [2, 3, 4] } as const;
+export const EX_CROSSFADE_S = { min: 0, max: 8, step: 0.5 } as const;
+export const EX_RESISTANCE_LEVELS = { min: 0, max: 32 } as const;
+/** The calibration: pedal to the clicks at this cadence for this long, then type the speed (homefi_core::exercise::bike). */
+export const EX_CALIBRATION = { rpm: 80, seconds: 20, clickMs: 750 } as const;
 export const EX_HISTORY = { min: 5, max: 200, step: 5 } as const;
 export const EX_TV_PORT = { min: 1024, max: 65535 } as const;
 export const EX_TV_DISPLAY_AUTO = "auto";
@@ -382,6 +460,13 @@ export const DEFAULT_EXERCISE_SETTINGS: ExerciseSettings = {
   course_look: "ribbon",
   course_summits: false,
   ride_always_dark: true,
+  bike: { console: "none", resistance_levels: 8, kph_per_rpm: 0 },
+  climb_steps: 3,
+  crossfade_seconds: 3,
+  course_rider: "bike",
+  ride_big_controls: false,
+  ride_swap: true,
+  swap_uses_ai: true,
   haptic_cues: true,
   health_notice_seen: false,
   tempo_nudge_pct: 0,
@@ -391,7 +476,7 @@ export const DEFAULT_EXERCISE_SETTINGS: ExerciseSettings = {
 /** The setting with defaults for whatever an older settings file doesn't have. */
 export const exerciseSettingsOf = (s: { exercise?: Partial<ExerciseSettings> } | null | undefined): ExerciseSettings => {
   const merged = { ...DEFAULT_EXERCISE_SETTINGS, ...s?.exercise };
-  return { ...merged, taste: { ...DEFAULT_TASTE, ...merged.taste } };
+  return { ...merged, taste: { ...DEFAULT_TASTE, ...merged.taste }, bike: { ...DEFAULT_EXERCISE_SETTINGS.bike, ...merged.bike } };
 };
 
 // ------------------------------------------------------------------ words and numbers every screen shares
@@ -439,6 +524,23 @@ const EFFORT_WORDS = ["Very easy", "Comfortable", "Steady", "Hard", "All out"] a
 export const effortWord = (effort: number) => EFFORT_WORDS[Math.min(EFFORT_WORDS.length - 1, Math.max(0, Math.ceil(effort / 2) - 1))];
 export const effortHint = (effort: number) => `Turn the resistance until it feels ${effortWord(effort).toLowerCase()}.`;
 export const EFFORT_STEPS = 10;
+
+/** "Hard 7" or, when the bike has resistance levels, "Hard 7 · level 6/8". */
+export const effortLine = (effort: number, level?: number | null, levelCount?: number) =>
+  `${effortWord(effort)} ${effort}` + (level && levelCount ? ` · level ${level}/${levelCount}` : "");
+
+const UNIT_LABELS: Record<TargetUnit, string> = { rpm: "RPM", kph: "km/h", mph: "mph" };
+export const unitLabel = (unit: TargetUnit) => UNIT_LABELS[unit];
+/** "17.5 km/h" or "75 RPM": a target in the unit the console shows. */
+export const shownLabel = (shown: ShownTarget | undefined, rpm: number) =>
+  shown && shown.unit !== "rpm" ? `${shown.value.toFixed(1)} ${unitLabel(shown.unit)}` : `${rpm} RPM`;
+/** The target's number as the ring writes it (speeds with one decimal). */
+export const shownValue = (shown: ShownTarget | undefined, rpm: number) => (shown && shown.unit !== "rpm" ? shown.value.toFixed(1) : String(rpm));
+/** "Resistance +1 · 2 of 3": the chip of a step (index 2 and up). */
+export const stepChipText = (step: StepView | null | undefined) =>
+  step && step.index >= 2 ? `Resistance +1 · ${step.index} of ${step.count}` : "";
+/** The chip stays this long after a step. */
+export const STEP_CHIP_MS = 4000;
 
 export function clock(seconds: number): string {
   const s = Math.max(0, Math.round(seconds));
@@ -621,6 +723,14 @@ export const exerciseApi = {
   /** Writes the `.homefiride` to a path the rider picked; answers the path written. */
   rideExport: (id: string, path: string) => invoke<string>("exercise_ride_export", { id, path }),
   rideImport: (path: string) => invoke<SavedRide>("exercise_ride_import", { path }),
+  /** Swaps the song of a part for another that fits: preview (`atSegmentMs` null) or live, at that instant of the part. */
+  swap: (segmentIndex: number, atSegmentMs: number | null) => invoke<RideBuilt>("exercise_swap", { segmentIndex, atSegmentMs }),
+  /** km/h per RPM from what the console showed at `rpm`, or null when the number can't be right. */
+  calibrate: (console: ConsoleUnit, rpm: number, speed: number) => invoke<number | null>("exercise_calibrate", { console, rpm, speed }),
+  /** The resistance steps of a workout as spots on the mountain. */
+  hotPoints: (workout: Workout) => invoke<HotPoint[]>("exercise_hot_points", { workout }),
+  /** The target of an RPM range in the bike's unit (for the plan's rows). */
+  shownTarget: (bike: BikeProfile, minRpm: number, maxRpm: number) => invoke<ShownTarget>("exercise_shown_target", { bike, minRpm, maxRpm }),
   /** A cue as a mono 16-bit WAV. */
   cueWav: (kind: CueKind, sampleRate: number) => invoke<ArrayBuffer>("exercise_cue_wav", { kind, sampleRate }),
 };

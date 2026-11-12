@@ -68,6 +68,7 @@
   #effortHead { display: flex; align-items: baseline; justify-content: space-between; }
   #effortWord { font-size: 0.5rem; font-weight: 800; letter-spacing: 0.01em; }
   #effortNum { font-size: 0.62rem; font-weight: 800; color: var(--k); transition: color 0.6s; }
+  #effortLvl { flex: 1; margin-left: 0.2rem; font-size: 0.36rem; font-weight: 700; color: #9fb0c6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #effortNum small { font-size: 0.4rem; font-weight: 700; color: #9fb0c6; margin-left: 0.04rem; }
   #bars { display: flex; align-items: flex-end; justify-content: space-between; height: 0.62rem; margin-top: 0.14rem; }
   #bars i { display: block; width: 0.37rem; border-radius: 0.09rem; background: rgba(255,255,255,0.12);
@@ -123,6 +124,13 @@
   #pbar { position: absolute; left: 50%; margin-left: -1.1rem; width: 2.2rem; top: 93%; height: 0.14rem; border-radius: 0.1rem;
     background: rgba(255,255,255,0.14); display: none; overflow: hidden; }
   #pbarFill { height: 100%; width: 0; background: var(--z); }
+  /* the resistance-step chip over the course: shown 4 s after each step (the Resistance cue) */
+  #stepChip { position: absolute; left: 50%; top: 0.12rem; transform: translateX(-50%); height: 0.52rem; line-height: 0.52rem;
+    padding: 0 0.26rem; border-radius: 0.3rem; font-size: 0.26rem; font-weight: 800; white-space: nowrap; color: var(--z);
+    background: rgba(8,12,28,0.92); border: 0.03rem solid var(--z); box-shadow: inset 0 0 0 4rem rgba(var(--zr),0.14);
+    opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+  #stepChip.on { opacity: 1; }
+  .calm #stepChip { transition: none; }
   #flash { position: fixed; left: 0; top: 0; right: 0; bottom: 0; opacity: 0; pointer-events: none; }
 
   /* bottom: the course */
@@ -232,7 +240,7 @@
     </div>
     <div id="pipsBox"><div id="pipsCap" class="cap"></div><div id="pips"></div></div>
     <div id="effort">
-      <div id="effortHead"><span id="effortWord"></span><span id="effortNum"></span></div>
+      <div id="effortHead"><span id="effortWord"></span><span id="effortLvl"></span><span id="effortNum"></span></div>
       <div id="bars"></div>
     </div>
   </div>
@@ -281,7 +289,7 @@
     <div id="pbar"><div id="pbarFill"></div></div>
   </div>
 
-  <div id="panel" class="abs c glass"><canvas id="course" role="img" aria-label=""></canvas></div>
+  <div id="panel" class="abs c glass"><canvas id="course" role="img" aria-label=""></canvas><div id="stepChip" role="status" aria-live="polite"></div></div>
 
   <div id="done" class="abs d glass">
     <div id="doneBadge"><svg viewBox="0 0 24 24"><path d="M6.5 12.5l3.8 3.8 7.4-8"/></svg></div>
@@ -362,7 +370,7 @@
     segBar: $("segBar"), segFill: $("segFill"), dots: $("dots"), rpm: $("rpm"), unit: $("unit"), range: $("range"), rangeText: $("rangeText"),
     phase: $("phase"), phaseText: $("phaseText"), aura: $("aura"), halo: $("halo"), band: $("band"), bandGlow: $("bandGlow"),
     track: $("track"), knob: $("knob"), ticks2: $("ticks2"), knobHalo: $("knobHalo"), pbar: $("pbar"), pbarFill: $("pbarFill"),
-    flash: $("flash"), bars: $("bars"), effortWord: $("effortWord"), effortNum: $("effortNum"), nextCard: $("nextCard"),
+    flash: $("flash"), bars: $("bars"), effortWord: $("effortWord"), effortNum: $("effortNum"), effortLvl: $("effortLvl"), stepChip: $("stepChip"), nextCard: $("nextCard"),
     nextLabel: $("nextLabel"), nextName: $("nextName"), nextSub: $("nextSub"), link: $("link"), count: $("count"),
     countDigit: $("countDigit"), countName: $("countName"), countRpm: $("countRpm"), pausedMsg: $("pausedMsg"),
     reconnect: $("reconnect"), clock: $("clock"), course: $("course"), panel: $("panel"),
@@ -463,7 +471,10 @@
   // text is drawn this much bigger than the spec's TV size (14 px ticks, 17 px pin at 1080p are too small across a room)
   var TEXT_BOOST = 1.6;
   var COURSE_W = 1700, COURSE_MAX_SCALE = 2.5, COURSE_SETTLE_MS = 150, COURSE_FRAME_MS = 33, MIN_PX = 40;
-  var CYCLIST_H = 200, SUMMIT_MAX = 3, SUMMIT_PROMINENCE = 0.16, TAU = 6.2832, HALF_PI = 1.5708, BEACON_HZ = 1;
+  // below this height the course has no room for the wide margin; under MINI_H (thumbnails) only the dot is drawn
+  var TALL_H = 200, MINI_H = 72, RIDER_SCALE = 2.4, RIDER_TILT = 0.6, RIDER_PAUSED_ALPHA = 0.6, HOT_FILL_ALPHA = 0.92, HOT_PASSED_ALPHA = 0.8,
+    HOT_SCALE_MIN = 1.25, HOT_SCALE_MAX = 1.7, HOT_ACTIVE_BOOST = 1.15, HOT_SUMMIT_GAP = 22, STEP_CHIP_MS = 4000;
+  var SUMMIT_MAX = 3, SUMMIT_PROMINENCE = 0.16, TAU = 6.2832, HALF_PI = 1.5708, BEACON_HZ = 1;
   var FONT = '-apple-system, "Segoe UI", Roboto, sans-serif';
   var LOOKS = {
     ribbon: { ground: [[0, "#0a2740"], [0.25, "#143f6e"], [0.5, "#35409a"], [0.75, "#74408f"], [0.92, "#b2527f"], [1, "#e58a66"]],
@@ -523,7 +534,7 @@
     var g = { W: W, H: H }, i, tot = Math.max(1, model.total);
     g.tick = clamp(H * 0.085, 11, 20) * TEXT_BOOST; g.band = clamp(H * 0.05, 4, 12); g.floor = H - g.tick;
     g.yLo = g.floor - g.band - H * 0.045; g.yHi = H * (H < 130 ? 0.2 : 0.21); g.R = g.yLo - g.yHi;
-    g.padX = H >= CYCLIST_H ? clamp(H * 0.12, 28, 40) : clamp(W * 0.012, 8, 16);
+    g.padX = H >= TALL_H ? clamp(H * 0.12, 28, 40) : clamp(W * 0.012, 8, 16);
     var M = clamp(Math.round(W / 2), 160, 700), raw = [];
     for (i = 0; i < M; i++) { raw.push(clamp(elevationAt(model.profile, tot * i / (M - 1)), 0, 1)); }
     var sm = gaussSmooth(raw, M * 0.0055), rlo = 1e9, rhi = -1e9, slo = 1e9, shi = -1e9;
@@ -685,17 +696,35 @@
     return bm;
   }
 
-  function cyclist(x, px, py, s, ang, col) {
-    x.save(); x.translate(px, py); x.rotate(ang); x.translate(0, -0.55 * s);
-    x.lineCap = "round"; x.lineJoin = "round"; x.strokeStyle = "#fff"; x.fillStyle = "#fff"; x.lineWidth = Math.max(1.3, 0.13 * s);
-    x.shadowColor = css(col, 0.9); x.shadowBlur = s * 0.9;
-    function seg(a, b, c, d2) { x.beginPath(); x.moveTo(a * s, b * s); x.lineTo(c * s, d2 * s); x.stroke(); }
-    x.beginPath(); x.arc(-s, 0, 0.55 * s, 0, TAU); x.stroke();
-    x.beginPath(); x.arc(s, 0, 0.55 * s, 0, TAU); x.stroke();
-    seg(-1, 0, -0.15, 0); seg(-0.15, 0, -0.35, -0.75); seg(-0.35, -0.75, -1, 0); seg(-0.35, -0.75, 0.7, -0.7); seg(-0.15, 0, 0.7, -0.7); seg(0.7, -0.7, 1, 0);
-    x.beginPath(); x.moveTo(-0.4, -0.85); x.lineTo(0.3, -1.4); x.lineTo(0.72, -0.82); x.stroke();
-    x.beginPath(); x.moveTo(-0.4, -0.85); x.lineTo(0.2, -0.38); x.lineTo(0.02, 0.12); x.stroke();
-    x.beginPath(); x.arc(0.5, -1.72, 0.22 * s, 0, TAU); x.fill();
+  // the rider glyph (docs: ride visual spec): one filled silhouette in a 24 x 24 box facing right, anchored at the rear wheel's
+  // contact point (5, 24); NON-ZERO fill only (the bones overlap). The same path as the desktop and Android renderers.
+  var RIDER_D = "M0 19a5 5 0 1 0 10 0a5 5 0 1 0 -10 0ZM1.1 19a3.9 3.9 0 1 1 7.8 0a3.9 3.9 0 1 1 -7.8 0ZM14 19a5 5 0 1 0 10 0a5 5 0 1 0 -10 0ZM15.1 19a3.9 3.9 0 1 1 7.8 0a3.9 3.9 0 1 1 -7.8 0ZM5.5 19.24L9.5 10.84L8.5 10.36L4.5 18.76ZM4.98 19.55L10.98 19.75L11.02 18.65L5.02 18.45ZM8.46 10.72L10.46 19.32L11.54 19.08L9.54 10.48ZM9.02 11.2L16.62 11L16.58 9.8L8.98 10ZM11.55 19.55L17.15 10.75L16.05 10.05L10.45 18.85ZM16.02 10.56L18.42 19.16L19.58 18.84L17.18 10.24ZM7.6 10.1L11.4 10.1L11.4 8.9L7.6 8.9ZM10.32 9.42L15.32 5.92L13.88 3.88L8.88 7.38ZM14.01 5.28L17.01 9.98L18.19 9.22L15.19 4.52ZM8.83 9.11L13.23 13.91L14.77 12.49L10.37 7.69ZM13.18 12.96L11.38 19.16L13.02 19.64L14.82 13.44ZM17.06 10.78L18.06 9.58L17.14 8.82L16.14 10.02ZM8.2 8.4a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0 -2.8 0ZM13 13.2a1 1 0 1 0 2 0a1 1 0 1 0 -2 0ZM13.3 4.9a1.3 1.3 0 1 0 2.6 0a1.3 1.3 0 1 0 -2.6 0ZM16.7 9.3a0.9 0.9 0 1 0 1.8 0a0.9 0.9 0 1 0 -1.8 0ZM14.8 2.5a2.1 2.1 0 1 0 4.2 0a2.1 2.1 0 1 0 -4.2 0Z";
+  var RIDER_PATH = new Path2D(RIDER_D), RIDER_BOX = 24, RIDER_ANCHOR_X = 5, RIDER_ANCHOR_Y = 24;
+  var INK_RGB = [4, 6, 18], HOT_PATH = new Path2D("M3.5 0H12.5A3.5 3.5 0 0 1 16 3.5V7.5A3.5 3.5 0 0 1 12.5 11H10L8 14L6 11H3.5A3.5 3.5 0 0 1 0 7.5V3.5A3.5 3.5 0 0 1 3.5 0Z");
+  var HOT_TIP_X = 8, HOT_TIP_Y = 14, HOT_LIFT = 3, HOT_W = 16;
+  // anchor (px, py) = where the rear wheel touches the ridge; dr = the position dot's radius sets the size
+  function rider(x, px, py, dr, ang, col, alpha) {
+    var k = RIDER_SCALE * dr / RIDER_BOX;
+    x.save(); x.translate(px, py); x.rotate(ang); x.scale(k, k); x.translate(-RIDER_ANCHOR_X, -RIDER_ANCHOR_Y);
+    x.globalAlpha = alpha; x.fillStyle = css(col); x.fill(RIDER_PATH);
+    x.lineJoin = "round"; x.lineWidth = 1 / k; x.strokeStyle = css(INK_RGB, 0.55); x.stroke(RIDER_PATH);
+    x.restore();
+  }
+  // one resistance step: a tag pointing down at the ridge with "+1"; state = "next" | "active" | "passed"
+  function hotMarker(x, g, px, col, state, H) {
+    var k = clamp(H * 0.085, HOT_SCALE_MIN, HOT_SCALE_MAX) * (state === "active" ? HOT_ACTIVE_BOOST : 1);
+    var py = ridgeY(g, px) - HOT_LIFT;
+    x.save(); x.translate(px, py); x.scale(k, k); x.translate(-HOT_TIP_X, -HOT_TIP_Y);
+    if (state === "active") {
+      var gr = HOT_W * 1.6, gx = HOT_TIP_X, gy = 6, glow = x.createRadialGradient(gx, gy, 0, gx, gy, gr);
+      glow.addColorStop(0, css(col, 0.7)); glow.addColorStop(0.4, css(col, 0.22)); glow.addColorStop(1, css(col, 0));
+      x.fillStyle = glow; x.fillRect(gx - gr, gy - gr, gr * 2, gr * 2);
+    }
+    x.globalAlpha = state === "passed" ? HOT_PASSED_ALPHA : HOT_FILL_ALPHA;
+    x.fillStyle = css(state === "passed" ? dimmed(col) : col); x.fill(HOT_PATH);
+    x.globalAlpha = 1; x.lineWidth = 1 / k; x.strokeStyle = css(INK_RGB, 0.55); x.stroke(HOT_PATH);
+    x.fillStyle = css(INK_RGB); x.font = "800 7px " + FONT; x.textAlign = "center"; x.textBaseline = "middle";
+    x.fillText("+1", HOT_TIP_X, 8.2);
     x.restore();
   }
   function strokeRidge(x, g, xa, xb, style, width) {
@@ -803,16 +832,27 @@
       x.fillStyle = "#06080f"; x.fillText(p.pin, pxl + fs * 0.75, py0 + ph / 2 + 0.5);
       x.fillStyle = css(nc); x.beginPath(); x.arc(nx0, ry, Math.max(2.2, rw * 0.9), 0, TAU); x.fill();
     }
+    // resistance steps: a tag on the ridge at each one (the last one passed glows); the summit labels keep clear of them
+    var hotXs = [], hotOn = !!(p.hot && p.hot.length) && H >= MINI_H, activeHot = -1;
+    if (hotOn) {
+      for (i = 0; i < p.hot.length; i++) { hotXs.push(xOfT(g, p.hot[i].t_s, tot)); if (p.hot[i].t_s <= ridden) { activeHot = i; } }
+    }
     // summit labels (a setting): a small triangle and the time, only when there is width
     if (p.summits && W >= 500) {
       var fs0 = clamp(H * 0.05, 10, 14) * TEXT_BOOST;
       x.font = "600 " + fs0 + "px " + FONT; x.textAlign = "center"; x.textBaseline = "alphabetic";
       for (i = 0; i < g.summits.length; i++) {
         var si = g.summits[i], sx = g.xs[si], sy = g.ys[si], st = ((si - 1) / (g.M - 1)) * tot;
-        if (Math.abs(sx - xr) < 34 || (pin && sx + 20 > pin[0] && sx - 20 < pin[0] + pin[2] && sy - 28 < pin[1] + pin[3])) { continue; }
+        if (Math.abs(sx - xr) < 34 || hotXs.some(function (hx) { return Math.abs(sx - hx) < HOT_SUMMIT_GAP; }) || (pin && sx + 20 > pin[0] && sx - 20 < pin[0] + pin[2] && sy - 28 < pin[1] + pin[3])) { continue; }
         x.fillStyle = sx < xr ? "rgba(190,200,225,0.5)" : "rgba(255,255,255,0.9)";
         x.beginPath(); x.moveTo(sx, sy - 5); x.lineTo(sx - 3.5, sy - 11); x.lineTo(sx + 3.5, sy - 11); x.closePath(); x.fill();
         x.fillText(clock(st), sx, sy - 15);
+      }
+    }
+    if (hotOn) {
+      for (i = 0; i < p.hot.length; i++) {
+        var hp = parts.length ? parts[partIndexAt(parts, p.hot[i].t_s)] : null;
+        hotMarker(x, g, hotXs[i], zoneRgb(hp ? hp.kind : ""), i === activeHot ? "active" : i < activeHot ? "passed" : "next", H);
       }
     }
     // the rider: a "you are here" hairline to the ribbon, a still halo, then the marker: a dot on the ridge that blinks
@@ -826,10 +866,14 @@
     x.lineWidth = Math.max(1.5, dr * 0.3);
     if (animated) { x.strokeStyle = css(zc, 0.85 * Math.pow(1 - ph, 1.5)); x.beginPath(); x.arc(xr, yr, dr + (br - dr) * ph, 0, TAU); x.stroke(); }
     else { x.strokeStyle = css(zc, 0.55); x.beginPath(); x.arc(xr, yr, dr * 2, 0, TAU); x.stroke(); x.strokeStyle = css(zc, 0.28); x.beginPath(); x.arc(xr, yr, dr * 3.2, 0, TAU); x.stroke(); }
+    if (p.rider !== "dot" && H >= MINI_H) {
+      // no height threshold: the bike sits on the ridge just ahead of the dot, tilted to the slope
+      var tilt = clamp(Math.atan2(ridgeY(g, xr + 9) - ridgeY(g, xr - 9), 18), -RIDER_TILT, RIDER_TILT);
+      rider(x, xr, yr - dr, dr, tilt, zc, p.paused ? RIDER_PAUSED_ALPHA : 1);
+    }
     x.globalAlpha = blink; x.fillStyle = css(zc); x.strokeStyle = "rgba(4,6,18,0.6)"; x.lineWidth = 1.5;
     x.beginPath(); x.arc(xr, yr, dr, 0, TAU); x.fill(); x.stroke();
     x.fillStyle = "#fff"; x.beginPath(); x.arc(xr, yr, dr * 0.5, 0, TAU); x.fill(); x.globalAlpha = 1;
-    if (H >= CYCLIST_H) { cyclist(x, xr, yr - dr - 3, clamp(H * 0.064, 8, 21), clamp(Math.atan2(ridgeY(g, xr + 9) - ridgeY(g, xr - 9), 18), -0.6, 0.6), zc); }
     // time ticks
     var steps = [60, 120, 300, 600, 900, 1200, 1800], step = 1800;
     for (i = 0; i < steps.length; i++) { if (tot / steps[i] <= 9) { step = steps[i]; break; } }
@@ -866,10 +910,11 @@
     var pin = np ? (KIND_NAMES[np.kind] || "") + "  " + word("in") + " " + mmss(np.start_s * 1000 - seconds * 1000) : "";
     // nothing moves by itself when calm (motion off, reduced, or paused): redraw only when what it shows changes
     var calm = reduced || !f.playing || f.paused;
-    var sig = ck + "|" + built.sk + "|" + (summits ? 1 : 0) + "|" + (done ? "d" : f.ride.segment_index) + "|" + ni + "|" + Math.floor(seconds) + "|" + pin;
+    var sig = ck + "|" + built.sk + "|" + (summits ? 1 : 0) + "|" + (done ? "d" : f.ride.segment_index) + "|" + ni + "|" + Math.floor(seconds) + "|" + pin + "|" + f.course_rider + "|" + (f.hot_points ? f.hot_points.length : 0);
     if (calm ? sig === cv.lastSig : now - cv.lastDraw < COURSE_FRAME_MS) { return; }
     cv.lastSig = sig; cv.lastDraw = now;
-    paintCourse({ look: look, summits: summits, ridden: done ? tot : seconds, done: done, nextIx: ni, pin: pin, clock: calm ? null : now / 1000 });
+    paintCourse({ look: look, summits: summits, ridden: done ? tot : seconds, done: done, nextIx: ni, pin: pin, clock: calm ? null : now / 1000,
+      hot: f.hot_points || [], rider: f.course_rider === "dot" ? "dot" : "bike", paused: !!(f.paused || !f.playing) });
     setA(el.course, "aria-label", document.title + ", " + (f.text && f.text.segment ? f.text.segment + ", " : "") + clock(done ? tot : seconds) + " / " + clock(tot));
   }
 
@@ -928,6 +973,25 @@
   function setLy(on) {
     var v = on ? "1" : "0";
     if (body.getAttribute("data-ly") !== v) { body.setAttribute("data-ly", v); }
+  }
+
+  // "17.5 km/h" or "75 RPM": a part's target in the unit the console shows
+  var UNIT_LABELS = { kph: "km/h", mph: "mph" };
+  function shownText(part) {
+    var sh = part.shown;
+    if (sh && sh.unit && sh.unit !== "rpm") { return sh.value.toFixed(1) + " " + (UNIT_LABELS[sh.unit] || ""); }
+    return part.target_rpm + " " + word("rpm");
+  }
+  // the "Resistance +1 · 2 of 3" chip: shown for STEP_CHIP_MS after the text changes (the step's cue), then it fades
+  var chip = { text: "", until: 0 };
+  function stepChip(text, color) {
+    var now = Date.now();
+    if (text !== chip.text) { chip.text = text; chip.until = text ? now + STEP_CHIP_MS : 0; }
+    var on = !!text && now < chip.until;
+    setT(el.stepChip, text);
+    if (on) { el.stepChip.style.setProperty("--z", color); el.stepChip.style.setProperty("--zr", rgb(color)); }
+    var cls = on ? "on" : "";
+    if (el.stepChip.className !== cls) { el.stepChip.className = cls; }
   }
 
   function setMode(m) {
@@ -1006,19 +1070,25 @@
     el.position.lastChild.textContent = alternating ? word("hint") : frame.text.position;
     setS(el.position, "color", standing ? "#ffc58a" : "#cfe3ff");
 
-    var rpm = String(ride.target_rpm);
+    // the target in the unit of the rider's console: a speed gets the cadence underneath ("≈ 75 RPM"), RPM keeps its range
+    var sh = ride.shown, speed = !!(sh && sh.unit && sh.unit !== "rpm");
+    var rpm = speed ? sh.value.toFixed(1) : String(ride.target_rpm);
     setT(el.rpm, rpm);
     el.rpm.className = rpm.length >= 3 ? "three" : "";
+    setT(el.unit, speed ? (frame.text.unit || UNIT_LABELS[sh.unit] || word("rpm")) : word("rpm"));
     var same = ride.range.min_rpm === ride.range.max_rpm;
-    setT(el.rangeText, same ? "" : ride.range.min_rpm + "–" + ride.range.max_rpm);
-    setS(el.range, "display", same ? "none" : "block");
+    var rangeLine = speed ? "≈ " + ride.target_rpm + " " + word("rpm") : same ? "" : ride.range.min_rpm + "–" + ride.range.max_rpm;
+    setT(el.rangeText, rangeLine);
+    setS(el.range, "display", rangeLine ? "block" : "none");
     gauge(ride);
     setT(el.phaseText, iv ? (iv.phase === "work" ? word("go") + "!" : word("rest")) : "");
     setS(el.phase, "display", iv ? "block" : "none");
 
     // effort: "Hard 7" -> the word and the number, ten rising bars
-    var eff = frame.text.effort || "", cut = eff.lastIndexOf(" ");
+    // text.effort is "Hard 7" or, with the bike's knob positions, "Hard 7 · level 6/8": the word, then the level
+    var effParts = (frame.text.effort || "").split(" · "), eff = effParts[0], cut = eff.lastIndexOf(" ");
     setT(el.effortWord, cut > 0 ? eff.slice(0, cut) : eff);
+    setT(el.effortLvl, effParts.length > 1 ? effParts[1] : "");
     setH(el.effortNum, ride.effort + "<small>/10</small>");
     for (var i = 0; i < bars.length; i++) { setS(bars[i], "background", i < ride.effort ? color : ""); }
 
@@ -1051,7 +1121,7 @@
       var nn = KIND_NAMES[np.kind] || "", immediate = ni === ride.segment_index + 1 && ride.next;
       setT(el.nextName, nn);
       var sub = word("in") + " " + mmss(np.start_s * 1000 - elapsedMs);
-      setT(el.nextSub, immediate ? ride.next.target_rpm + " " + word("rpm") + "  ·  " + sub : sub);
+      setT(el.nextSub, immediate ? shownText(ride.next) + "  ·  " + sub : sub);
       if (el.nextName._f !== nn) { el.nextName._f = nn; fit(el.nextName, 2); }
     } else {
       setT(el.nextName, word("keep"));
@@ -1062,6 +1132,7 @@
     var soon = !!(np && ni === ride.segment_index + 1 && ride.notice);
     var cls = "abs r glass" + (soon ? " soon" : "");
     if (el.nextCard.className !== cls) { el.nextCard.className = cls; }
+    stepChip(frame.text.step || "", color);
     drawCourse(frame, elapsedMs / 1000, false, ni);
 
     // paused: dimmed ride and a word; counting down: dim overlay with the digit and what comes next

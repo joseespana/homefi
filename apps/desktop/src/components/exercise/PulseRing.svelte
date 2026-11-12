@@ -5,7 +5,7 @@
   // swells and glows; bar = a bar sweeps under the digits; flash = the disc flashes (capped at .22). Motion
   // "subtle" keeps only the glow, "off" a still dot that steps once per stroke (at most twice a second).
   import { untrack } from "svelte";
-  import type { PulseStyle, RideView } from "../../lib/exercise-api";
+  import { shownValue, unitLabel, type PulseStyle, type RideView } from "../../lib/exercise-api";
   import { motionWatch } from "../../lib/motionLevel.svelte";
 
   let {
@@ -41,7 +41,9 @@
   const level = $derived(motionWatch.level);
   const stroke = $derived(view.pulse.stroke_ms > 0 ? view.pulse.stroke_ms : (60_000 / Math.max(1, view.target_rpm)));
   const period = $derived(stroke * Math.max(1, Math.ceil(MIN_PERIOD_MS / stroke)));
-  const digits = $derived(String(view.target_rpm));
+  /** The target in the console's unit: a speed with one decimal, its cadence underneath. */
+  const speed = $derived(!!view.shown && view.shown.unit !== "rpm");
+  const digits = $derived(shownValue(view.shown, view.target_rpm));
   const small = $derived(digits.length > 2);
 
   let ring = $state<HTMLElement>();
@@ -131,8 +133,8 @@
   {#if level === "off"}<span class="dot" class:lit aria-hidden="true"></span>{/if}
   <div class="inner">
     <div class="num" class:small style:opacity={rpmShown}>{digits}</div>
-    <div class="unit" style:opacity={rpmShown}>RPM</div>
-    <div class="range" style:opacity={rpmShown}>{view.range.min_rpm} to {view.range.max_rpm}</div>
+    <div class="unit" style:opacity={rpmShown}>{view.shown ? unitLabel(view.shown.unit) : "RPM"}</div>
+    <div class="range" style:opacity={rpmShown}>{speed ? `≈ ${view.target_rpm} RPM` : `${view.range.min_rpm} to ${view.range.max_rpm}`}</div>
     {#if pulseStyle === "bar"}<div class="barwrap" aria-hidden="true"><i bind:this={sweep}></i></div>{/if}
   </div>
   {#if countdown > 0}<div class="count" aria-hidden="true">{#key countdown}<span>{countdown}</span>{/key}</div>{/if}

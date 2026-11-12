@@ -57,7 +57,6 @@
     <string name="ex_no_playable">None of the songs of this ride can play right now.</string>
     <string name="ex_busy_sharing">Stop sharing, or leave the shared session, before a ride.</string>
     <string name="ex_plan_summary">%1$s · %2$d parts · %3$d songs</string>
-    <string name="ex_segment_line">%1$s · %2$s RPM · effort %3$d</string>
     <string name="ex_bpm_fit">%1$d BPM · %2$s → %3$d RPM</string>
     <string name="ex_bpm_metronome">Metronome</string>
     <string name="ex_ratio_whole">1:1</string>
@@ -177,7 +176,6 @@
     <string name="ex_set_always_dark">Always dark during a ride</string>
     <string name="ex_set_haptics">Buzz on part changes</string>
     <string name="ex_next_label">Next</string>
-    <string name="ex_next_line">%1$d RPM · %2$s</string>
     <string name="ex_next_countdown">in %1$s</string>
     <string name="ex_style_first_d">Good for a first time: gentle, short efforts</string>
     <string name="ex_style_easy_d">Easy on the legs, steady all the way</string>
@@ -219,4 +217,59 @@
     <string name="ex_taste_add_suggestion">Add %1$s</string>
     <string name="ex_rebuilding">Finding new songs…</string>
     <string name="ex_rebuild_failed">Could not find new songs. This ride is still ready.</string>
+
+    <!-- Ride redesign: bike, steps, swap, crossfade, rider -->
+    <string name="ex_step_chip">Resistance +%1$d · %2$d of %3$d</string>
+    <string name="ex_level_of">level %1$d/%2$d</string>
+    <string name="ex_ring_approx_rpm">≈ %1$d RPM</string>
+    <string name="ex_target_speed">Target %1$s %2$s, about %3$d RPM</string>
+    <string name="ex_next_line_unit">%1$s · %2$s</string>
+    <string name="ex_segment_line_unit">%1$s · %2$s · effort %3$d</string>
+    <string name="ex_swap_song_cd">Change this song: %1$s</string>
+    <string name="ex_swap_title">Change this song?</string>
+    <string name="ex_swap_body">HomeFi will put another one that fits %1$s.</string>
+    <string name="ex_swap_do">Swap</string>
+    <string name="ex_swap_next">Swap the next one</string>
+    <string name="ex_swap_keep">Keep it</string>
+    <string name="ex_swap_working">Finding another song…</string>
+    <string name="ex_swap_plan_cd">Swap this song</string>
+    <string name="ex_mountain_steps">%1$d resistance steps</string>
+    <string name="ex_set_group_bike">My bike</string>
+    <string name="ex_set_console">The console shows</string>
+    <string name="ex_set_console_hint">The unit the targets use on the ride, the plan and the TV.</string>
+    <string name="ex_console_rpm">RPM</string>
+    <string name="ex_console_kph">km/h</string>
+    <string name="ex_console_mph">mph</string>
+    <string name="ex_console_none">Nothing</string>
+    <string name="ex_set_levels">Resistance levels</string>
+    <string name="ex_set_levels_hint">How many positions the resistance knob has. 0 = I don\'t know.</string>
+    <string name="ex_set_levels_unknown">Don\'t know</string>
+    <string name="ex_set_calibrate">Calibrate speed</string>
+    <string name="ex_set_calibrate_none">Not calibrated: targets show in RPM</string>
+    <string name="ex_set_calibrate_done">1 RPM ≈ %1$s km/h</string>
+    <string name="ex_set_calibrate_do">Calibrate</string>
+    <string name="ex_cal_body">Pedal to the clicks for %1$d s (%2$d RPM), then type the speed on your console.</string>
+    <string name="ex_cal_start">Start the clicks</string>
+    <string name="ex_cal_stop">Stop</string>
+    <string name="ex_cal_left">%1$d s left</string>
+    <string name="ex_cal_speed">Speed on the console (%1$s)</string>
+    <string name="ex_cal_save">Save</string>
+    <string name="ex_cal_clear">Clear</string>
+    <string name="ex_cal_invalid">That speed does not look right. Try again.</string>
+    <string name="ex_cal_needs_console">Choose km/h or mph above first.</string>
+    <string name="ex_set_climb_steps">Resistance steps on climbs</string>
+    <string name="ex_set_climb_steps_hint">Each climb asks for one more turn of resistance two or three times, like a class: the map marks the spots and a sound says when.</string>
+    <string name="ex_set_steps_off">Off</string>
+    <string name="ex_set_crossfade">Crossfade between the ride\'s songs</string>
+    <string name="ex_set_crossfade_hint">How long the next song fades in when a part ends. 0 keeps the cut.</string>
+    <string name="ex_set_crossfade_off">Off</string>
+    <string name="ex_set_rider">Rider on the map</string>
+    <string name="ex_rider_bike">Bike</string>
+    <string name="ex_rider_dot">Dot</string>
+    <string name="ex_set_big_controls">Big ride buttons</string>
+    <string name="ex_set_big_controls_hint">A large Pause button and a column of controls instead of the small icon row.</string>
+    <string name="ex_set_swap">Change a song during the ride</string>
+    <string name="ex_set_swap_hint">A tap on the song puts another that fits the part\'s pace.</string>
+    <string name="ex_set_swap_ai">Ask the AI for the replacement</string>
+    <string name="ex_set_swap_ai_hint">When nothing already found fits, the AI proposes one (uses your key); off, only Tidal and the library are searched.</string>
 </resources>

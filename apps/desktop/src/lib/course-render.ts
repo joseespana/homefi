@@ -96,7 +96,31 @@ const LOOKS: Readonly<Record<CourseLook, LookPreset>> = {
 // ------------------------------------------------------------------ sizes and tuning (all fractions of H, clamped)
 
 const MINI_H = 72; // under this height: no ribbon, ticks, pin or rider chrome
-const CYCLIST_H = 200;
+const PAD_TALL_H = 200; // from this height the plot keeps a wide margin at both ends
+// the rider glyph and the resistance-step tag (one spec with the Android and TV renderers)
+const RIDER_SCALE = 2.4; // glyph height = this x the position dot's radius
+const RIDER_BOX = 24;
+const RIDER_ANCHOR: readonly [number, number] = [5, 24]; // the rear wheel's contact point
+const RIDER_TILT = 0.6;
+const RIDER_PAUSED_ALPHA = 0.6;
+const INK: Rgb = [4, 6, 18];
+const INK_OUTLINE_ALPHA = 0.55;
+const HOT_TIP: readonly [number, number] = [8, 14];
+const HOT_WIDTH = 16;
+const HOT_LIFT = 3;
+const HOT_SCALE: readonly [number, number] = [1.25, 1.7];
+const HOT_ACTIVE_BOOST = 1.15;
+const HOT_FILL_ALPHA = 0.92;
+const HOT_PASSED_ALPHA = 0.8;
+const HOT_SUMMIT_GAP = 22;
+/** The rider silhouette, verbatim from the visual spec: filled, NON-ZERO, facing right in a 24 x 24 box. */
+const RIDER_D =
+  "M0 19a5 5 0 1 0 10 0a5 5 0 1 0 -10 0ZM1.1 19a3.9 3.9 0 1 1 7.8 0a3.9 3.9 0 1 1 -7.8 0ZM14 19a5 5 0 1 0 10 0a5 5 0 1 0 -10 0ZM15.1 19a3.9 3.9 0 1 1 7.8 0a3.9 3.9 0 1 1 -7.8 0ZM5.5 19.24L9.5 10.84L8.5 10.36L4.5 18.76ZM4.98 19.55L10.98 19.75L11.02 18.65L5.02 18.45ZM8.46 10.72L10.46 19.32L11.54 19.08L9.54 10.48ZM9.02 11.2L16.62 11L16.58 9.8L8.98 10ZM11.55 19.55L17.15 10.75L16.05 10.05L10.45 18.85ZM16.02 10.56L18.42 19.16L19.58 18.84L17.18 10.24ZM7.6 10.1L11.4 10.1L11.4 8.9L7.6 8.9ZM10.32 9.42L15.32 5.92L13.88 3.88L8.88 7.38ZM14.01 5.28L17.01 9.98L18.19 9.22L15.19 4.52ZM8.83 9.11L13.23 13.91L14.77 12.49L10.37 7.69ZM13.18 12.96L11.38 19.16L13.02 19.64L14.82 13.44ZM17.06 10.78L18.06 9.58L17.14 8.82L16.14 10.02ZM8.2 8.4a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0 -2.8 0ZM13 13.2a1 1 0 1 0 2 0a1 1 0 1 0 -2 0ZM13.3 4.9a1.3 1.3 0 1 0 2.6 0a1.3 1.3 0 1 0 -2.6 0ZM16.7 9.3a0.9 0.9 0 1 0 1.8 0a0.9 0.9 0 1 0 -1.8 0ZM14.8 2.5a2.1 2.1 0 1 0 4.2 0a2.1 2.1 0 1 0 -4.2 0Z";
+/** The step tag: a rounded label pointing down at the ridge, tip at (8, 14). */
+const HOT_D = "M3.5 0H12.5A3.5 3.5 0 0 1 16 3.5V7.5A3.5 3.5 0 0 1 12.5 11H10L8 14L6 11H3.5A3.5 3.5 0 0 1 0 7.5V3.5A3.5 3.5 0 0 1 3.5 0Z";
+// built once, lazily: Path2D does not exist where the pure geometry is tested without a DOM
+let riderPath: Path2D | null = null;
+let hotPath: Path2D | null = null;
 const TICK_STEPS_S = [60, 120, 300, 600, 900, 1200, 1800] as const;
 const TAU = Math.PI * 2;
 const HALF_PI = Math.PI / 2;
@@ -270,9 +294,9 @@ export function tickStep(total: number, W: number): number {
   return TICK_STEPS_S.find((s) => total / s <= most) ?? TICK_STEPS_S[TICK_STEPS_S.length - 1]!;
 }
 
-/** Where the plot starts on the left (and ends on the right) of a card: room for the cyclist at both ends. */
+/** Where the plot starts on the left (and ends on the right) of a card: room for the rider at both ends. */
 export function plotPad(W: number, H: number): number {
-  return H >= CYCLIST_H ? clamp(H * 0.12, 28, 40) : clamp(W * 0.012, 8, 16);
+  return H >= PAD_TALL_H ? clamp(H * 0.12, 28, 40) : clamp(W * 0.012, 8, 16);
 }
 
 export function layoutCourse(model: CourseModel, W: number, H: number): Layout {
@@ -374,8 +398,19 @@ export interface Scene {
   /** The next different part: a dashed ridge and a pin with this text. */
   pin: { index: number; text: string } | null;
   summits: boolean;
+  /** Resistance steps to mark on the ridge (the plan's hot points); none = no tags. */
+  hot?: readonly HotPointLike[];
+  /** The rider is the bike silhouette (default) or just the dot. */
+  riderGlyph?: "bike" | "dot";
+  /** The ride is paused: the bike dims. */
+  paused?: boolean;
   /** Animation clock in seconds: the halos breathe. `null` = static, halos at their middle value. */
   clock: number | null;
+}
+
+/** A resistance step on the course (homefi_core::exercise::HotPoint, what the renderer needs of it). */
+export interface HotPointLike {
+  t_s: number;
 }
 
 interface Bitmap {
@@ -794,6 +829,11 @@ export class CourseCanvas {
       x.fill();
     }
 
+    // resistance steps: a tag on the ridge at each (the last one passed glows); summit labels keep clear of them
+    const hot = !g.mini && scene.hot ? scene.hot : [];
+    const hotX = hot.map((h) => xOfT(g, h.t_s, total));
+    const hotActive = scene.rider ? hot.reduce((last, h, i) => (h.t_s <= ridden ? i : last), -1) : -1;
+
     // summit labels (a setting): a small triangle and the time, only when there is width
     if (scene.summits && W >= 500 && !g.mini) {
       const fs0 = clamp(H * 0.05, 10, 14);
@@ -806,7 +846,8 @@ export class CourseCanvas {
         const st = ((s - 1) / (g.M - 1)) * total;
         const nearRider = scene.rider && Math.abs(sx - xr) < 34;
         const underPin = pinBox !== null && sx + 20 > pinBox[0] && sx - 20 < pinBox[0] + pinBox[2] && sy - 28 < pinBox[1] + pinBox[3];
-        if (nearRider || underPin) continue;
+        const nearHot = hotX.some((hx) => Math.abs(sx - hx) < HOT_SUMMIT_GAP);
+        if (nearRider || underPin || nearHot) continue;
         x.fillStyle = scene.ridden !== null && sx < xr ? "rgba(190,200,225,0.5)" : "rgba(255,255,255,0.9)";
         x.beginPath();
         x.moveTo(sx, sy - 5);
@@ -818,12 +859,16 @@ export class CourseCanvas {
       }
     }
 
-    if (scene.rider) this.paintRider(g, xr, yr, parts[curIx], t, animated);
+    hot.forEach((h, i) => {
+      const part = parts[partIndexAt(parts, h.t_s)];
+      this.paintHot(g, hotX[i]!, zoneRgb(part?.kind ?? ""), i === hotActive ? "active" : i < hotActive ? "passed" : "next");
+    });
+    if (scene.rider) this.paintRider(g, xr, yr, parts[curIx], t, animated, scene.riderGlyph !== "dot", !!scene.paused);
     if (!g.mini) this.paintTicks(g, total);
   }
 
   /** The "you are here" marker: hairline to the ribbon, still halo, a dot on the ridge blinking inside a beacon ring. */
-  private paintRider(g: Layout, xr: number, yr: number, part: CoursePart | undefined, t: number, animated: boolean) {
+  private paintRider(g: Layout, xr: number, yr: number, part: CoursePart | undefined, t: number, animated: boolean, bike: boolean, paused: boolean) {
     const x = this.ctx;
     const { H } = g;
     const zc = zoneRgb(part?.kind ?? "");
@@ -860,6 +905,7 @@ export class CourseCanvas {
       ring(dr * 2, 0.55);
       ring(dr * 3.2, 0.28);
     }
+    if (bike && !g.mini) this.paintBike(g, xr, yr, dr, zc, paused);
     x.globalAlpha = blink;
     x.fillStyle = css(zc);
     x.strokeStyle = "rgba(4,6,18,0.6)";
@@ -873,56 +919,59 @@ export class CourseCanvas {
     x.arc(xr, yr, dr * 0.5, 0, TAU);
     x.fill();
     x.globalAlpha = 1;
-    if (H >= CYCLIST_H) {
-      const ang = clamp(Math.atan2(ridgeY(g, xr + 9) - ridgeY(g, xr - 9), 18), -0.6, 0.6);
-      this.cyclist(xr, yr - dr - 3, clamp(H * 0.064, 8, 21), ang, zc);
-    }
   }
 
-  private cyclist(px: number, py: number, s: number, ang: number, col: Rgb) {
+  /** One resistance step: a tag with "+1" pointing at the ridge; `active` is the step now (glows), `passed` is dimmed. */
+  private paintHot(g: Layout, px: number, zc: Rgb, state: "next" | "active" | "passed") {
     const x = this.ctx;
+    hotPath ??= new Path2D(HOT_D);
+    const k = clamp(g.H * 0.085, HOT_SCALE[0], HOT_SCALE[1]) * (state === "active" ? HOT_ACTIVE_BOOST : 1);
     x.save();
-    x.translate(px, py);
-    x.rotate(ang);
-    x.translate(0, -0.55 * s);
-    x.lineCap = "round";
+    x.translate(px, ridgeY(g, px) - HOT_LIFT);
+    x.scale(k, k);
+    x.translate(-HOT_TIP[0], -HOT_TIP[1]);
+    if (state === "active") {
+      const radius = HOT_WIDTH * 1.6;
+      const glow = x.createRadialGradient(HOT_TIP[0], 6, 0, HOT_TIP[0], 6, radius);
+      glow.addColorStop(0, css(zc, 0.7));
+      glow.addColorStop(0.4, css(zc, 0.22));
+      glow.addColorStop(1, css(zc, 0));
+      x.fillStyle = glow;
+      x.fillRect(HOT_TIP[0] - radius, 6 - radius, radius * 2, radius * 2);
+    }
+    x.globalAlpha = state === "passed" ? HOT_PASSED_ALPHA : HOT_FILL_ALPHA;
+    x.fillStyle = css(state === "passed" ? dimmed(zc) : zc);
+    x.fill(hotPath);
+    x.globalAlpha = 1;
+    x.lineWidth = 1 / k;
+    x.strokeStyle = css(INK, INK_OUTLINE_ALPHA);
+    x.stroke(hotPath);
+    x.fillStyle = css(INK);
+    x.font = `800 7px ${FONT}`;
+    x.textAlign = "center";
+    x.textBaseline = "middle";
+    x.fillText("+1", HOT_TIP[0], 8.2);
+    x.restore();
+  }
+
+  /** The bike silhouette: rear wheel on the ridge just ahead of the dot, tilted to the slope. No height threshold. */
+  private paintBike(g: Layout, xr: number, yr: number, dr: number, zc: Rgb, paused: boolean) {
+    const x = this.ctx;
+    riderPath ??= new Path2D(RIDER_D);
+    const tilt = clamp(Math.atan2(ridgeY(g, xr + 9) - ridgeY(g, xr - 9), 18), -RIDER_TILT, RIDER_TILT);
+    const k = (RIDER_SCALE * dr) / RIDER_BOX;
+    x.save();
+    x.translate(xr, yr - dr);
+    x.rotate(tilt);
+    x.scale(k, k);
+    x.translate(-RIDER_ANCHOR[0], -RIDER_ANCHOR[1]);
+    x.globalAlpha = paused ? RIDER_PAUSED_ALPHA : 1;
+    x.fillStyle = css(zc);
+    x.fill(riderPath);
     x.lineJoin = "round";
-    x.strokeStyle = "#fff";
-    x.fillStyle = "#fff";
-    x.lineWidth = Math.max(1.3, 0.13 * s);
-    x.shadowColor = css(col, 0.9);
-    x.shadowBlur = s * 0.9;
-    const line = (a: number, b: number, c: number, e: number) => {
-      x.beginPath();
-      x.moveTo(a * s, b * s);
-      x.lineTo(c * s, e * s);
-      x.stroke();
-    };
-    x.beginPath();
-    x.arc(-s, 0, 0.55 * s, 0, TAU);
-    x.stroke();
-    x.beginPath();
-    x.arc(s, 0, 0.55 * s, 0, TAU);
-    x.stroke();
-    line(-1, 0, -0.15, 0);
-    line(-0.15, 0, -0.35, -0.75);
-    line(-0.35, -0.75, -1, 0);
-    line(-0.35, -0.75, 0.7, -0.7);
-    line(-0.15, 0, 0.7, -0.7);
-    line(0.7, -0.7, 1, 0);
-    x.beginPath();
-    x.moveTo(-0.4, -0.85);
-    x.lineTo(0.3, -1.4);
-    x.lineTo(0.72, -0.82);
-    x.stroke();
-    x.beginPath();
-    x.moveTo(-0.4, -0.85);
-    x.lineTo(0.2, -0.38);
-    x.lineTo(0.02, 0.12);
-    x.stroke();
-    x.beginPath();
-    x.arc(0.5, -1.72, 0.22 * s, 0, TAU);
-    x.fill();
+    x.lineWidth = 1 / k;
+    x.strokeStyle = css(INK, INK_OUTLINE_ALPHA);
+    x.stroke(riderPath);
     x.restore();
   }
 

@@ -3,6 +3,7 @@ package com.perseusoft.homefi.ui.exercise
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,8 +14,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -24,11 +28,18 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.perseusoft.homefi.core.BikeProfile
+import com.perseusoft.homefi.core.exerciseHotPoints
+import com.perseusoft.homefi.core.exerciseShownTarget
+import com.perseusoft.homefi.homefi
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.perseusoft.homefi.R
@@ -139,6 +150,10 @@ fun RidePreview(state: RideUi.Preview, session: RideSession) {
     val rebuilding = state.rebuilding
     val plan = built.plan
     val segments = plan.workout.segments
+    val app = LocalContext.current.homefi
+    val settings by app.settings.exercise.collectAsStateWithLifecycle()
+    val swapping by session.swapping.collectAsStateWithLifecycle()
+    val hotPoints = remember(plan) { exerciseHotPoints(plan.workout) }
     val totalS = segments.sumOf { it.seconds.toInt() }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(plan.workout.name, style = MaterialTheme.typography.headlineSmall)
@@ -152,6 +167,7 @@ fun RidePreview(state: RideUi.Preview, session: RideSession) {
                 profile = plan.profile,
                 marker = null,
                 segments = segments,
+                hotPoints = hotPoints,
                 modifier = Modifier.fillMaxWidth().height(PLAN_MOUNTAIN_HEIGHT),
             )
         }
@@ -162,7 +178,12 @@ fun RidePreview(state: RideUi.Preview, session: RideSession) {
             Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         segments.forEachIndexed { i, segment ->
-            SegmentRow(segment, plan.songs.filter { it.segmentIndex.toInt() == i })
+            SegmentRow(
+                segment, settings.bike,
+                // the songs of this part, with their place in the plan (the swap names a song by it)
+                plan.songs.withIndex().filter { it.value.segmentIndex.toInt() == i },
+                swappable = settings.rideSwap && rebuilding == null, swapping = swapping, onSwap = { session.swapSong(it, false) },
+            )
         }
         GradientButton(
             text = stringResource(R.string.ex_start),
@@ -208,7 +229,14 @@ private val FIT_OFF = androidx.compose.ui.graphics.Color(0xFFF59E0B)
 private val COVER_SIZE = 40.dp
 
 @Composable
-private fun SegmentRow(segment: RideSegment, songs: List<PlannedSong>) {
+private fun SegmentRow(
+    segment: RideSegment,
+    bike: BikeProfile,
+    songs: List<IndexedValue<PlannedSong>>,
+    swappable: Boolean,
+    swapping: Int?,
+    onSwap: (Int) -> Unit,
+) {
     val zone = segment.kind.zoneColor()
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -216,12 +244,12 @@ private fun SegmentRow(segment: RideSegment, songs: List<PlannedSong>) {
                 Spacer(Modifier.size(10.dp).background(zone, CircleShape))
                 Text(stringResource(segment.kind.nameRes()), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                 Text(
-                    stringResource(R.string.ex_segment_line, clock(segment.seconds.toInt()), rpmText(segment), segment.effort.toInt()),
+                    stringResource(R.string.ex_segment_line_unit, clock(segment.seconds.toInt()), shownRange(segment, bike), segment.effort.toInt()),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            songs.forEach { song ->
+            songs.forEach { (index, song) ->
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     CoverArt(song.entry.localPath?.let { EmbeddedCover(it) } ?: song.entry.coverUrl, COVER_SIZE, radius = 8.dp)
                     Column(Modifier.weight(1f)) {
@@ -232,15 +260,32 @@ private fun SegmentRow(segment: RideSegment, songs: List<PlannedSong>) {
                         )
                     }
                     BpmFit(song)
+                    if (swappable) {
+                        // one swap at a time: the song being replaced shows a spinner, the others wait
+                        Box(Modifier.size(SWAP_TOUCH), contentAlignment = Alignment.Center) {
+                            if (swapping == index) {
+                                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                            } else {
+                                IconButton(onClick = { onSwap(index) }, enabled = swapping == null, modifier = Modifier.size(SWAP_TOUCH)) {
+                                    Icon(Icons.Rounded.SwapHoriz, stringResource(R.string.ex_swap_plan_cd))
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 }
 
+private val SWAP_TOUCH = 48.dp
+
+/** The part's cadence range in the bike's unit ("70-80 RPM", "17.4-19.2 km/h"). */
 @Composable
-private fun rpmText(segment: RideSegment): String =
-    if (segment.minRpm == segment.maxRpm) "${segment.minRpm}" else "${segment.minRpm}-${segment.maxRpm}"
+private fun shownRange(segment: RideSegment, bike: BikeProfile): String {
+    val target = remember(segment.minRpm, segment.maxRpm, bike) { exerciseShownTarget(bike, segment.minRpm, segment.maxRpm) }
+    return target.rangeWithUnit()
+}
 
 /** "128 BPM · 1:1 → 128", warning-coloured when the song is outside the cadence range. */
 @Composable

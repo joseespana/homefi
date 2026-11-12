@@ -1,18 +1,14 @@
 package com.perseusoft.homefi.ui
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -37,47 +33,33 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Share of the screen height the notes may take, so the button stays visible on small screens. */
-private const val BODY_HEIGHT_FRACTION = 0.55f
 private val SECTION_GAP = 12.dp
-private val VERSION_GAP = 16.dp
 private val BULLET_INDENT = 16.sp
 
 /** "What's new" after an update, or reopened from Settings → About: text only, no WebView. */
 @Composable
 fun ReleaseNotesDialog(notes: List<ReleaseNotes>, onDismiss: () -> Unit) {
     val haptics = haptics()
-    val maxBody = (LocalConfiguration.current.screenHeightDp * BODY_HEIGHT_FRACTION).dp
     val single = notes.singleOrNull()
     val close = { haptics.tick(); onDismiss() }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
+    HomefiDialog(
+        title = if (single != null) stringResource(R.string.update_whats_new_title, single.version) else stringResource(R.string.update_whats_new),
+        icon = Icons.Rounded.AutoAwesome,
+        primary = DialogAction(stringResource(R.string.whats_new_close), onClick = close),
+        onDismiss = onDismiss,
+    ) {
+        if (notes.isEmpty()) {
             Text(
-                if (single != null) stringResource(R.string.update_whats_new_title, single.version)
-                else stringResource(R.string.update_whats_new),
+                stringResource(R.string.whats_new_none),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        },
-        text = {
-            Column(
-                Modifier.heightIn(max = maxBody).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(VERSION_GAP),
-            ) {
-                if (notes.isEmpty()) {
-                    Text(
-                        stringResource(R.string.whats_new_none),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                notes.forEachIndexed { index, release ->
-                    if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    VersionNotes(release, showVersion = single == null)
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = close, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.whats_new_close)) } },
-    )
+        }
+        notes.forEachIndexed { index, release ->
+            if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            VersionNotes(release, showVersion = single == null)
+        }
+    }
 }
 
 @Composable

@@ -1,7 +1,10 @@
 package com.perseusoft.homefi.ui.settings
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import com.perseusoft.homefi.ui.DialogAction
+import com.perseusoft.homefi.ui.HomefiDialog
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -13,20 +16,16 @@ import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.SdCard
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -64,102 +63,78 @@ fun FolderPicker(initial: String, onPick: (File) -> Unit, onDismiss: () -> Unit)
     }
     val writable = remember(current, tick) { current != null && Storage.isWritable(current) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Column {
-                Text(stringResource(R.string.folder_pick_title))
-                if (current != null) {
-                    Text(
-                        current.absolutePath,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.StartEllipsis,
-                    )
-                }
+    HomefiDialog(
+        title = stringResource(R.string.folder_pick_title),
+        subtitle = current?.absolutePath,
+        icon = Icons.Rounded.Folder,
+        scrollBody = false,
+        primary = when {
+            naming -> DialogAction(stringResource(R.string.folder_create), enabled = name.isNotBlank()) {
+                val made = File(current, name.trim())
+                if (made.mkdirs() || made.isDirectory) dir = made
+                naming = false
+                name = ""
+                tick++
             }
+            current != null -> DialogAction(stringResource(R.string.folder_use), enabled = writable) { onPick(current) }
+            else -> null
         },
-        text = {
-            Column {
-                if (naming) {
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it.replace("/", "") },
-                        label = { Text(stringResource(R.string.folder_new_name)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+        others = if (current != null && writable && !naming) {
+            listOf(DialogAction(stringResource(R.string.folder_new), icon = Icons.Rounded.CreateNewFolder) { naming = true })
+        } else {
+            emptyList()
+        },
+        quiet = DialogAction(stringResource(R.string.cancel)) { if (naming) naming = false else onDismiss() },
+        onDismiss = onDismiss,
+    ) {
+        if (naming) {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it.replace("/", "") },
+                label = { Text(stringResource(R.string.folder_new_name)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (current != null && !writable) {
+            Text(
+                stringResource(R.string.folder_readonly),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+        }
+        LazyColumn(Modifier.heightIn(max = 360.dp)) {
+            if (current == null) {
+                items(volumes) { v ->
+                    PickerRow(
+                        v.label,
+                        if (v.removable) Icons.Rounded.SdCard else Icons.Rounded.PhoneAndroid,
+                    ) { dir = v.root }
                 }
-                if (current != null && !writable) {
-                    Text(
-                        stringResource(R.string.folder_readonly),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(vertical = 4.dp),
-                    )
+            } else {
+                item {
+                    // at a volume's root, "up" goes back to the list of volumes
+                    PickerRow(stringResource(R.string.folder_up), Icons.Rounded.ArrowUpward) {
+                        dir = if (current == volume?.root || volume == null) null else current.parentFile
+                    }
                 }
-                LazyColumn(Modifier.heightIn(max = 360.dp)) {
-                    if (current == null) {
-                        items(volumes) { v ->
-                            PickerRow(
-                                v.label,
-                                if (v.removable) Icons.Rounded.SdCard else Icons.Rounded.PhoneAndroid,
-                            ) { dir = v.root }
-                        }
-                    } else {
-                        item {
-                            // at a volume's root, "up" goes back to the list of volumes
-                            PickerRow(stringResource(R.string.folder_up), Icons.Rounded.ArrowUpward) {
-                                dir = if (current == volume?.root || volume == null) null else current.parentFile
-                            }
-                        }
-                        items(children, key = { it.absolutePath }) { child ->
-                            PickerRow(child.name, Icons.Rounded.Folder) { dir = child }
-                        }
-                        if (children.isEmpty()) {
-                            item {
-                                Text(
-                                    stringResource(R.string.folder_empty),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(16.dp),
-                                )
-                            }
-                        }
+                items(children, key = { it.absolutePath }) { child ->
+                    PickerRow(child.name, Icons.Rounded.Folder) { dir = child }
+                }
+                if (children.isEmpty()) {
+                    item {
+                        Text(
+                            stringResource(R.string.folder_empty),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(16.dp),
+                        )
                     }
                 }
             }
-        },
-        confirmButton = {
-            when {
-                naming -> TextButton(
-                    enabled = name.isNotBlank(),
-                    onClick = {
-                        val made = File(current, name.trim())
-                        if (made.mkdirs() || made.isDirectory) dir = made
-                        naming = false
-                        name = ""
-                        tick++
-                    },
-                ) { Text(stringResource(R.string.folder_create)) }
-                current != null -> TextButton(enabled = writable, onClick = { onPick(current) }) {
-                    Text(stringResource(R.string.folder_use))
-                }
-            }
-        },
-        dismissButton = {
-            if (current != null && writable && !naming) {
-                TextButton(onClick = { naming = true }) {
-                    Icon(Icons.Rounded.CreateNewFolder, contentDescription = null)
-                    Text(stringResource(R.string.folder_new), Modifier.padding(start = 6.dp))
-                }
-            }
-            TextButton(onClick = { if (naming) naming = false else onDismiss() }) {
-                Text(stringResource(R.string.cancel))
-            }
-        },
-    )
+        }
+    }
 }
 
 @Composable

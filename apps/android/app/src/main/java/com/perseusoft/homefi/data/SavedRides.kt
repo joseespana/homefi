@@ -88,6 +88,12 @@ class SavedRides(
         scope.launch { guarded { withContext(Dispatchers.IO) { store.setFavorite(id, favorite) } }; reload() }
     }
 
+    /** A swapped song: the saved ride keeps the new plan; nobody needs to be told when it fails. */
+    suspend fun replacePlan(id: String, plan: RidePlan, playlistId: String?) {
+        runCatching { withContext(Dispatchers.IO) { store.replacePlan(id, plan, playlistId) } }
+        reload()
+    }
+
     /** Counts a ride started from a saved one; nobody needs to be told when it fails. */
     suspend fun markRidden(id: String) {
         runCatching { withContext(Dispatchers.IO) { store.markRidden(id) } }

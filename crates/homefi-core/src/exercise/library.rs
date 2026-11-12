@@ -239,6 +239,17 @@ impl RideStore {
         self.update(id, |r| r.favorite = favorite)
     }
 
+    /// A swapped song changed the plan: the saved ride keeps the new one (and the playlist's id, when the swap
+    /// made one). Name, favorite and counters stay.
+    pub fn replace_plan(&self, id: &str, plan: &RidePlan, playlist_id: Option<String>) -> Result<SavedRide> {
+        self.update(id, |r| {
+            r.plan = plan.clone();
+            if playlist_id.is_some() {
+                r.playlist_id = playlist_id;
+            }
+        })
+    }
+
     /// Counts a ride and stamps it as the most recent.
     pub fn mark_ridden(&self, id: &str) -> Result<SavedRide> {
         self.update(id, |r| {
@@ -353,6 +364,24 @@ mod tests {
         let mut r = RideRequest { minutes: 30, style: PresetId::Classic, ..RideRequest::default() };
         r.wish.genres = vec!["Rock".into(), "Metal".into()];
         r
+    }
+
+    #[test]
+    fn a_swapped_plan_replaces_the_saved_one_and_keeps_the_rest() {
+        let (_tmp, store) = store();
+        let saved = store
+            .auto_save(&request(), &plan_with(&[("Old", "A", Some("1"), None)]), Some("p1".into()), Lang::En, 30)
+            .unwrap();
+        store.set_favorite(&saved.id, true).unwrap();
+        let swapped = plan_with(&[("New", "B", Some("2"), None)]);
+        let after = store.replace_plan(&saved.id, &swapped, None).unwrap();
+        assert_eq!(after.plan.songs[0].entry.title, "New");
+        assert_eq!((after.favorite, after.playlist_id.as_deref()), (true, Some("p1")), "nothing else changes");
+        assert_eq!(store.get(&saved.id).unwrap().plan, swapped, "and it is on disk");
+        assert_eq!(
+            store.replace_plan(&saved.id, &swapped, Some("p2".into())).unwrap().playlist_id.as_deref(),
+            Some("p2")
+        );
     }
 
     fn store() -> (tempfile::TempDir, RideStore) {

@@ -35,6 +35,37 @@ pub fn grade(seg: &Segment) -> f32 {
     }
 }
 
+/// A resistance step on the course ("one more turn" at `t_s` seconds into the ride): the renderers mark it
+/// on the ridge, whose elevation they read with [`elevation_at`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct HotPoint {
+    pub t_s: u32,
+    /// The effort from here on.
+    pub effort: u8,
+    /// 1-based level of the climb that starts here; the climb's own start is level 1, so the first hot point is 2.
+    pub level: u8,
+    /// Levels of the climb.
+    pub count: u8,
+}
+
+/// Every resistance step of the workout, in ride order. Pure: it reads the segments' steps.
+pub fn hot_points(workout: &Workout) -> Vec<HotPoint> {
+    let mut start_s = 0u32;
+    let mut out = Vec::new();
+    for seg in &workout.segments {
+        let count = (seg.steps.len() + 1).min(usize::from(u8::MAX)) as u8;
+        out.extend(seg.steps.iter().enumerate().map(|(k, step)| HotPoint {
+            t_s: start_s + step.at_s,
+            effort: step.effort.get(),
+            level: (k + 2).min(usize::from(u8::MAX)) as u8,
+            count,
+        }));
+        start_s += seg.seconds;
+    }
+    out
+}
+
 /// One point at the start and one at the end of every segment, elevations normalized to 0..=1
 /// (0.5 everywhere for a ride with no relief). Time never goes backwards.
 pub fn profile(workout: &Workout) -> Vec<ProfilePoint> {
@@ -141,5 +172,23 @@ mod tests {
         assert_eq!(elevation_at(&p, -5.0), 0.0);
         assert_eq!(elevation_at(&p, 500.0), 1.0);
         assert_eq!(elevation_at(&[], 3.0), 0.0);
+    }
+
+    #[test]
+    fn hot_points_sit_at_segment_start_plus_at_s() {
+        use crate::exercise::model::EffortStep;
+        let step = |at_s, effort| EffortStep { at_s, effort: Effort(effort) };
+        let w = Workout {
+            segments: vec![
+                seg(SegmentKind::WarmUp, 120, 3),
+                Segment { steps: vec![step(100, 7), step(200, 8)], ..seg(SegmentKind::SeatedClimb, 300, 6) },
+                Segment { steps: vec![step(60, 9)], ..seg(SegmentKind::StandingClimb, 120, 8) },
+            ],
+            ..Workout::default()
+        };
+        let points = hot_points(&w);
+        let got: Vec<(u32, u8, u8, u8)> = points.iter().map(|p| (p.t_s, p.effort, p.level, p.count)).collect();
+        assert_eq!(got, [(220, 7, 2, 3), (320, 8, 3, 3), (480, 9, 2, 2)]);
+        assert!(hot_points(&Workout::default()).is_empty());
     }
 }

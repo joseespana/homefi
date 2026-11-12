@@ -20,6 +20,7 @@ import com.perseusoft.homefi.core.FadeTrack
 import com.perseusoft.homefi.core.crossfadeFades
 import com.perseusoft.homefi.core.crossfadeGains
 import com.perseusoft.homefi.core.crossfadeSeconds
+import com.perseusoft.homefi.player.exercise.RideFader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -149,7 +150,7 @@ class Crossfader(
     private val scope: CoroutineScope,
     /** The session must now play deck [to] (it was [from]). */
     private val onSwap: (from: Int, to: Int) -> Unit,
-) {
+) : RideFader {
     private val _players = mutableListOf(firstDeck)
     /** One deck, or two once crossfade asked for the spare. */
     val players: List<ExoPlayer> get() = _players
@@ -172,7 +173,8 @@ class Crossfader(
     private var lagging = false
     private var lagFades = 0
 
-    private class Stage(val index: Int, val mediaId: String, val manual: Boolean, val queue: Int, val at: Long)
+    /** [ride]: staged for the ride's own fade (it fades when the ride says so, whatever the global crossfade setting). */
+    private class Stage(val index: Int, val mediaId: String, val manual: Boolean, val queue: Int, val at: Long, val ride: Boolean = false)
     private var stage: Stage? = null
     /** The song (media id) found not to fade: not asked again every tick. */
     private var noFadeFor: String? = null
@@ -184,6 +186,8 @@ class Crossfader(
         var lagged = false
     }
     private var fade: Fade? = null
+    /** The ride's fade (seconds, 0 = off) while a ride asks for it. */
+    private var rideFadeSeconds = 0f
 
     private fun listen(i: Int, p: ExoPlayer) {
         p.addListener(object : Player.Listener {
@@ -244,6 +248,11 @@ class Crossfader(
             return FAST_MS
         }
         val p = player
+        stage?.takeIf { it.ride }?.let { st ->
+            // the ride fades it in when its part ends; if the song moved on (or the queue changed) it is stale
+            if (p.currentMediaItemIndex + 1 == st.index && queueHash(p) == st.queue) return IDLE_MS
+            cancelStage()
+        }
         val item = p.currentMediaItem
         val slot = EqRuntime.decks[active]
         if (item == null || !enabled(s) || !p.isPlaying || p.repeatMode == Player.REPEAT_MODE_ONE) {
@@ -327,7 +336,7 @@ class Crossfader(
     }
 
     /** The other deck: the same queue, paused at [index], buffering. */
-    private fun stageAt(index: Int, manual: Boolean) {
+    private fun stageAt(index: Int, manual: Boolean, ride: Boolean = false) {
         val src = player
         val dst = players[spare]
         val items = (0 until src.mediaItemCount).map(src::getMediaItemAt)
@@ -345,7 +354,7 @@ class Crossfader(
         sound.inputFor(items[index], src.shuffleModeEnabled)?.let(slot::configure)
         dst.playWhenReady = false
         dst.prepare()
-        stage = Stage(index, items[index].mediaId, manual, queueHash(src), now())
+        stage = Stage(index, items[index].mediaId, manual, queueHash(src), now(), ride)
     }
 
     private fun cancelStage() {
@@ -361,7 +370,49 @@ class Crossfader(
     }
 
     private fun cancelAuto() {
-        if (stage?.manual == false) cancelStage()
+        if (stage?.let { !it.manual && !it.ride } == true) cancelStage()
+    }
+
+    override fun setRideFade(seconds: Float): Boolean {
+        rideFadeSeconds = if (seconds.isFinite()) seconds.coerceAtLeast(0f) else 0f
+        if (rideFadeSeconds <= 0f) {
+            if (stage?.ride == true) cancelStage()
+            return false
+        }
+        // a phone low on memory keeps one deck: every change is a cut
+        if (lowRam) return false
+        ensureSpare()
+        return hasSpare
+    }
+
+    override fun prepare(index: Int): Boolean {
+        if (rideFadeSeconds <= 0f || !hasSpare || fade != null) return false
+        val p = player
+        if (index !in 0 until p.mediaItemCount) return false
+        val target = p.getMediaItemAt(index)
+        // a Tidal song still downloading: ask again on the next tick
+        if (!streams.ready(target.mediaId)) return false
+        val st = stage
+        if (st != null) {
+            if (st.manual) return false
+            if (st.ride && st.index == index && st.mediaId == target.mediaId && st.queue == queueHash(p)) {
+                return players[spare].playbackState == Player.STATE_READY
+            }
+            cancelStage()
+        }
+        stageAt(index, manual = false, ride = true)
+        return false // buffering: ready on a later call
+    }
+
+    override fun fadeTo(index: Int, lengthMs: Long): Boolean {
+        if (fade != null || lengthMs < MIN_FADE_MS) return false
+        val st = stage?.takeIf { it.ride && it.index == index } ?: return false
+        val p = player
+        if (!p.isPlaying || index !in 0 until p.mediaItemCount) return false
+        if (p.getMediaItemAt(index).mediaId != st.mediaId || queueHash(p) != st.queue) return false
+        if (players[spare].playbackState != Player.STATE_READY) return false
+        startFade(lengthMs, manual = true)
+        return true
     }
 
     /** Next / previous / a pick while playing: a short fade when allowed (`false`: seek as usual). */

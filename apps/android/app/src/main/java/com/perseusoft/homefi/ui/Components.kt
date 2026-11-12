@@ -1,5 +1,7 @@
 package com.perseusoft.homefi.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.Image
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.animateColorAsState
@@ -11,8 +13,6 @@ import com.perseusoft.homefi.ui.theme.LocalMotion
 import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.getValue
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.Icons
@@ -175,25 +175,13 @@ fun ConfirmDialog(
     text: String? = null,
     extra: (@Composable () -> Unit)? = null,
 ) {
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = if (text == null && extra == null) null else {
-            {
-                androidx.compose.foundation.layout.Column {
-                    if (text != null) Text(text, style = MaterialTheme.typography.bodyMedium)
-                    extra?.invoke()
-                }
-            }
-        },
-        confirmButton = {
-            androidx.compose.material3.TextButton(onClick = { onDismiss(); onConfirm() }) {
-                Text(confirm, color = MaterialTheme.colorScheme.error)
-            }
-        },
-        dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-        },
+    HomefiDialog(
+        title = title,
+        text = text,
+        primary = DialogAction(confirm, danger = true) { onDismiss(); onConfirm() },
+        dismiss = stringResource(R.string.cancel),
+        onDismiss = onDismiss,
+        content = extra?.let { e -> { e() } },
     )
 }
 

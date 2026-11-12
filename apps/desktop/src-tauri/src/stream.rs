@@ -144,6 +144,79 @@ pub fn play(app: AppHandle, items: Vec<StreamItem>) {
     });
 }
 
+/// Replaces everything after the track being heard with `items` (it keeps playing), fetching from Tidal as
+/// the queue advances like [`play`]. The first [`AHEAD`] songs are fetched before anything changes, so a
+/// failure leaves the queue as it was (`Err`); `before_apply` then runs (the caller's own state follows the
+/// queue) and, when it answers `false`, nothing is replaced (`Ok(false)`). The rest is fetched by a task of
+/// its own, which an older feeder or a later `play` / `replace_upcoming` cancels (the stream generation).
+pub async fn replace_upcoming(
+    app: &AppHandle,
+    items: Vec<StreamItem>,
+    before_apply: impl FnOnce() -> bool,
+) -> Result<bool, String> {
+    let state = app.state::<AppState>();
+    let mut head = Vec::with_capacity(AHEAD);
+    let mut last_error = None;
+    let mut taken = 0;
+    while head.len() < AHEAD && taken < items.len() {
+        match resolve(app, &items[taken]).await {
+            Ok(path) => head.push(path),
+            Err(message) => {
+                tracing::warn!("queue {}: {message}", items[taken].id);
+                last_error = Some(message);
+            }
+        }
+        taken += 1;
+    }
+    if head.is_empty() {
+        return Err(last_error.unwrap_or_default());
+    }
+    if !before_apply() {
+        return Ok(false);
+    }
+    let generation = state.stream_generation.fetch_add(1, Ordering::SeqCst) + 1;
+    state.player.set_upcoming(head);
+    let tail: Vec<StreamItem> = items.into_iter().skip(taken).collect();
+    set_upcoming(app, &tail);
+    if !tail.is_empty() {
+        feed_tail(app.clone(), tail, generation);
+    }
+    Ok(true)
+}
+
+/// Appends `items` to the queue one by one, keeping [`AHEAD`] songs ahead of the one heard, until done or
+/// until another stream takes over (`generation` no longer current).
+fn feed_tail(app: AppHandle, items: Vec<StreamItem>, generation: u64) {
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        let alive = || state.stream_generation.load(Ordering::SeqCst) == generation;
+        let mut next = 0;
+        while next < items.len() && alive() {
+            let snapshot = state.player.snapshot();
+            let ahead = snapshot.queue.len().saturating_sub(snapshot.current.unwrap_or(0) + 1);
+            if ahead >= AHEAD {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                continue;
+            }
+            let item = &items[next];
+            match resolve(&app, item).await {
+                Ok(path) if alive() => state.player.append(vec![path]),
+                Ok(_) => return,
+                Err(_) if !alive() => return,
+                Err(message) => {
+                    tracing::warn!("stream {}: {message}", item.id);
+                    let _ = app.emit("stream", StreamEvent::Failed { title: item.title.clone(), message });
+                }
+            }
+            next += 1;
+            if alive() {
+                set_upcoming(&app, &items[next.min(items.len())..]);
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    });
+}
+
 /// Adds tracks to the queue without interrupting what plays: at the end, or
 /// right after the current track (`next`). Tidal tracks are fetched first, one
 /// by one in order; an empty queue starts playing.

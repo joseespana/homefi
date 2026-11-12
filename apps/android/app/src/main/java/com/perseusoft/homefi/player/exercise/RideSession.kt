@@ -7,6 +7,7 @@ import com.perseusoft.homefi.R
 import com.perseusoft.homefi.core.ExerciseRide
 import com.perseusoft.homefi.core.ExerciseSession
 import com.perseusoft.homefi.core.ExerciseSettings
+import com.perseusoft.homefi.core.HomePlaylist
 import com.perseusoft.homefi.core.ExerciseTurn
 import com.perseusoft.homefi.core.LibraryRef
 import com.perseusoft.homefi.core.MusicWish
@@ -37,7 +38,8 @@ import com.perseusoft.homefi.data.userMessage
 import com.perseusoft.homefi.share.RideHubTerms
 import com.perseusoft.homefi.share.net.ShareNetworkMode
 import com.perseusoft.homefi.ui.eq.ChatLine
-import com.perseusoft.homefi.ui.playlists.PlaylistQueue
+import com.perseusoft.homefi.player.withSource
+import com.perseusoft.homefi.ui.playlists.entryMediaItem
 import com.perseusoft.homefi.ui.playlists.languageTag
 import com.perseusoft.homefi.ui.playlists.queue
 import com.perseusoft.homefi.ui.playlists.source
@@ -172,16 +174,39 @@ class RideSession(private val app: HomefiApplication) {
     private val _notice = MutableStateFlow<Int?>(null)
     val notice: StateFlow<Int?> = _notice.asStateFlow()
 
+    private val _swapping = MutableStateFlow<Int?>(null)
+    /** The segment (song index of the plan) being swapped for another song, or null when idle. */
+    val swapping: StateFlow<Int?> = _swapping.asStateFlow()
+
+    private val _calibrating = MutableStateFlow(false)
+    /** The bike calibration's clicks are sounding. */
+    val calibrating: StateFlow<Boolean> = _calibrating.asStateFlow()
+
     private val tvHost = MutableStateFlow<RideTvHost?>(null)
+    private var fader: RideFader? = null
     private val cues by lazy { RideCues(app, scope).also(RideCues::prepare) }
 
     private var buildJob: Job? = null
     private var loop: Job? = null
     private var ride: ExerciseRide? = null
-    private var queue: PlaylistQueue? = null
+    /** For each queue item, the plan's song it plays (an entry that can't play has no item). Fixed for the ride: a swap replaces in place. */
+    private var itemToSong: IntArray = IntArray(0)
     /** The ride's songs as queued, to notice when the rider put on something else. */
-    private var rideMediaIds: List<String> = emptyList()
+    private val rideMediaIds = ArrayList<String>()
+    /** Items just replaced under the playing song: the player still reports the old media id for a moment. */
+    private val retiredMediaIds = HashMap<Int, String>()
     private var plan: RidePlan? = null
+    /** The playlist being ridden (a swap changes one entry of it). */
+    private var ridePlaylist: HomePlaylist? = null
+    /** What the ride was built from: the core finds its memory of found songs with it. */
+    private var rideRequest: RideRequest? = null
+    /** The "My rides" entry this ride came from (a swap keeps it up to date). */
+    private var ridingSavedId: String? = null
+    private var swapJob: Job? = null
+    /** The ride's fade between songs, in seconds; 0 when off or the phone can't (one deck). */
+    private var fadeSeconds = 0f
+    /** The queue item whose next song was already buffered for the fade: one per item. */
+    private var preparedItem = NO_ITEM
     private var chatSession: ExerciseSession? = null
     private var nextLineId = 0
     private var ownsHub = false
@@ -219,6 +244,15 @@ class RideSession(private val app: HomefiApplication) {
 
     fun detachTv(host: RideTvHost) {
         if (tvHost.value === host) tvHost.value = null
+    }
+
+    /** The playback service hands over its crossfader while it lives (the ride's fade between songs). */
+    fun attachFader(fader: RideFader) {
+        this.fader = fader
+    }
+
+    fun detachFader(fader: RideFader) {
+        if (this.fader === fader) this.fader = null
     }
 
     /** Shows the ride (or its summary) over the app; the ride keeps going when it is hidden again. */
@@ -421,13 +455,22 @@ class RideSession(private val app: HomefiApplication) {
                 return@launch
             }
             withContext(Dispatchers.IO) { app.playlists.save(built.playlist) }
-            (_ui.value as? RideUi.Preview)?.saved?.let { app.rides.markRidden(it.id) }
+            ridingSavedId = (_ui.value as? RideUi.Preview)?.saved?.id
+            ridingSavedId?.let { app.rides.markRidden(it) }
             if (items.items.size < built.plan.songs.size) _notice.value = R.string.ex_some_skipped
             stopTv()
             plan = built.plan
-            queue = items
-            rideMediaIds = items.items.map { it.mediaId }
-            ride = ExerciseRide(built.plan)
+            ridePlaylist = built.playlist
+            rideRequest = _form.value.toRequest(settings.taste)
+            itemToSong = IntArray(items.items.size) { items.entryOfItem(it) ?: it }
+            rideMediaIds.clear()
+            items.items.mapTo(rideMediaIds) { it.mediaId }
+            retiredMediaIds.clear()
+            swapJob?.cancel()
+            _swapping.value = null
+            ride = ExerciseRide(built.plan, settings.bike)
+            fadeSeconds = settings.crossfadeSeconds.takeIf { fader?.setRideFade(it) == true } ?: 0f
+            preparedItem = NO_ITEM
             cues.reset()
             lastClick = NO_CLICK
             skippedItem = NO_ITEM
@@ -476,6 +519,10 @@ class RideSession(private val app: HomefiApplication) {
     private fun finish(plan: RidePlan, elapsedS: Int, completed: Boolean) {
         loop?.cancel()
         loop = null
+        swapJob?.cancel()
+        _swapping.value = null
+        fader?.setRideFade(0f)
+        fadeSeconds = 0f
         cues.hold()
         _frame.value = null
         _ui.value = RideUi.Finished(plan, elapsedS, completed)
@@ -499,11 +546,15 @@ class RideSession(private val app: HomefiApplication) {
         val plan = plan ?: return
         val itemIndex = player.currentMediaItemIndex.coerceAtLeast(0)
         // the rider started other music: the ride is over (the music is left alone)
-        if (player.currentMediaItem?.mediaId != rideMediaIds.getOrNull(itemIndex)) {
+        val mediaId = player.currentMediaItem?.mediaId
+        if (mediaId != rideMediaIds.getOrNull(itemIndex)) {
+            // a song was just swapped in under the player: wait for it to show up (the old one is not the ride's clock)
+            if (mediaId != null && mediaId == retiredMediaIds[itemIndex]) return
             finish(plan, _frame.value?.view?.elapsedS?.toInt() ?: 0, completed = false)
             return
         }
-        val songIndex = queue?.entryOfItem(itemIndex) ?: itemIndex
+        retiredMediaIds.remove(itemIndex)
+        val songIndex = itemToSong.getOrNull(itemIndex) ?: itemIndex
         val positionMs = player.currentPosition.coerceAtLeast(0)
         val now = SystemClock.elapsedRealtime()
         val playing = player.isPlaying
@@ -517,18 +568,32 @@ class RideSession(private val app: HomefiApplication) {
         if (s.metronomeClick && playing) clickOnStroke(view, songIndex, s)
         syncTvLyrics(songIndex, itemIndex)
         if (++ticks % TV_PUBLISH_EVERY == 0) tvHost.value?.publish(ride, songIndex, positionMs, now, playing)
+        if (fadeSeconds > 0f && playing && preparedItem != itemIndex && itemIndex < rideMediaIds.lastIndex &&
+            view.remainingS.toLong() * 1000 <= RIDE_FADE_PREPARE_MS
+        ) {
+            // the next song buffers on the second deck a few seconds before the change; true once it is ready
+            if (fader?.prepare(itemIndex + 1) == true) preparedItem = itemIndex
+        }
         if (view.finished) {
             finish(plan, view.totalS.toInt(), completed = true)
         } else if (view.skipToNext && skippedItem != itemIndex) {
             // the song is longer than its part: move on at the planned time, once per song
             skippedItem = itemIndex
             if (itemIndex < rideMediaIds.lastIndex) {
-                app.player.next()
+                advance(player, itemIndex, positionMs, plan.songs.getOrNull(songIndex))
             } else {
                 app.player.pause()
                 finish(plan, view.totalS.toInt(), completed = true)
             }
         }
+    }
+
+    /** The part is over: the next song fades in over the ride's fade when it is ready, else the cut. */
+    private fun advance(player: Player, itemIndex: Int, positionMs: Long, song: PlannedSong?) {
+        val durationMs = player.duration.takeIf { it > 0 } ?: song?.entry?.durationMs?.toLong() ?: 0L
+        val fadeMs = rideFadeMs(fadeSeconds, durationMs, positionMs)
+        if (fadeMs > 0 && fader?.fadeTo(itemIndex + 1, fadeMs) == true) return
+        app.player.next()
     }
 
     /** One click per pedal stroke, scheduled just ahead so it lands on the beat the pulse draws. */
@@ -544,6 +609,129 @@ class RideSession(private val app: HomefiApplication) {
             lastClick = key
             cues.click(inMs.toLong(), s.cueVolume * CLICK_GAIN)
         }
+    }
+
+    // --------------------------------------------------------------- swap
+
+    /**
+     * Puts another song in segment [segmentIndex] (the plan's song index). On the preview it replaces the song in
+     * the plan. While riding, a song still to come is replaced in the queue; the song playing now ([current]) is
+     * replaced by a clean cut (the new one starts at its beginning, the part's clock goes on). A song that is
+     * already behind, or a ride that moved on while the search ran, is left alone. Progress is [swapping]; a
+     * failure ("no other song", the setting off) goes to the notes in plain words and the plan stays as it was.
+     */
+    fun swapSong(segmentIndex: Int, current: Boolean) {
+        if (_swapping.value != null) return
+        val shown = _ui.value
+        val riding = shown is RideUi.Riding
+        if (!riding && shown !is RideUi.Preview) return
+        swapJob = scope.launch {
+            _swapping.value = segmentIndex
+            try {
+                if (shown is RideUi.Preview) swapInPreview(shown, segmentIndex) else swapWhileRiding(segmentIndex, current)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                app.notes.post(e.userMessage())
+            } finally {
+                _swapping.value = null
+            }
+        }
+    }
+
+    private suspend fun swapInPreview(preview: RideUi.Preview, segmentIndex: Int) {
+        val request = _form.value.toRequest(settings.taste)
+        val swapped = runSwap(request, preview.built, segmentIndex, atSegmentMs = 0L)
+        // the plan on screen may have been replaced (a rebuild, back to the setup) while the song was searched
+        _ui.update { if (it is RideUi.Preview && it.built === preview.built) it.copy(built = swapped) else it }
+        preview.saved?.let { app.rides.replacePlan(it.id, swapped.plan, null) }
+    }
+
+    private suspend fun swapWhileRiding(segmentIndex: Int, current: Boolean) {
+        val playlist = ridePlaylist ?: return
+        val request = rideRequest ?: return
+        val ridden = plan ?: return
+        val song = ridden.songs.getOrNull(segmentIndex) ?: return
+        val player = app.player.player ?: return
+        val itemIndex = itemToSong.indexOf(segmentIndex)
+        val playing = player.currentMediaItemIndex
+        if (itemIndex < 0) {
+            app.notes.post(app.getString(R.string.ex_no_playable))
+            return
+        }
+        // the screen's "current song" is the player's truth: a tap on a song already gone by does nothing
+        val live = itemIndex == playing
+        if (itemIndex < playing || (current && !live)) return
+        val startedAtMs = song.atSegmentMs.toLong() + if (live) player.currentPosition.coerceAtLeast(0) else 0L
+        val swapped = runSwap(request, RideBuilt(ridden, playlist), segmentIndex, atSegmentMs = if (live) startedAtMs else 0L)
+
+        // time went by while the song was searched: the ride may have moved on, and the part's clock moved with it
+        val now = app.player.player ?: return
+        val nowPlaying = now.currentMediaItemIndex
+        if (plan !== ridden || (live && nowPlaying != itemIndex) || (!live && nowPlaying >= itemIndex)) return
+        val entry = swapped.plan.songs.getOrNull(segmentIndex)?.entry ?: return
+        val mediaItem = entryMediaItem(entry, app.library::find)?.withSource(swapped.playlist.source())
+        if (mediaItem == null) {
+            app.notes.post(app.getString(R.string.ex_no_playable))
+            return
+        }
+        val newPlan = if (live) withLiveClock(swapped.plan, segmentIndex, song.atSegmentMs.toLong() + now.currentPosition.coerceAtLeast(0) - startedAtMs) else swapped.plan
+        commitSwap(newPlan, swapped.playlist, itemIndex, live)
+        now.replaceMediaItem(itemIndex, mediaItem)
+        withContext(Dispatchers.IO) { app.playlists.save(swapped.playlist) }
+        ridingSavedId?.let { app.rides.replacePlan(it, newPlan, swapped.playlist.id) }
+    }
+
+    /** Core call off the main thread's way: the AI only when the setting lets the swap ask it. */
+    private suspend fun runSwap(request: RideRequest, built: RideBuilt, segmentIndex: Int, atSegmentMs: Long): RideBuilt {
+        val s = settings
+        val ready = if (s.swapUsesAi) withContext(Dispatchers.IO) { app.ai.ready() } else null
+        return app.engine.exerciseSwap(
+            request, built, segmentIndex.toUInt(), atSegmentMs.toULong(), s, ready?.config, ready?.key, languageTag(), libraryRefs(), listener,
+        )
+    }
+
+    /** The song swapped in after [lateMs] of searching: its clock starts later and its cut comes that much sooner. */
+    private fun withLiveClock(newPlan: RidePlan, segmentIndex: Int, lateMs: Long): RidePlan {
+        if (lateMs <= 0) return newPlan
+        val songs = newPlan.songs.toMutableList()
+        val song = songs[segmentIndex]
+        songs[segmentIndex] = song.copy(
+            atSegmentMs = song.atSegmentMs + lateMs.toULong(),
+            playMs = song.playMs?.let { (it.toLong() - lateMs).coerceAtLeast(MIN_CUT_MS).toULong() },
+        )
+        return newPlan.copy(songs = songs)
+    }
+
+    /** The ride goes on with the new plan: same queue slot, a ride object for the new plan, the clock and the fade start over for that song. */
+    private fun commitSwap(newPlan: RidePlan, playlist: HomePlaylist, itemIndex: Int, live: Boolean) {
+        val old = rideMediaIds.getOrNull(itemIndex)
+        val entry = newPlan.songs.getOrNull(itemToSong.getOrNull(itemIndex) ?: itemIndex)?.entry
+        plan = newPlan
+        ridePlaylist = playlist
+        ride = ExerciseRide(newPlan, settings.bike)
+        _ui.update { if (it is RideUi.Riding) RideUi.Riding(newPlan) else it }
+        preparedItem = NO_ITEM
+        val newId = entryMediaItem(entry ?: return, app.library::find)?.mediaId ?: return
+        rideMediaIds[itemIndex] = newId
+        if (live) {
+            if (old != null && old != newId) retiredMediaIds[itemIndex] = old
+            skippedItem = NO_ITEM
+            lyricsSig = null
+        }
+    }
+
+    // --------------------------------------------------------- bike calibration
+
+    /** The calibration's metronome: a click every turn at [rpm] (80 RPM = 750 ms) for [seconds], at the cue volume. */
+    fun playClickTrain(seconds: Int, rpm: Int) {
+        _calibrating.value = true
+        cues.playClickTrain(seconds, rpm, settings.cueVolume) { _calibrating.value = false }
+    }
+
+    fun stopClickTrain() {
+        cues.stopClickTrain()
+        _calibrating.value = false
     }
 
     // ----------------------------------------------------------------- TV
@@ -618,6 +806,8 @@ class RideSession(private val app: HomefiApplication) {
                 pulseStyle = s.pulseStyle,
                 courseLook = s.courseLook,
                 courseSummits = s.courseSummits,
+                hotPoints = ride?.hotPoints().orEmpty(),
+                courseRider = s.courseRider,
             ),
         )
         _tv.value = RideTvStatus(url = url.getOrNull(), audioOnTv = listen != null, waitingForTv = listen != null)
@@ -678,6 +868,8 @@ class RideSession(private val app: HomefiApplication) {
         const val JOIN_POLL_MS = 250L
         const val NO_CLICK = -1L
         const val NO_ITEM = -1
+        /** A song swapped in late still plays at least this long before its cut. */
+        const val MIN_CUT_MS = 1_000L
         const val CLICK_SONG_STRIDE = 1_000_000L
         /** The click is softer than the cues so it stays under the music. */
         const val CLICK_GAIN = 0.6f

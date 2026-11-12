@@ -19,7 +19,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use homefi_core::dj::{analyze_file, AnalysisCache, DjAnalysis};
 use homefi_core::exercise::tv::{ride_hub_config, ride_token, RideListen, TvConfig, TvLyrics, TvSession};
@@ -110,6 +110,13 @@ struct RideState {
     tv_by_ride: bool,
     /// Something the rider should know ("you are sharing...").
     notice: Option<String>,
+    /// The request the plan was built from (a swap needs it to find the build's memory).
+    request: Option<RideRequest>,
+    /// A song swap is running (one at a time).
+    swapping: bool,
+    /// When the queue was last replaced by a swap: for a moment the player may still report the song that
+    /// left, which must not read as "the rider left the ride".
+    swapped_at: Option<Instant>,
 }
 
 impl RideState {
@@ -148,6 +155,7 @@ impl RideState {
             run: self.run,
             built: self.built.take(),
             saved_id: self.saved_id.take(),
+            request: self.request.take(),
             plan: Some(plan),
             stage: Stage::Riding,
             ..Self::default()
@@ -158,7 +166,13 @@ impl RideState {
     /// Ends the ride (finished or not): back to `idle`, keeping the last build to start again.
     fn stop(&mut self) {
         self.run += 1;
-        *self = Self { run: self.run, built: self.built.take(), saved_id: self.saved_id.take(), ..Self::default() };
+        *self = Self {
+            run: self.run,
+            built: self.built.take(),
+            saved_id: self.saved_id.take(),
+            request: self.request.take(),
+            ..Self::default()
+        };
         if self.built.is_some() {
             self.stage = Stage::Ready;
         }
@@ -432,12 +446,49 @@ pub async fn exercise_build(
     {
         let mut ride = lock(&exercise.ride);
         match &result {
-            Ok(built) => ride.build_done(built.clone(), saved.as_ref().map(|s| s.id.clone())),
+            Ok(built) => {
+                ride.build_done(built.clone(), saved.as_ref().map(|s| s.id.clone()));
+                ride.request = Some(request.clone());
+            }
             Err(_) => ride.build_failed(),
         }
     }
     emit_state(&app);
     result.map(|b| RideBuiltView { plan: b.plan, playlist: b.playlist, saved })
+}
+
+/// What a build or a swap needs from the app, owned so a [`BuildContext`] can borrow it while they run.
+struct BuildEnv {
+    settings: ex::ExerciseSettings,
+    api: Option<homefi_core::api::TidalApi>,
+    library: LibraryIndex,
+    ai: Option<homefi_core::ai::AiConfig>,
+    analyzer: DesktopAnalyzer,
+}
+
+impl BuildEnv {
+    async fn new(app: &AppHandle) -> CmdResult<Self> {
+        let state = app.state::<AppState>();
+        let settings = state.settings();
+        let api = state.api().ok();
+        let refs = library_refs(&lock(&state.library));
+        let library = tauri::async_runtime::spawn_blocking(move || LibraryIndex::new(refs)).await.map_err(err)?;
+        let ai = crate::ai::settings_config(app).await;
+        let analyzer =
+            DesktopAnalyzer { stream_cache: crate::stream::cache_dir(&state), memory_mb: settings.dj.memory_mb };
+        Ok(Self { settings: settings.exercise, api, library, ai, analyzer })
+    }
+
+    fn context(&self, lang: Lang) -> BuildContext<'_> {
+        BuildContext {
+            settings: &self.settings,
+            ai: self.ai.as_ref(),
+            api: self.api.as_ref(),
+            library: &self.library,
+            analyzer: Some(&self.analyzer),
+            lang,
+        }
+    }
 }
 
 async fn run_build(
@@ -447,21 +498,8 @@ async fn run_build(
     on_progress: Channel<RideProgress>,
     cancel: tokio::sync::watch::Receiver<bool>,
 ) -> CmdResult<RideBuilt> {
-    let state = app.state::<AppState>();
-    let settings = state.settings();
-    let api = state.api().ok();
-    let refs = library_refs(&lock(&state.library));
-    let library = tauri::async_runtime::spawn_blocking(move || LibraryIndex::new(refs)).await.map_err(err)?;
-    let ai = crate::ai::settings_config(app).await;
-    let analyzer = DesktopAnalyzer { stream_cache: crate::stream::cache_dir(&state), memory_mb: settings.dj.memory_mb };
-    let ctx = BuildContext {
-        settings: &settings.exercise,
-        ai: ai.as_ref(),
-        api: api.as_ref(),
-        library: &library,
-        analyzer: Some(&analyzer),
-        lang: Lang::from_code(language),
-    };
+    let env = BuildEnv::new(app).await?;
+    let ctx = env.context(Lang::from_code(language));
     let progress = move |p: RideProgress| {
         let _ = on_progress.send(p);
     };
@@ -567,11 +605,16 @@ pub async fn exercise_ride_load(app: AppHandle, id: String) -> CmdResult<RideLoa
     let ride = with_store(&app, move |store| store.get(&id)).await.map_err(|_| ride_not_found())?;
     let playlist = playlist_of(&ride.plan, ride.playlist_id.clone());
     let built = RideBuilt { plan: ride.plan.clone(), playlist: playlist.clone() };
-    if !lock(&app.state::<Exercise>().ride).load(built, ride.id.clone()) {
-        return Err(match humane::language() {
-            Lang::Es => "Termina el recorrido en curso antes de cargar otro.".into(),
-            Lang::En => "Finish the ride in progress before loading another.".into(),
-        });
+    {
+        let exercise = app.state::<Exercise>();
+        let mut state = lock(&exercise.ride);
+        if !state.load(built, ride.id.clone()) {
+            return Err(match humane::language() {
+                Lang::Es => "Termina el recorrido en curso antes de cargar otro.".into(),
+                Lang::En => "Finish the ride in progress before loading another.".into(),
+            });
+        }
+        state.request = Some(ride.request.clone());
     }
     emit_state(&app);
     Ok(RideLoaded { request: ride.request.clone(), plan: ride.plan.clone(), playlist, saved: ride.summary() })
@@ -675,10 +718,16 @@ fn playlist_of(plan: &RidePlan, id: Option<String>) -> HomePlaylist {
 /// A local file that is gone (a saved ride from another day or computer) plays from TIDAL when the
 /// song has an id, otherwise it is skipped: the ride goes on with the rest.
 fn stream_items(playlist: &HomePlaylist) -> Vec<StreamItem> {
+    stream_items_from(playlist, 0)
+}
+
+/// [`stream_items`] of the entries from `from` on (what is left of the ride).
+fn stream_items_from(playlist: &HomePlaylist, from: usize) -> Vec<StreamItem> {
     let source = playlist.source_context();
     playlist
         .entries
         .iter()
+        .skip(from)
         .filter_map(|e| {
             let local = e.local_path.as_ref().filter(|p| Path::new(p.as_str()).is_file()).cloned();
             if local.is_none() && e.tidal_id.is_none() {
@@ -783,6 +832,7 @@ pub async fn exercise_start(app: AppHandle, plan: RidePlan) -> CmdResult<Exercis
         lock(&exercise.ride).notice = Some(notice);
     }
     play(&app, items);
+    set_ride_fade(&app, true);
     emit_state(&app);
     if let Some(id) = ridden_id {
         mark_ridden(&app, id);
@@ -826,6 +876,13 @@ fn play(app: &AppHandle, items: Vec<StreamItem>) {
     crate::stream::play(app.clone(), items);
 }
 
+/// The fade between the ride's songs (`crossfade_seconds`; 0 keeps the cut) on, or off at the ride's end.
+fn set_ride_fade(app: &AppHandle, on: bool) {
+    let state = app.state::<AppState>();
+    let seconds = lock(&state.settings).exercise.clamped().crossfade_seconds;
+    state.player.set_ride_fade(Some(seconds).filter(|s| on && *s > 0.0));
+}
+
 fn set_notice(app: &AppHandle, run: u64, text: String) {
     let exercise = app.state::<Exercise>();
     let mut ride = lock(&exercise.ride);
@@ -857,6 +914,7 @@ async fn end_ride(app: &AppHandle) {
         let state = app.state::<AppState>();
         state.stream_generation.fetch_add(1, Ordering::SeqCst);
         crate::stream::clear_upcoming(app);
+        state.player.set_ride_fade(None);
         state.player.stop();
     }
     if had_hub {
@@ -872,6 +930,19 @@ async fn end_ride(app: &AppHandle) {
 
 // ------------------------------------------------------------------ the player's tick
 
+/// How long after a swap replaced the queue a song that is not in the plan is not taken as "left the ride".
+const SWAP_GRACE: Duration = Duration::from_secs(3);
+
+/// Where the incoming song is while a fade runs: the player's position once it reports the incoming song as
+/// the one heard, before that how far into the fade we are (the new song starts at its 0).
+fn fade_position_ms(fading: &homefi_player::Fading, heard: Option<&PathBuf>, position_ms: u64) -> u64 {
+    if heard == Some(&fading.to) {
+        position_ms
+    } else {
+        (fading.progress.clamp(0.0, 1.0) * fading.seconds.max(0.0) * 1000.0) as u64
+    }
+}
+
 /// Every player snapshot (from `main.rs`, on the blocking pool): while riding, the ride's view at
 /// the player's own song and position goes to the screen and to the TV.
 pub fn on_player(app: &AppHandle, snapshot: &Snapshot) {
@@ -879,7 +950,12 @@ pub fn on_player(app: &AppHandle, snapshot: &Snapshot) {
     let stream_cache = crate::stream::cache_dir(&app.state::<AppState>());
     let upcoming_empty = app.state::<AppState>().upcoming.lock().map(|u| u.is_empty()).unwrap_or(true);
     let playing = snapshot.status == Status::Playing;
-    let current = snapshot.current.and_then(|i| snapshot.queue.get(i));
+    let heard = snapshot.current.and_then(|i| snapshot.queue.get(i));
+    // while a crossfade runs the ride is already in the incoming part (the player's own index changes mid-fade)
+    let fading = snapshot.fading.as_ref();
+    let current = fading.map(|f| &f.to).or(heard);
+    let position_ms = fading.map_or(snapshot.position_ms, |f| fade_position_ms(f, heard, snapshot.position_ms));
+    let bike = lock(&app.state::<AppState>().settings).exercise.bike;
     let now = now_ms();
     let (want_lyrics, lyrics_offset_ms) = tv_lyrics_wanted(app);
 
@@ -895,7 +971,8 @@ pub fn on_player(app: &AppHandle, snapshot: &Snapshot) {
                 r.seen_first = true;
                 r.seen_last |= i + 1 == plan.songs.len();
                 r.last_index = i;
-                let view = RideClock::view(&plan, i, snapshot.position_ms, now);
+                r.swapped_at = None;
+                let view = RideClock::view_on(&plan, &bike, i, position_ms, now);
                 // a song longer than its part is cut there: the player moves on, once per song
                 let skip = view.skip_to_next && r.skip_requested_for != Some(i);
                 if skip {
@@ -914,11 +991,13 @@ pub fn on_player(app: &AppHandle, snapshot: &Snapshot) {
                 && (current.is_none() || snapshot.status == Status::Stopped)
                 && (r.seen_last || upcoming_empty) =>
             {
-                let view = RideClock::view(&plan, plan.songs.len(), 0, now);
+                let view = RideClock::view_on(&plan, &bike, plan.songs.len(), 0, now);
                 r.stage = Stage::Finished;
                 r.last = Some((view.clone(), false));
                 (Stage::Finished, view, false, None)
             }
+            // a swap just replaced the queue: the song that left may still be heard for a moment
+            None if r.swapped_at.is_some_and(|at| at.elapsed() < SWAP_GRACE) => return,
             // something else plays: the rider left the ride
             None if r.seen_first => {
                 drop(r);
@@ -935,7 +1014,7 @@ pub fn on_player(app: &AppHandle, snapshot: &Snapshot) {
     };
     if skip {
         // the last song's cut empties the queue; the next tick then finishes the ride
-        app.state::<AppState>().player.next();
+        app.state::<AppState>().player.next_fade();
     }
     if let Some((run, index, entry)) = lyrics_job {
         let duration_ms = snapshot.duration_ms.unwrap_or(entry.duration_ms);
@@ -1122,10 +1201,11 @@ async fn tv_for_ride(app: &AppHandle, run: u64, sharing: bool) {
         let Some(plan) = r.plan.clone().filter(|_| r.run == run) else { return };
         (plan, app.state::<AppState>().settings().exercise.tv_audio == TvAudio::Tv)
     };
-    let (pulse_style, course_look, course_summits) = {
+    let (pulse_style, course_look, course_summits, course_rider) = {
         let s = app.state::<AppState>().settings().exercise;
-        (s.pulse_style, s.course_look, s.course_summits)
+        (s.pulse_style, s.course_look, s.course_summits, s.course_rider)
     };
+    let hot_points = ex::hot_points(&plan.workout);
     let session = |audio: TvAudio, listen: Option<RideListen>| TvSession {
         title: plan.workout.name.clone(),
         profile: plan.profile.clone(),
@@ -1135,6 +1215,8 @@ async fn tv_for_ride(app: &AppHandle, run: u64, sharing: bool) {
         pulse_style,
         course_look,
         course_summits,
+        hot_points: hot_points.clone(),
+        course_rider,
     };
     let begin = |audio: TvAudio, listen: Option<RideListen>| {
         if let Some(tv) = lock(&exercise.tv).as_ref() {
@@ -1282,6 +1364,229 @@ fn pick_monitor(app: &AppHandle, name: Option<&str>) -> Option<tauri::Monitor> {
         .or_else(|| app.primary_monitor().ok().flatten())
 }
 
+// ------------------------------------------------------------------ bike and map helpers
+
+/// The resistance steps of `workout` as spots on the mountain.
+#[tauri::command]
+pub fn exercise_hot_points(workout: ex::Workout) -> Vec<ex::HotPoint> {
+    ex::hot_points(&workout)
+}
+
+/// The target of an RPM range in the bike's unit (RPM until the speed is calibrated).
+#[tauri::command]
+pub fn exercise_shown_target(bike: ex::BikeProfile, min_rpm: u16, max_rpm: u16) -> ex::ShownTarget {
+    bike.clamped().target(ex::RpmRange::new(min_rpm, max_rpm))
+}
+
+/// km/h per RPM from what the console showed while the rider pedaled `rpm`; `None` when it can't be right.
+#[tauri::command]
+pub fn exercise_calibrate(console: ex::ConsoleUnit, rpm: u16, speed: f32) -> Option<f32> {
+    ex::BikeProfile::calibrate(console, rpm, speed)
+}
+
+// ------------------------------------------------------------------ swap
+
+fn swap_busy_text() -> String {
+    match humane::language() {
+        Lang::Es => "Ya estoy cambiando una canción.".into(),
+        Lang::En => "A song is already being swapped.".into(),
+    }
+}
+
+fn swap_no_ride_text() -> String {
+    match humane::language() {
+        Lang::Es => "No hay un recorrido para cambiar.".into(),
+        Lang::En => "There is no ride to change.".into(),
+    }
+}
+
+fn swap_played_text() -> String {
+    match humane::language() {
+        Lang::Es => "Esa canción ya sonó.".into(),
+        Lang::En => "That song already played.".into(),
+    }
+}
+
+fn swap_moved_on_text() -> String {
+    match humane::language() {
+        Lang::Es => "El recorrido siguió mientras buscaba: prueba otra vez.".into(),
+        Lang::En => "The ride moved on while searching: try again.".into(),
+    }
+}
+
+/// What a swap starts from, read at once under the lock.
+struct SwapBase {
+    built: RideBuilt,
+    request: RideRequest,
+    saved_id: Option<String>,
+    /// While riding: the run and the plan index of the song heard.
+    riding: Option<(u64, usize)>,
+}
+
+/// Clears `swapping` on every way out of a swap.
+struct SwapGuard<'a>(&'a Mutex<RideState>);
+
+impl Drop for SwapGuard<'_> {
+    fn drop(&mut self) {
+        lock(self.0).swapping = false;
+    }
+}
+
+/// Another song for the part `segment_index` (an index of `plan.songs`) of the ready or the running ride.
+/// `at_segment_ms` is how far into the part the rider is (current song, while riding); `None` otherwise.
+/// A future song (or one in the preview) only changes the plan and what is queued after the song heard; the
+/// current one is replaced by a clean cut to the new song, which starts from its beginning while the part's
+/// clock goes on. The playlist and the saved ride are updated too.
+#[tauri::command]
+pub async fn exercise_swap(
+    app: AppHandle,
+    segment_index: usize,
+    at_segment_ms: Option<u64>,
+) -> CmdResult<RideBuiltView> {
+    let exercise = app.state::<Exercise>();
+    let base = {
+        let mut r = lock(&exercise.ride);
+        if r.swapping {
+            return Err(swap_busy_text());
+        }
+        let base = swap_base(&r).ok_or_else(swap_no_ride_text)?;
+        if segment_index >= base.built.plan.songs.len() {
+            return Err(swap_no_ride_text());
+        }
+        if base.riding.is_some_and(|(_, current)| segment_index < current) {
+            return Err(swap_played_text());
+        }
+        r.swapping = true;
+        base
+    };
+    let _guard = SwapGuard(&exercise.ride);
+    let started = Instant::now();
+    let current = base.riding.map(|(_, current)| current).filter(|current| *current == segment_index);
+    let at_ms = current.and(at_segment_ms).unwrap_or(0);
+
+    let env = BuildEnv::new(&app).await?;
+    let ctx = env.context(humane::language());
+    let memory = lock(&exercise.memory).clone();
+    let req = ex::SwapRequest { built: &base.built, segment_index, at_segment_ms: at_ms };
+    let (swapped, memory) = ex::swap_song(&req, &base.request, &ctx, &|_| {}, memory).await.map_err(err)?;
+    *lock(&exercise.memory) = Some(memory);
+    let mut built = swapped.built;
+    if current.is_some() {
+        // the search took its time and the rider kept pedaling: the new song's clock catches up with it
+        let elapsed_ms = started.elapsed().as_millis() as u64;
+        if let Some(song) = built.plan.songs.get_mut(segment_index) {
+            song.at_segment_ms += elapsed_ms;
+            song.play_ms = song.play_ms.map(|ms| ms.saturating_sub(elapsed_ms).max(1));
+        }
+    }
+
+    match base.riding {
+        Some((run, heard)) => swap_in_queue(&app, &built, run, heard, current.is_some(), segment_index).await?,
+        None => {
+            let mut r = lock(&exercise.ride);
+            let same =
+                r.stage == Stage::Ready && r.built.as_ref().is_some_and(|b| b.plan.workout.id == built.plan.workout.id);
+            if !same {
+                return Err(swap_moved_on_text());
+            }
+            r.built = Some(built.clone());
+        }
+    }
+
+    // the plan is settled: the playlist and the saved ride follow (a failed write never fails the ride)
+    let saved = save_swapped(&app, &built, base.saved_id).await;
+    emit_state(&app);
+    Ok(RideBuiltView { plan: built.plan, playlist: built.playlist, saved })
+}
+
+/// The ready or the running ride as a swap starts from it; `None` when there is neither.
+fn swap_base(r: &RideState) -> Option<SwapBase> {
+    let request = r.request.clone().unwrap_or_default();
+    match r.stage {
+        Stage::Ready => Some(SwapBase { built: r.built.clone()?, request, saved_id: r.saved_id.clone(), riding: None }),
+        Stage::Riding => {
+            let plan = r.plan.as_deref()?;
+            let playlist = playlist_for(plan, r.built.as_ref());
+            Some(SwapBase {
+                built: RideBuilt { plan: plan.clone(), playlist },
+                request,
+                saved_id: r.saved_id.clone(),
+                riding: Some((r.run, r.last_index)),
+            })
+        }
+        Stage::Idle | Stage::Building | Stage::Finished => None,
+    }
+}
+
+/// Puts the swapped ride in the player's queue and in the ride's state. A future song: what is queued after
+/// the song heard is replaced. The current one: the new song is queued next and the player cuts to it.
+async fn swap_in_queue(
+    app: &AppHandle,
+    built: &RideBuilt,
+    run: u64,
+    heard: usize,
+    is_current: bool,
+    segment_index: usize,
+) -> CmdResult<()> {
+    let from = if is_current { heard } else { heard + 1 };
+    let items = stream_items_from(&built.playlist, from);
+    if items.is_empty() {
+        return Err(nothing_to_play_text());
+    }
+    let exercise = app.state::<Exercise>();
+    let plan = Arc::new(built.plan.clone());
+    let new_state = built.clone();
+    let applied = crate::stream::replace_upcoming(app, items, || {
+        let mut r = lock(&exercise.ride);
+        // the ride ended, or moved to another song, while the new one was fetched
+        if r.stage != Stage::Riding || r.run != run || r.last_index != heard {
+            return false;
+        }
+        r.plan = Some(plan);
+        r.built = Some(new_state);
+        r.swapped_at = Some(Instant::now());
+        if is_current || r.skip_requested_for == Some(segment_index) {
+            r.skip_requested_for = None;
+        }
+        if is_current {
+            r.lyrics_for = None;
+        }
+        true
+    })
+    .await?;
+    if !applied {
+        return Err(swap_moved_on_text());
+    }
+    if is_current {
+        // a clean cut to the song just queued next; the part's clock goes on (`at_segment_ms`)
+        app.state::<AppState>().player.next();
+    }
+    Ok(())
+}
+
+/// Saves the swapped ride's playlist and its place in the saved ride. `None` when the ride was not saved or
+/// the write failed.
+async fn save_swapped(app: &AppHandle, built: &RideBuilt, saved_id: Option<String>) -> Option<RideSummary> {
+    let store = app.state::<Playlists>().store().clone();
+    let playlist = built.playlist.clone();
+    let saved_playlist = tauri::async_runtime::spawn_blocking(move || store.save(&playlist)).await;
+    if !matches!(saved_playlist, Ok(Ok(_))) {
+        tracing::warn!("could not save the swapped ride's playlist");
+    }
+    let id = saved_id?;
+    let (plan, playlist_id) = (built.plan.clone(), Some(built.playlist.id.clone()).filter(|id| !id.is_empty()));
+    match with_store(app, move |store| store.replace_plan(&id, &plan, playlist_id)).await {
+        Ok(ride) => {
+            emit_rides(app);
+            Some(ride.summary())
+        }
+        Err(message) => {
+            tracing::warn!("could not save the swapped ride: {message}");
+            None
+        }
+    }
+}
+
 // ------------------------------------------------------------------ cues
 
 /// A cue as a mono 16-bit WAV file (an ArrayBuffer on the screen's side): `new Audio(blobUrl)` or
@@ -1400,6 +1705,52 @@ mod tests {
         assert_eq!(items.len(), 1, "the song with no other source is skipped");
         assert_eq!((items[0].local.as_deref(), items[0].id.as_str()), (None, "7"));
         assert!(skipped_notice(1).contains('1'));
+    }
+
+    #[test]
+    fn what_is_left_of_the_ride_starts_where_asked() {
+        let playlist = playlist_for(
+            &plan(vec![entry("A", None, Some("1")), entry("Ghost", None, None), entry("C", None, Some("3"))]),
+            None,
+        );
+        let ids = |from| stream_items_from(&playlist, from).into_iter().map(|i| i.id).collect::<Vec<_>>();
+        assert_eq!(ids(0), ["1", "3"]);
+        assert_eq!(ids(1), ["3"], "unplayable entries are skipped");
+        assert!(ids(3).is_empty());
+    }
+
+    #[test]
+    fn the_incoming_song_is_placed_by_the_fade_until_the_player_hears_it() {
+        let fading = homefi_player::Fading {
+            from: PathBuf::from("/m/a.flac"),
+            to: PathBuf::from("/m/b.flac"),
+            progress: 0.5,
+            seconds: 4.0,
+            manual: true,
+        };
+        let (a, b) = (PathBuf::from("/m/a.flac"), PathBuf::from("/m/b.flac"));
+        assert_eq!(fade_position_ms(&fading, Some(&a), 180_000), 2_000, "the old song's position is not the part's");
+        assert_eq!(fade_position_ms(&fading, Some(&b), 2_100), 2_100, "once heard, the player's own position");
+        assert_eq!(fade_position_ms(&fading, None, 0), 2_000);
+    }
+
+    #[test]
+    fn a_stop_keeps_the_request_for_the_next_swap() {
+        let mut r = RideState { request: Some(RideRequest::default()), ..RideState::default() };
+        r.start(Arc::new(plan(vec![])));
+        assert!(r.request.is_some());
+        r.stop();
+        assert!(r.request.is_some() && !r.swapping && r.swapped_at.is_none());
+    }
+
+    #[test]
+    fn the_bike_commands_answer_in_the_bike_s_unit() {
+        let bike = ex::BikeProfile { console: ex::ConsoleUnit::Kph, kph_per_rpm: 0.25, ..Default::default() };
+        let shown = exercise_shown_target(bike, 70, 80);
+        assert_eq!((shown.unit, shown.rpm), (ex::TargetUnit::Kph, 75));
+        assert_eq!(exercise_shown_target(ex::BikeProfile::default(), 70, 80).unit, ex::TargetUnit::Rpm);
+        assert_eq!(exercise_calibrate(ex::ConsoleUnit::Kph, 80, 20.0), Some(0.25));
+        assert_eq!(exercise_calibrate(ex::ConsoleUnit::None, 80, 20.0), None);
     }
 
     #[test]

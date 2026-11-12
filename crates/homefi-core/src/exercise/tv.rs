@@ -14,9 +14,9 @@ use serde::{Deserialize, Serialize};
 
 use super::cues::CueKind;
 use super::model::{SegmentKind, Workout};
-use super::profile::ProfilePoint;
+use super::profile::{HotPoint, ProfilePoint};
 use super::ride::RideView;
-use super::settings::{CourseLook, PulseStyle, TvAudio};
+use super::settings::{CourseLook, CourseRider, PulseStyle, TvAudio};
 use super::words;
 use crate::error::{Error, Result};
 use crate::humane::Lang;
@@ -35,10 +35,14 @@ pub struct TvText {
     pub segment: String,
     /// "Standing" / "Seated".
     pub position: String,
-    /// "Hard 7".
+    /// "Hard 7", or "Hard 7 · level 6/8" when the bike's levels are known.
     pub effort: String,
-    /// "Standing climb · 65 RPM", empty on the last segment.
+    /// "Standing climb · 65 RPM" (or the bike's unit: "· 14.3 km/h"), empty on the last segment.
     pub next: String,
+    /// The unit the target is shown in: "RPM", "km/h" or "mph".
+    pub unit: String,
+    /// "Resistance +1 · 2 of 3" once a resistance step has started, else empty. The page decides how long to show it.
+    pub step: String,
 }
 
 /// How a TV client joins the ride's hub as a listening guest (audio `tv`): the hub accepts only
@@ -152,6 +156,10 @@ pub struct TvSession {
     pub course_look: CourseLook,
     /// The mountain labels its summits with their time.
     pub course_summits: bool,
+    /// The resistance steps of the climbs, marked on the mountain.
+    pub hot_points: Vec<HotPoint>,
+    /// How the TV draws the rider on the mountain.
+    pub course_rider: CourseRider,
 }
 
 /// The newest ride state the app published.
@@ -192,6 +200,10 @@ pub struct RideTvView {
     pub course_look: CourseLook,
     /// Label the tallest summits with their time (additive like `course_look`).
     pub course_summits: bool,
+    /// The resistance steps to mark on the mountain (additive: an older server omits them).
+    pub hot_points: Vec<HotPoint>,
+    /// `bike` or `dot` (additive like `course_look`: an older server omits it and the page draws the bike).
+    pub course_rider: CourseRider,
     /// A ride is running and its music is paused: the view is frozen.
     pub paused: bool,
     /// The digit of a 3-2-1 countdown showing at the moment the position was sampled (0 = none). A client
@@ -219,6 +231,8 @@ impl Default for RideTvView {
             pulse_style: PulseStyle::default(),
             course_look: CourseLook::default(),
             course_summits: false,
+            hot_points: Vec::new(),
+            course_rider: CourseRider::default(),
             paused: false,
             countdown_s: 0,
             lyrics: None,
@@ -241,6 +255,8 @@ impl RideTvView {
             pulse_style: session.pulse_style,
             course_look: session.course_look,
             course_summits: session.course_summits,
+            hot_points: session.hot_points.clone(),
+            course_rider: session.course_rider,
             ..Self::default()
         };
         match frame {
@@ -287,14 +303,17 @@ fn countdown_digit(view: &RideView) -> u8 {
 }
 
 fn text_for(view: &RideView, lang: Lang) -> TvText {
+    let level = view.level.map(|at| (at, view.level_count));
     TvText {
         segment: words::segment_name(lang, view.kind).to_owned(),
         position: words::position_word(lang, view.position).to_owned(),
-        effort: words::effort_label(lang, view.effort),
+        effort: words::effort_label(lang, view.effort, level),
         next: view
             .next
-            .map(|n| format!("{} · {} {}", words::segment_name(lang, n.kind), n.target_rpm, words::tv_rpm(lang)))
+            .map(|n| format!("{} · {}", words::segment_name(lang, n.kind), words::shown_text(&n.shown)))
             .unwrap_or_default(),
+        unit: view.shown.unit.label().to_owned(),
+        step: view.step.filter(|s| s.index >= 2).map(|s| words::step_chip(lang, s.index, s.count)).unwrap_or_default(),
     }
 }
 
@@ -435,6 +454,8 @@ mod tests {
             pulse_style: PulseStyle::Bar,
             course_look: CourseLook::Alpine,
             course_summits: true,
+            hot_points: vec![HotPoint { t_s: 100, effort: 7, level: 2, count: 3 }],
+            course_rider: CourseRider::Dot,
         }
     }
 
@@ -471,6 +492,36 @@ mod tests {
         assert_eq!(ride["pulse"]["source"], "metronome");
         assert_eq!(ride["position"]["kind"], "seated");
         assert_eq!(RideTvView::from_json(&tv.to_json()).unwrap(), tv);
+        // added without a new protocol version
+        assert_eq!((json["course_rider"].as_str(), json["hot_points"][0]["level"].as_u64()), (Some("dot"), Some(2)));
+        assert_eq!((json["text"]["unit"].as_str(), json["text"]["step"].as_str()), (Some("RPM"), Some("")));
+        assert!(ride.get("shown").is_some() && ride.get("level").is_some() && ride.get("step").is_some());
+    }
+
+    #[test]
+    fn the_words_follow_the_bike_and_the_step() {
+        use crate::exercise::bike::{BikeProfile, ConsoleUnit};
+        use crate::exercise::model::{Effort, EffortStep};
+        let climb = Segment {
+            kind: SegmentKind::SeatedClimb,
+            seconds: 300,
+            effort: Effort(6),
+            steps: vec![EffortStep { at_s: 100, effort: Effort(7) }],
+            ..Segment::default()
+        };
+        let workout = Workout { segments: vec![climb, Segment::default()], ..Workout::default() };
+        let plan = test_plan(workout, CueSettings::default());
+        let bike = BikeProfile { console: ConsoleUnit::Kph, kph_per_rpm: 0.2, ..BikeProfile::default() };
+        let tv = |ms, lang| {
+            let frame = TvFrame { view: RideClock::view_on(&plan, &bike, 0, ms, 0), playing: true, sampled_ms: 0 };
+            RideTvView::build(&session(), Some(&frame), 0, lang, true).text
+        };
+        let before = tv(10_000, Lang::En);
+        assert_eq!((before.unit.as_str(), before.step.as_str()), ("km/h", ""));
+        assert_eq!(before.effort, "Steady 6 · level 5/8");
+        assert_eq!(before.next, "Flat · 17.4 km/h");
+        let after = tv(150_000, Lang::Es);
+        assert_eq!((after.step.as_str(), after.effort.as_str()), ("Resistencia +1 · 2 de 2", "Duro 7 · nivel 6/8"));
     }
 
     #[test]

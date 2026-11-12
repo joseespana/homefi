@@ -4,11 +4,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.perseusoft.homefi.R
+import com.perseusoft.homefi.core.ConsoleUnit
 import com.perseusoft.homefi.core.CourseLook
+import com.perseusoft.homefi.core.CourseRider
 import com.perseusoft.homefi.core.ExerciseSettings
 import com.perseusoft.homefi.core.PresetId
 import com.perseusoft.homefi.core.PulseStyle
@@ -40,6 +45,8 @@ private const val OFFSET_STEP_MS = 50
 private const val MIN_PORT = 1024
 private const val MAX_PORT = 65535
 private const val PORT_STEP = 1
+private const val MAX_CROSSFADE_S = 8
+private const val MAX_LEVELS = 32
 
 /** Settings → Train summary: "30 min · First ride". */
 @Composable
@@ -76,7 +83,22 @@ internal fun ExerciseSettingsPage() {
             stringResource(R.string.rides_set_history), s.rideHistoryMax.toInt(), MIN_HISTORY..MAX_HISTORY, step = HISTORY_STEP,
             readout = { stringResource(R.string.rides_set_history_value, it) }, hint = stringResource(R.string.rides_set_history_hint),
         ) { set(s.copy(rideHistoryMax = it.toUShort())) }
+        RowDivider()
+        SegmentedRow(
+            stringResource(R.string.ex_set_climb_steps), CLIMB_STEP_CHOICES, s.climbSteps.toInt(),
+            label = { if (it == 0) stringResource(R.string.ex_set_steps_off) else "$it" },
+            onSelect = { set(s.copy(climbSteps = it.toUByte())) },
+            hint = stringResource(R.string.ex_set_climb_steps_hint),
+        )
+        RowDivider()
+        SwitchRow(stringResource(R.string.ex_set_swap), s.rideSwap, hint = stringResource(R.string.ex_set_swap_hint)) { set(s.copy(rideSwap = it)) }
+        RowDivider()
+        SwitchRow(
+            stringResource(R.string.ex_set_swap_ai), s.swapUsesAi, hint = stringResource(R.string.ex_set_swap_ai_hint), enabled = s.rideSwap,
+        ) { set(s.copy(swapUsesAi = it)) }
     }
+
+    BikeGroup(s, set)
 
     SettingsGroup(title = stringResource(R.string.ex_music)) {
         SegmentedRow(
@@ -130,6 +152,12 @@ internal fun ExerciseSettingsPage() {
             stringResource(R.string.ex_set_offset), s.pulseOffsetMs.toInt(), -MAX_OFFSET_MS..MAX_OFFSET_MS, step = OFFSET_STEP_MS,
             readout = { stringResource(R.string.ex_set_ms_value, it) }, hint = stringResource(R.string.ex_set_offset_hint),
         ) { set(s.copy(pulseOffsetMs = it.toShort())) }
+        RowDivider()
+        CountSlider(
+            stringResource(R.string.ex_set_crossfade), s.crossfadeSeconds.roundToInt(), 0..MAX_CROSSFADE_S, step = 1,
+            readout = { if (it == 0) stringResource(R.string.ex_set_crossfade_off) else stringResource(R.string.ex_set_seconds_value, it) },
+            hint = stringResource(R.string.ex_set_crossfade_hint),
+        ) { set(s.copy(crossfadeSeconds = it.toFloat())) }
     }
 
     SettingsGroup(title = stringResource(R.string.ex_set_group_screen)) {
@@ -146,6 +174,14 @@ internal fun ExerciseSettingsPage() {
         )
         RowDivider()
         SwitchRow(stringResource(R.string.ex_set_course_summits), s.courseSummits) { set(s.copy(courseSummits = it)) }
+        RowDivider()
+        SegmentedRow(
+            stringResource(R.string.ex_set_rider), CourseRider.entries.reversed(), s.courseRider,
+            label = { stringResource(if (it == CourseRider.BIKE) R.string.ex_rider_bike else R.string.ex_rider_dot) },
+            onSelect = { set(s.copy(courseRider = it)) },
+        )
+        RowDivider()
+        SwitchRow(stringResource(R.string.ex_set_big_controls), s.rideBigControls, hint = stringResource(R.string.ex_set_big_controls_hint)) { set(s.copy(rideBigControls = it)) }
     }
 
     SettingsGroup(title = stringResource(R.string.ex_tv), description = stringResource(R.string.ex_set_tv_hint)) {
@@ -181,6 +217,50 @@ internal fun ExerciseSettingsPage() {
         )
     }
 }
+
+/** "My bike": what the console shows, how many knob positions it has and the speed calibration. */
+@Composable
+private fun BikeGroup(s: ExerciseSettings, set: (ExerciseSettings) -> Unit) {
+    val bike = s.bike
+    var calibrating by remember { mutableStateOf(false) }
+    SettingsGroup(title = stringResource(R.string.ex_set_group_bike)) {
+        SegmentedRow(
+            stringResource(R.string.ex_set_console), CONSOLE_CHOICES, bike.console,
+            label = { stringResource(it.labelRes()) },
+            onSelect = {
+                set(s.copy(bike = bike.copy(console = it)))
+                // km/h or mph means nothing until HomeFi knows this bike's speed per RPM: calibrate right away
+                if (it.isSpeed && bike.kphPerRpm <= 0f) calibrating = true
+            },
+            hint = stringResource(R.string.ex_set_console_hint),
+        )
+        RowDivider()
+        CountSlider(
+            stringResource(R.string.ex_set_levels), bike.resistanceLevels.toInt(), 0..MAX_LEVELS, step = 1,
+            readout = { if (it == 0) stringResource(R.string.ex_set_levels_unknown) else "$it" },
+            hint = stringResource(R.string.ex_set_levels_hint),
+        ) { set(s.copy(bike = bike.copy(resistanceLevels = it.toUByte()))) }
+        RowDivider()
+        val speedConsole = bike.console.isSpeed
+        ActionRow(
+            stringResource(R.string.ex_set_calibrate),
+            hint = when {
+                !speedConsole -> stringResource(R.string.ex_cal_needs_console)
+                bike.kphPerRpm > 0f -> stringResource(R.string.ex_set_calibrate_done, "%.2f".format(bike.kphPerRpm))
+                else -> stringResource(R.string.ex_set_calibrate_none)
+            },
+            trailing = {
+                TextButton(onClick = { calibrating = true }, enabled = speedConsole) { Text(stringResource(R.string.ex_set_calibrate_do)) }
+            },
+        )
+    }
+    if (calibrating) {
+        BikeCalibrationSheet(bike, onSave = { set(s.copy(bike = it)) }, onDismiss = { calibrating = false })
+    }
+}
+
+private val CLIMB_STEP_CHOICES = listOf(0, 2, 3, 4)
+private val CONSOLE_CHOICES = listOf(ConsoleUnit.RPM, ConsoleUnit.KPH, ConsoleUnit.MPH, ConsoleUnit.NONE)
 
 private fun SourcesMode.labelRes(): Int = when (this) {
     SourcesMode.LIBRARY_FIRST -> R.string.ex_sources_library_first

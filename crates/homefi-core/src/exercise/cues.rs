@@ -33,10 +33,12 @@ pub enum CueKind {
     Finish,
     /// One pedal stroke of the metronome.
     Click,
+    /// A climb asks for one more turn of resistance: two rising notes, apart from the stand-up glide.
+    Resistance,
 }
 
 impl CueKind {
-    pub const ALL: [CueKind; 10] = [
+    pub const ALL: [CueKind; 11] = [
         Self::Countdown3,
         Self::Countdown2,
         Self::Countdown1,
@@ -47,6 +49,7 @@ impl CueKind {
         Self::Recover,
         Self::Finish,
         Self::Click,
+        Self::Resistance,
     ];
 
     pub fn seconds(self) -> f32 {
@@ -58,6 +61,7 @@ impl CueKind {
             Self::Recover => 0.6,
             Self::Finish => 0.95,
             Self::Click => 0.04,
+            Self::Resistance => 0.5,
         }
     }
 }
@@ -123,6 +127,16 @@ pub fn render(kind: CueKind, sample_rate: u32) -> Vec<f32> {
                     let into = u * FINISH_NOTES.len() as f32 - step as f32;
                     (a.sin(FINISH_NOTES[step], rate) + 0.3 * b.sin(FINISH_NOTES[step] * 2.0, rate))
                         * (1.0 - 0.6 * into)
+                        * tail
+                }
+                CueKind::Resistance => {
+                    // E5 then G5: a step up, each note a short bell-like swell
+                    let first = u < 0.5;
+                    let hz = if first { 659.25 } else { 783.99 };
+                    let into = if first { u * 2.0 } else { u * 2.0 - 1.0 };
+                    (a.sin(hz, rate) + 0.12 * b.sin(hz * 2.0, rate))
+                        * (t / SOFT_ATTACK_S).min(1.0)
+                        * (-2.5 * into).exp()
                         * tail
                 }
                 CueKind::Click => (a.sin(1_000.0, rate) * 0.9 + noise.next() * 0.1) * (-6.0 * u).exp(),
@@ -210,6 +224,7 @@ mod tests {
         let data = u32::from_le_bytes(bytes[40..44].try_into().unwrap()) as usize;
         assert_eq!(bytes.len(), WAV_HEADER_BYTES + data);
         assert_eq!(serde_json::to_string(&CueKind::SprintGo).unwrap(), "\"sprint_go\"");
+        assert_eq!(serde_json::to_string(&CueKind::Resistance).unwrap(), "\"resistance\"");
     }
 
     #[test]

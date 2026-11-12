@@ -100,6 +100,34 @@ pub enum CourseLook {
 }
 mirror_enum!(CourseLook <=> ex::CourseLook { Ribbon, Alpine, Stage });
 
+/// How the rider is drawn on the course mountain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum CourseRider {
+    Dot,
+    Bike,
+}
+mirror_enum!(CourseRider <=> ex::CourseRider { Dot, Bike });
+
+/// What the rider's bike console reads out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ConsoleUnit {
+    Rpm,
+    Kph,
+    Mph,
+    /// No console, or not looked at: targets show in RPM.
+    None,
+}
+mirror_enum!(ConsoleUnit <=> ex::ConsoleUnit { Rpm, Kph, Mph, None });
+
+/// The unit a target is shown in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum TargetUnit {
+    Kph,
+    Mph,
+    Rpm,
+}
+mirror_enum!(TargetUnit <=> ex::TargetUnit { Kph, Mph, Rpm });
+
 /// Tv: the TV plays the music too. Phone: pictures only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum TvAudio {
@@ -152,9 +180,10 @@ pub enum CueKind {
     Recover,
     Finish,
     Click,
+    Resistance,
 }
 mirror_enum!(CueKind <=> ex::CueKind {
-    Countdown3, Countdown2, Countdown1, Change, Standing, Seated, SprintGo, Recover, Finish, Click
+    Countdown3, Countdown2, Countdown1, Change, Standing, Seated, SprintGo, Recover, Finish, Click, Resistance
 });
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -185,6 +214,80 @@ impl From<RidePosition> for ex::Position {
             RidePosition::Alternating { beats } => Self::Alternating { beats },
         }
     }
+}
+
+// -------------------------------------------------------------------- bike
+
+/// The rider's bike: what its console shows and how many resistance levels its knob has.
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+pub struct BikeProfile {
+    pub console: ConsoleUnit,
+    /// Knob positions, 0..=32; 0 = unknown (no level is shown).
+    pub resistance_levels: u8,
+    /// km/h the console shows per RPM; 0 = not calibrated (targets show in RPM).
+    pub kph_per_rpm: f32,
+}
+
+impl From<ex::BikeProfile> for BikeProfile {
+    fn from(b: ex::BikeProfile) -> Self {
+        Self { console: b.console.into(), resistance_levels: b.resistance_levels, kph_per_rpm: b.kph_per_rpm }
+    }
+}
+
+impl From<BikeProfile> for ex::BikeProfile {
+    fn from(b: BikeProfile) -> Self {
+        Self { console: b.console.into(), resistance_levels: b.resistance_levels, kph_per_rpm: b.kph_per_rpm }
+    }
+}
+
+/// A target ready to show: `value` with `min`..`max` in `unit`, and the cadence it came from.
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+pub struct ShownTarget {
+    pub unit: TargetUnit,
+    /// The big number: the center of the range.
+    pub value: f32,
+    pub min: f32,
+    pub max: f32,
+    /// The center cadence (RPM): "pedal at about 75 RPM" stays true whatever the unit.
+    pub rpm: u16,
+}
+
+impl From<ex::ShownTarget> for ShownTarget {
+    fn from(t: ex::ShownTarget) -> Self {
+        Self { unit: t.unit.into(), value: t.value, min: t.min, max: t.max, rpm: t.rpm }
+    }
+}
+
+/// What the calibration asks of the rider: pedal at `rpm` for `seconds` (clicks keep the pace), then type
+/// the speed the console shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct CalibrationSpec {
+    pub rpm: u16,
+    pub seconds: u8,
+}
+
+#[uniffi::export]
+pub fn exercise_calibration() -> CalibrationSpec {
+    CalibrationSpec { rpm: ex::bike::CALIBRATION_RPM, seconds: ex::bike::CALIBRATION_SECONDS }
+}
+
+/// The target of a cadence range in the bike's unit (km/h or mph once calibrated, else RPM).
+#[uniffi::export]
+pub fn exercise_shown_target(bike: BikeProfile, min_rpm: u16, max_rpm: u16) -> ShownTarget {
+    ex::BikeProfile::from(bike).target(ex::RpmRange { min_rpm, max_rpm }).into()
+}
+
+/// The knob position (1..=levels) for an effort 1..=10; `None` when the bike's levels are unknown.
+#[uniffi::export]
+pub fn exercise_bike_level(bike: BikeProfile, effort: u8) -> Option<u8> {
+    ex::BikeProfile::from(bike).level(effort)
+}
+
+/// km/h per RPM from one reading (`speed` in the console's unit while pedaling `rpm`); `None` for a console
+/// without speed or a reading nobody's bike gives.
+#[uniffi::export]
+pub fn exercise_calibrate(console: ConsoleUnit, rpm: u16, speed: f32) -> Option<f32> {
+    ex::BikeProfile::calibrate(console.into(), rpm, speed)
 }
 
 // ---------------------------------------------------------------- settings
@@ -243,6 +346,25 @@ pub struct ExerciseSettings {
     pub ride_history_max: u16,
     /// The setup's taste answers, remembered for the next ride.
     pub taste: RideTaste,
+    /// The rider's bike (console unit, knob levels, speed calibration).
+    pub bike: BikeProfile,
+    /// Resistance steps on climbs, 0..=4 (0 = off).
+    #[uniffi(default = 3)]
+    pub climb_steps: u8,
+    /// Seconds the next song fades in when a part ends, 0..=8 (0 = the cut).
+    #[uniffi(default = 3.0)]
+    pub crossfade_seconds: f32,
+    /// How the rider is drawn on the mountain.
+    pub course_rider: CourseRider,
+    /// Android only: a large Pause button and a column of controls instead of the small icon row.
+    #[uniffi(default = false)]
+    pub ride_big_controls: bool,
+    /// A tap on the ride's song offers another one that fits the part.
+    #[uniffi(default = true)]
+    pub ride_swap: bool,
+    /// When nothing already found fits, the AI proposes the replacement (uses the rider's key).
+    #[uniffi(default = true)]
+    pub swap_uses_ai: bool,
 }
 
 impl From<ex::ExerciseSettings> for ExerciseSettings {
@@ -280,6 +402,13 @@ impl From<ex::ExerciseSettings> for ExerciseSettings {
             tempo_nudge_pct: s.tempo_nudge_pct,
             ride_history_max: s.ride_history_max,
             taste: s.taste.into(),
+            bike: s.bike.into(),
+            climb_steps: s.climb_steps,
+            crossfade_seconds: s.crossfade_seconds,
+            course_rider: s.course_rider.into(),
+            ride_big_controls: s.ride_big_controls,
+            ride_swap: s.ride_swap,
+            swap_uses_ai: s.swap_uses_ai,
         }
     }
 }
@@ -319,6 +448,13 @@ impl From<ExerciseSettings> for ex::ExerciseSettings {
             tempo_nudge_pct: s.tempo_nudge_pct,
             ride_history_max: s.ride_history_max,
             taste: s.taste.into(),
+            bike: s.bike.into(),
+            climb_steps: s.climb_steps,
+            crossfade_seconds: s.crossfade_seconds,
+            course_rider: s.course_rider.into(),
+            ride_big_controls: s.ride_big_controls,
+            ride_swap: s.ride_swap,
+            swap_uses_ai: s.swap_uses_ai,
         }
     }
 }
@@ -390,6 +526,29 @@ pub struct RideSegment {
     pub position: RidePosition,
     pub interval: Option<RideInterval>,
     pub note: String,
+    /// The climb's resistance steps (empty for any other part).
+    #[uniffi(default = [])]
+    pub steps: Vec<EffortStep>,
+}
+
+/// From `at_s` seconds into the segment the effort is `effort`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct EffortStep {
+    pub at_s: u32,
+    /// 1..=10.
+    pub effort: u8,
+}
+
+impl From<ex::EffortStep> for EffortStep {
+    fn from(s: ex::EffortStep) -> Self {
+        Self { at_s: s.at_s, effort: s.effort.get() }
+    }
+}
+
+impl From<EffortStep> for ex::EffortStep {
+    fn from(s: EffortStep) -> Self {
+        Self { at_s: s.at_s, effort: ex::Effort(s.effort) }
+    }
 }
 
 impl From<ex::Segment> for RideSegment {
@@ -404,6 +563,7 @@ impl From<ex::Segment> for RideSegment {
             position: s.position.into(),
             interval: s.interval.map(Into::into),
             note: s.note,
+            steps: s.steps.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -418,6 +578,7 @@ impl From<RideSegment> for ex::Segment {
             position: s.position.into(),
             interval: s.interval.map(Into::into),
             note: s.note,
+            steps: s.steps.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -649,6 +810,10 @@ pub struct PlannedSong {
     /// The song is cut at this position (ms): go to the next song then (see `RideView::skip_to_next`).
     #[uniffi(default = None)]
     pub play_ms: Option<u64>,
+    /// The song's position 0 is this instant of its segment (ms): a song swapped in mid-part starts from its
+    /// beginning while the part's clock goes on. 0 for a song of a plan as built.
+    #[uniffi(default = 0)]
+    pub at_segment_ms: u64,
 }
 
 impl From<ex::PlannedSong> for PlannedSong {
@@ -662,6 +827,7 @@ impl From<ex::PlannedSong> for PlannedSong {
             grid: s.grid.map(Into::into),
             pulse: s.pulse.into(),
             play_ms: s.play_ms,
+            at_segment_ms: s.at_segment_ms,
         }
     }
 }
@@ -677,6 +843,7 @@ impl From<PlannedSong> for ex::PlannedSong {
             grid: s.grid.and_then(|g| Grid::new(g.first_beat_ms, g.beat_ms)),
             pulse: s.pulse.into(),
             play_ms: s.play_ms,
+            at_segment_ms: s.at_segment_ms,
         }
     }
 }
@@ -792,12 +959,59 @@ pub struct RideIntervalView {
     pub phase_remaining_s: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
 pub struct RideNext {
     pub kind: SegmentKind,
     pub position: RidePosition,
     pub target_rpm: u16,
+    /// The target in the bike's unit.
+    pub shown: ShownTarget,
+    /// The knob position of the next part's starting effort; `None` when the bike's levels are unknown.
+    pub level: Option<u8>,
     pub seconds: u32,
+}
+
+/// Where the rider is inside a climb's resistance steps: "level 2 of 3".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct StepView {
+    /// 1-based; the climb's own start is 1, so after the first step it is 2 ("Resistance +1" chip).
+    pub index: u8,
+    pub count: u8,
+    /// The effort at this level.
+    pub effort: u8,
+    /// Seconds to the next step, `None` on the last level.
+    pub next_in_s: Option<u32>,
+}
+
+/// A resistance step on the course mountain: `t_s` seconds into the ride; the renderer reads the ridge's
+/// elevation there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct HotPoint {
+    pub t_s: u32,
+    /// The effort from here on.
+    pub effort: u8,
+    /// 1-based level of the climb that starts here (the first hot point is level 2).
+    pub level: u8,
+    /// Levels of the climb.
+    pub count: u8,
+}
+
+impl From<ex::HotPoint> for HotPoint {
+    fn from(p: ex::HotPoint) -> Self {
+        Self { t_s: p.t_s, effort: p.effort, level: p.level, count: p.count }
+    }
+}
+
+impl From<HotPoint> for ex::HotPoint {
+    fn from(p: HotPoint) -> Self {
+        Self { t_s: p.t_s, effort: p.effort, level: p.level, count: p.count }
+    }
+}
+
+/// Every resistance step of a workout, in ride order (the markers on the mountain).
+#[uniffi::export]
+pub fn exercise_hot_points(workout: RideWorkout) -> Vec<HotPoint> {
+    ex::hot_points(&ex::Workout::from(workout)).into_iter().map(Into::into).collect()
 }
 
 /// The beat the rider pedals to: stroke `n` is at `first_beat_ms + n * stroke_ms` of the song.
@@ -828,11 +1042,20 @@ pub struct RideView {
     pub segment_count: u32,
     pub kind: SegmentKind,
     pub position: RidePosition,
+    /// The effort now (a climb's steps raise it).
     pub effort: u8,
-    /// The big number.
+    /// The big number, in RPM (`shown.rpm`).
     pub target_rpm: u16,
     pub min_rpm: u16,
     pub max_rpm: u16,
+    /// The target in the bike's unit (km/h once calibrated): what the ring shows.
+    pub shown: ShownTarget,
+    /// The bike's knob position for `effort`; `None` when its levels are unknown.
+    pub level: Option<u8>,
+    /// How many positions the knob has (0 when `level` is `None`), for "6/8".
+    pub level_count: u8,
+    /// The resistance step the rider is on; `None` for a part without steps.
+    pub step: Option<StepView>,
     pub segment_seconds: u32,
     pub segment_start_s: u32,
     pub remaining_s: u32,
@@ -865,6 +1088,10 @@ impl From<ex::RideView> for RideView {
             target_rpm: v.target_rpm,
             min_rpm: v.range.min_rpm,
             max_rpm: v.range.max_rpm,
+            shown: v.shown.into(),
+            level: v.level,
+            level_count: v.level_count,
+            step: v.step.map(|s| StepView { index: s.index, count: s.count, effort: s.effort, next_in_s: s.next_in_s }),
             segment_seconds: v.segment_seconds,
             segment_start_s: v.segment_start_s,
             remaining_s: v.remaining_s,
@@ -884,6 +1111,8 @@ impl From<ex::RideView> for RideView {
                 kind: n.kind.into(),
                 position: n.position.into(),
                 target_rpm: n.target_rpm,
+                shown: n.shown.into(),
+                level: n.level,
                 seconds: n.seconds,
             }),
             pulse: RidePulse {
@@ -904,19 +1133,22 @@ impl From<ex::RideView> for RideView {
 #[derive(uniffi::Object)]
 pub struct ExerciseRide {
     plan: Arc<ex::RidePlan>,
+    /// The rider's bike: targets in its console's unit, efforts as knob positions.
+    bike: ex::BikeProfile,
 }
 
 #[uniffi::export]
 impl ExerciseRide {
-    #[uniffi::constructor]
-    pub fn new(plan: RidePlan) -> Arc<Self> {
-        Arc::new(Self { plan: Arc::new(plan.into()) })
+    /// `bike` `None` = no bike set up (targets in RPM, no levels). A swap or a changed bike: make a new one.
+    #[uniffi::constructor(default(bike = None))]
+    pub fn new(plan: RidePlan, bike: Option<BikeProfile>) -> Arc<Self> {
+        Arc::new(Self { plan: Arc::new(plan.into()), bike: bike.map(Into::into).unwrap_or_default() })
     }
 
     /// What the screen shows at `queue_index` (the playing song of the ride's queue) and `position_ms`
     /// (its position). Pure: a paused player gives the same view.
     pub fn view(&self, queue_index: u32, position_ms: u64, now_ms: u64) -> RideView {
-        ex::RideClock::view(&self.plan, queue_index as usize, position_ms, now_ms).into()
+        ex::RideClock::view_on(&self.plan, &self.bike, queue_index as usize, position_ms, now_ms).into()
     }
 
     /// The parts of the ride for [`TvSession::parts`] (the mountain's colours).
@@ -924,9 +1156,14 @@ impl ExerciseRide {
         ex::TvPart::of(&self.plan.workout).into_iter().map(Into::into).collect()
     }
 
+    /// The resistance steps of the ride, for the mountain's markers.
+    pub fn hot_points(&self) -> Vec<HotPoint> {
+        ex::hot_points(&self.plan.workout).into_iter().map(Into::into).collect()
+    }
+
     /// The cues of the view still to come, as `(at_ms, kind)` on the view's clock.
     pub fn schedule(&self, queue_index: u32, position_ms: u64, now_ms: u64) -> Vec<CueAt> {
-        let view = ex::RideClock::view(&self.plan, queue_index as usize, position_ms, now_ms);
+        let view = ex::RideClock::view_on(&self.plan, &self.bike, queue_index as usize, position_ms, now_ms);
         ex::schedule(&view).into_iter().map(|(at_ms, kind)| CueAt { at_ms, kind: kind.into() }).collect()
     }
 }
@@ -938,9 +1175,16 @@ pub struct CueAt {
 }
 
 /// [`ExerciseRide::view`] without keeping the plan (converts it every call: prefer the object).
-#[uniffi::export]
-pub fn exercise_ride_view(plan: RidePlan, queue_index: u32, position_ms: u64, now_ms: u64) -> RideView {
-    ex::RideClock::view(&ex::RidePlan::from(plan), queue_index as usize, position_ms, now_ms).into()
+#[uniffi::export(default(bike = None))]
+pub fn exercise_ride_view(
+    plan: RidePlan,
+    queue_index: u32,
+    position_ms: u64,
+    now_ms: u64,
+    bike: Option<BikeProfile>,
+) -> RideView {
+    let bike = bike.map(Into::into).unwrap_or_default();
+    ex::RideClock::view_on(&ex::RidePlan::from(plan), &bike, queue_index as usize, position_ms, now_ms).into()
 }
 
 /// A cue as a mono 16-bit WAV file's bytes (the app writes it once and plays it with `SoundPool`).
@@ -977,6 +1221,49 @@ impl ex::Analyzer for FileAnalyzer {
     }
 }
 
+/// What a build or a swap works with, owned for the length of the call (the core borrows it).
+struct RideEnv {
+    api: Option<homefi_core::api::TidalApi>,
+    ai: Option<homefi_core::ai::AiConfig>,
+    index: homefi_core::playlist::LibraryIndex,
+    settings: ex::ExerciseSettings,
+    analyzer: FileAnalyzer,
+}
+
+impl RideEnv {
+    async fn new(
+        engine: &HomefiEngine,
+        settings: ExerciseSettings,
+        ai: Option<AiConfig>,
+        api_key: Option<String>,
+        library: Vec<LibraryRef>,
+    ) -> Self {
+        // signed out is not an error: only the library and the AI are used
+        let _ = engine.session.refresh(600, false).await;
+        Self {
+            api: engine.session.api().ok(),
+            ai: ai.map(|c| core_config(c, api_key)),
+            index: library_index(library).await,
+            settings: ex::ExerciseSettings::from(settings),
+            analyzer: FileAnalyzer {
+                dir: ANALYSIS_DIR.iter().fold(engine.session.app_dir().to_path_buf(), |p, part| p.join(part)),
+                memory_mb: homefi_core::dj::settings::ANDROID_MEMORY_MB,
+            },
+        }
+    }
+
+    fn ctx(&self, language: &str) -> ex::BuildContext<'_> {
+        ex::BuildContext {
+            settings: &self.settings,
+            ai: self.ai.as_ref(),
+            api: self.api.as_ref(),
+            library: &self.index,
+            analyzer: Some(&self.analyzer),
+            lang: Lang::from_code(language),
+        }
+    }
+}
+
 #[uniffi::export]
 impl HomefiEngine {
     /// Builds the ride (not saved: the app saves `playlist` when the ride starts). The AI's key travels apart
@@ -995,30 +1282,58 @@ impl HomefiEngine {
         listener: Box<dyn RideListener>,
     ) -> Result<RideBuilt> {
         crate::runtime::run(async move {
-            // signed out is not an error: only the library and the AI are used
-            let _ = self.session.refresh(600, false).await;
-            let api = self.session.api().ok();
-            let ai = ai.map(|c| core_config(c, api_key));
-            let index = library_index(library).await;
-            let settings = ex::ExerciseSettings::from(settings);
-            let analyzer = FileAnalyzer {
-                dir: ANALYSIS_DIR.iter().fold(self.session.app_dir().to_path_buf(), |p, part| p.join(part)),
-                memory_mb: homefi_core::dj::settings::ANDROID_MEMORY_MB,
-            };
-            let ctx = ex::BuildContext {
-                settings: &settings,
-                ai: ai.as_ref(),
-                api: api.as_ref(),
-                library: &index,
-                analyzer: Some(&analyzer),
-                lang: Lang::from_code(&language),
-            };
+            let env = RideEnv::new(&self, settings, ai, api_key, library).await;
             // what earlier builds of this ride proposed and played, for "new songs"
             let memory = self.ride_memory();
-            let (built, memory) =
-                ex::build_with_memory(&request.into(), &ctx, &|p| listener.on_progress(p.into()), memory).await?;
+            let (built, memory) = ex::build_with_memory(
+                &request.into(),
+                &env.ctx(&language),
+                &|p| listener.on_progress(p.into()),
+                memory,
+            )
+            .await?;
             self.remember_ride(memory);
             Ok(RideBuilt { plan: built.plan.into(), playlist: built.playlist.into() })
+        })
+        .await
+    }
+
+    /// Another song for the part `segment_index` (the song's index in `built.plan.songs`, the same as in the
+    /// playlist) of a built ride; `request` is the one it was built from, so the memory of that build (the
+    /// songs it found, so there is no search) is used. `at_segment_ms` is how far into the part the rider is
+    /// (0 in the plan preview): the new song then starts from its beginning (`PlannedSong::at_segment_ms`) and
+    /// must cover what is left of the part. The song sent away never comes back to this ride. Returns the
+    /// whole ride with the swapped song, its playlist and its profile: the app saves the playlist and replaces
+    /// the queue's item. `settings.ride_swap` off is an error; `settings.swap_uses_ai` off keeps the AI out
+    /// of it (the library and Tidal are searched when nothing already found fits).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn exercise_swap(
+        self: Arc<Self>,
+        request: RideRequest,
+        built: RideBuilt,
+        segment_index: u32,
+        at_segment_ms: u64,
+        settings: ExerciseSettings,
+        ai: Option<AiConfig>,
+        api_key: Option<String>,
+        language: String,
+        library: Vec<LibraryRef>,
+        listener: Box<dyn RideListener>,
+    ) -> Result<RideBuilt> {
+        crate::runtime::run(async move {
+            let env = RideEnv::new(&self, settings, ai, api_key, library).await;
+            let built = ex::RideBuilt { plan: built.plan.into(), playlist: built.playlist.into() };
+            let req = ex::SwapRequest { built: &built, segment_index: segment_index as usize, at_segment_ms };
+            let (swapped, memory) = ex::swap_song(
+                &req,
+                &request.into(),
+                &env.ctx(&language),
+                &|p| listener.on_progress(p.into()),
+                self.ride_memory(),
+            )
+            .await?;
+            self.remember_ride(memory);
+            Ok(RideBuilt { plan: swapped.built.plan.into(), playlist: swapped.built.playlist.into() })
         })
         .await
     }
@@ -1082,8 +1397,15 @@ pub struct RideListen {
 pub struct TvText {
     pub segment: String,
     pub position: String,
+    /// "Hard 7", or "Hard 7 · level 6/8" when the bike's levels are known.
     pub effort: String,
     pub next: String,
+    /// The unit the target is shown in: "RPM", "km/h" or "mph".
+    #[uniffi(default = "")]
+    pub unit: String,
+    /// "Resistance +1 · 2 of 3" once a resistance step has started, else empty.
+    #[uniffi(default = "")]
+    pub step: String,
 }
 
 /// A part of the ride under the TV's mountain.
@@ -1148,6 +1470,10 @@ pub struct RideTvView {
     /// How the TV draws the course mountain.
     pub course_look: CourseLook,
     pub course_summits: bool,
+    /// The resistance steps of the climbs, marked on the mountain.
+    pub hot_points: Vec<HotPoint>,
+    /// How the TV draws the rider on the mountain.
+    pub course_rider: CourseRider,
     /// A ride runs and its music is paused.
     pub paused: bool,
     /// The 3-2-1 digit showing when the position was sampled (0 = none).
@@ -1174,10 +1500,14 @@ impl From<ex::RideTvView> for RideTvView {
                 position: v.text.position,
                 effort: v.text.effort,
                 next: v.text.next,
+                unit: v.text.unit,
+                step: v.text.step,
             },
             pulse_style: v.pulse_style.into(),
             course_look: v.course_look.into(),
             course_summits: v.course_summits,
+            hot_points: v.hot_points.into_iter().map(Into::into).collect(),
+            course_rider: v.course_rider.into(),
             paused: v.paused,
             countdown_s: v.countdown_s,
             lyrics: v.lyrics.map(Into::into),
@@ -1256,6 +1586,12 @@ pub struct TvSession {
     /// The mountain labels its summits with their time.
     #[uniffi(default = false)]
     pub course_summits: bool,
+    /// `ExerciseRide::hot_points`: the resistance steps marked on the TV's mountain.
+    #[uniffi(default = [])]
+    pub hot_points: Vec<HotPoint>,
+    /// How the TV draws the rider (`None` = the bike, the default).
+    #[uniffi(default = None)]
+    pub course_rider: Option<CourseRider>,
 }
 
 /// The ride TV server: the page, `/ride.json` and the mDNS announcement. One per app.
@@ -1305,6 +1641,8 @@ impl ExerciseTv {
                 pulse_style: session.pulse_style.into(),
                 course_look: session.course_look.map(Into::into).unwrap_or_default(),
                 course_summits: session.course_summits,
+                hot_points: session.hot_points.into_iter().map(Into::into).collect(),
+                course_rider: session.course_rider.map(Into::into).unwrap_or_default(),
             });
         }
     }
@@ -1312,7 +1650,10 @@ impl ExerciseTv {
     /// Publishes the ride's state as the phone shows it (the same clock), with `playing` false when paused.
     pub fn publish(&self, ride: Arc<ExerciseRide>, queue_index: u32, position_ms: u64, now_ms: u64, playing: bool) {
         if let Some(server) = lock(&self.server).as_ref() {
-            server.publish(ex::RideClock::view(&ride.plan, queue_index as usize, position_ms, now_ms), playing);
+            server.publish(
+                ex::RideClock::view_on(&ride.plan, &ride.bike, queue_index as usize, position_ms, now_ms),
+                playing,
+            );
         }
     }
 
@@ -1469,6 +1810,11 @@ impl ExerciseRides {
         Ok((&self.store.set_favorite(&id, favorite)?).into())
     }
 
+    /// A song of the saved ride was swapped: the ride keeps the new plan (and its playlist, when given).
+    pub fn replace_plan(&self, id: String, plan: RidePlan, playlist_id: Option<String>) -> Result<SavedRideSummary> {
+        Ok((&self.store.replace_plan(&id, &ex::RidePlan::from(plan), playlist_id)?).into())
+    }
+
     /// Counts a ride started from this saved ride.
     pub fn mark_ridden(&self, id: String) -> Result<SavedRideSummary> {
         Ok((&self.store.mark_ridden(&id)?).into())
@@ -1539,6 +1885,95 @@ mod tests {
     }
 
     #[test]
+    fn the_new_settings_cross_the_boundary_both_ways() {
+        let custom = ExerciseSettings {
+            bike: BikeProfile { console: ConsoleUnit::Kph, resistance_levels: 16, kph_per_rpm: 0.27 },
+            climb_steps: 2,
+            crossfade_seconds: 5.0,
+            course_rider: CourseRider::Dot,
+            ride_big_controls: true,
+            ride_swap: false,
+            swap_uses_ai: false,
+            ..exercise_default_settings()
+        };
+        let core = ex::ExerciseSettings::from(custom.clone());
+        assert_eq!((core.climb_steps, core.crossfade_seconds, core.course_rider), (2, 5.0, ex::CourseRider::Dot));
+        assert_eq!((core.ride_big_controls, core.ride_swap, core.swap_uses_ai), (true, false, false));
+        assert_eq!(core.bike.console, ex::ConsoleUnit::Kph);
+        assert_eq!(ExerciseSettings::from(core), custom, "nothing is lost on the way");
+        // the defaults are the core's, so a Kotlin copy of them keeps the product's choices
+        let d = exercise_default_settings();
+        assert_eq!((d.climb_steps, d.crossfade_seconds, d.ride_swap, d.swap_uses_ai), (3, 3.0, true, true));
+        assert_eq!(d.bike, BikeProfile { console: ConsoleUnit::None, resistance_levels: 8, kph_per_rpm: 0.0 });
+    }
+
+    #[test]
+    fn steps_and_the_swap_offset_survive_the_round_trip() {
+        let segment = ex::Segment {
+            kind: ex::SegmentKind::SeatedClimb,
+            seconds: 300,
+            steps: vec![
+                ex::EffortStep { at_s: 100, effort: ex::Effort(7) },
+                ex::EffortStep { at_s: 200, effort: ex::Effort(8) },
+            ],
+            ..ex::Segment::default()
+        };
+        let ffi = RideSegment::from(segment.clone());
+        assert_eq!(ffi.steps, [EffortStep { at_s: 100, effort: 7 }, EffortStep { at_s: 200, effort: 8 }]);
+        assert_eq!(ex::Segment::from(ffi), segment);
+        let song = ex::PlannedSong { at_segment_ms: 60_000, play_ms: Some(1), ..ex::PlannedSong::default() };
+        assert_eq!(ex::PlannedSong::from(PlannedSong::from(song.clone())), song);
+    }
+
+    #[test]
+    fn the_bike_functions_are_the_cores() {
+        let bike = BikeProfile { console: ConsoleUnit::Kph, resistance_levels: 8, kph_per_rpm: 0.25 };
+        let shown = exercise_shown_target(bike, 70, 80);
+        assert_eq!((shown.unit, shown.rpm, shown.value), (TargetUnit::Kph, 75, 18.8));
+        assert_eq!(exercise_shown_target(BikeProfile { kph_per_rpm: 0.0, ..bike }, 70, 80).unit, TargetUnit::Rpm);
+        assert_eq!(
+            (exercise_bike_level(bike, 10), exercise_bike_level(BikeProfile { resistance_levels: 0, ..bike }, 5)),
+            (Some(8), None)
+        );
+        assert_eq!(exercise_calibrate(ConsoleUnit::Kph, 80, 22.0), Some(0.275));
+        assert_eq!(exercise_calibrate(ConsoleUnit::None, 80, 22.0), None);
+        assert_eq!(exercise_calibration(), CalibrationSpec { rpm: 80, seconds: 20 });
+    }
+
+    #[test]
+    fn a_climb_has_hot_points_and_the_view_carries_the_bike() {
+        let settings = ex::ExerciseSettings::default();
+        let climb = ex::Segment {
+            kind: ex::SegmentKind::SeatedClimb,
+            seconds: 300,
+            target: ex::Target::Cadence { min_rpm: 60, max_rpm: 80 },
+            effort: ex::Effort(7),
+            ..ex::Segment::default()
+        };
+        let mut segments = vec![climb];
+        ex::apply_climb_steps(&mut segments, settings.climb_steps);
+        let workout = ex::Workout { segments, ..ex::Workout::default() };
+        let points = exercise_hot_points(workout.clone().into());
+        assert_eq!(points.iter().map(|p| (p.t_s, p.level, p.count)).collect::<Vec<_>>(), [(100, 2, 3), (200, 3, 3)]);
+        let plan = ex::RidePlan {
+            songs: vec![ex::PlannedSong::default()],
+            profile: ex::profile(&workout),
+            workout,
+            ..ex::RidePlan::default()
+        };
+        let bike = BikeProfile { console: ConsoleUnit::Kph, resistance_levels: 8, kph_per_rpm: 0.25 };
+        let ride = ExerciseRide::new(plan.clone().into(), Some(bike));
+        let view = ride.view(0, 150_000, 0);
+        assert_eq!(view.shown.unit, TargetUnit::Kph);
+        assert_eq!((view.effort, view.level), (7, Some(6)), "the second level of the climb, as a knob position");
+        assert_eq!(view.step.map(|s| (s.index, s.count)), Some((2, 3)));
+        assert_eq!(ride.hot_points().len(), 2);
+        // no bike given: RPM and no step of levels
+        let plain = ExerciseRide::new(plan.into(), None).view(0, 150_000, 0);
+        assert_eq!(plain.shown.unit, TargetUnit::Rpm);
+    }
+
+    #[test]
     fn defaults_and_clamping_are_the_cores() {
         let d = exercise_default_settings();
         assert_eq!((d.ride_minutes, d.tv_port, d.tv_audio), (30, 47801, TvAudio::Phone));
@@ -1581,6 +2016,7 @@ mod tests {
                 grid: Some(DjGrid { first_beat_ms: 100.0, beat_ms: 666.7 }),
                 pulse: PulseSource::SongBeat,
                 play_ms: None,
+                at_segment_ms: 0,
             })
             .collect();
         RidePlan {
@@ -1597,12 +2033,12 @@ mod tests {
 
     #[test]
     fn the_view_comes_from_the_core_clock() {
-        let ride = ExerciseRide::new(plan());
+        let ride = ExerciseRide::new(plan(), None);
         let v = ride.view(0, 30_000, 5);
         assert_eq!((v.segment_index, v.kind, v.finished), (0, SegmentKind::WarmUp, false));
         assert_eq!(v.pulse.source, PulseSource::SongBeat);
         assert!(v.marker.elevation >= 0.0 && v.total_s > 0);
-        assert_eq!(v, exercise_ride_view(plan(), 0, 30_000, 5));
+        assert_eq!(v, exercise_ride_view(plan(), 0, 30_000, 5, None));
         assert!(ride.view(99, 0, 0).finished);
         // the countdown of the first change is listed, later than now
         let near_end = u64::from(v.segment_seconds) * 1000 - 1_500;
@@ -1640,7 +2076,7 @@ mod tests {
         let url = tv.clone().start(0, "Ride".into(), false, "en".into()).await.unwrap();
         assert!(url.starts_with("http://") && tv.is_running());
         let port = tv.port().unwrap();
-        let ride = ExerciseRide::new(plan());
+        let ride = ExerciseRide::new(plan(), None);
         tv.begin(TvSession {
             title: "T".into(),
             profile: ride.plan.profile.iter().copied().map(Into::into).collect(),
@@ -1650,6 +2086,8 @@ mod tests {
             pulse_style: PulseStyle::Ring,
             course_look: None,
             course_summits: false,
+            hot_points: ride.hot_points(),
+            course_rider: None,
         });
         tv.publish(ride, 0, 12_000, 1, true);
         let body = reqwest_get(port).await;

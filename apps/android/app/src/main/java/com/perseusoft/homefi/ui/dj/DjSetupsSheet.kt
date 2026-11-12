@@ -1,5 +1,9 @@
 package com.perseusoft.homefi.ui.dj
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import com.perseusoft.homefi.ui.DialogAction
+import com.perseusoft.homefi.ui.HomefiDialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,16 +35,13 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -175,12 +176,13 @@ fun DjSetupsSheet(onDismiss: () -> Unit) {
 
 @Composable
 private fun ConfirmOverwrite(name: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.djs_overwrite_title)) },
-        text = { Text(stringResource(R.string.djs_overwrite_text, name)) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text(stringResource(R.string.djs_overwrite)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.xfer_cancel)) } },
+    HomefiDialog(
+        title = stringResource(R.string.djs_overwrite_title),
+        text = stringResource(R.string.djs_overwrite_text, name),
+        icon = Icons.Rounded.Save,
+        primary = DialogAction(stringResource(R.string.djs_overwrite), onClick = onConfirm),
+        dismiss = stringResource(R.string.xfer_cancel),
+        onDismiss = onDismiss,
     )
 }
 

@@ -827,6 +827,34 @@ mod tests {
         }
     }
 
+    /// A ride's fade (3 s) with the global crossfade off: the same offline
+    /// guarantees at the length the ride asks for, with a quiet outgoing tail.
+    #[test]
+    fn offline_ride_fade_of_three_seconds_has_no_clipping_or_clicks() {
+        let rate = 48_000.0;
+        let fade = 3 * 48_000;
+        let off = homefi_core::dsp::crossfade::CrossfadeSettings::default();
+        assert!(!off.is_on(), "the global crossfade stays off");
+        let tail = sine(440.0, rate, fade, 0.99, 0);
+        for curve in [FadeCurve::EqualPower, FadeCurve::Linear, FadeCurve::SCurve] {
+            let mut f = Fade::new(tail.clone(), 2, FadeSpec { manual: true, ..spec(curve) });
+            let mut render: Vec<f32> = Vec::new();
+            let incoming = sine(1000.0, rate, fade + 9600, 0.99, 0);
+            for chunk in incoming.chunks(2 * 1153) {
+                let mut c = chunk.to_vec();
+                f.mix(&mut c);
+                render.extend(c);
+            }
+            assert!(!f.mixing());
+            assert_eq!(f.len, fade);
+            assert!(render.iter().all(|s| s.abs() <= 1.0), "{curve:?}: no sample past full scale");
+            let worst = render.windows(2).step_by(2).map(|w| (w[1] - w[0]).abs()).fold(0f32, f32::max);
+            assert!(worst < 0.14, "{curve:?}: no discontinuity ({worst})");
+            let end = render.len() - 2 * 9600;
+            assert_eq!(render[end..], incoming[2 * fade..], "{curve:?}");
+        }
+    }
+
     #[test]
     fn each_voice_keeps_its_own_loudness_across_the_filter_switch() {
         // outgoing preamp 1.0, incoming 0.5 (loudness -6 dB): the callback runs 1.0

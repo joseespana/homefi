@@ -8,13 +8,17 @@
 //   ?ride=next|count|sprint|rest|paused|done   frozen scenes (next part in 10 s, the 3-2-1, GO!, Rest, Paused, finished)
 //   ?exunseen  the health notice not seen yet     ?exdarkoff  ride screen follows the theme
 //   ?exrides  five saved rides in "My rides" (opens that tab; ?exrides=empty opens it with none)
+//   ?exrpm  the bike console shows RPM (default in the mock: km/h, calibrated)   ?exswap  swap button opens a confirm in the ride
 //   ?expulse=bar|flash  the beat pulse style      ?aikey  AI on (otherwise the setup shows "No AI")
 import type {
   BeatRatio,
+  BikeProfile,
   CueKind,
+  EffortStep,
   ExerciseSettings,
   ExerciseState,
   ExerciseTurn,
+  HotPoint,
   PlannedSong,
   PresetView,
   ProfilePoint,
@@ -27,6 +31,7 @@ import type {
   SavedRide,
   Segment,
   SegmentKind,
+  ShownTarget,
 } from "./exercise-api";
 import { DEFAULT_EXERCISE_SETTINGS } from "./exercise-api";
 
@@ -51,14 +56,18 @@ let settings: ExerciseSettings = {
   tv_audio: "phone",
   course_look: url.get("exlook") === "alpine" ? "alpine" : url.get("exlook") === "stage" ? "stage" : "ribbon",
   course_summits: url.has("exsummits"),
+  // the mock's bike: a km/h console, 8 resistance levels, calibrated (1 RPM = 0.24 km/h)
+  bike: url.has("exrpm") ? { console: "rpm", resistance_levels: 8, kph_per_rpm: 0 } : { console: "kph", resistance_levels: 8, kph_per_rpm: 0.24 },
 };
+const MPH_PER_KPH = 1 / 1.609344;
+const LEVEL_MAX_EFFORT = 10;
 
 // ------------------------------------------------------------------ the plan
 
 const cover = (hue: number) =>
   `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='hsl(${hue} 80% 55%)'/><stop offset='1' stop-color='hsl(${(hue + 70) % 360} 65% 20%)'/></linearGradient></defs><rect width='120' height='120' fill='url(#g)'/><circle cx='60' cy='60' r='34' fill='none' stroke='white' stroke-opacity='.35' stroke-width='7'/></svg>`)}`;
 
-const seg = (kind: SegmentKind, seconds: number, min: number, max: number, effort: number, position: Segment["position"] = { kind: "seated" }, interval: Segment["interval"] = null): Segment => ({
+const seg = (kind: SegmentKind, seconds: number, min: number, max: number, effort: number, position: Segment["position"] = { kind: "seated" }, interval: Segment["interval"] = null, steps: EffortStep[] = []): Segment => ({
   kind,
   seconds,
   target: { kind: "cadence", min_rpm: min, max_rpm: max },
@@ -66,14 +75,15 @@ const seg = (kind: SegmentKind, seconds: number, min: number, max: number, effor
   position,
   interval,
   note: "",
+  ...(steps.length ? { steps } : {}),
 });
 
 const SEGMENTS: Segment[] = [
   seg("warm_up", 300, 60, 70, 3),
-  seg("seated_climb", 300, 65, 75, 6),
+  seg("seated_climb", 300, 65, 75, 6, { kind: "seated" }, null, [{ at_s: 100, effort: 7 }, { at_s: 200, effort: 8 }]),
   seg("jumps", 180, 80, 88, 6, { kind: "alternating", beats: 8 }),
   seg("recovery", 120, 65, 75, 2),
-  seg("standing_climb", 300, 60, 66, 8, { kind: "standing" }),
+  seg("standing_climb", 300, 60, 66, 7, { kind: "standing" }, null, [{ at_s: 100, effort: 8 }, { at_s: 200, effort: 9 }]),
   seg("recovery", 90, 70, 80, 2),
   seg("sprint", 360, 100, 110, 8, { kind: "seated" }, { work_s: 20, rest_s: 70, rounds: 4, rest_cadence: { min_rpm: 80, max_rpm: 90 } }),
   seg("cool_down", 150, 60, 70, 2),
@@ -130,6 +140,14 @@ const SONGS: PlannedSong[] = [
   song(7, "Wish You Were Here", "Pink Floyd", 61, "whole", 240),
 ];
 
+/** Replacements the mock's swap hands out in turn: title, artist, BPM, ratio, cover hue. */
+const SWAP_POOL: [string, string, number, BeatRatio, number][] = [
+  ["Livin' on a Prayer", "Bon Jovi", 123, "whole", 40],
+  ["Dreams", "Fleetwood Mac", 120, "whole", 300],
+  ["Eye of the Tiger", "Survivor", 109, "whole", 10],
+];
+let swapCount = 0;
+
 function planFor(request: RideRequest): RidePlan {
   return {
     version: 1,
@@ -159,6 +177,31 @@ function cuesOf(plan: RidePlan, index: number, posMs: number): RideView["cues"] 
   return out;
 }
 
+/** homefi_core::exercise::Segment::effort_at */
+const effortAt = (s: Segment, posS: number) => (s.steps ?? []).reduce((e, st) => (st.at_s <= posS ? st.effort : e), s.effort);
+/** homefi_core::exercise::BikeProfile::target (the mock's own copy) */
+function shownOf(bike: BikeProfile, min: number, max: number): ShownTarget {
+  const rpm = Math.round((min + max) / 2);
+  if ((bike.console === "kph" || bike.console === "mph") && bike.kph_per_rpm > 0) {
+    const k = bike.console === "mph" ? bike.kph_per_rpm * MPH_PER_KPH : bike.kph_per_rpm;
+    const r = (n: number) => Math.round(n * k * 10) / 10;
+    return { unit: bike.console, value: r((min + max) / 2), min: r(min), max: r(max), rpm };
+  }
+  return { unit: "rpm", value: rpm, min, max, rpm };
+}
+const levelOf = (bike: BikeProfile, effort: number): number | null =>
+  bike.resistance_levels > 0 ? Math.min(bike.resistance_levels, Math.max(1, Math.round((effort * bike.resistance_levels) / LEVEL_MAX_EFFORT))) : null;
+/** homefi_core::exercise::hot_points */
+function hotPointsOf(segments: readonly Segment[]): HotPoint[] {
+  const out: HotPoint[] = [];
+  let start = 0;
+  for (const s of segments) {
+    (s.steps ?? []).forEach((st, i) => out.push({ t_s: start + st.at_s, effort: st.effort, level: i + 2, count: (s.steps?.length ?? 0) + 1 }));
+    start += s.seconds;
+  }
+  return out;
+}
+
 function viewAt(plan: RidePlan, index: number, posMs: number, finished = false): RideView {
   const segments = plan.workout.segments;
   const s = segments[Math.min(index, segments.length - 1)];
@@ -178,6 +221,9 @@ function viewAt(plan: RidePlan, index: number, posMs: number, finished = false):
     if (!work) range = { min_rpm: iv.rest_cadence.min_rpm, max_rpm: iv.rest_cadence.max_rpm };
   }
   const next = segments[i + 1];
+  const effort = effortAt(s, posS);
+  // -1 before the first step; step index 1 is the climb's start, 2 and up are the steps
+  const stepIx = s.steps?.length ? s.steps.reduce((ix, st, k) => (st.at_s <= posS ? k : ix), -1) : -1;
   const planned = plan.songs.find((x) => x.segment_index === i);
   const center = Math.round((range.min_rpm + range.max_rpm) / 2);
   const beatMs = planned?.bpm ? 60_000 / planned.bpm : 60_000 / center;
@@ -192,9 +238,13 @@ function viewAt(plan: RidePlan, index: number, posMs: number, finished = false):
     segment_count: segments.length,
     kind: s.kind,
     position: s.position,
-    effort: s.effort,
+    effort,
     target_rpm: center,
     range,
+    shown: shownOf(settings.bike, range.min_rpm, range.max_rpm),
+    level: levelOf(settings.bike, effort),
+    level_count: levelOf(settings.bike, effort) === null ? 0 : settings.bike.resistance_levels,
+    step: s.steps?.length ? { index: stepIx + 2, count: (s.steps?.length ?? 0) + 1, effort, next_in_s: s.steps?.[stepIx + 1] ? s.steps[stepIx + 1].at_s - posS : null } : null,
     segment_seconds: s.seconds,
     segment_start_s: before,
     remaining_s: remaining,
@@ -205,7 +255,7 @@ function viewAt(plan: RidePlan, index: number, posMs: number, finished = false):
     marker: { t_s: elapsed, elevation: marker },
     interval,
     notice: !finished && !!next && remaining <= plan.cues.notice_seconds,
-    next: next ? { kind: next.kind, position: next.position, target_rpm: Math.round((next.target.min_rpm + next.target.max_rpm) / 2), seconds: next.seconds } : null,
+    next: next ? { kind: next.kind, position: next.position, target_rpm: Math.round((next.target.min_rpm + next.target.max_rpm) / 2), seconds: next.seconds, shown: shownOf(settings.bike, next.target.min_rpm, next.target.max_rpm), level: levelOf(settings.bike, next.effort) } : null,
     pulse: { source: planned?.pulse ?? "metronome", first_beat_ms: 180, beat_ms: beatMs, stroke_ms: beatMs / STROKES_PER_BEAT[ratio], ratio, song_position_ms: posMs },
     cues: finished ? [] : cuesOf(plan, i, posMs),
   };
@@ -443,6 +493,23 @@ export const exerciseMock = {
   },
   handlers: {
     exercise_state: () => state(),
+    exercise_hot_points: ({ workout }: { workout: { segments: Segment[] } }) => (settings.climb_steps > 0 ? hotPointsOf(workout.segments) : []),
+    exercise_shown_target: ({ bike, minRpm, maxRpm }: { bike: BikeProfile; minRpm: number; maxRpm: number }) => shownOf(bike, minRpm, maxRpm),
+    exercise_calibrate: ({ console: unit, rpm, speed }: { console: string; rpm: number; speed: number }) => {
+      const kph = unit === "mph" ? speed * 1.609344 : speed;
+      const factor = Math.round((kph / rpm) * 1000) / 1000;
+      return (unit === "kph" || unit === "mph") && rpm > 0 && factor >= 0.05 && factor <= 1 ? factor : null;
+    },
+    exercise_swap: async ({ segmentIndex }: { segmentIndex: number; atSegmentMs: number | null }): Promise<RideBuilt> => {
+      if (!plan) throw "There is no ride to change.";
+      await wait(400);
+      const old = plan.songs.find((x) => x.segment_index === segmentIndex);
+      const pick = SWAP_POOL[swapCount++ % SWAP_POOL.length];
+      const fresh = song(segmentIndex, pick[0], pick[1], pick[2], pick[3], pick[4]);
+      plan = { ...plan, songs: plan.songs.map((x) => (x === old ? fresh : x)) };
+      publish();
+      return { plan, playlist: { id: "ride-mock", name: "Easy" }, saved: saved.find((r) => r.id === savedId) ?? null };
+    },
     exercise_presets: () => PRESETS,
     exercise_ride_minutes: () => Array.from({ length: 17 }, (_, i) => 10 + i * 5),
     exercise_default_request: () => ({ ...request, minutes: settings.ride_minutes }),

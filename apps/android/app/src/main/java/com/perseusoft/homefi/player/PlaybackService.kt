@@ -79,6 +79,8 @@ class PlaybackService : MediaLibraryService() {
             }
         }
         crossfader = fader
+        // exercise mode fades its songs through this crossfader (its own length, whatever the global crossfade says)
+        homefi.ride.attachFader(fader)
         wire(first, 0, streams)
         carDecks = fader.decks.map { CarLyricsPlayer(it, homefi, scope) }
         // the second deck is built when crossfade is turned on (and at start when it already is)
@@ -127,7 +129,10 @@ class PlaybackService : MediaLibraryService() {
             }
 
             override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
-                if (isActive()) homefi.sound.onTrack(player)
+                if (!isActive()) return
+                homefi.sound.onTrack(player)
+                // a song swapped into the queue (the ride's "change this song") is fetched ahead like the others
+                if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) streams.prefetch(player)
             }
         })
         // a deck built later joins the session wrappers (car lyric line, lyrics refresh)
@@ -187,6 +192,7 @@ class PlaybackService : MediaLibraryService() {
             homefi.appScope.launch { host.stop() }
         }
         rideTv = null
+        crossfader?.let(homefi.ride::detachFader)
         scope.cancel()
         session?.release()
         carDecks.forEach(CarLyricsPlayer::stopLyrics)

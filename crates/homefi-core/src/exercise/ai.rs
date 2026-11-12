@@ -280,6 +280,7 @@ fn segment_from(v: &Value) -> Option<Segment> {
         position,
         interval,
         note: String::new(),
+        steps: Vec::new(),
     })
 }
 

@@ -818,6 +818,28 @@ mod tests {
         assert_eq!(json["exercise"]["tv_window_fullscreen"], true);
     }
 
+    #[test]
+    fn the_ride_bike_and_fade_settings_are_lenient() {
+        use homefi_core::exercise::{ConsoleUnit, CourseRider, ExerciseSettings};
+        let old: DesktopSettings = serde_json::from_str(r#"{"exercise":{"ride_minutes":30}}"#).unwrap();
+        let fresh = ExerciseSettings::default();
+        assert_eq!(old.exercise.bike, fresh.bike, "a settings file from before the bike has the defaults");
+        assert_eq!(old.exercise.crossfade_seconds, fresh.crossfade_seconds);
+        assert!(old.exercise.ride_swap && old.exercise.swap_uses_ai);
+        let wild: DesktopSettings = serde_json::from_str(
+            r#"{"exercise":{"bike":{"console":"kph","resistance_levels":200,"kph_per_rpm":9},"crossfade_seconds":99,"course_rider":"unicycle"}}"#,
+        )
+        .unwrap();
+        let clamped = wild.exercise.clamped();
+        assert_eq!(clamped.bike.console, ConsoleUnit::Kph);
+        assert_eq!(clamped.bike.resistance_levels, 32);
+        assert_eq!(clamped.bike.kph_per_rpm, 1.0);
+        assert_eq!(clamped.crossfade_seconds, 8.0);
+        assert_eq!(wild.exercise.course_rider, CourseRider::Bike, "an unknown word reads as the default");
+        let broken: DesktopSettings = serde_json::from_str(r#"{"exercise":{"bike":"big"}}"#).unwrap();
+        assert_eq!(broken.exercise, ExerciseSettings::default());
+    }
+
     fn loaded(json: &str) -> DesktopSettings {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let path = temp_file(&format!("load{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));

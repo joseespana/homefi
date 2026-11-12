@@ -6,8 +6,9 @@
 //! scales by rounds, not by stretching the work.
 
 use super::model::{
-    round_minutes, Effort, Interval, Position, PresetId, RpmRange, Segment, SegmentKind, Sport, Target, Workout,
-    WorkoutOrigin, MAX_RIDE_MINUTES, MIN_RIDE_MINUTES, WORKOUT_FORMAT_VERSION,
+    round_minutes, Effort, EffortStep, Interval, Position, PresetId, RpmRange, Segment, SegmentKind, Sport, Target,
+    Workout, WorkoutOrigin, MAX_EFFORT, MAX_RIDE_MINUTES, MAX_STEPS, MIN_RIDE_MINUTES, MIN_STEP_SECONDS,
+    WORKOUT_FORMAT_VERSION,
 };
 use super::settings::ExerciseSettings;
 use crate::playlist::new_id;
@@ -131,6 +132,7 @@ fn segment_of(b: &Block, seconds: u32) -> Segment {
         position: b.position,
         interval: None,
         note: String::new(),
+        steps: Vec::new(),
     };
     if let Some(s) = &b.sprint {
         let cycle = s.work_s + s.rest_s;
@@ -209,6 +211,47 @@ pub fn preset(style_id: PresetId, minutes: u16, settings: &ExerciseSettings) -> 
     beginner_caps(&workout, settings)
 }
 
+/// The efforts of a climb split in `levels` equal parts: consecutive, the last one above the nominal effort
+/// (3 levels at effort 7: 6, 7, 8), kept inside 1..=10.
+fn climb_efforts(effort: u8, levels: usize) -> Vec<u8> {
+    let top = effort.saturating_add(1).min(MAX_EFFORT);
+    (0..levels).map(|k| top.saturating_sub((levels - 1 - k) as u8).max(1)).collect()
+}
+
+/// Whether a climb of this kind and length gets `levels` resistance levels.
+fn climbs_in(seg: &Segment, levels: u8) -> bool {
+    matches!(seg.kind, SegmentKind::SeatedClimb | SegmentKind::StandingClimb)
+        && (2..=(MAX_STEPS as u8 + 1)).contains(&levels)
+        && seg.seconds >= u32::from(levels) * MIN_STEP_SECONDS
+}
+
+/// The effort changes of a climb in `levels` parts ("one more turn of resistance, like a class"): level k
+/// (1-based, the first is the segment's own start) begins at `k * seconds / levels`, so a 3-level climb has two
+/// steps. Empty for anything but a long enough climb and for `levels` outside 2..=[`MAX_STEPS`] + 1. The first
+/// level's effort is [`apply_climb_steps`]'s to set (the segment's `effort`).
+pub fn climb_steps(seg: &Segment, levels: u8) -> Vec<EffortStep> {
+    if !climbs_in(seg, levels) {
+        return Vec::new();
+    }
+    let count = usize::from(levels);
+    let efforts = climb_efforts(seg.effort.get(), count);
+    (1..count)
+        .map(|k| EffortStep { at_s: (k as u32 * seg.seconds) / u32::from(levels), effort: Effort(efforts[k]) })
+        .collect()
+}
+
+/// Gives every climb without steps its resistance steps (see [`climb_steps`]) and lowers its starting effort
+/// so the climb ends one above what was planned (a nominal 7 climbs 6, 7, 8). The one rule the builder uses.
+pub fn apply_climb_steps(segments: &mut [Segment], levels: u8) {
+    for seg in segments.iter_mut().filter(|s| s.steps.is_empty()) {
+        let steps = climb_steps(seg, levels);
+        if !steps.is_empty() {
+            seg.effort = Effort(climb_efforts(seg.effort.get(), usize::from(levels))[0]);
+            seg.steps = steps;
+        }
+    }
+}
+
 /// The workout with the beginner caps applied (a copy; nothing when `beginner_mode` is off): cadence
 /// 60..110, standing (and jumps) never under 60 RPM, sprint work at most 30 s with at least twice the
 /// rest, effort at most 8. A sprint block keeps its length, with fewer rounds if the longer rest asks for it.
@@ -224,6 +267,9 @@ pub fn beginner_caps(workout: &Workout, settings: &ExerciseSettings) -> Workout 
             (range.min_rpm.clamp(floor, BEGINNER_MAX_RPM), range.max_rpm.clamp(floor, BEGINNER_MAX_RPM));
         seg.target = Target::Cadence { min_rpm, max_rpm };
         seg.effort = Effort(seg.effort.get().min(BEGINNER_MAX_EFFORT));
+        for step in &mut seg.steps {
+            step.effort = Effort(step.effort.get().min(BEGINNER_MAX_EFFORT));
+        }
         if let Some(iv) = &mut seg.interval {
             iv.work_s = iv.work_s.min(BEGINNER_MAX_WORK_S);
             iv.rest_s = iv.rest_s.max(iv.work_s * BEGINNER_REST_FACTOR);
@@ -254,6 +300,7 @@ pub(crate) fn assert_valid(w: &Workout, settings: &ExerciseSettings) {
         if settings.beginner_mode {
             assert!(r.min_rpm >= BEGINNER_MIN_RPM && r.max_rpm <= BEGINNER_MAX_RPM, "{:?} cadence {r:?}", seg.kind);
             assert!(seg.effort.get() <= BEGINNER_MAX_EFFORT);
+            assert!(seg.steps.iter().all(|s| s.effort.get() <= BEGINNER_MAX_EFFORT));
             if seg.position.is_standing() {
                 assert!(r.min_rpm >= BEGINNER_MIN_RPM);
             }
@@ -351,5 +398,60 @@ mod tests {
         assert_eq!(beginner_caps(&wild, &off), wild);
         let free = preset(PresetId::Intervals, 30, &off);
         assert!(free.segments.iter().any(|s| s.effort.get() == 9), "sprints are all out without the caps");
+    }
+
+    fn climb(kind: SegmentKind, seconds: u32, effort: u8) -> Segment {
+        Segment { kind, seconds, effort: Effort(effort), ..Segment::default() }
+    }
+
+    #[test]
+    fn climb_steps_are_evenly_spaced_and_end_one_above_the_effort() {
+        let seg = climb(SegmentKind::SeatedClimb, 300, 7);
+        let steps = climb_steps(&seg, 3);
+        assert_eq!(steps, [EffortStep { at_s: 100, effort: Effort(7) }, EffortStep { at_s: 200, effort: Effort(8) }]);
+        let mut segs = [seg, climb(SegmentKind::StandingClimb, 240, 10)];
+        apply_climb_steps(&mut segs, 3);
+        assert_eq!([0, 100, 200].map(|t| segs[0].effort_at(t)), [6, 7, 8], "6 -> 7 -> 8 for a nominal 7");
+        assert_eq!([0, 80, 160].map(|t| segs[1].effort_at(t)), [8, 9, 10], "the top stays 10");
+        let two = climb_steps(&climb(SegmentKind::SeatedClimb, 200, 5), 2);
+        assert_eq!(two, [EffortStep { at_s: 100, effort: Effort(6) }]);
+        let four = climb_steps(&climb(SegmentKind::SeatedClimb, 240, 6), 4);
+        assert_eq!(four.iter().map(|s| (s.at_s, s.effort.get())).collect::<Vec<_>>(), [(60, 5), (120, 6), (180, 7)]);
+        // a segment that already has steps (the rider's own) is left alone
+        let own = Segment {
+            steps: vec![EffortStep { at_s: 50, effort: Effort(9) }],
+            ..climb(SegmentKind::SeatedClimb, 300, 7)
+        };
+        let mut kept = [own.clone()];
+        apply_climb_steps(&mut kept, 3);
+        assert_eq!(kept[0], own);
+    }
+
+    #[test]
+    fn short_climbs_get_no_steps() {
+        assert!(climb_steps(&climb(SegmentKind::SeatedClimb, 100, 7), 3).is_empty(), "3 x 40 s needs 120 s");
+        assert!(climb_steps(&climb(SegmentKind::SeatedClimb, 120, 7), 3).len() == 2);
+        assert!(climb_steps(&climb(SegmentKind::SeatedFlat, 600, 7), 3).is_empty(), "only climbs");
+        assert!(climb_steps(&climb(SegmentKind::Sprint, 600, 7), 3).is_empty());
+        for off in [0, 1, 6] {
+            assert!(climb_steps(&climb(SegmentKind::SeatedClimb, 900, 7), off).is_empty(), "levels {off}");
+        }
+        let mut segs = [climb(SegmentKind::SeatedClimb, 100, 7)];
+        apply_climb_steps(&mut segs, 3);
+        assert_eq!((segs[0].effort, segs[0].steps.len()), (Effort(7), 0), "a short climb keeps its effort");
+    }
+
+    #[test]
+    fn beginner_caps_cap_the_steps() {
+        let mut segs = [climb(SegmentKind::StandingClimb, 300, 9)];
+        apply_climb_steps(&mut segs, 3);
+        assert_eq!(segs[0].steps[1].effort, Effort(10));
+        let w = Workout { segments: segs.to_vec(), ..Workout::default() }.sanitized();
+        let on = ExerciseSettings::default();
+        let capped = beginner_caps(&w, &on);
+        assert!(capped.segments[0].steps.iter().all(|s| s.effort.get() <= BEGINNER_MAX_EFFORT));
+        assert_valid(&capped, &on);
+        let off = ExerciseSettings { beginner_mode: false, ..on };
+        assert_eq!(beginner_caps(&w, &off).segments[0].steps[1].effort, Effort(10));
     }
 }

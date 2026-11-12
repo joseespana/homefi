@@ -2,7 +2,7 @@
   // The ride (docs/EXERCISE_UI.md §3.4): one question at a glance each, by size: how fast to pedal (the
   // ring, with the beat inside it), how long until it changes (the timer), how hard (the bars), what is
   // next (the card) and where we are (the mountain). Dark whatever the theme when the setting says so.
-  import { clock, courseText, effortWord, partsOf, positionIcon, positionLabel, zoneName, zoneVar } from "../../lib/exercise-api";
+  import { STEP_CHIP_MS, clock, courseText, effortWord, partsOf, positionIcon, positionLabel, shownLabel, stepChipText, zoneName, zoneVar } from "../../lib/exercise-api";
   import { exercise } from "../../lib/exercise.svelte";
   import Cover from "../Cover.svelte";
   import Icon from "../Icon.svelte";
@@ -15,17 +15,11 @@
 
   /** The pause card appears once the music has been still this long (a song loading is not a pause). */
   const PAUSE_SHOW_MS = 500;
-  /** Windows shorter than this get the smaller mountain; the ring and the digits scale with it. */
-  const TALL_PX = 880;
-  const SHORT_PX = 800;
-  const MOUNTAIN_PX = { tall: 250, mid: 210, short: 170 } as const;
 
   const plan = $derived(exercise.plan);
   const view = $derived(exercise.view);
   const parts = $derived(plan ? partsOf(plan.workout) : []);
   const s = $derived(exercise.settings);
-  let height = $state(window.innerHeight);
-  const mountainPx = $derived(height >= TALL_PX ? MOUNTAIN_PX.tall : height >= SHORT_PX ? MOUNTAIN_PX.mid : MOUNTAIN_PX.short);
 
   // interval phases flip the colour: GO! in the sprint colour, Rest in the recovery colour
   const work = $derived(view?.interval?.phase === "work");
@@ -35,7 +29,32 @@
   const timer = $derived(view ? (view.interval ? view.interval.phase_remaining_s : view.remaining_s) : 0);
   const lastPart = $derived(!!view && view.segment_index >= view.segment_count - 1);
   const label = $derived(view ? courseText(parts, view.total_s, view.segment_index, view.elapsed_s) : "Course");
-  const rpmLabel = $derived(view ? `Target ${view.target_rpm} RPM` : "");
+  const rpmLabel = $derived(
+    view ? (view.shown && view.shown.unit !== "rpm" ? `Target ${shownLabel(view.shown, view.target_rpm)}, about ${view.target_rpm} RPM` : `Target ${view.target_rpm} RPM`) : "",
+  );
+
+  // the resistance-step chip: shown for a few seconds after each step (the "resistance" cue sounds with it)
+  const chipText = $derived(stepChipText(view?.step));
+  let chip = $state("");
+  $effect(() => {
+    chip = chipText;
+    if (!chipText) return;
+    const id = setTimeout(() => (chip = ""), STEP_CHIP_MS);
+    return () => clearTimeout(id);
+  });
+
+  // swapping the song: the song line asks first; "Swap the next one" when there is one
+  let askSwap = $state(false);
+  const nextSong = $derived(view && plan ? plan.songs.find((x) => x.segment_index === view.segment_index + 1)?.entry : undefined);
+  const swapRange = $derived(view ? shownLabel(view.shown, view.target_rpm) : "");
+  async function doSwap(next: boolean) {
+    if (!view) return;
+    askSwap = false;
+    // the part's own clock goes on: the new song starts at this instant of the part
+    if (next) await exercise.swap(view.segment_index + 1, null);
+    else await exercise.swap(view.segment_index, Math.max(0, Math.round((view.segment_seconds - view.remaining_s) * 1000)));
+  }
+
   const tvOwnsMusic = $derived(exercise.tv.hub && exercise.tv.audio === "tv");
 
   // the pause card: after the music has been still a moment
@@ -62,13 +81,15 @@
       exercise.pause();
     }
   }
+  /** Moves focus into a dialog when it opens. */
+  const focusFirst = (node: HTMLElement) => node.focus();
   let resume = $state<HTMLButtonElement>();
   $effect(() => {
     if (paused) resume?.focus();
   });
 </script>
 
-<svelte:window bind:innerHeight={height} onkeydown={onKey} />
+<svelte:window onkeydown={onKey} />
 
 {#if view && plan}
   <main class="ride" class:ex-dark={exercise.dark} style:--c={color} aria-label="Ride">
@@ -77,10 +98,18 @@
       <span class="pos"><Icon name={positionIcon(view.position)} size={20} />{positionLabel(view.position)}</span>
       <span class="sp"></span>
       {#if song}
-        <span class="song">
-          <Cover url={song.cover_url} path={song.local_path} size={44} radius={6} />
-          <span class="txt"><b class="ell">{song.title}</b><small class="ell">{song.artist}</small></span>
-        </span>
+        {#if s.ride_swap}
+          <button type="button" class="song swap" aria-label="Swap this song: {song.title}" aria-haspopup="dialog" disabled={exercise.swapping !== null} onclick={() => (askSwap = true)}>
+            <Cover url={song.cover_url} path={song.local_path} size={44} radius={6} />
+            <span class="txt"><b class="ell">{song.title}</b><small class="ell">{exercise.swapping !== null ? "Finding another song…" : song.artist}</small></span>
+            <Icon name="refresh" size={16} />
+          </button>
+        {:else}
+          <span class="song">
+            <Cover url={song.cover_url} path={song.local_path} size={44} radius={6} />
+            <span class="txt"><b class="ell">{song.title}</b><small class="ell">{song.artist}</small></span>
+          </span>
+        {/if}
       {/if}
       {#if tvOwnsMusic}
         <span class="tvnote">Music is playing on the TV<button type="button" class="link" onclick={() => exercise.playHere()}>Play here instead</button></span>
@@ -94,7 +123,7 @@
     </header>
 
     <section class="main">
-      <div class="left"><EffortBars effort={view.effort} /></div>
+      <div class="left"><EffortBars effort={view.effort} level={view.level ?? null} levelCount={view.level_count ?? 0} /></div>
 
       <div class="mid">
         {#if view.interval}
@@ -120,22 +149,41 @@
     </section>
 
     <section class="map">
-      <Mountain
-        {parts}
-        profile={plan.profile}
-        mode="live"
-        height={mountainPx}
-        current={view.segment_index}
-        marker={view.marker}
-        {label}
-        describe={(i) => `${zoneName(parts[i].kind)} · ${clock(parts[i].seconds)} · ${Math.round((plan.workout.segments[i].target.min_rpm + plan.workout.segments[i].target.max_rpm) / 2)} RPM`}
-      />
+      <div class="mtnbox">
+        <Mountain
+          {parts}
+          profile={plan.profile}
+          mode="live"
+          height="100%"
+          current={view.segment_index}
+          marker={view.marker}
+          hot={exercise.hotPoints}
+          paused={!exercise.playing}
+          {label}
+          describe={(i) => `${zoneName(parts[i].kind)} · ${clock(parts[i].seconds)} · ${Math.round((plan.workout.segments[i].target.min_rpm + plan.workout.segments[i].target.max_rpm) / 2)} RPM`}
+        />
+        {#if chip}<span class="chip" role="status" aria-live="polite"><Icon name="up" size={16} />{chip}</span>{/if}
+      </div>
       <div class="prog">
         <span>{clock(view.elapsed_s)}</span>
         <div class="bar" role="progressbar" aria-label="Ride progress" aria-valuemin="0" aria-valuemax={view.total_s} aria-valuenow={view.elapsed_s}><i style:width="{(view.progress * 100).toFixed(2)}%"></i></div>
         <span>{clock(view.total_s)}</span>
       </div>
     </section>
+
+    {#if askSwap}
+      <div class="veil" role="presentation" onclick={() => (askSwap = false)}>
+        <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="ex-swap-t" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.key === "Escape" && (askSwap = false)}>
+          <h2 id="ex-swap-t">Swap this song?</h2>
+          <p>HomeFi will put another that fits {swapRange}. The part's clock keeps going.</p>
+          <div class="acts">
+            <button type="button" class="resume" use:focusFirst onclick={() => doSwap(false)}>Swap</button>
+            <button type="button" class="btn tonal" onclick={() => (askSwap = false)}>Keep</button>
+            {#if nextSong}<button type="button" class="btn tonal" onclick={() => doSwap(true)}>Swap the next one</button>{/if}
+          </div>
+        </div>
+      </div>
+    {/if}
 
     {#if paused}
       <div class="veil" role="presentation">
@@ -161,7 +209,8 @@
     container: ride / inline-size;
     position: relative;
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    /* the ring gets the larger share, the map the rest (never under 190 px: the rider and the step tags need height) */
+    grid-template-rows: auto minmax(0, 1.5fr) minmax(190px, 1fr);
     gap: 12px;
     flex: 1;
     min-height: 0;
@@ -249,6 +298,16 @@
   }
   .pause:hover {
     filter: brightness(1.1);
+  }
+  button.swap {
+    padding: 4px 10px 4px 4px;
+    border-radius: var(--r-md);
+    color: inherit;
+    text-align: left;
+    background: transparent;
+  }
+  button.swap:hover:not(:disabled) {
+    background: var(--surface-2);
   }
   .skip {
     width: var(--ride-hit);
@@ -355,7 +414,45 @@
     color: var(--muted);
     font-weight: 600;
   }
+  .mtnbox {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+  }
+  /* the resistance-step chip: over the mountain, top centre (no layout space, nothing jumps) */
+  .chip {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    border-radius: var(--r-pill);
+    border: 2px solid var(--c);
+    background: color-mix(in srgb, var(--c) 14%, color-mix(in srgb, var(--surface) 92%, transparent));
+    color: var(--c);
+    font-size: 14px;
+    font-weight: 700;
+    white-space: nowrap;
+    pointer-events: none;
+    animation: ex-chip 0.15s ease-out;
+  }
+  @keyframes ex-chip {
+    from {
+      opacity: 0;
+      transform: translate(-50%, -4px);
+    }
+  }
+  :global(:root[data-motion="off"]) .chip {
+    animation: none;
+  }
   .map {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--r-lg);

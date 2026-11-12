@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Deserializer, Serialize};
 
+use super::bike::BikeProfile;
 use super::model::{round_minutes, PresetId, RideTaste, MAX_RIDE_MINUTES, MIN_RIDE_MINUTES};
 
 pub const DEFAULT_RIDE_MINUTES: u16 = 30;
@@ -27,6 +28,12 @@ pub const MAX_RIDE_HISTORY: u16 = 200;
 pub const DEFAULT_RIDE_HISTORY: u16 = 30;
 /// `tv_window_display` value meaning "a second screen when there is one".
 pub const TV_DISPLAY_AUTO: &str = "auto";
+/// Resistance steps asked on a climb (0 = off), 0..=4; `climb_steps` of 3 asks 2 more turns.
+pub const MAX_CLIMB_STEPS: u8 = 4;
+pub const DEFAULT_CLIMB_STEPS: u8 = 3;
+/// Fade between the ride's songs (s), 0 = the cut stays.
+pub const MAX_CROSSFADE_SECONDS: f32 = 8.0;
+pub const DEFAULT_CROSSFADE_SECONDS: f32 = 3.0;
 /// Longest display name kept (a screen's name from the OS).
 pub const MAX_DISPLAY_NAME_CHARS: usize = 80;
 
@@ -64,6 +71,18 @@ pub enum CourseLook {
     #[default]
     #[serde(other)]
     Ribbon,
+}
+
+/// How the rider is drawn on the course mountain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CourseRider {
+    /// Just a dot.
+    Dot,
+    /// A small bike on the ridge (the default).
+    #[default]
+    #[serde(other)]
+    Bike,
 }
 
 /// What the TV does when the rider uses one.
@@ -128,10 +147,14 @@ pub struct ExerciseSettings {
     pub course_look: CourseLook,
     /// The course marks its tallest summits with their time.
     pub course_summits: bool,
+    /// The rider on the mountain: a bike or a dot.
+    pub course_rider: CourseRider,
     /// The ride screen stays dark whatever the app's theme.
     pub ride_always_dark: bool,
     /// Android only: a short buzz on every change of part.
     pub haptic_cues: bool,
+    /// Android only: a large Pause button and a column of controls instead of the small icon row.
+    pub ride_big_controls: bool,
     /// The "not medical advice" notice was accepted.
     pub health_notice_seen: bool,
     /// Phase 2: speed songs up or down a few percent to the cadence, 0..=8 (0 = off).
@@ -141,6 +164,16 @@ pub struct ExerciseSettings {
     pub ride_history_max: u16,
     /// The setup's taste answers (era, how famous, artists liked and avoided), remembered for the next ride.
     pub taste: RideTaste,
+    /// The rider's bike: what the console shows, resistance levels, speed calibration.
+    pub bike: BikeProfile,
+    /// Each climb asks for one more turn of resistance this many levels (see `presets::climb_steps`), 0..=4, 0 = off.
+    pub climb_steps: u8,
+    /// How long the next song fades in when a part ends (s), 0..=8, 0 = the cut stays.
+    pub crossfade_seconds: f32,
+    /// A tap on the song changes it, in the plan and during the ride.
+    pub ride_swap: bool,
+    /// When nothing already found fits a swap, the AI proposes a song (uses the rider's key).
+    pub swap_uses_ai: bool,
 }
 
 impl Default for ExerciseSettings {
@@ -172,12 +205,19 @@ impl Default for ExerciseSettings {
             tv_lyrics: true,
             course_look: CourseLook::Ribbon,
             course_summits: false,
+            course_rider: CourseRider::Bike,
             ride_always_dark: true,
             haptic_cues: true,
+            ride_big_controls: false,
             health_notice_seen: false,
             tempo_nudge_pct: 0,
             ride_history_max: DEFAULT_RIDE_HISTORY,
             taste: RideTaste::default(),
+            bike: BikeProfile::default(),
+            climb_steps: DEFAULT_CLIMB_STEPS,
+            crossfade_seconds: DEFAULT_CROSSFADE_SECONDS,
+            ride_swap: true,
+            swap_uses_ai: true,
         }
     }
 }
@@ -201,6 +241,13 @@ impl ExerciseSettings {
                 name => name.chars().take(MAX_DISPLAY_NAME_CHARS).collect(),
             },
             taste: self.taste.clone().clamped(),
+            bike: self.bike.clamped(),
+            climb_steps: self.climb_steps.min(MAX_CLIMB_STEPS),
+            crossfade_seconds: if self.crossfade_seconds.is_finite() {
+                self.crossfade_seconds.clamp(0.0, MAX_CROSSFADE_SECONDS)
+            } else {
+                DEFAULT_CROSSFADE_SECONDS
+            },
             ..self.clone()
         }
     }
@@ -223,6 +270,7 @@ pub fn lenient_exercise<'de, D: Deserializer<'de>>(d: D) -> Result<ExerciseSetti
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exercise::bike::ConsoleUnit;
     use crate::exercise::model::Popularity;
 
     #[test]
@@ -246,6 +294,11 @@ mod tests {
         assert_eq!(s.ride_history_max, 30);
         assert_eq!(s.taste.popularity, Popularity::Hits, "big hits unless the rider asks otherwise");
         assert!(s.taste.eras.is_empty() && s.taste.artists.is_empty() && s.taste.avoid.is_empty());
+        assert_eq!(
+            (s.course_rider, s.ride_big_controls, s.ride_swap, s.swap_uses_ai),
+            (CourseRider::Bike, false, true, true)
+        );
+        assert_eq!((s.climb_steps, s.crossfade_seconds, s.bike), (3, 3.0, BikeProfile::default()));
         assert_eq!(s.clamped(), s, "defaults are already in range");
     }
 
@@ -262,6 +315,9 @@ mod tests {
             tv_port: 80,
             tempo_nudge_pct: 50,
             ride_history_max: 0,
+            climb_steps: 9,
+            crossfade_seconds: 99.0,
+            bike: BikeProfile { resistance_levels: 250, ..BikeProfile::default() },
             tv_window_display: "  ".into(),
             ..ExerciseSettings::default()
         };
@@ -271,6 +327,12 @@ mod tests {
         assert_eq!((c.pulse_offset_ms, c.tv_port, c.tempo_nudge_pct), (-500, 1024, 8));
         assert_eq!(c.tv_window_display, TV_DISPLAY_AUTO, "a blank name means auto");
         assert_eq!(c.ride_history_max, MIN_RIDE_HISTORY);
+        assert_eq!((c.climb_steps, c.crossfade_seconds, c.bike.resistance_levels), (4, 8.0, 32));
+        assert_eq!(
+            ExerciseSettings { crossfade_seconds: f32::NAN, ..Default::default() }.clamped().crossfade_seconds,
+            3.0
+        );
+        assert_eq!(ExerciseSettings { crossfade_seconds: -2.0, ..Default::default() }.clamped().crossfade_seconds, 0.0);
         assert_eq!(ExerciseSettings { ride_history_max: 9999, ..Default::default() }.clamped().ride_history_max, 200);
         let long = ExerciseSettings { tv_window_display: "x".repeat(500), ..Default::default() }.clamped();
         assert_eq!(long.tv_window_display.chars().count(), MAX_DISPLAY_NAME_CHARS);
@@ -304,6 +366,17 @@ mod tests {
         let taste = &h.exercise.taste;
         assert_eq!((taste.eras.as_slice(), taste.popularity), ([1980, 1990].as_slice(), Popularity::Discover));
         assert_eq!((taste.artists.as_slice(), taste.avoid.len()), (["Slayer".to_owned()].as_slice(), 0));
+        let h2: Holder = serde_json::from_str(
+            r#"{"exercise": {"bike": {"console": "mph", "kph_per_rpm": 0.3}, "climb_steps": 0, "crossfade_seconds": 5.5,
+                "course_rider": "dot", "ride_big_controls": true, "ride_swap": false, "swap_uses_ai": false}}"#,
+        )
+        .unwrap();
+        let e = &h2.exercise;
+        assert_eq!((e.bike.console, e.bike.kph_per_rpm, e.bike.resistance_levels), (ConsoleUnit::Mph, 0.3, 8));
+        assert_eq!((e.climb_steps, e.crossfade_seconds, e.course_rider), (0, 5.5, CourseRider::Dot));
+        assert!(e.ride_big_controls && !e.ride_swap && !e.swap_uses_ai);
+        let odd: Holder = serde_json::from_str(r#"{"exercise": {"course_rider": "unicycle", "bike": 3}}"#).unwrap();
+        assert_eq!(odd.exercise, ExerciseSettings::default(), "an unreadable bike reads as the defaults");
         let back: ExerciseSettings = serde_json::from_str(&serde_json::to_string(&h.exercise).unwrap()).unwrap();
         assert_eq!(&back.taste, taste, "the taste round-trips");
     }

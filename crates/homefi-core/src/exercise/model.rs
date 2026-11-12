@@ -22,6 +22,9 @@ pub const MAX_SEGMENT_SECONDS: u32 = 20 * 60;
 /// Most segments of one workout.
 pub const MAX_SEGMENTS: usize = 40;
 pub const MAX_ROUNDS: u8 = 12;
+/// Resistance steps inside one segment (a climb "asks for one more turn"), and the shortest a step may last (s).
+pub const MAX_STEPS: usize = 4;
+pub const MIN_STEP_SECONDS: u32 = 40;
 /// Genres the wish keeps, and the longest genre or sentence (chars).
 pub const MAX_GENRES: usize = 6;
 pub const MAX_GENRE_CHARS: usize = 40;
@@ -192,6 +195,14 @@ impl Interval {
     }
 }
 
+/// From `at_s` seconds into its segment, the effort is `effort` (a climb's "one more turn of resistance").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct EffortStep {
+    pub at_s: u32,
+    pub effort: Effort,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Segment {
@@ -202,6 +213,10 @@ pub struct Segment {
     pub position: Position,
     pub interval: Option<Interval>,
     pub note: String,
+    /// Effort changes inside the segment, ordered by `at_s` (`0 < at_s < seconds`, at most [`MAX_STEPS`]).
+    /// Before the first one the effort is `effort`. Left out of the JSON when empty, so old files read the same.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<EffortStep>,
 }
 
 impl Default for Segment {
@@ -214,6 +229,7 @@ impl Default for Segment {
             position: Position::default(),
             interval: None,
             note: String::new(),
+            steps: Vec::new(),
         }
     }
 }
@@ -221,6 +237,11 @@ impl Default for Segment {
 impl Segment {
     pub fn cadence(&self) -> RpmRange {
         self.target.cadence()
+    }
+
+    /// The effort `position_s` seconds into the segment: the last step that has started, else the base effort.
+    pub fn effort_at(&self, position_s: u32) -> u8 {
+        self.steps.iter().rev().find(|s| s.at_s <= position_s).map_or(self.effort, |s| s.effort).get()
     }
 
     /// Everything inside its range; an interval fits in the segment (rounds are lowered, then the
@@ -233,6 +254,13 @@ impl Segment {
             self.position = Position::Alternating { beats: beats.clamp(2, 32) };
         }
         self.note = self.note.chars().take(MAX_NOTE_CHARS).collect();
+        self.steps.retain(|s| s.at_s > 0 && s.at_s < self.seconds);
+        self.steps.sort_by_key(|s| s.at_s);
+        self.steps.dedup_by_key(|s| s.at_s);
+        self.steps.truncate(MAX_STEPS);
+        for step in &mut self.steps {
+            step.effort = Effort(step.effort.get());
+        }
         if let Some(mut iv) = self.interval {
             iv.work_s = iv.work_s.clamp(5, MAX_SEGMENT_SECONDS);
             iv.rest_s = iv.rest_s.clamp(5, MAX_SEGMENT_SECONDS);
@@ -532,5 +560,56 @@ mod tests {
         let odd: RideTaste = serde_json::from_str(r#"{"popularity":"viral","eras":[1990]}"#).unwrap();
         assert_eq!((odd.popularity, odd.eras.as_slice()), (Popularity::Hits, [1990].as_slice()));
         assert_eq!(serde_json::to_string(&Popularity::Discover).unwrap(), "\"discover\"");
+    }
+
+    #[test]
+    fn effort_at_follows_the_steps() {
+        let seg = Segment {
+            seconds: 300,
+            effort: Effort(6),
+            steps: vec![EffortStep { at_s: 100, effort: Effort(7) }, EffortStep { at_s: 200, effort: Effort(8) }],
+            ..Segment::default()
+        };
+        assert_eq!([0, 99, 100, 199, 200, 299].map(|t| seg.effort_at(t)), [6, 6, 7, 7, 8, 8]);
+        assert_eq!(Segment { effort: Effort(40), ..Segment::default() }.effort_at(5), MAX_EFFORT);
+    }
+
+    #[test]
+    fn steps_are_ordered_unique_inside_the_segment_and_capped() {
+        let step = |at_s, effort| EffortStep { at_s, effort: Effort(effort) };
+        let seg = Segment {
+            seconds: 300,
+            steps: vec![
+                step(200, 9),
+                step(0, 5),
+                step(100, 99),
+                step(100, 3),
+                step(300, 7),
+                step(10, 6),
+                step(20, 6),
+                step(30, 6),
+            ],
+            ..Segment::default()
+        }
+        .clamped();
+        let at: Vec<u32> = seg.steps.iter().map(|s| s.at_s).collect();
+        assert_eq!(at.len(), MAX_STEPS);
+        assert!(at.windows(2).all(|w| w[0] < w[1]) && at.iter().all(|&t| t > 0 && t < 300));
+        assert!(seg.steps.iter().all(|s| s.effort.get() <= MAX_EFFORT));
+    }
+
+    #[test]
+    fn a_segment_without_steps_reads() {
+        let old: Segment = serde_json::from_str(r#"{"kind":"seated_climb","seconds":240,"effort":7}"#).unwrap();
+        assert!(old.steps.is_empty());
+        assert!(!serde_json::to_string(&old).unwrap().contains("steps"), "no steps, nothing written");
+        let with: Segment =
+            serde_json::from_str(r#"{"seconds":240,"steps":[{"at_s":80,"effort":8},{"future":1}]}"#).unwrap();
+        assert_eq!(with.steps.len(), 2);
+        let with = with.clamped();
+        assert_eq!(with.steps.len(), 1, "the step at 0 is dropped");
+        assert_eq!(with.effort_at(100), 8);
+        let back: Segment = serde_json::from_str(&serde_json::to_string(&with).unwrap()).unwrap();
+        assert_eq!(back, with);
     }
 }

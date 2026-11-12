@@ -393,6 +393,7 @@ mod tests {
             pulse_style: Default::default(),
             course_look: Default::default(),
             course_summits: false,
+            ..TvSession::default()
         });
         server.publish(RideClock::view(&plan, 0, 10_000, 0), true);
         let response = http.get(format!("{base}/ride.json")).send().await.unwrap();

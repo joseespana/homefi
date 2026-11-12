@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::bike::{BikeProfile, ShownTarget, MAX_RESISTANCE_LEVELS};
 use super::bpm::{nearest_ratio, BeatRatio};
 use super::builder::{PlannedSong, PulseSource, RidePlan};
 use super::cues::CueKind;
@@ -38,13 +39,30 @@ pub struct IntervalView {
 }
 
 /// The next segment, for "next: standing climb · 65 RPM".
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct NextView {
     pub kind: SegmentKind,
     pub position: Position,
     pub target_rpm: u16,
+    /// The target in the bike's unit (see [`BikeProfile::target`]).
+    pub shown: ShownTarget,
+    /// The knob position of the next segment's starting effort; `None` when the bike's levels are unknown.
+    pub level: Option<u8>,
     pub seconds: u32,
+}
+
+/// Where the rider is inside a climb's resistance steps: "level 2 of 3".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct StepView {
+    /// 1-based; the climb's own start is 1, so after the first step it is 2.
+    pub index: u8,
+    pub count: u8,
+    /// The effort at this level.
+    pub effort: u8,
+    /// Seconds to the next step, `None` on the last level.
+    pub next_in_s: Option<u32>,
 }
 
 /// The beat the rider pedals to, computed from the song's grid (or a metronome).
@@ -112,10 +130,19 @@ pub struct RideView {
     pub segment_count: u32,
     pub kind: SegmentKind,
     pub position: Position,
+    /// The effort now (`Segment::effort_at`: a climb's steps raise it).
     pub effort: u8,
     /// The big number: the center of the current phase's range.
     pub target_rpm: u16,
     pub range: RpmRange,
+    /// The range in the bike's unit (km/h once calibrated); `shown.rpm` is `target_rpm`.
+    pub shown: ShownTarget,
+    /// The bike's knob position for `effort`; `None` when its levels are unknown.
+    pub level: Option<u8>,
+    /// How many positions the knob has (0 when `level` is `None`), for "6/8".
+    pub level_count: u8,
+    /// The resistance step the rider is on; `None` for a segment without steps.
+    pub step: Option<StepView>,
     pub segment_seconds: u32,
     /// Seconds from the start of the ride to the start of this segment (highlights it on the profile).
     pub segment_start_s: u32,
@@ -145,6 +172,13 @@ pub struct RideClock;
 impl RideClock {
     /// The view at `queue_index` (the playing song of the ride's queue) and `position_ms` (its position).
     pub fn view(plan: &RidePlan, queue_index: usize, position_ms: u64, now_ms: u64) -> RideView {
+        Self::view_on(plan, &BikeProfile::default(), queue_index, position_ms, now_ms)
+    }
+
+    /// [`Self::view`] for a rider's bike: targets in its console's unit, efforts as knob positions. A song
+    /// swapped in mid-segment (`PlannedSong::at_segment_ms`) keeps the segment's clock going: the timer, the
+    /// effort, the interval phases and the cues follow the segment's time, the pulse the song's position.
+    pub fn view_on(plan: &RidePlan, bike: &BikeProfile, queue_index: usize, position_ms: u64, now_ms: u64) -> RideView {
         let segments = &plan.workout.segments;
         let count = segments.len();
         if count == 0 {
@@ -160,8 +194,12 @@ impl RideClock {
         .min(count - 1);
         let seg = &segments[index];
         let skip_to_next = !finished && song.and_then(|s| s.play_ms).is_some_and(|end| position_ms >= end);
-        let position_s = if finished { seg.seconds } else { (position_ms / MS_PER_S) as u32 };
-        let position_ms = if finished { u64::from(seg.seconds) * MS_PER_S } else { position_ms };
+        // the segment's own clock: where the song's start sits in the segment, plus the song's position
+        let offset_ms = song.map_or(0, |s| s.at_segment_ms);
+        let segment_ms =
+            if finished { u64::from(seg.seconds) * MS_PER_S } else { offset_ms.saturating_add(position_ms) };
+        let position_s = if finished { seg.seconds } else { (segment_ms / MS_PER_S).min(u64::from(u32::MAX)) as u32 };
+        let pulse_ms = if finished { segment_ms } else { position_ms };
         let remaining_s = seg.seconds.saturating_sub(position_s);
 
         let interval = seg.interval.as_ref().map(|iv| interval_view(iv, position_s, seg.seconds));
@@ -179,8 +217,12 @@ impl RideClock {
             kind: n.kind,
             position: n.position,
             target_rpm: n.cadence().center(),
+            shown: bike.target(n.cadence()),
+            level: bike.level(n.effort_at(0)),
             seconds: n.seconds,
         });
+        let effort = seg.effort_at(position_s);
+        let level = bike.level(effort);
 
         RideView {
             at_ms: now_ms,
@@ -189,9 +231,13 @@ impl RideClock {
             segment_count: count as u32,
             kind: seg.kind,
             position: seg.position,
-            effort: seg.effort.get(),
+            effort,
             target_rpm: range.center(),
             range,
+            shown: bike.target(range),
+            level,
+            level_count: if level.is_some() { bike.resistance_levels.min(MAX_RESISTANCE_LEVELS) } else { 0 },
+            step: if finished { None } else { step_view(seg, position_s) },
             segment_seconds: seg.seconds,
             segment_start_s: before,
             remaining_s,
@@ -199,12 +245,12 @@ impl RideClock {
             elapsed_s,
             total_s,
             progress: ratio(elapsed_s, total_s),
-            marker: ProfilePoint { t_s: elapsed_s, elevation: marker_elevation(plan, position_ms, before) },
+            marker: ProfilePoint { t_s: elapsed_s, elevation: marker_elevation(plan, segment_ms, before) },
             interval,
             notice: !finished && next.is_some() && remaining_s <= u32::from(plan.cues.notice_seconds),
             next,
-            pulse: pulse_view(song, range, position_ms),
-            cues: cues_of(plan, index, position_ms, finished),
+            pulse: pulse_view(song, range, pulse_ms),
+            cues: cues_of(plan, index, segment_ms, finished),
             skip_to_next,
         }
     }
@@ -218,6 +264,20 @@ fn marker_elevation(plan: &RidePlan, position_ms: u64, segment_start_s: u32) -> 
     } else {
         elevation_at(&plan.profile, t)
     }
+}
+
+/// The resistance step at `position_s` of `seg`, `None` without steps.
+fn step_view(seg: &Segment, position_s: u32) -> Option<StepView> {
+    if seg.steps.is_empty() {
+        return None;
+    }
+    let passed = seg.steps.iter().filter(|s| s.at_s <= position_s).count();
+    Some(StepView {
+        index: (passed + 1).min(usize::from(u8::MAX)) as u8,
+        count: (seg.steps.len() + 1).min(usize::from(u8::MAX)) as u8,
+        effort: seg.effort_at(position_s),
+        next_in_s: seg.steps.get(passed).map(|s| s.at_s - position_s),
+    })
 }
 
 fn ratio(part: u32, whole: u32) -> f32 {
@@ -294,6 +354,8 @@ fn countdown_kind(k: u32) -> CueKind {
 /// Ids keep a segment's cues apart: `segment * 1000 + slot`.
 const ID_PER_SEGMENT: u32 = 1000;
 const SLOT_TRANSITION: u32 = 10;
+/// Resistance steps sit between the transitions (10..) and the countdowns (100..).
+const SLOT_STEP: u32 = 50;
 const SLOT_COUNTDOWN: u32 = 100;
 const COUNTDOWN_SLOTS_PER_TRANSITION: u32 = 12;
 
@@ -333,6 +395,10 @@ fn timeline(plan: &RidePlan, index: usize) -> Vec<(u32, CueKind, i64)> {
         out.push((base + SLOT_TRANSITION + n as u32, *kind, i64::from(*at) * MS_PER_S as i64));
         push_countdown(&mut out, *at, previous_at, countdown, base, n as u32);
         previous_at = *at;
+    }
+    // a resistance step is one soft sound, with no countdown (that would be a shower of beeps on a climb)
+    for (k, step) in seg.steps.iter().enumerate().filter(|(_, s)| s.at_s < seg.seconds) {
+        out.push((base + SLOT_STEP + k as u32 + 1, CueKind::Resistance, i64::from(step.at_s) * MS_PER_S as i64));
     }
     let end_slot = changes.len() as u32;
     // the end cue's id is the next segment's opener, so both views agree
@@ -376,8 +442,9 @@ fn cues_of(plan: &RidePlan, index: usize, position_ms: u64, finished: bool) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exercise::bike::{ConsoleUnit, TargetUnit};
     use crate::exercise::builder::{test_plan, CueSettings};
-    use crate::exercise::model::{Effort, Target, Workout};
+    use crate::exercise::model::{Effort, EffortStep, Target, Workout};
 
     fn seg(
         kind: SegmentKind,
@@ -393,7 +460,7 @@ mod tests {
             effort: Effort(5),
             position,
             interval,
-            note: String::new(),
+            ..Segment::default()
         }
     }
 
@@ -522,5 +589,86 @@ mod tests {
         let v = RideClock::view(&p, 1, 0, 0);
         assert_eq!(v.pulse.source, PulseSource::Metronome);
         assert!((v.pulse.stroke_ms - 60_000.0 / 60.0).abs() < 1e-6, "target 55..65 is 60 RPM");
+    }
+
+    /// A 300 s seated climb with resistance steps at 100 s and 200 s, then a 120 s cool-down.
+    fn climb_plan() -> RidePlan {
+        let climb = Segment {
+            steps: vec![EffortStep { at_s: 100, effort: Effort(7) }, EffortStep { at_s: 200, effort: Effort(8) }],
+            effort: Effort(6),
+            ..seg(SegmentKind::SeatedClimb, 300, (60, 70), Position::Seated, None)
+        };
+        let workout = Workout {
+            segments: vec![climb, seg(SegmentKind::CoolDown, 120, (70, 80), Position::Seated, None)],
+            ..Workout::default()
+        };
+        test_plan(workout, CueSettings { countdown_seconds: 3, notice_seconds: 10 })
+    }
+
+    #[test]
+    fn the_view_shows_the_step_and_the_resistance_cue_sounds_at_each() {
+        let p = climb_plan();
+        let at = |s: u64| RideClock::view(&p, 0, s * 1000, 0);
+        let v = at(50);
+        assert_eq!((v.effort, v.step), (6, Some(StepView { index: 1, count: 3, effort: 6, next_in_s: Some(50) })));
+        let v = at(100);
+        assert_eq!((v.effort, v.step.unwrap().index, v.step.unwrap().next_in_s), (7, 2, Some(100)));
+        let v = at(250);
+        assert_eq!((v.effort, v.step), (8, Some(StepView { index: 3, count: 3, effort: 8, next_in_s: None })));
+        assert!(RideClock::view(&p, 1, 0, 0).step.is_none(), "a segment without steps has none");
+        // the cue is listed a few seconds ahead, with its own id, and no countdown comes with it
+        let v = RideClock::view(&p, 0, 95_000, 0);
+        let kinds: Vec<(CueKind, i64)> = v.cues.iter().map(|c| (c.kind, c.in_ms)).collect();
+        assert_eq!(kinds, [(CueKind::Resistance, 5000)]);
+        let v = RideClock::view(&p, 0, 195_000, 0);
+        let step_ids: Vec<u32> = v.cues.iter().filter(|c| c.kind == CueKind::Resistance).map(|c| c.id).collect();
+        assert_eq!(step_ids, [SLOT_STEP + 2]);
+        // the end-of-climb countdown is unchanged
+        let v = RideClock::view(&p, 0, 295_000, 0);
+        let kinds: Vec<CueKind> = v.cues.iter().map(|c| c.kind).collect();
+        assert_eq!(kinds, [CueKind::Countdown3, CueKind::Countdown2, CueKind::Countdown1, CueKind::Change]);
+    }
+
+    #[test]
+    fn the_view_carries_the_shown_target() {
+        let p = plan();
+        let v = RideClock::view(&p, 0, 0, 0);
+        assert_eq!((v.shown.unit, v.shown.rpm, v.level, v.level_count), (TargetUnit::Rpm, 85, Some(4), 8));
+        assert!(v.next.is_some_and(|n| n.shown.rpm == 60 && n.level == Some(4)));
+        let bike = BikeProfile { console: ConsoleUnit::Kph, kph_per_rpm: 0.2, resistance_levels: 0 };
+        let v = RideClock::view_on(&p, &bike, 0, 0, 0);
+        assert_eq!((v.shown.unit, v.shown.value, v.target_rpm), (TargetUnit::Kph, 17.0, 85));
+        assert_eq!((v.level, v.level_count), (None, 0));
+        assert_eq!(v.next.unwrap().shown.value, 12.0);
+        // a sprint's rest phase shows the rest cadence, in the same unit
+        let v = RideClock::view_on(&p, &bike, 2, 25_000, 0);
+        assert_eq!((v.shown.unit, v.shown.rpm), (TargetUnit::Kph, 85));
+    }
+
+    #[test]
+    fn a_live_swap_keeps_the_segment_clock() {
+        let mut p = plan();
+        p.songs[1].at_segment_ms = 60_000;
+        p.songs[1].play_ms = Some(120_000);
+        // 10 s into the new song = 70 s into the 180 s segment
+        let v = RideClock::view(&p, 1, 10_000, 0);
+        assert_eq!((v.remaining_s, v.elapsed_s, v.segment_progress), (110, 120 + 70, 70.0 / 180.0));
+        assert!(!v.skip_to_next);
+        // the pulse reads the song's own position
+        assert_eq!(v.pulse.song_position_ms, 10_000);
+        // 60 s into the new song is the segment's end: the cut is at the song's play_ms
+        let v = RideClock::view(&p, 1, 120_000, 0);
+        assert!(v.skip_to_next && v.remaining_s == 0);
+        // the cues follow the segment: the change is 5 s away at 115 s into the song
+        let v = RideClock::view(&p, 1, 115_000, 0);
+        assert_eq!(v.cues.iter().find(|c| c.kind == CueKind::Countdown3).map(|c| c.in_ms), Some(2000));
+    }
+
+    #[test]
+    fn old_plans_read_with_at_segment_ms_zero() {
+        let old: PlannedSong = serde_json::from_str(r#"{"segment_index":2,"play_ms":90000}"#).unwrap();
+        assert_eq!((old.segment_index, old.at_segment_ms), (2, 0));
+        let v = RideClock::view(&plan(), 0, 30_000, 0);
+        assert_eq!(v.remaining_s, 90, "no offset: the song's clock is the segment's");
     }
 }

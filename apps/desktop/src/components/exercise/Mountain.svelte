@@ -7,7 +7,7 @@
   import { app } from "../../lib/state.svelte";
   import { motionWatch } from "../../lib/motionLevel.svelte";
   import { exerciseSettingsOf, zoneName, type CourseLook, type Part, type ProfilePoint } from "../../lib/exercise-api";
-  import { CourseCanvas, mmss, nextDifferent, plotPad, ridgeTop, type CourseModel, type Scene } from "../../lib/course-render";
+  import { CourseCanvas, mmss, nextDifferent, plotPad, ridgeTop, type CourseModel, type HotPointLike, type Scene } from "../../lib/course-render";
 
   type Mode = "ghost" | "preview" | "live" | "summary";
   let {
@@ -23,6 +23,8 @@
     onpick,
     look,
     summits,
+    hot = [],
+    paused = false,
   }: {
     parts: readonly Part[];
     profile: readonly ProfilePoint[];
@@ -44,6 +46,10 @@
     look?: CourseLook;
     /** Overrides the rider's Course summit labels setting. */
     summits?: boolean;
+    /** The plan's resistance steps, tagged on the ridge (shown when the Resistance steps setting is on). */
+    hot?: readonly HotPointLike[];
+    /** The ride is paused: the bike dims. */
+    paused?: boolean;
   } = $props();
 
   const total = $derived(profile.length ? profile[profile.length - 1].t_s : parts.reduce((s, p) => s + p.seconds, 0));
@@ -51,6 +57,8 @@
   const settings = $derived(exerciseSettingsOf(app.settings));
   const lookNow = $derived(look ?? settings.course_look);
   const summitsNow = $derived(summits ?? settings.course_summits);
+  const hotNow = $derived(settings.climb_steps > 0 && mode !== "ghost" ? hot : []);
+  const labelNow = $derived(hotNow.length ? `${label}. ${hotNow.length} resistance steps` : label);
   const model = $derived<CourseModel>({ profile, parts, total_s: total });
 
   let host: HTMLDivElement | undefined = $state();
@@ -75,7 +83,7 @@
   const animated = $derived(mode === "live" && motionWatch.level === "full" && !flat);
 
   function scene(clock: number | null): Scene {
-    const base = { summits: summitsNow, clock, glow: active, pin: null, rider: false };
+    const base = { summits: summitsNow, clock, glow: active, pin: null, rider: false, hot: hotNow, riderGlyph: settings.course_rider, paused };
     if (mode === "ghost") return { ...base, ridden: total, glow: null };
     if (mode !== "live") return { ...base, ridden: null };
     const elapsed = marker?.t_s ?? 0;
@@ -151,7 +159,7 @@
 </script>
 
 <div class="mtn" class:mini={box.h > 0 && box.h < 72} bind:this={host} style:height={typeof height === "number" ? `${height}px` : height}>
-  <div class="sky" role="img" aria-label={label}>
+  <div class="sky" role="img" aria-label={labelNow}>
     <canvas bind:this={canvas} aria-hidden="true" hidden={flat}></canvas>
   </div>
   {#if flat}<span class="empty">Profile not available</span>{/if}

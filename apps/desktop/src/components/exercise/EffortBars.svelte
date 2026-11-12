@@ -2,15 +2,15 @@
   // How hard: ten bars, the lit ones in the zone colour, and always the word and the number ("Hard 7").
   import { EFFORT_STEPS, effortHint, effortWord } from "../../lib/exercise-api";
 
-  let { effort, hint = true }: { effort: number; hint?: boolean } = $props();
+  let { effort, level = null, levelCount = 0, hint = true }: { effort: number; level?: number | null; levelCount?: number; hint?: boolean } = $props();
 </script>
 
 <div class="effort">
   <span class="lbl">Effort</span>
-  <div class="bars" role="img" aria-label="Effort {effort} of {EFFORT_STEPS}, {effortWord(effort)}">
+  <div class="bars" role="img" aria-label="Effort {effort} of {EFFORT_STEPS}, {effortWord(effort)}{level ? `, level ${level} of ${levelCount}` : ''}">
     {#each { length: EFFORT_STEPS } as _, i}<i class:on={i < effort}></i>{/each}
   </div>
-  <div class="word">{effortWord(effort)} <span class="n">{effort}</span></div>
+  <div class="word">{effortWord(effort)} <span class="n">{effort}</span>{#if level && levelCount}<span class="lv">· level {level}/{levelCount}</span>{/if}</div>
   {#if hint}<p class="hint">{effortHint(effort)}</p>{/if}
 </div>
 
@@ -50,6 +50,13 @@
   .n {
     color: var(--c);
     font-variant-numeric: tabular-nums;
+  }
+  .lv {
+    margin-left: 8px;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--muted);
+    white-space: nowrap;
   }
   .hint {
     margin: 0;

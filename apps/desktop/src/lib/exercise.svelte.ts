@@ -19,10 +19,12 @@ import {
   exerciseSettingsOf,
   onExercise,
   positionLabel,
+  shownLabel,
   zoneName,
   type ExerciseSettings,
   type ExerciseState,
   type ExerciseTurn,
+  type HotPoint,
   type MonitorView,
   type PresetView,
   type RideBuilt,
@@ -92,6 +94,10 @@ class ExerciseStore {
   /** The saved rides, favorites first then the most recent (the backend's order). */
   rides = $state.raw<SavedRide[]>([]);
   setupTab = $state<SetupTab>("new");
+  /** The resistance steps of the plan on the screen, as spots on the mountain (the core derives them). */
+  hotPoints = $state.raw<HotPoint[]>([]);
+  /** The part whose song is being swapped (the AI may take a moment); null when none. */
+  swapping = $state<number | null>(null);
 
   private started = false;
   private after: (() => void) | null = null;
@@ -162,6 +168,7 @@ class ExerciseStore {
     this.state = s;
     if (s.view && (!this.view || s.view.at_ms >= this.view.at_ms)) this.view = s.view;
     this.playing = s.playing;
+    this.refreshHotPoints();
     if (s.stage !== "ready") this.editing = false;
     if (s.stage === "riding" && before !== "riding") this.rideBegan();
     if (s.stage === "idle" || s.stage === "ready") {
@@ -192,10 +199,10 @@ class ExerciseStore {
     if (v.finished) return;
     if (v.segment_index !== this.lastSegment) {
       this.lastSegment = v.segment_index;
-      this.live = `${zoneName(v.kind)}, ${v.target_rpm} RPM, ${positionLabel(v.position).toLowerCase()}`;
+      this.live = `${zoneName(v.kind)}, ${shownLabel(v.shown, v.target_rpm)}, ${positionLabel(v.position).toLowerCase()}`;
     } else if (v.notice && v.next && this.announcedNotice !== v.segment_index) {
       this.announcedNotice = v.segment_index;
-      this.live = `Next: ${zoneName(v.next.kind)}, ${v.next.target_rpm} RPM, ${positionLabel(v.next.position).toLowerCase()}`;
+      this.live = `Next: ${zoneName(v.next.kind)}, ${shownLabel(v.next.shown, v.next.target_rpm)}, ${positionLabel(v.next.position).toLowerCase()}`;
     }
   }
 
@@ -375,6 +382,33 @@ class ExerciseStore {
   /** The ride is the normal player's queue: pause and next-song are the player's. */
   pause = () => api.toggle().catch((e) => app.note(errorText(e), "error", "exercise"));
   skip = () => api.next().catch((e) => app.note(errorText(e), "error", "exercise"));
+
+  /**
+   * Swaps the song of a part for another that fits (the core's rules): in the preview `atSegmentMs` is null; in the ride
+   * it is the instant of the part now, so the part's clock goes on. The backend answers the new plan and tells the player.
+   */
+  async swap(segmentIndex: number, atSegmentMs: number | null) {
+    if (this.swapping !== null) return;
+    this.swapping = segmentIndex;
+    try {
+      this.built = await exerciseApi.swap(segmentIndex, atSegmentMs);
+      this.apply(await exerciseApi.state());
+    } catch (e) {
+      app.note(errorText(e), "error", "exercise");
+    } finally {
+      this.swapping = null;
+    }
+  }
+
+  /** Re-reads the spots of the plan on the screen; a failure leaves the map without tags. */
+  private async refreshHotPoints() {
+    const workout = this.plan?.workout;
+    try {
+      this.hotPoints = workout ? await exerciseApi.hotPoints($state.snapshot(workout) as typeof workout) : [];
+    } catch {
+      this.hotPoints = [];
+    }
+  }
 
   /** "Ride again": the same plan, the same songs. */
   async rideAgain() {

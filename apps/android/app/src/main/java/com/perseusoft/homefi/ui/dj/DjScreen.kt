@@ -1,5 +1,9 @@
 package com.perseusoft.homefi.ui.dj
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import com.perseusoft.homefi.ui.DialogAction
+import com.perseusoft.homefi.ui.HomefiDialog
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.rounded.Adjust
 import androidx.compose.material.icons.automirrored.rounded.TrendingUp
@@ -26,7 +30,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -42,11 +45,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -83,7 +84,6 @@ import com.perseusoft.homefi.core.HomifitoMode
 import com.perseusoft.homefi.core.HomifitoPlace
 import com.perseusoft.homefi.data.toggleHomifito
 import com.perseusoft.homefi.ui.player.Art
-import com.perseusoft.homefi.ui.player.Ink
 import com.perseusoft.homefi.core.SfxKind
 import com.perseusoft.homefi.data.DJ_PADS
 import com.perseusoft.homefi.homefi
@@ -312,11 +312,12 @@ fun DjScreen(onClose: () -> Unit) {
     if (layoutOpen) DjLayoutSheet(onDismiss = { layoutOpen = false })
     if (setupsOpen) DjSetupsSheet(onDismiss = { setupsOpen = false })
     if (info) {
-        AlertDialog(
-            onDismissRequest = { info = false },
-            title = { Text(stringResource(R.string.dj_badge)) },
-            text = { Text(stringResource(R.string.dj_badge_info)) },
-            confirmButton = { TextButton(onClick = { info = false }) { Text(stringResource(R.string.dj_ok)) } },
+        HomefiDialog(
+            title = stringResource(R.string.dj_badge),
+            text = stringResource(R.string.dj_badge_info),
+            icon = Icons.Rounded.Info,
+            primary = DialogAction(stringResource(R.string.dj_ok)) { info = false },
+            onDismiss = { info = false },
         )
     }
 }

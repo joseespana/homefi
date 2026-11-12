@@ -7,6 +7,35 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Added
+- Exercise: change a song you don't like, on the plan or during the ride. HomeFi puts another that
+  fits the part's pace: first from the songs it already found (instant), then the AI or a search.
+  The song you sent away doesn't come back, and swapping the song playing keeps the part's clock.
+- Exercise: "My bike" in Settings. Say what your console shows (RPM, km/h, mph or nothing) and how
+  many resistance levels it has. A 20-second calibration (pedal to the clicks, type the speed your
+  console shows) turns every target into km/h or mph, and effort reads as your knob's level
+  ("Hard 7 · level 6/8").
+- Exercise: resistance steps on climbs, like a class: each climb asks for one more turn two or
+  three times on the way to the top, marked "+1" on the map with a sound and a notice (Off/2/3/4).
+- Exercise: crossfade between the ride's songs (3 s by default, 0-8 s): the next song fades in at
+  the part change instead of cutting in.
+
+### Changed
+- Exercise: the phone's ride screen uses its space better: small icon buttons in one row, the next
+  part and the song under the effort, and a map about twice as tall ("Big ride buttons" brings back
+  the old controls). Seated / standing is now the icon in the part's label, so the song gets the
+  whole line; in landscape the part's time left sits over the map; the bike's level has its own
+  line under the effort.
+- Android: HomeFi's own dialogs (a rounded card with an icon and big pill buttons) replace every
+  stock Android dialog: the ride, the confirmations, What's new, updates, folders, names, the EQ,
+  DJ setups, joining a session and the Tidal notice. On a phone on its side they drop the icon
+  so the form keeps its room.
+- Exercise: choosing km/h or mph in "My bike" opens the speed calibration right away (until it's
+  calibrated, targets stay in RPM).
+- Exercise: a new rider drawing on the map, sized to the course and shown for the whole ride
+  (before, it only showed when the map was tall enough, usually at the very end). "Rider on the
+  map" can show a dot instead.
+
 ## [1.5.14] - 2026-11-11
 
 

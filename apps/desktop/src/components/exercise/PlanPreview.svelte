@@ -1,7 +1,7 @@
 <script lang="ts">
   // Preview (docs/EXERCISE_UI.md §3.3): the built course and, part by part, the song, the tempo fit and
   // the notes. The ride's playlist is saved when it starts. Hovering a part of the mountain lights its row.
-  import { BUILD_STEPS, FIT_TOOLTIP, buildStepOf, clock, courseText, describeWorkout, effortWord, fitOf, partsOf, positionIcon, positionLabel, zoneName, zoneVar, type PlannedSong } from "../../lib/exercise-api";
+  import { BUILD_STEPS, FIT_TOOLTIP, buildStepOf, clock, courseText, describeWorkout, effortWord, exerciseApi, fitOf, partsOf, positionIcon, positionLabel, unitLabel, zoneName, zoneVar, type PlannedSong, type ShownTarget } from "../../lib/exercise-api";
   import { exercise } from "../../lib/exercise.svelte";
   import { app } from "../../lib/state.svelte";
   import Cover from "../Cover.svelte";
@@ -15,6 +15,37 @@
   const total = $derived(parts.reduce((s, p) => s + p.seconds, 0));
   const songOf = (i: number): PlannedSong | undefined => plan.songs.find((s) => s.segment_index === i);
   const tolerance = $derived(exercise.settings.cadence_tolerance_rpm);
+  const bike = $derived(exercise.settings.bike);
+
+  // each part's target in the unit of the bike's console (the core converts; RPM until the bike is calibrated)
+  let shown = $state.raw<ShownTarget[]>([]);
+  $effect(() => {
+    const b = $state.snapshot(bike);
+    const ranges = segments.map((s) => [s.target.min_rpm, s.target.max_rpm] as const);
+    if ((b.console !== "kph" && b.console !== "mph") || b.kph_per_rpm <= 0) {
+      shown = [];
+      return;
+    }
+    let stale = false;
+    Promise.all(ranges.map(([lo, hi]) => exerciseApi.shownTarget(b, lo, hi)))
+      .then((list) => !stale && (shown = list))
+      .catch(() => !stale && (shown = []));
+    return () => (stale = true);
+  });
+  const pedal = (i: number) => {
+    const seg = segments[i];
+    const sh = shown[i];
+    if (sh && sh.unit !== "rpm") {
+      const one = sh.min.toFixed(1) === sh.max.toFixed(1);
+      return { text: one ? sh.value.toFixed(1) : `${sh.min.toFixed(1)}–${sh.max.toFixed(1)}`, unit: unitLabel(sh.unit) };
+    }
+    return { text: seg.target.min_rpm === seg.target.max_rpm ? String(seg.target.min_rpm) : `${seg.target.min_rpm} to ${seg.target.max_rpm}`, unit: "RPM" };
+  };
+  const effortText = (i: number) => {
+    const seg = segments[i];
+    const top = seg.steps?.length ? Math.max(seg.effort, ...seg.steps.map((s) => s.effort)) : seg.effort;
+    return top > seg.effort ? `${seg.effort}→${top}/10` : `${seg.effort}/10`;
+  };
   const saved = $derived(exercise.built?.playlist ?? null);
   const ride = $derived(exercise.currentSaved);
   let renaming = $state(false);
@@ -105,7 +136,7 @@
   {/if}
 
   <section class="card">
-    <Mountain {parts} profile={plan.profile} mode="preview" height={160} label={courseText(parts, total, null)} {describe} bind:active onpick={pick} />
+    <Mountain {parts} profile={plan.profile} mode="preview" height={160} hot={exercise.hotPoints} label={courseText(parts, total, null)} {describe} bind:active onpick={pick} />
     <div class="legend"><ZoneKey kinds={parts.map((p) => p.kind)} /><span class="muted">{describeWorkout(plan.workout)}</span></div>
   </section>
 
@@ -120,8 +151,8 @@
         <i class="dot" aria-hidden="true"></i>
         <span class="part"><b>{zoneName(seg.kind)}</b><small><Icon name={positionIcon(seg.position)} size={13} />{positionLabel(seg.position)}</small></span>
         <span class="num">{clock(seg.seconds)}</span>
-        <span class="num">{seg.target.min_rpm === seg.target.max_rpm ? seg.target.min_rpm : `${seg.target.min_rpm} to ${seg.target.max_rpm}`}<small>RPM</small></span>
-        <span class="num" title={effortWord(seg.effort)}>{seg.effort}/10</span>
+        <span class="num">{pedal(i).text}<small>{pedal(i).unit}</small></span>
+        <span class="num" title={seg.steps?.length ? `${effortWord(seg.effort)}, ${seg.steps.length} resistance steps` : effortWord(seg.effort)}>{effortText(i)}</span>
         <span class="song">
           {#if song}
             <Cover url={song.entry.cover_url} path={song.entry.local_path} size={44} radius={6} />
@@ -134,9 +165,16 @@
           {#if fit}<span class="beat {fit.tone}" title={FIT_TOOLTIP}>{fit.text}</span>{/if}
         </span>
         <span class="more">
-          {#if song?.source}
+          {#if song && (song.source || exercise.settings.ride_swap)}
             <button type="button" class="icon-btn" aria-label="More about this song" aria-haspopup="menu" aria-expanded={menu === i} onclick={(e) => (e.stopPropagation(), (menu = menu === i ? null : i))}><Icon name="more" size={18} /></button>
-            {#if menu === i}<div class="menu" role="menu"><span role="menuitem" tabindex="-1">Tempo source: {SOURCES[song.source]}</span></div>{/if}
+            {#if menu === i}
+              <div class="menu" role="menu">
+                {#if exercise.settings.ride_swap}
+                  <button type="button" role="menuitem" class="item" disabled={exercise.swapping !== null} onclick={() => ((menu = null), exercise.swap(i, null))}><Icon name="refresh" size={14} />Swap this song</button>
+                {/if}
+                {#if song.source}<span role="menuitem" tabindex="-1">Tempo source: {SOURCES[song.source]}</span>{/if}
+              </div>
+            {/if}
           {/if}
         </span>
       </div>
@@ -250,7 +288,7 @@
   }
   .plan {
     display: grid;
-    grid-template-columns: 14px minmax(130px, 170px) 60px 84px 62px minmax(0, 1fr) minmax(190px, 250px) 36px;
+    grid-template-columns: 14px minmax(130px, 170px) 60px 112px 62px minmax(0, 1fr) minmax(190px, 250px) 36px;
     gap: 12px;
     align-items: center;
     min-height: 60px;
@@ -348,6 +386,21 @@
     box-shadow: var(--shadow);
     white-space: nowrap;
     font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .menu .item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 28px;
+    font-weight: 600;
+    color: var(--text);
+    text-align: left;
+  }
+  .menu .item:hover:not(:disabled) {
+    color: var(--primary);
   }
   .notes {
     list-style: none;
@@ -387,7 +440,7 @@
   /* (last, so it wins over the rules above) a laptop window: the beat tag moves under its song instead of squeezing it */
   @container plan-table (max-width: 920px) {
     .plan {
-      grid-template-columns: 14px minmax(110px, 150px) 52px 78px 46px minmax(0, 1fr) 36px;
+      grid-template-columns: 14px minmax(110px, 150px) 52px 104px 46px minmax(0, 1fr) 36px;
       gap: 4px 10px;
     }
     .plan .beatcell {
