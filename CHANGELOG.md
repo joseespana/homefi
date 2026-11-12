@@ -7,6 +7,9 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.15] - 2026-11-12
+
+
 ### Added
 - Exercise: change a song you don't like, on the plan or during the ride. HomeFi puts another that
   fits the part's pace: first from the songs it already found (instant), then the AI or a search.
