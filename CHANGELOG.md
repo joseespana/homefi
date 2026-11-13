@@ -7,6 +7,8 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.17] - 2026-11-13
+
 ### Changed
 - Small TV boxes and phones (under 2 GB of memory) start with subtle motion: Motion "Automatic" now also turns
   subtle there, so the TV interface keeps up on a Chromecast-class box. Choosing Full in Settings → Motion wins.
