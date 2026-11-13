@@ -105,8 +105,10 @@ mirror_enum!(CourseLook <=> ex::CourseLook { Ribbon, Alpine, Stage });
 pub enum CourseRider {
     Dot,
     Bike,
+    /// HomeFito pedalling (the default).
+    Homefito,
 }
-mirror_enum!(CourseRider <=> ex::CourseRider { Dot, Bike });
+mirror_enum!(CourseRider <=> ex::CourseRider { Dot, Bike, Homefito });
 
 /// What the rider's bike console reads out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -365,6 +367,12 @@ pub struct ExerciseSettings {
     /// When nothing already found fits, the AI proposes the replacement (uses the rider's key).
     #[uniffi(default = true)]
     pub swap_uses_ai: bool,
+    /// The ride shows the song's lyrics, karaoke style, in place of the mountain.
+    #[uniffi(default = false)]
+    pub ride_karaoke: bool,
+    /// Desktop: the ride opens fullscreen.
+    #[uniffi(default = false)]
+    pub ride_fullscreen: bool,
 }
 
 impl From<ex::ExerciseSettings> for ExerciseSettings {
@@ -409,6 +417,8 @@ impl From<ex::ExerciseSettings> for ExerciseSettings {
             ride_big_controls: s.ride_big_controls,
             ride_swap: s.ride_swap,
             swap_uses_ai: s.swap_uses_ai,
+            ride_karaoke: s.ride_karaoke,
+            ride_fullscreen: s.ride_fullscreen,
         }
     }
 }
@@ -455,6 +465,8 @@ impl From<ExerciseSettings> for ex::ExerciseSettings {
             ride_big_controls: s.ride_big_controls,
             ride_swap: s.ride_swap,
             swap_uses_ai: s.swap_uses_ai,
+            ride_karaoke: s.ride_karaoke,
+            ride_fullscreen: s.ride_fullscreen,
         }
     }
 }
@@ -1894,11 +1906,13 @@ mod tests {
             ride_big_controls: true,
             ride_swap: false,
             swap_uses_ai: false,
+            ride_karaoke: true,
             ..exercise_default_settings()
         };
         let core = ex::ExerciseSettings::from(custom.clone());
         assert_eq!((core.climb_steps, core.crossfade_seconds, core.course_rider), (2, 5.0, ex::CourseRider::Dot));
         assert_eq!((core.ride_big_controls, core.ride_swap, core.swap_uses_ai), (true, false, false));
+        assert!(core.ride_karaoke);
         assert_eq!(core.bike.console, ex::ConsoleUnit::Kph);
         assert_eq!(ExerciseSettings::from(core), custom, "nothing is lost on the way");
         // the defaults are the core's, so a Kotlin copy of them keeps the product's choices

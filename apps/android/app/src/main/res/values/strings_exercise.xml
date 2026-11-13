@@ -37,6 +37,7 @@
     <string name="ex_ai_send">Send</string>
     <string name="ex_tv">TV</string>
     <string name="ex_tv_on">Show on a TV</string>
+    <string name="ex_tv_show_now">Show on a TV</string>
     <string name="ex_tv_audio">Music plays</string>
     <string name="ex_tv_audio_phone">Here (headphones)</string>
     <string name="ex_tv_audio_here">Here (headphones)</string>
@@ -264,10 +265,15 @@
     <string name="ex_set_crossfade_hint">How long the next song fades in when a part ends. 0 keeps the cut.</string>
     <string name="ex_set_crossfade_off">Off</string>
     <string name="ex_set_rider">Rider on the map</string>
+    <string name="ex_rider_homefito">HomeFito</string>
     <string name="ex_rider_bike">Bike</string>
     <string name="ex_rider_dot">Dot</string>
     <string name="ex_set_big_controls">Big ride buttons</string>
     <string name="ex_set_big_controls_hint">A large Pause button and a column of controls instead of the small icon row.</string>
+    <string name="ex_set_karaoke">Karaoke in the ride</string>
+    <string name="ex_set_karaoke_hint">The song\'s lyrics, filling as they are sung, where the mountain goes. The mic on the map switches during the ride.</string>
+    <string name="ex_karaoke_show">Show the lyrics</string>
+    <string name="ex_karaoke_hide">Show the mountain</string>
     <string name="ex_set_swap">Change a song during the ride</string>
     <string name="ex_set_swap_hint">A tap on the song puts another that fits the part\'s pace.</string>
     <string name="ex_set_swap_ai">Ask the AI for the replacement</string>

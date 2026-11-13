@@ -177,11 +177,21 @@ internal fun ExerciseSettingsPage() {
         RowDivider()
         SegmentedRow(
             stringResource(R.string.ex_set_rider), CourseRider.entries.reversed(), s.courseRider,
-            label = { stringResource(if (it == CourseRider.BIKE) R.string.ex_rider_bike else R.string.ex_rider_dot) },
+            label = {
+                stringResource(
+                    when (it) {
+                        CourseRider.HOMEFITO -> R.string.ex_rider_homefito
+                        CourseRider.BIKE -> R.string.ex_rider_bike
+                        CourseRider.DOT -> R.string.ex_rider_dot
+                    },
+                )
+            },
             onSelect = { set(s.copy(courseRider = it)) },
         )
         RowDivider()
         SwitchRow(stringResource(R.string.ex_set_big_controls), s.rideBigControls, hint = stringResource(R.string.ex_set_big_controls_hint)) { set(s.copy(rideBigControls = it)) }
+        RowDivider()
+        SwitchRow(stringResource(R.string.ex_set_karaoke), s.rideKaraoke, hint = stringResource(R.string.ex_set_karaoke_hint)) { set(s.copy(rideKaraoke = it)) }
     }
 
     SettingsGroup(title = stringResource(R.string.ex_tv), description = stringResource(R.string.ex_set_tv_hint)) {

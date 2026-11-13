@@ -53,12 +53,17 @@ export interface ChatMessage {
 
 const emptyRequest = (): RideRequest => ({ minutes: EX_MINUTES.min * 3, style: "first_ride", wish: { genres: [], mix: true, sentence: "" }, workout: null });
 
+/** Resizes this soon after entering or leaving fullscreen are the system's animation, not the user leaving it. */
+const FULLSCREEN_SETTLE_MS = 1500;
+
 class ExerciseStore {
   /** What the backend said last (the stage, the plan, the TV). */
   state = $state.raw<ExerciseState | null>(null);
   /** The newest ride view; replaced whole on every tick (raw: one signal). */
   view = $state.raw<RideView | null>(null);
   playing = $state(false);
+  /** The ride fills the screen: the window is fullscreen and the ride covers the app around it. */
+  fullscreen = $state(false);
   /** The ride being set up; the setup screen edits it, the AI chat may change it. */
   request = $state<RideRequest>(emptyRequest());
   presets = $state.raw<PresetView[]>([]);
@@ -364,11 +369,39 @@ class ExerciseStore {
     this.cues.unlock();
     try {
       this.apply(await exerciseApi.start(plan));
+      if (this.settings.ride_fullscreen) await this.setFullscreen(true);
       if (this.tvMode === "window") await exerciseApi.tvWindow(true, this.settings.tv_window_display === "auto" ? null : this.settings.tv_window_display);
     } catch (e) {
       app.note(errorText(e), "error", "exercise");
     }
   }
+
+  /**
+   * Puts the window in (or out of) fullscreen for the ride. Leaving it through the system (its button, a gesture)
+   * is noticed on the next resize, so the ride never stays covering the app in a normal window.
+   */
+  async setFullscreen(on: boolean) {
+    this.fullscreen = on;
+    this.toggledAt = performance.now();
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const w = getCurrentWindow();
+      await w.setFullscreen(on);
+      if (on && !this.unlistenResize) {
+        this.unlistenResize = await w.onResized(async () => {
+          // the system's own animation resizes the window too: only a change after it has settled counts
+          if (performance.now() - this.toggledAt < FULLSCREEN_SETTLE_MS) return;
+          if (this.fullscreen && !(await w.isFullscreen())) this.fullscreen = false;
+        });
+      }
+    } catch (e) {
+      this.fullscreen = false;
+      app.note(errorText(e), "error", "exercise");
+    }
+  }
+  private unlistenResize: (() => void) | null = null;
+  private toggledAt = 0;
 
   async stop() {
     this.cues.reset();

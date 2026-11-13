@@ -185,7 +185,8 @@ fun HomefiRoot(destinations: Flow<Destination>) {
         destinations.collect {
             when (it) {
                 Destination.DOWNLOADS -> tab = Tab.DOWNLOADS
-                Destination.PLAYER -> openPlayer()
+                // the notification's tap during a ride goes back to the ride, not to the player under it
+                Destination.PLAYER -> if (app.ride.ui.value is com.perseusoft.homefi.player.exercise.RideUi.Riding) app.ride.open() else openPlayer()
             }
         }
     }
@@ -263,6 +264,10 @@ fun HomefiRoot(destinations: Flow<Destination>) {
             },
             bottomBar = {
                 Column {
+                    // a ride going on behind the app: always in sight, one tap back to it
+                    AnimatedVisibility(visible = riding && !rideOpen, enter = motion.reveal(), exit = motion.conceal()) {
+                        com.perseusoft.homefi.ui.exercise.RideBar()
+                    }
                     // its cover steps aside while a full-screen panel shows it (and grows into it)
                     // the side player already shows the song: no bar for it here
                     AnimatedVisibility(visible = !sideShown, enter = motion.reveal(), exit = motion.conceal()) {

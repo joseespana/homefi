@@ -710,6 +710,97 @@
     x.lineJoin = "round"; x.lineWidth = 1 / k; x.strokeStyle = css(INK_RGB, 0.55); x.stroke(RIDER_PATH);
     x.restore();
   }
+  // HomeFito on a bike (one spec with the desktop's lib/homefito-rider.ts and Android's CourseHomefito.kt: keep the
+  // numbers in sync). Units: the rear wheel touches the ground at (4.5, 0), x forward, y down; 30 units tall.
+  var HF_H = 30, HF_REAR_X = 4.5, HF_SCALE = 6, HF_WHEEL = 4.5, HF_REAR = [4.5, -4.5], HF_FRONT = [19.5, -4.5];
+  var HF_CRANK = [11, -4.5], HF_CRANK_R = 2.2, HF_SEAT = [9.2, -11.6], HF_HEAD = [16.6, -10.6], HF_BAR = [17.6, -12.8];
+  var HF_HIP = [9.8, -12.9], HF_THIGH = 5, HF_SHIN = 5, HF_SHOULDER = [12.6, -15.4];
+  var HF_WALL_L = 4.6, HF_WALL_R = 14.6, HF_WALL_TOP = -20.5, HF_EAVE = 1, HF_RIDGE = -25.5, HF_CUP_RX = 1.3, HF_CUP_RY = 2, HF_CUP_Y = -17.6;
+  var HF_BAND_TOP = -30, HF_EYE_Y = -16.6, HF_EYE_L = 9.4, HF_EYE_R = 12.4, HF_EYE = 0.95;
+  var HF_HZ = { easy: 1.1, normal: 1.45, hard: 1.2 }, HF_LEAN = { easy: 0, normal: 0.1, hard: 0.24 };
+  function hfStrain(kind) {
+    if (kind === "seated_climb" || kind === "standing_climb" || kind === "sprint" || kind === "jumps") { return "hard"; }
+    if (kind === "warm_up" || kind === "recovery" || kind === "cool_down") { return "easy"; }
+    return "normal";
+  }
+  function hfKnee(hip, foot) {
+    var dx = foot[0] - hip[0], dy = foot[1] - hip[1], d = Math.min(Math.sqrt(dx * dx + dy * dy), HF_THIGH + HF_SHIN - 0.01);
+    var a = Math.atan2(dy, dx), b = Math.acos(clamp((HF_THIGH * HF_THIGH + d * d - HF_SHIN * HF_SHIN) / (2 * HF_THIGH * d), -1, 1));
+    var k1 = [hip[0] + HF_THIGH * Math.cos(a - b), hip[1] + HF_THIGH * Math.sin(a - b)];
+    var k2 = [hip[0] + HF_THIGH * Math.cos(a + b), hip[1] + HF_THIGH * Math.sin(a + b)];
+    return k1[0] >= k2[0] ? k1 : k2;
+  }
+  function hfTurn(pt, o, ang) {
+    var c = Math.cos(ang), s = Math.sin(ang), dx = pt[0] - o[0], dy = pt[1] - o[1];
+    return [o[0] + dx * c - dy * s, o[1] + dx * s + dy * c];
+  }
+  // t = the animation clock in seconds, or null for a still picture
+  function homefito(x, zone, strain, t, paused) {
+    var moving = t !== null && !paused, crank = moving ? t * HF_HZ[strain] * TAU : Math.PI / 4, lean = HF_LEAN[strain];
+    var bob = moving ? 0.35 * Math.sin(crank * 2) : 0, ink = css(INK_RGB), inkEdge = css(INK_RGB, 0.85), i;
+    function line(a, b, w, c) { x.strokeStyle = c; x.lineWidth = w; x.beginPath(); x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke(); }
+    function limb(a, b, c) {
+      var pens = [[1.7, inkEdge], [1.05, "#ffffff"]];
+      for (var j = 0; j < 2; j++) {
+        x.strokeStyle = pens[j][1]; x.lineWidth = pens[j][0]; x.beginPath(); x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]);
+        if (c) { x.lineTo(c[0], c[1]); }
+        x.stroke();
+      }
+    }
+    function dot(pt, r, c) { x.fillStyle = c; x.beginPath(); x.arc(pt[0], pt[1], r, 0, TAU); x.fill(); }
+    function pedal(ph) { return [HF_CRANK[0] + HF_CRANK_R * Math.cos(crank + ph), HF_CRANK[1] + HF_CRANK_R * Math.sin(crank + ph)]; }
+    var hip = [HF_HIP[0], HF_HIP[1] + bob];
+    x.save(); x.lineCap = "round"; x.lineJoin = "round";
+    if (paused) { x.globalAlpha *= 0.6; }
+    var base = x.globalAlpha;
+    var farFoot = pedal(Math.PI);
+    x.globalAlpha = base * 0.55; limb(hip, hfKnee(hip, farFoot), farFoot); dot(farFoot, 0.8, ink); x.globalAlpha = base;
+    var hubs = [HF_REAR, HF_FRONT];
+    for (i = 0; i < 2; i++) {
+      x.strokeStyle = css(INK_RGB, 0.9); x.lineWidth = 1.3; x.beginPath(); x.arc(hubs[i][0], hubs[i][1], HF_WHEEL - 0.4, 0, TAU); x.stroke();
+      x.strokeStyle = css(zone); x.lineWidth = 0.6; x.stroke(); dot(hubs[i], 0.6, css(zone));
+    }
+    var fr = css(zone);
+    line(HF_REAR, HF_CRANK, 1.1, fr); line(HF_CRANK, HF_SEAT, 1.1, fr); line(HF_SEAT, HF_REAR, 1, fr); line(HF_SEAT, HF_HEAD, 1.1, fr);
+    line(HF_CRANK, HF_HEAD, 1.1, fr); line(HF_HEAD, HF_FRONT, 1, fr); line(HF_HEAD, HF_BAR, 1, fr);
+    line([HF_SEAT[0] - 1.4, HF_SEAT[1] - 0.3], [HF_SEAT[0] + 1.4, HF_SEAT[1] - 0.3], 1.2, ink);
+    // the body: the house leaning from the hip, bobbing with the stroke, headphones in the zone colour
+    x.save(); x.translate(0, bob); x.translate(HF_HIP[0], HF_HIP[1]); x.rotate(lean); x.translate(-HF_HIP[0], -HF_HIP[1]);
+    var mid = (HF_WALL_L + HF_WALL_R) / 2;
+    x.beginPath(); x.moveTo(HF_WALL_L, HF_HIP[1] + 0.4); x.lineTo(HF_WALL_L, HF_WALL_TOP); x.lineTo(HF_WALL_L - HF_EAVE, HF_WALL_TOP);
+    x.lineTo(mid, HF_RIDGE); x.lineTo(HF_WALL_R + HF_EAVE, HF_WALL_TOP); x.lineTo(HF_WALL_R, HF_WALL_TOP); x.lineTo(HF_WALL_R, HF_HIP[1] + 0.4); x.closePath();
+    x.fillStyle = "#ffffff"; x.fill(); x.strokeStyle = inkEdge; x.lineWidth = 0.6; x.stroke();
+    x.strokeStyle = css(INK_RGB, 0.9); x.lineWidth = 0.9; x.beginPath(); x.moveTo(HF_WALL_L - 0.3, HF_CUP_Y - HF_CUP_RY);
+    x.quadraticCurveTo(mid, HF_BAND_TOP, HF_WALL_R + 0.3, HF_CUP_Y - HF_CUP_RY); x.stroke();
+    var cups = [HF_WALL_L - 0.3, HF_WALL_R + 0.3];
+    for (i = 0; i < 2; i++) {
+      x.fillStyle = css(zone); x.beginPath(); x.ellipse(cups[i], HF_CUP_Y, HF_CUP_RX, HF_CUP_RY, 0, 0, TAU); x.fill(); x.lineWidth = 0.5; x.stroke();
+    }
+    if (strain === "hard") {
+      var eyes = [HF_EYE_L, HF_EYE_R];
+      for (i = 0; i < 2; i++) {
+        line([eyes[i] - 0.8, HF_EYE_Y - 0.5], [eyes[i] + 0.8, HF_EYE_Y], 0.55, ink); line([eyes[i] + 0.8, HF_EYE_Y], [eyes[i] - 0.8, HF_EYE_Y + 0.5], 0.55, ink);
+      }
+      line([HF_EYE_L + 0.1, HF_EYE_Y + 2.4], [HF_EYE_R - 0.1, HF_EYE_Y + 2.4], 0.55, ink);
+    } else {
+      dot([HF_EYE_L, HF_EYE_Y], HF_EYE, ink); dot([HF_EYE_R, HF_EYE_Y], HF_EYE, ink);
+      x.strokeStyle = ink; x.lineWidth = 0.55; x.beginPath();
+      x.arc((HF_EYE_L + HF_EYE_R) / 2, HF_EYE_Y + 1.3, strain === "easy" ? 1.2 : 0.9, 0.25 * Math.PI, 0.75 * Math.PI); x.stroke();
+    }
+    x.restore();
+    var shoulder = hfTurn([HF_SHOULDER[0], HF_SHOULDER[1] + bob], [HF_HIP[0], HF_HIP[1] + bob], lean);
+    limb(shoulder, HF_BAR, null); dot(HF_BAR, 0.75, "#ffffff");
+    var foot = pedal(0);
+    line(HF_CRANK, foot, 0.8, ink); limb(hip, hfKnee(hip, foot), foot); dot(foot, 0.8, ink);
+    if (strain === "hard" && moving) {
+      for (i = 0; i < 2; i++) {
+        var q = (t * 1.3 + i * 0.5) % 1;
+        x.globalAlpha = base * (1 - q); dot([HF_WALL_L - 1 - 4 * q, HF_WALL_TOP - 1 + 3 * q * q], 0.55, "#7fd3ff");
+      }
+      x.globalAlpha = base;
+    }
+    x.restore();
+  }
   // one resistance step: a tag pointing down at the ridge with "+1"; state = "next" | "active" | "passed"
   function hotMarker(x, g, px, col, state, H) {
     var k = clamp(H * 0.085, HOT_SCALE_MIN, HOT_SCALE_MAX) * (state === "active" ? HOT_ACTIVE_BOOST : 1);
@@ -869,7 +960,14 @@
     if (p.rider !== "dot" && H >= MINI_H) {
       // no height threshold: the bike sits on the ridge just ahead of the dot, tilted to the slope
       var tilt = clamp(Math.atan2(ridgeY(g, xr + 9) - ridgeY(g, xr - 9), 18), -RIDER_TILT, RIDER_TILT);
-      rider(x, xr, yr - dr, dr, tilt, zc, p.paused ? RIDER_PAUSED_ALPHA : 1);
+      if (p.rider === "homefito") {
+        var hk = HF_SCALE * dr / HF_H;
+        x.save(); x.translate(xr, yr - dr); x.rotate(tilt); x.scale(hk, hk); x.translate(-HF_REAR_X, 0);
+        homefito(x, zc, hfStrain(parts.length ? parts[cur].kind : ""), animated ? t : null, !!p.paused);
+        x.restore();
+      } else {
+        rider(x, xr, yr - dr, dr, tilt, zc, p.paused ? RIDER_PAUSED_ALPHA : 1);
+      }
     }
     x.globalAlpha = blink; x.fillStyle = css(zc); x.strokeStyle = "rgba(4,6,18,0.6)"; x.lineWidth = 1.5;
     x.beginPath(); x.arc(xr, yr, dr, 0, TAU); x.fill(); x.stroke();
@@ -914,7 +1012,7 @@
     if (calm ? sig === cv.lastSig : now - cv.lastDraw < COURSE_FRAME_MS) { return; }
     cv.lastSig = sig; cv.lastDraw = now;
     paintCourse({ look: look, summits: summits, ridden: done ? tot : seconds, done: done, nextIx: ni, pin: pin, clock: calm ? null : now / 1000,
-      hot: f.hot_points || [], rider: f.course_rider === "dot" ? "dot" : "bike", paused: !!(f.paused || !f.playing) });
+      hot: f.hot_points || [], rider: f.course_rider === "dot" || f.course_rider === "bike" ? f.course_rider : "homefito", paused: !!(f.paused || !f.playing) });
     setA(el.course, "aria-label", document.title + ", " + (f.text && f.text.segment ? f.text.segment + ", " : "") + clock(done ? tot : seconds) + " / " + clock(tot));
   }
 

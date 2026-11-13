@@ -41,6 +41,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.Terrain
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
@@ -162,6 +164,8 @@ private const val CLOCK_SP = 36
 private const val RPM_SP_THREE_DIGITS = 80
 private const val SPEED_SP_PER_RING = 0.30f
 private const val STEP_CHIP_MS = 4_000L
+private const val KARAOKE_ON_ALPHA = 0.22f
+private const val KARAOKE_OFF_ALPHA = 0.6f
 private const val STEP_CHIP_FADE_MS = 150
 private const val MIN_STEP_INDEX = 2
 
@@ -244,6 +248,7 @@ private fun RideScreen(plan: RidePlan, session: RideSession) {
     )
     val swap = SwapState(settings.rideSwap, swapping != null) { confirmSwap = true }
     val bigControls = settings.rideBigControls
+    val map = MapState(settings.rideKaraoke, settings.hapticCues) { app.settings.setExercise(settings.copy(rideKaraoke = !settings.rideKaraoke)) }
 
     BoxWithConstraints(Modifier.fillMaxSize().systemBarsPadding()) {
         val wide = maxWidth >= WIDE_DP.dp
@@ -266,7 +271,7 @@ private fun RideScreen(plan: RidePlan, session: RideSession) {
                 }
                 Column(Modifier.weight(1.5f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     TopRow(current, zone, session::close, showClock = false) { if (!bigControls) IconControls(actions) }
-                    MountainBlock(plan, hotPoints, current, settings.hapticCues, Modifier.weight(1f), clockOver = true)
+                    MountainBlock(plan, hotPoints, current, map, Modifier.weight(1f), clockOver = true)
                     TvChip(tv)
                 }
                 if (bigControls) BigControls(actions, vertical = true)
@@ -285,7 +290,7 @@ private fun RideScreen(plan: RidePlan, session: RideSession) {
                     EffortLine(v, zone)
                     PositionAndSong(current, swap)
                     NextCard(current)
-                    MountainBlock(plan, hotPoints, current, settings.hapticCues, Modifier.height((mountainDp + PROGRESS_ROW_DP).dp))
+                    MountainBlock(plan, hotPoints, current, map, Modifier.height((mountainDp + PROGRESS_ROW_DP).dp))
                     TvChip(tv)
                 }
                 if (bigControls) BigControls(actions, vertical = false)
@@ -563,19 +568,29 @@ private fun SongLine(frame: RideFrame, swapping: Boolean) {
     }
 }
 
-/** The mountain with the step chip over it, and under it the progress row. */
+/** What the map area shows (the mountain or the karaoke lyrics), whether steps buzz, and what the mic does. */
+private class MapState(val karaoke: Boolean, val haptic: Boolean, val onToggle: () -> Unit)
+
+/** The mountain (or, in karaoke, the song's lyrics) with the step chip over it, and under it the progress row. */
 @Composable
 private fun MountainBlock(
-    plan: RidePlan, hotPoints: List<HotPoint>, frame: RideFrame, haptic: Boolean, modifier: Modifier, clockOver: Boolean = false,
+    plan: RidePlan, hotPoints: List<HotPoint>, frame: RideFrame, map: MapState, modifier: Modifier, clockOver: Boolean = false,
 ) {
     val v = frame.view
+    val zone = v.kind.zoneColor()
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Box(Modifier.fillMaxWidth().weight(1f)) {
-            MountainProfile(
-                profile = plan.profile, marker = v.marker, segments = plan.workout.segments,
-                paused = !frame.playing, hotPoints = hotPoints, modifier = Modifier.fillMaxSize(),
-            )
-            StepChip(v.step, v.kind.zoneColor(), haptic, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
+            if (map.karaoke) {
+                // the clock and the mic sit on top: the lines keep clear of them
+                RideLyrics(zone, Modifier.fillMaxSize().padding(top = if (clockOver) 40.dp else 8.dp))
+            } else {
+                MountainProfile(
+                    profile = plan.profile, marker = v.marker, segments = plan.workout.segments,
+                    paused = !frame.playing, hotPoints = hotPoints, modifier = Modifier.fillMaxSize(),
+                )
+            }
+            KaraokeToggle(map, zone, Modifier.align(Alignment.TopStart))
+            StepChip(v.step, zone, map.haptic, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
             if (clockOver) PartClock(v, CLOCK_SP, Modifier.align(Alignment.TopEnd).padding(horizontal = 12.dp, vertical = 4.dp))
         }
         Row(Modifier.height(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -585,6 +600,24 @@ private fun MountainBlock(
             ) { Box(Modifier.fillMaxHeight().fillMaxWidth(v.progress.coerceIn(0f, 1f)).background(v.kind.zoneColor())) }
             Text(clock(v.totalS.toInt()), fontSize = 12.sp)
         }
+    }
+}
+
+/** The mic over the map: lyrics in place of the mountain, and back. Lit in the zone colour while the lyrics show. */
+@Composable
+private fun KaraokeToggle(map: MapState, zone: Color, modifier: Modifier) {
+    IconButton(
+        onClick = map.onToggle,
+        modifier = modifier.size(ICON_CONTROL_DP.dp),
+        colors = IconButtonDefaults.iconButtonColors(
+            containerColor = if (map.karaoke) zone.copy(alpha = KARAOKE_ON_ALPHA) else MaterialTheme.colorScheme.surface.copy(alpha = KARAOKE_OFF_ALPHA),
+            contentColor = if (map.karaoke) zone else MaterialTheme.colorScheme.onSurface,
+        ),
+    ) {
+        Icon(
+            if (map.karaoke) Icons.Rounded.Terrain else Icons.Rounded.Mic,
+            stringResource(if (map.karaoke) R.string.ex_karaoke_hide else R.string.ex_karaoke_show),
+        )
     }
 }
 
@@ -768,8 +801,16 @@ private fun TvChip(tv: RideTvStatus) {
         tv.error != null -> tv.error
         else -> null
     }
-    if (text == null && paired == null) return
+    // a ride built without the TV can still go to one: the page starts now, the music stays here
+    val canStart = !tv.active && !tv.waitingForTv
+    if (text == null && paired == null && !canStart) return
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        if (canStart) {
+            TextButton(onClick = app.ride::showOnTv, modifier = Modifier.heightIn(min = 48.dp)) {
+                Icon(Icons.Rounded.Tv, null, Modifier.padding(end = 8.dp).size(20.dp))
+                Text(stringResource(R.string.ex_tv_show_now))
+            }
+        }
         if (text != null) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Icon(Icons.Rounded.Tv, null, Modifier.size(18.dp))

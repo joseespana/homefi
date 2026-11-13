@@ -255,28 +255,6 @@ fun RideSetup(form: RideForm, chat: RideChat) {
                 RideChatBox(chat, onStart = session::startChat, onSay = session::say)
             }
         }
-
-        Section(stringResource(R.string.ex_tv)) {
-            SwitchLine(stringResource(R.string.ex_tv_on), settings.tvEnabled) { v ->
-                app.settings.setExercise(settings.copy(tvEnabled = v))
-            }
-            if (settings.tvEnabled) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = settings.tvAudio == TvAudio.PHONE,
-                        onClick = { app.settings.setExercise(settings.copy(tvAudio = TvAudio.PHONE)) },
-                        label = { Text(stringResource(R.string.ex_tv_audio_phone)) },
-                    )
-                    FilterChip(
-                        selected = settings.tvAudio == TvAudio.TV,
-                        onClick = { app.settings.setExercise(settings.copy(tvAudio = TvAudio.TV)) },
-                        label = { Text(stringResource(R.string.ex_tv_audio_tv)) },
-                    )
-                }
-            }
-            TvPairingBlock()
-        }
-
     }
 }
 
@@ -496,5 +474,32 @@ private fun RideChatBox(chat: RideChat, onStart: () -> Unit, onSay: (String) -> 
                 Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.ex_ai_send))
             }
         }
+    }
+}
+
+/** Where the ride is watched, chosen right before it starts (next to "Start ride"): a TV or not, and where the music plays. */
+@Composable
+fun RideTvChoice() {
+    val app = LocalContext.current.homefi
+    val settings by app.settings.exercise.collectAsStateWithLifecycle()
+    Section(stringResource(R.string.ex_tv)) {
+        SwitchLine(stringResource(R.string.ex_tv_on), settings.tvEnabled) { v ->
+            app.settings.setExercise(settings.copy(tvEnabled = v))
+        }
+        if (settings.tvEnabled) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = settings.tvAudio == TvAudio.PHONE,
+                    onClick = { app.settings.setExercise(settings.copy(tvAudio = TvAudio.PHONE)) },
+                    label = { Text(stringResource(R.string.ex_tv_audio_phone)) },
+                )
+                FilterChip(
+                    selected = settings.tvAudio == TvAudio.TV,
+                    onClick = { app.settings.setExercise(settings.copy(tvAudio = TvAudio.TV)) },
+                    label = { Text(stringResource(R.string.ex_tv_audio_tv)) },
+                )
+            }
+        }
+        TvPairingBlock()
     }
 }

@@ -835,7 +835,7 @@ mod tests {
         assert_eq!(clamped.bike.resistance_levels, 32);
         assert_eq!(clamped.bike.kph_per_rpm, 1.0);
         assert_eq!(clamped.crossfade_seconds, 8.0);
-        assert_eq!(wild.exercise.course_rider, CourseRider::Bike, "an unknown word reads as the default");
+        assert_eq!(wild.exercise.course_rider, CourseRider::Homefito, "an unknown word reads as the default");
         let broken: DesktopSettings = serde_json::from_str(r#"{"exercise":{"bike":"big"}}"#).unwrap();
         assert_eq!(broken.exercise, ExerciseSettings::default());
     }

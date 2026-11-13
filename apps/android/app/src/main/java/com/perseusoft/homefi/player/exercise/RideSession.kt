@@ -494,6 +494,17 @@ class RideSession(private val app: HomefiApplication) {
         app.player.togglePlayPause()
     }
 
+    /**
+     * Puts the running ride on a TV when it was built without one: turns the TV setting on and starts the TV page
+     * (pictures only, the music stays on the phone, pause or play as it is). A paired TV opens it by itself.
+     */
+    fun showOnTv() {
+        val plan = plan ?: return
+        if (_ui.value !is RideUi.Riding || _tv.value.active || _tv.value.waitingForTv) return
+        if (!settings.tvEnabled) app.settings.setExercise(settings.copy(tvEnabled = true))
+        scope.launch { startTv(plan, audioToTv = false, rideName = ridePlaylist?.name.orEmpty(), midRide = true) }
+    }
+
     fun skipSegment() = app.player.next()
 
     /** The rider ended the ride: the music stops and the summary shows what was done. */
@@ -778,20 +789,21 @@ class RideSession(private val app: HomefiApplication) {
         }
     }
 
-    private suspend fun startTv(plan: RidePlan, audioToTv: Boolean, rideName: String) {
+    /** [midRide]: the ride is already going, so its music is left as it is (a paused ride stays paused). */
+    private suspend fun startTv(plan: RidePlan, audioToTv: Boolean, rideName: String, midRide: Boolean = false) {
         val s = settings
         _tv.value = RideTvStatus(waitingForTv = audioToTv)
         val host = withTimeoutOrNull(HOST_WAIT_MS) { tvHost.filterNotNull().first() }
         if (host == null) {
             _tv.value = RideTvStatus(error = app.getString(R.string.ex_tv_unavailable))
-            app.player.player?.play()
+            if (!midRide) app.player.player?.play()
             return
         }
         val name = app.share.displayName()
         val url = host.start(s.tvPort.toInt(), name, languageTag())
         if (url.isFailure) {
             _tv.value = RideTvStatus(error = url.exceptionOrNull()?.message)
-            app.player.player?.play()
+            if (!midRide) app.player.player?.play()
             return
         }
         val listen = if (audioToTv) startAudioHub(plan, name) else null
@@ -815,7 +827,7 @@ class RideSession(private val app: HomefiApplication) {
         if (app.deviceForm != DeviceForm.TV) url.getOrNull()?.let(app.tvPairings::sendRide)
         if (listen == null) {
             if (audioToTv) _notice.value = R.string.ex_tv_audio_fallback
-            app.player.player?.play()
+            if (!midRide) app.player.player?.play()
             return
         }
         // the music starts when the TV has joined (or after a while, on the phone)
@@ -828,7 +840,7 @@ class RideSession(private val app: HomefiApplication) {
             _notice.value = R.string.ex_tv_not_joined
         }
         _tv.update { it.copy(waitingForTv = false, audioOnTv = joined) }
-        app.player.player?.play()
+        if (!midRide) app.player.player?.play()
     }
 
     /** The ride's own listen-only hub: the TV joins it with a one-ride code and plays the music on the shared clock. */

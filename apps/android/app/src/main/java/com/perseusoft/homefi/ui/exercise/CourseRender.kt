@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import com.perseusoft.homefi.core.CourseLook
 import com.perseusoft.homefi.core.CourseRider
+import com.perseusoft.homefi.core.SegmentKind
 import com.perseusoft.homefi.core.HotPoint
 import kotlin.math.PI
 import kotlin.math.atan2
@@ -463,7 +464,7 @@ private fun DrawScope.drawOverlay(layers: CourseLayers, model: CourseModel, scen
     }
 
     if (!g.mini) drawHotPoints(g, model, scene, measurer)
-    if (live) drawRider(g, xr, glowPart?.kind.rgb(), clock, scene.rider, paused = scene.paused)
+    if (live) drawRider(g, xr, glowPart?.kind, clock, scene.rider, paused = scene.paused)
     if (!g.mini) drawTicks(layers)
 }
 
@@ -477,7 +478,8 @@ private fun DrawScope.drawTicks(layers: CourseLayers) {
 }
 
 /** The "you are here" marker: a still halo, a hairline down to the ribbon, the rider on the ridge, the dot and its beacon. */
-private fun DrawScope.drawRider(g: CourseLayout, xr: Float, zc: Color, clock: Float?, rider: CourseRider, paused: Boolean) {
+private fun DrawScope.drawRider(g: CourseLayout, xr: Float, kind: SegmentKind?, clock: Float?, rider: CourseRider, paused: Boolean) {
+    val zc = kind.rgb()
     val yr = g.ridgeY(xr)
     val h = g.h
     val dr = clamp(h * 0.035f, 4f, 9f)
@@ -499,9 +501,10 @@ private fun DrawScope.drawRider(g: CourseLayout, xr: Float, zc: Color, clock: Fl
         blink = 1f
     }
     // the bike sits on the ridge just ahead of the dot; no height threshold, only a thumbnail or "Dot" keeps the dot alone
-    if (!g.mini && rider == CourseRider.BIKE) {
+    if (!g.mini && rider != CourseRider.DOT) {
         val ang = clamp(atan2(g.ridgeY(xr + RIDER_SLOPE_SPAN) - g.ridgeY(xr - RIDER_SLOPE_SPAN), 2 * RIDER_SLOPE_SPAN), -RIDER_MAX_TILT, RIDER_MAX_TILT)
-        drawRiderGlyph(xr, yr - dr, dr, ang, zc, if (paused) RIDER_PAUSED_ALPHA else 1f)
+        if (rider == CourseRider.HOMEFITO) drawRiderHomefito(xr, yr - dr, dr, ang, zc, kind.strain(), clock, paused)
+        else drawRiderGlyph(xr, yr - dr, dr, ang, zc, if (paused) RIDER_PAUSED_ALPHA else 1f)
     }
     drawCircle(fade(INK, 0.55f * blink), dr + 0.75f, c)
     drawCircle(fade(zc, blink), dr, c)
@@ -521,6 +524,18 @@ private fun DrawScope.drawRiderGlyph(px: Float, py: Float, dr: Float, ang: Float
                     drawPath(RIDER_PATH, fade(col, alpha))
                     drawPath(RIDER_PATH, fade(INK, RIDER_OUTLINE_ALPHA * alpha), style = Stroke(1f / k, join = StrokeJoin.Round))
                 }
+            }
+        }
+    }
+}
+
+/** HomeFito pedalling, the rear wheel at ([px], [py]), [HOMEFITO_SCALE] x [dr] tall, turned to the slope by [ang]. */
+private fun DrawScope.drawRiderHomefito(px: Float, py: Float, dr: Float, ang: Float, zc: Color, strain: Strain, clock: Float?, paused: Boolean) {
+    val k = HOMEFITO_SCALE * dr / HOMEFITO_HEIGHT
+    translate(px, py) {
+        rotate(ang * 180f / PI.toFloat(), pivot = Offset.Zero) {
+            scale(k, k, pivot = Offset.Zero) {
+                translate(-HOMEFITO_REAR_X, 0f) { drawHomefito(zc, INK, strain, clock, paused) }
             }
         }
     }
@@ -574,6 +589,8 @@ private val TAG_PATH: Path by lazy { parsedPath(TAG_D) }
 private const val GLYPH_UNITS = 24f
 private const val RIDER_ANCHOR_X = 5f
 private const val RIDER_HEIGHT_PER_DOT = 2.4f
+/** HomeFito's height = this x the dot's radius (taller than the bike: his face has to read). */
+private const val HOMEFITO_SCALE = 6f
 private const val RIDER_SLOPE_SPAN = 9f
 private const val RIDER_MAX_TILT = 0.6f
 private const val RIDER_OUTLINE_ALPHA = 0.55f

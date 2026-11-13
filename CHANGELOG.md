@@ -7,6 +7,27 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Added
+- Exercise: karaoke in the ride. A tap on the mic over the map swaps the mountain for the song's lyrics, the line
+  being sung filling in the part's colour; another tap brings the mountain back. Also in Settings → Exercise
+  ("Karaoke in the ride"), on the phone and on the computer. Uses the synced lyrics and the lyrics timing you
+  already set for the player.
+- Exercise: a ride you leave stays in sight. A bar over the mini player (phone) or at the foot of every page
+  (computer) shows the part, the time left in it and the target; a tap goes back to the ride, its button pauses.
+  The music notification's tap during a ride opens the ride too.
+- Exercise: "Show on a TV" during the ride. A ride built without the TV can go to one at any moment; the music
+  stays on the phone and a paired TV opens it by itself.
+- Exercise: HomeFito rides the mountain. He pedals with the part, sits up and smiles on the easy ones, and
+  leans in, squeezes his eyes and sweats on climbs and sprints; his headphones and bike take the zone colour. He
+  is the new default rider (Settings → Exercise → Rider on the map: HomeFito, Bike or Dot), on the phone, the
+  computer and the TV.
+- Desktop: the ride in fullscreen. A button on the ride (or F) fills the screen with it; Esc leaves. A setting
+  starts every ride that way.
+
+### Changed
+- Exercise: the TV is chosen when the ride starts, next to "Start ride", not while it is being set up (phone
+  and computer).
+
 ## [1.5.15] - 2026-11-12
 
 

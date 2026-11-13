@@ -9,6 +9,8 @@
 // Pure geometry (`layoutCourse`, `tickStep`, `summitsOf`...) is exported separately from the canvas class so it
 // can be tested without a DOM.
 
+import { HOMEFITO_HEIGHT, HOMEFITO_REAR_X, paintHomefito, strainOf } from "./homefito-rider";
+
 export type CourseLook = "ribbon" | "alpine" | "stage";
 
 export interface CoursePart {
@@ -103,6 +105,8 @@ const RIDER_BOX = 24;
 const RIDER_ANCHOR: readonly [number, number] = [5, 24]; // the rear wheel's contact point
 const RIDER_TILT = 0.6;
 const RIDER_PAUSED_ALPHA = 0.6;
+/** HomeFito's height = this x the position dot's radius (taller than the bike: his face has to read). */
+const HOMEFITO_SCALE = 6;
 const INK: Rgb = [4, 6, 18];
 const INK_OUTLINE_ALPHA = 0.55;
 const HOT_TIP: readonly [number, number] = [8, 14];
@@ -400,8 +404,8 @@ export interface Scene {
   summits: boolean;
   /** Resistance steps to mark on the ridge (the plan's hot points); none = no tags. */
   hot?: readonly HotPointLike[];
-  /** The rider is the bike silhouette (default) or just the dot. */
-  riderGlyph?: "bike" | "dot";
+  /** The rider: HomeFito pedalling, the bike silhouette (default) or just the dot. */
+  riderGlyph?: "homefito" | "bike" | "dot";
   /** The ride is paused: the bike dims. */
   paused?: boolean;
   /** Animation clock in seconds: the halos breathe. `null` = static, halos at their middle value. */
@@ -863,12 +867,12 @@ export class CourseCanvas {
       const part = parts[partIndexAt(parts, h.t_s)];
       this.paintHot(g, hotX[i]!, zoneRgb(part?.kind ?? ""), i === hotActive ? "active" : i < hotActive ? "passed" : "next");
     });
-    if (scene.rider) this.paintRider(g, xr, yr, parts[curIx], t, animated, scene.riderGlyph !== "dot", !!scene.paused);
+    if (scene.rider) this.paintRider(g, xr, yr, parts[curIx], t, animated, scene.riderGlyph ?? "bike", !!scene.paused);
     if (!g.mini) this.paintTicks(g, total);
   }
 
   /** The "you are here" marker: hairline to the ribbon, still halo, a dot on the ridge blinking inside a beacon ring. */
-  private paintRider(g: Layout, xr: number, yr: number, part: CoursePart | undefined, t: number, animated: boolean, bike: boolean, paused: boolean) {
+  private paintRider(g: Layout, xr: number, yr: number, part: CoursePart | undefined, t: number, animated: boolean, glyph: "homefito" | "bike" | "dot", paused: boolean) {
     const x = this.ctx;
     const { H } = g;
     const zc = zoneRgb(part?.kind ?? "");
@@ -905,7 +909,8 @@ export class CourseCanvas {
       ring(dr * 2, 0.55);
       ring(dr * 3.2, 0.28);
     }
-    if (bike && !g.mini) this.paintBike(g, xr, yr, dr, zc, paused);
+    if (glyph === "bike" && !g.mini) this.paintBike(g, xr, yr, dr, zc, paused);
+    else if (glyph === "homefito" && !g.mini) this.paintRiderHomefito(g, xr, yr, dr, zc, part?.kind, animated ? t : null, paused);
     x.globalAlpha = blink;
     x.fillStyle = css(zc);
     x.strokeStyle = "rgba(4,6,18,0.6)";
@@ -972,6 +977,20 @@ export class CourseCanvas {
     x.lineWidth = 1 / k;
     x.strokeStyle = css(INK, INK_OUTLINE_ALPHA);
     x.stroke(riderPath);
+    x.restore();
+  }
+
+  /** HomeFito pedalling: the rear wheel on the ridge just behind the dot, tilted to the slope, with the part's effort. */
+  private paintRiderHomefito(g: Layout, xr: number, yr: number, dr: number, zc: Rgb, kind: string | undefined, t: number | null, paused: boolean) {
+    const x = this.ctx;
+    const tilt = clamp(Math.atan2(ridgeY(g, xr + 9) - ridgeY(g, xr - 9), 18), -RIDER_TILT, RIDER_TILT);
+    const k = (HOMEFITO_SCALE * dr) / HOMEFITO_HEIGHT;
+    x.save();
+    x.translate(xr, yr - dr);
+    x.rotate(tilt);
+    x.scale(k, k);
+    x.translate(-HOMEFITO_REAR_X, 0);
+    paintHomefito(x, zc, INK, strainOf(kind), t, paused);
     x.restore();
   }
 

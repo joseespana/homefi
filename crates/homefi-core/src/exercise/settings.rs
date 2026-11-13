@@ -79,10 +79,12 @@ pub enum CourseLook {
 pub enum CourseRider {
     /// Just a dot.
     Dot,
-    /// A small bike on the ridge (the default).
+    /// A small bike silhouette on the ridge.
+    Bike,
+    /// HomeFito on a bike, pedalling with the part and straining on the hard ones (the default).
     #[default]
     #[serde(other)]
-    Bike,
+    Homefito,
 }
 
 /// What the TV does when the rider uses one.
@@ -174,6 +176,10 @@ pub struct ExerciseSettings {
     pub ride_swap: bool,
     /// When nothing already found fits a swap, the AI proposes a song (uses the rider's key).
     pub swap_uses_ai: bool,
+    /// The ride shows the song's lyrics, karaoke style, where the mountain goes (a tap on the mic switches back).
+    pub ride_karaoke: bool,
+    /// Desktop: the ride opens fullscreen, over the whole screen (F or a button switches it during the ride).
+    pub ride_fullscreen: bool,
 }
 
 impl Default for ExerciseSettings {
@@ -205,7 +211,7 @@ impl Default for ExerciseSettings {
             tv_lyrics: true,
             course_look: CourseLook::Ribbon,
             course_summits: false,
-            course_rider: CourseRider::Bike,
+            course_rider: CourseRider::Homefito,
             ride_always_dark: true,
             haptic_cues: true,
             ride_big_controls: false,
@@ -218,6 +224,8 @@ impl Default for ExerciseSettings {
             crossfade_seconds: DEFAULT_CROSSFADE_SECONDS,
             ride_swap: true,
             swap_uses_ai: true,
+            ride_karaoke: false,
+            ride_fullscreen: false,
         }
     }
 }
@@ -290,13 +298,14 @@ mod tests {
         assert!(s.ride_always_dark && s.haptic_cues);
         assert_eq!(s.tv_window_display, "auto");
         assert!(s.tv_lyrics, "lyrics on the TV are on by default");
+        assert!(!s.ride_karaoke, "the ride shows the mountain until the rider asks for the lyrics");
         assert_eq!((s.course_look, s.course_summits), (CourseLook::Ribbon, false));
         assert_eq!(s.ride_history_max, 30);
         assert_eq!(s.taste.popularity, Popularity::Hits, "big hits unless the rider asks otherwise");
         assert!(s.taste.eras.is_empty() && s.taste.artists.is_empty() && s.taste.avoid.is_empty());
         assert_eq!(
             (s.course_rider, s.ride_big_controls, s.ride_swap, s.swap_uses_ai),
-            (CourseRider::Bike, false, true, true)
+            (CourseRider::Homefito, false, true, true)
         );
         assert_eq!((s.climb_steps, s.crossfade_seconds, s.bike), (3, 3.0, BikeProfile::default()));
         assert_eq!(s.clamped(), s, "defaults are already in range");
@@ -368,13 +377,14 @@ mod tests {
         assert_eq!((taste.artists.as_slice(), taste.avoid.len()), (["Slayer".to_owned()].as_slice(), 0));
         let h2: Holder = serde_json::from_str(
             r#"{"exercise": {"bike": {"console": "mph", "kph_per_rpm": 0.3}, "climb_steps": 0, "crossfade_seconds": 5.5,
-                "course_rider": "dot", "ride_big_controls": true, "ride_swap": false, "swap_uses_ai": false}}"#,
+                "course_rider": "dot", "ride_big_controls": true, "ride_swap": false, "swap_uses_ai": false,
+                "ride_karaoke": true}}"#,
         )
         .unwrap();
         let e = &h2.exercise;
         assert_eq!((e.bike.console, e.bike.kph_per_rpm, e.bike.resistance_levels), (ConsoleUnit::Mph, 0.3, 8));
         assert_eq!((e.climb_steps, e.crossfade_seconds, e.course_rider), (0, 5.5, CourseRider::Dot));
-        assert!(e.ride_big_controls && !e.ride_swap && !e.swap_uses_ai);
+        assert!(e.ride_big_controls && !e.ride_swap && !e.swap_uses_ai && e.ride_karaoke);
         let odd: Holder = serde_json::from_str(r#"{"exercise": {"course_rider": "unicycle", "bike": 3}}"#).unwrap();
         assert_eq!(odd.exercise, ExerciseSettings::default(), "an unreadable bike reads as the defaults");
         let back: ExerciseSettings = serde_json::from_str(&serde_json::to_string(&h.exercise).unwrap()).unwrap();

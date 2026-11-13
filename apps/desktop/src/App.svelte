@@ -4,6 +4,7 @@
   import { app, applyTheme } from "./lib/state.svelte";
   import { visual } from "./lib/visual.svelte";
   import Deck from "./components/Deck.svelte";
+  import RideStrip from "./components/exercise/RideStrip.svelte";
   import Downloads from "./components/Downloads.svelte";
   import DiscView from "./components/disc/DiscView.svelte";
   import { disc } from "./lib/disc.svelte";
@@ -267,6 +268,8 @@
       {/if}
     </div>
     {/key}
+    <!-- a ride going on behind another page: always in sight, one click back to it -->
+    {#if exercise.riding && app.view.name !== "exercise"}<RideStrip />{/if}
   </main>
   {#if queueOpen}<QueuePanel onclose={() => (queueOpen = false)} />
   {:else if sideShown}<NowPanel onqueue={() => (queueOpen = true)} />{/if}

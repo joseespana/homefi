@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Permissions of the main window and the mini player",
   "windows": ["main", "mini"],
-  "permissions": ["core:default", "core:window:allow-start-dragging", "core:window:allow-set-theme", "opener:default", "dialog:default"]
+  "permissions": ["core:default", "core:window:allow-start-dragging", "core:window:allow-set-theme", "core:window:allow-set-fullscreen", "core:window:allow-is-fullscreen", "opener:default", "dialog:default"]
 }

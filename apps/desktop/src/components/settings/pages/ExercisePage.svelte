@@ -65,6 +65,7 @@
     { id: "stage", label: "Stage", hint: "A dark stage with the zone colour washing down from the ridge" },
   ];
   const RIDERS: SegmentOption<CourseRider>[] = [
+    { id: "homefito", label: "HomeFito", hint: "HomeFito pedals the mountain, and puffs on the hard parts" },
     { id: "bike", label: "Bike", hint: "A small bike silhouette rides the mountain" },
     { id: "dot", label: "Dot", hint: "Only the position dot" },
   ];
@@ -166,6 +167,8 @@
 </SettingsGroup>
 
 <SettingsGroup title="Screen">
+  <SwitchRow label="Karaoke in the ride" hint="The song's lyrics, filling as they are sung, where the mountain goes. The mic on the map switches during the ride." checked={e.ride_karaoke} onchange={(ride_karaoke) => save({ ride_karaoke })} />
+  <SwitchRow label="Ride in fullscreen" hint="The ride fills the whole screen when it starts. F or the button on the ride switches it." checked={e.ride_fullscreen} onchange={(ride_fullscreen) => save({ ride_fullscreen })} />
   <SwitchRow label="Always dark during a ride" hint="The ride screen stays dark in any theme." checked={e.ride_always_dark} onchange={(ride_always_dark) => save({ ride_always_dark })} />
   <SwitchRow label="Keep the screen on" hint="No screen saver or sleep during a ride." checked={e.keep_screen_on} onchange={(keep_screen_on) => save({ keep_screen_on })} />
 </SettingsGroup>

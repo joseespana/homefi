@@ -11,6 +11,7 @@
   import Mountain from "./Mountain.svelte";
   import NextCard from "./NextCard.svelte";
   import PulseRing from "./PulseRing.svelte";
+  import RideLyrics from "./RideLyrics.svelte";
   import TvButton from "./TvButton.svelte";
 
   /** The pause card appears once the music has been still this long (a song loading is not a pause). */
@@ -77,10 +78,19 @@
       exercise.pause();
     } else if (e.key.toLowerCase() === "n" && !e.metaKey && !e.ctrlKey && !e.altKey && !lastPart) {
       exercise.skip();
+    } else if (e.key.toLowerCase() === "f" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      exercise.setFullscreen(!exercise.fullscreen);
     } else if (e.key === "Escape" && paused) {
       exercise.pause();
+    } else if (e.key === "Escape" && exercise.fullscreen) {
+      exercise.setFullscreen(false);
     }
   }
+  // leaving the ride (it ended, or another page opened) leaves fullscreen: the app around it comes back
+  $effect(() => () => {
+    if (exercise.fullscreen) exercise.setFullscreen(false);
+  });
+
   /** Moves focus into a dialog when it opens. */
   const focusFirst = (node: HTMLElement) => node.focus();
   let resume = $state<HTMLButtonElement>();
@@ -92,7 +102,7 @@
 <svelte:window onkeydown={onKey} />
 
 {#if view && plan}
-  <main class="ride" class:ex-dark={exercise.dark} style:--c={color} aria-label="Ride">
+  <main class="ride" class:full={exercise.fullscreen} class:ex-dark={exercise.dark} style:--c={color} aria-label="Ride">
     <header class="top">
       <span class="zchip"><Icon name="bike" size={22} />{zoneName(view.kind)}</span>
       <span class="pos"><Icon name={positionIcon(view.position)} size={20} />{positionLabel(view.position)}</span>
@@ -115,6 +125,9 @@
         <span class="tvnote">Music is playing on the TV<button type="button" class="link" onclick={() => exercise.playHere()}>Play here instead</button></span>
       {/if}
       <TvButton />
+      <button type="button" class="skip" title={exercise.fullscreen ? "Leave fullscreen [F]" : "Fullscreen [F]"} aria-label={exercise.fullscreen ? "Leave fullscreen" : "Fullscreen"} aria-pressed={exercise.fullscreen} onclick={() => exercise.setFullscreen(!exercise.fullscreen)}>
+        <Icon name={exercise.fullscreen ? "shrink" : "expand"} size={18} />
+      </button>
       <button type="button" class="pause" title="Pause the ride [Space]" aria-label={exercise.playing ? "Pause" : "Resume"} onclick={() => exercise.pause()}>
         <Icon name={exercise.playing ? "pause" : "play"} size={24} />
       </button>
@@ -150,18 +163,33 @@
 
     <section class="map">
       <div class="mtnbox">
-        <Mountain
-          {parts}
-          profile={plan.profile}
-          mode="live"
-          height="100%"
-          current={view.segment_index}
-          marker={view.marker}
-          hot={exercise.hotPoints}
-          paused={!exercise.playing}
-          {label}
-          describe={(i) => `${zoneName(parts[i].kind)} · ${clock(parts[i].seconds)} · ${Math.round((plan.workout.segments[i].target.min_rpm + plan.workout.segments[i].target.max_rpm) / 2)} RPM`}
-        />
+        {#if s.ride_karaoke}
+          <RideLyrics />
+        {:else}
+          <Mountain
+            {parts}
+            profile={plan.profile}
+            mode="live"
+            height="100%"
+            current={view.segment_index}
+            marker={view.marker}
+            hot={exercise.hotPoints}
+            paused={!exercise.playing}
+            {label}
+            describe={(i) => `${zoneName(parts[i].kind)} · ${clock(parts[i].seconds)} · ${Math.round((plan.workout.segments[i].target.min_rpm + plan.workout.segments[i].target.max_rpm) / 2)} RPM`}
+          />
+        {/if}
+        <button
+          type="button"
+          class="kmic"
+          class:on={s.ride_karaoke}
+          aria-pressed={s.ride_karaoke}
+          title={s.ride_karaoke ? "Show the mountain" : "Show the lyrics (karaoke)"}
+          aria-label={s.ride_karaoke ? "Show the mountain" : "Show the lyrics"}
+          onclick={() => exercise.saveSettings({ ride_karaoke: !s.ride_karaoke })}
+        >
+          <Icon name={s.ride_karaoke ? "mountain" : "mic"} size={20} />
+        </button>
         {#if chip}<span class="chip" role="status" aria-live="polite"><Icon name="up" size={16} />{chip}</span>{/if}
       </div>
       <div class="prog">
@@ -204,6 +232,13 @@
 {/if}
 
 <style>
+  /* fullscreen: the ride covers the whole window (rail, top bar and all), the window itself fills the screen */
+  .ride.full {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    border-radius: 0;
+  }
   .ride {
     /* the layout follows the room this screen gets (rail, side panels), not the window */
     container: ride / inline-size;
@@ -418,6 +453,31 @@
     position: relative;
     flex: 1;
     min-height: 0;
+  }
+  /* the karaoke switch: over the map, top left */
+  .kmic {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) 70%, transparent);
+    color: var(--text);
+    cursor: pointer;
+  }
+  .kmic.on {
+    border-color: var(--c);
+    background: color-mix(in srgb, var(--c) 20%, transparent);
+    color: var(--c);
+  }
+  .kmic:focus-visible {
+    outline: 2px solid var(--c);
+    outline-offset: 2px;
   }
   /* the resistance-step chip: over the mountain, top centre (no layout space, nothing jumps) */
   .chip {

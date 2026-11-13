@@ -185,6 +185,8 @@ fun RidePreview(state: RideUi.Preview, session: RideSession) {
                 swappable = settings.rideSwap && rebuilding == null, swapping = swapping, onSwap = { session.swapSong(it, false) },
             )
         }
+        // the TV is picked as the ride starts, not when it is built
+        RideTvChoice()
         GradientButton(
             text = stringResource(R.string.ex_start),
             onClick = { if (rebuilding == null) session.start(built) },

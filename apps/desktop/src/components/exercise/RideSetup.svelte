@@ -12,7 +12,6 @@
   import SavedRides from "./SavedRides.svelte";
   import StylePicker from "./StylePicker.svelte";
   import TasteChips from "./TasteChips.svelte";
-  import WhereToWatch from "./WhereToWatch.svelte";
   import Icon from "../Icon.svelte";
 
   const NEEDS_AI = "Needs your AI key. Genres still work.";
@@ -125,8 +124,6 @@
           {#if exercise.settings.beginner_mode}Beginner mode keeps the pace and effort gentle.{/if}
         </p>
       </ExCard>
-
-      <WhereToWatch />
 
       {#if !app.account}
         <p class="note" role="status"><Icon name="info" size={15} />TIDAL is offline. Only your library will be used.</p>

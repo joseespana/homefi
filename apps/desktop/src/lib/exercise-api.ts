@@ -344,7 +344,7 @@ export type PulseStyle = "ring" | "bar" | "flash";
 /** How the course mountain is drawn (docs/MOUNTAIN.md). */
 export type CourseLook = "ribbon" | "alpine" | "stage";
 /** The rider on the mountain: the bike silhouette or just the dot. */
-export type CourseRider = "bike" | "dot";
+export type CourseRider = "homefito" | "bike" | "dot";
 /** What the bike's console shows. */
 export type ConsoleUnit = "rpm" | "kph" | "mph" | "none";
 export type SourcesMode = "library_first" | "tidal_first" | "library_only";
@@ -403,6 +403,10 @@ export interface ExerciseSettings {
   ride_swap: boolean;
   /** The swap may ask the AI for the replacement. */
   swap_uses_ai: boolean;
+  /** The ride shows the song's lyrics, karaoke style, where the mountain goes. */
+  ride_karaoke: boolean;
+  /** The ride opens fullscreen (desktop). */
+  ride_fullscreen: boolean;
   /** Android only; kept so the JSON round-trips. */
   haptic_cues: boolean;
   health_notice_seen: boolean;
@@ -463,10 +467,12 @@ export const DEFAULT_EXERCISE_SETTINGS: ExerciseSettings = {
   bike: { console: "none", resistance_levels: 8, kph_per_rpm: 0 },
   climb_steps: 3,
   crossfade_seconds: 3,
-  course_rider: "bike",
+  course_rider: "homefito",
   ride_big_controls: false,
   ride_swap: true,
   swap_uses_ai: true,
+  ride_karaoke: false,
+  ride_fullscreen: false,
   haptic_cues: true,
   health_notice_seen: false,
   tempo_nudge_pct: 0,

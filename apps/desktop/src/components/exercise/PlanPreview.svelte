@@ -7,6 +7,7 @@
   import Cover from "../Cover.svelte";
   import Icon from "../Icon.svelte";
   import Mountain from "./Mountain.svelte";
+  import WhereToWatch from "./WhereToWatch.svelte";
   import ZoneKey from "./ZoneKey.svelte";
 
   const plan = $derived(exercise.plan!);
@@ -95,6 +96,9 @@
     <button type="button" class="btn tonal" onclick={() => exercise.rebuild()} disabled={exercise.rebuilding} title="Same ride, songs it did not play yet"><Icon name="refresh" size={16} />New songs</button>
     <button type="button" class="start" onclick={() => exercise.start()} disabled={exercise.rebuilding}><Icon name="play" size={18} />Start ride</button>
   </header>
+
+  <!-- the TV is picked as the ride starts, not when it is built -->
+  <WhereToWatch />
 
   {#if exercise.rebuilding}
     <section class="again" aria-label="Finding new songs">
