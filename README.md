@@ -30,6 +30,7 @@ The latest version, straight from the [releases page](https://github.com/joseesp
 | Linux (x86_64) | [.deb](https://github.com/joseespana/homefi/releases/latest/download/HomeFi-linux-x86_64.deb) · [.rpm](https://github.com/joseespana/homefi/releases/latest/download/HomeFi-linux-x86_64.rpm) · [AppImage](https://github.com/joseespana/homefi/releases/latest/download/HomeFi-linux-x86_64.AppImage) |
 | Linux (arm64) | [.deb](https://github.com/joseespana/homefi/releases/latest/download/HomeFi-linux-arm64.deb) · [.rpm](https://github.com/joseespana/homefi/releases/latest/download/HomeFi-linux-arm64.rpm) · [AppImage](https://github.com/joseespana/homefi/releases/latest/download/HomeFi-linux-arm64.AppImage) |
 | Android 8+ | [HomeFi-android.apk](https://github.com/joseespana/homefi/releases/latest/download/HomeFi-android.apk) |
+| Android TV / Google TV 8+ | the same [HomeFi-android.apk](https://github.com/joseespana/homefi/releases/latest/download/HomeFi-android.apk): it opens its TV interface on a TV (see below) |
 | CLI | [all platforms](https://github.com/joseespana/homefi/releases/latest) (`homefi-cli-<target>.tar.gz` / `.zip`) |
 
 Checksums: [SHA256SUMS](https://github.com/joseespana/homefi/releases/latest/download/SHA256SUMS).
@@ -38,6 +39,11 @@ Checksums: [SHA256SUMS](https://github.com/joseespana/homefi/releases/latest/dow
   System Settings → Privacy & Security → **Open Anyway**.
 - **Windows**: SmartScreen may say "Windows protected your PC": **More info → Run anyway**.
 - **Android**: allow installing apps from your browser or file manager when asked.
+- **Android TV / Google TV**: install the free **Downloader** app (by AFTVnews) from the TV's Play Store, open it
+  and type `github.com/joseespana/homefi/releases/latest/download/HomeFi-android.apk`, then **Install** (allow
+  "unknown apps" for Downloader once). Open HomeFi from the TV's apps row and sign in by scanning the QR with your
+  phone. From then on the TV updates itself. On the phone, Settings → "Install HomeFi on a Google TV or Android TV" shows these steps.
+  On a small TV box (under 2 GB of memory) HomeFi starts with lighter animations; Settings → Motion changes it.
 
 ### Updates
 

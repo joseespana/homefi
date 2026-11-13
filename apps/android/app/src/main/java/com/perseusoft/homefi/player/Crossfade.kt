@@ -1,7 +1,7 @@
 package com.perseusoft.homefi.player
 
-import android.app.ActivityManager
 import android.content.Context
+import com.perseusoft.homefi.data.isLowRam
 import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
@@ -165,11 +165,7 @@ class Crossfader(
     val player: ExoPlayer get() = players[active]
     private val spare get() = 1 - active
 
-    private val lowRam: Boolean = runCatching {
-        val am = context.getSystemService(ActivityManager::class.java)
-        val info = ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
-        am.isLowRamDevice || info.totalMem in 1 until LOW_RAM_BYTES
-    }.getOrDefault(false)
+    private val lowRam: Boolean = context.isLowRam()
     private var lagging = false
     private var lagFades = 0
 
@@ -543,7 +539,5 @@ class Crossfader(
         /** A ticker step this late during a fade counts as lag. */
         const val LAG_MS = 150L
         const val LAG_FADES = 2
-        /** Phones below this (or reporting low RAM) skip the second player (low-power fallback). */
-        const val LOW_RAM_BYTES = 2L * 1024 * 1024 * 1024
     }
 }

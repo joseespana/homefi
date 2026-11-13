@@ -124,7 +124,7 @@
     <string name="motion_off">Sin animaciones</string>
     <string name="settings_haptics">Vibrar en los botones</string>
     <string name="settings_haptics_hint">Una vibración corta al reproducir, saltar, adelantar, elegir opciones, descargar y en pulsaciones largas. El ajuste de respuesta táctil de Android también la apaga.</string>
-    <string name="settings_motion_hint">Transiciones entre pantallas, el reproductor creciendo desde el mini reproductor, canciones y listas que entran. Suave deja solo fundidos cortos. Automático es completo salvo que «Quitar animaciones» de Android esté activado; entonces, suave. Los diseños retro se mueven como en su época.</string>
+    <string name="settings_motion_hint">Transiciones entre pantallas, el reproductor creciendo desde el mini reproductor, canciones y listas que entran. Suave deja solo fundidos cortos. Automático es completo salvo que «Quitar animaciones» de Android esté activado o el equipo tenga poca memoria (una caja de TV pequeña); entonces, suave. Los diseños retro se mueven como en su época.</string>
     <string name="settings_folder_change">Cambiar carpeta</string>
     <string name="settings_folder_default">Usar la carpeta predeterminada</string>
     <string name="settings_folder_fallback">HomeFi no puede escribir en %1$s, así que por ahora las descargas van aquí.</string>

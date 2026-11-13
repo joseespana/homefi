@@ -125,7 +125,7 @@
     <string name="motion_off">Off</string>
     <string name="settings_haptics">Vibrate on buttons</string>
     <string name="settings_haptics_hint">A short buzz on play, skip, seek, options, downloads and long presses. Android\'s own touch feedback setting also turns it off.</string>
-    <string name="settings_motion_hint">Transitions between screens, the player growing out of the mini player, songs and lists coming in. Subtle keeps short fades only. Automatic is full unless Android\'s "Remove animations" is on, then subtle. Retro layouts move the way they did back then.</string>
+    <string name="settings_motion_hint">Transitions between screens, the player growing out of the mini player, songs and lists coming in. Subtle keeps short fades only. Automatic is full unless Android\'s "Remove animations" is on or the device has little memory (a small TV box), then subtle. Retro layouts move the way they did back then.</string>
     <string name="settings_folder_change">Change folder</string>
     <string name="settings_folder_default">Use the default folder</string>
     <string name="settings_folder_fallback">HomeFi can\'t write to %1$s, so downloads go here for now.</string>

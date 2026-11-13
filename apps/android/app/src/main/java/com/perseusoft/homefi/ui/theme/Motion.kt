@@ -1,5 +1,6 @@
 package com.perseusoft.homefi.ui.theme
 
+import com.perseusoft.homefi.data.isLowRam
 import androidx.compose.ui.Alignment
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.expandHorizontally
@@ -278,14 +279,17 @@ val LocalMotion = staticCompositionLocalOf { MotionScheme(Motion.FULL, MotionSty
 
 /**
  * Provides the scheme for [level] in the skin of [layout]. AUTO becomes SUBTLE while the
- * system's "Remove animations" is on (animator duration scale 0), FULL otherwise; an explicit
+ * system's "Remove animations" is on (animator duration scale 0) or on a low-memory device (a
+ * Chromecast-class TV box keeps up), FULL otherwise; an explicit
  * choice wins over the system. Other scales (0.5×, 2×...) already stretch or shorten every
  * Compose animation by themselves.
  */
 @Composable
 fun ProvideMotion(level: Motion, layout: PlayerLayout, content: @Composable () -> Unit) {
     val systemOff = rememberSystemAnimationsOff()
-    val effective = level.resolve(systemOff)
+    val context = LocalContext.current
+    val lowRam = remember(context) { context.isLowRam() }
+    val effective = level.resolve(systemOff || lowRam)
     val style = layout.motionStyle()
     val scheme = remember(effective, style) { MotionScheme(effective, style) }
     CompositionLocalProvider(LocalMotion provides scheme, content = content)

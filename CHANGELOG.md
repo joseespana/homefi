@@ -7,6 +7,11 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Changed
+- Small TV boxes and phones (under 2 GB of memory) start with subtle motion: Motion "Automatic" now also turns
+  subtle there, so the TV interface keeps up on a Chromecast-class box. Choosing Full in Settings → Motion wins.
+- README: how to install HomeFi on an Android TV / Google TV with the Downloader app.
+
 ## [1.5.16] - 2026-11-13
 
 
