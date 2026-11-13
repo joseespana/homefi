@@ -7,6 +7,9 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.16] - 2026-11-13
+
+
 ### Added
 - Exercise: karaoke in the ride. A tap on the mic over the map swaps the mountain for the song's lyrics, the line
   being sung filling in the part's colour; another tap brings the mountain back. Also in Settings → Exercise
