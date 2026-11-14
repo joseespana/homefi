@@ -6,6 +6,7 @@
   import type { Conversation } from "../../lib/party.svelte";
   import { fade, rise } from "../../lib/motion";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
 
   let { chat, disabled = false }: { chat: Conversation; disabled?: boolean } = $props();
 
@@ -68,7 +69,7 @@
       <form class="field" onsubmit={send}>
         <input bind:this={input} bind:value={text} maxlength="500" placeholder="Type an answer or tap one" aria-label="Your answer" disabled={disabled} autocomplete="off" />
         <span class="count" title="Answers so far">{chat.userTurns}/{chat.maxTurns}</span>
-        <button class="send" aria-label="Send" title="Send" disabled={!text.trim() || busy}><Icon name="send" size={16} /></button>
+        <button class="send" aria-label="Send" title="Send" disabled={!text.trim() || busy} aria-busy={chat.thinking}>{#if chat.thinking}<Spinner size={16} />{:else}<Icon name="send" size={16} />{/if}</button>
       </form>
     {/if}
   </div>

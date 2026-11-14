@@ -9,6 +9,7 @@
   import { playlists } from "../../lib/playlists.svelte";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
   import Skeleton from "../Skeleton.svelte";
   import BuildStatus from "./BuildStatus.svelte";
   import ChatClosed from "./ChatClosed.svelte";
@@ -106,7 +107,7 @@
           {#each brief.songs ?? [] as song (song.artist + song.title)}<li class="tag song" title="Opens the playlist"><Icon name="music" size={12} /> <span class="ellipsis">{song.title} · {song.artist}</span></li>{/each}
           {#each facts as fact (fact)}<li class="tag">{fact}</li>{/each}
         </ul>
-        <button type="button" class="btn primary build" disabled={!canBuild} onclick={() => chat.build()}><Icon name="play" size={16} /> {draft ? "Build again" : "Build playlist"}</button>
+        <button type="button" class="btn primary build" disabled={!canBuild} aria-busy={chat.building} onclick={() => chat.build()}>{#if chat.building}<Spinner size={16} /> Building…{:else}<Icon name="play" size={16} /> {draft ? "Build again" : "Build playlist"}{/if}</button>
       </div>
       {#if chat.error}<p class="alert" role="alert"><Icon name="alert" size={16} /><span>{chat.error}</span></p>{/if}
       <BuildStatus active={chat.building} text={chat.statusText} fraction={chat.fraction} oncancel={() => chat.cancel()} />

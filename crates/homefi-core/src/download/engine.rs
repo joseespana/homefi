@@ -15,6 +15,7 @@ use crate::api::{ArtistAlbumsFilter, TidalApi};
 use crate::config::{AudioFormat, CoverResource, M3uResource, MediaFilter, SinglesFilter};
 use crate::error::{Error, Result};
 use crate::ffmpeg::{self, Container};
+use crate::humane::{language, Lang};
 use crate::metadata::{self, Cover, TrackTags};
 use crate::models::{Album, CreditsEntry, ListedItem, MediaItem, Playlist, Track};
 use crate::paths::{resolve_existing_path_case, with_suffix};
@@ -631,7 +632,7 @@ impl Downloader {
             self.emit(Event::Skipped {
                 id: item.id().to_string(),
                 title: item.title().to_owned(),
-                reason: "not available for streaming".into(),
+                reason: skip_reason(SkipWhy::NoStreaming),
             });
             return Ok(None);
         }
@@ -676,7 +677,11 @@ impl Downloader {
                 MediaItem::Track(_) => opts.videos_filter == MediaFilter::Only,
             };
             if filtered {
-                let reason = format!("videos filter is `{:?}`", opts.videos_filter).to_lowercase();
+                let reason = skip_reason(if opts.videos_filter == MediaFilter::None {
+                    SkipWhy::VideosOff
+                } else {
+                    SkipWhy::VideosOnly
+                });
                 self.emit(Event::Skipped { id: item.id().to_string(), title: item.title().to_owned(), reason });
                 return Ok(None);
             }
@@ -696,7 +701,11 @@ impl Downloader {
                     MediaFilter::Allow => false,
                 };
                 if filtered {
-                    let reason = format!("Dolby Atmos filter is `{:?}`", opts.atmos_filter).to_lowercase();
+                    let reason = skip_reason(if opts.atmos_filter == MediaFilter::None {
+                        SkipWhy::AtmosOff
+                    } else {
+                        SkipWhy::AtmosOnly
+                    });
                     self.emit(Event::Skipped { id: item.id().to_string(), title: item.title().to_owned(), reason });
                     return Ok(None);
                 }
@@ -914,6 +923,27 @@ where
     F: FnOnce() -> Result<()> + Send + 'static,
 {
     tokio::task::spawn_blocking(f).await.map_err(|e| Error::Io(std::io::Error::other(e.to_string())))?
+}
+
+/// Why an item was left out, in the words of `Event::Skipped`.
+#[derive(Clone, Copy)]
+enum SkipWhy {
+    NoStreaming,
+    VideosOff,
+    VideosOnly,
+    AtmosOff,
+    AtmosOnly,
+}
+
+fn skip_reason(why: SkipWhy) -> String {
+    let (en, es) = match why {
+        SkipWhy::NoStreaming => ("Tidal doesn't allow this one to be played", "Tidal no permite reproducir esta"),
+        SkipWhy::VideosOff => ("Your settings skip videos", "Tus ajustes omiten los videos"),
+        SkipWhy::VideosOnly => ("Your settings keep only videos", "Tus ajustes guardan solo videos"),
+        SkipWhy::AtmosOff => ("Your settings skip Dolby Atmos", "Tus ajustes omiten Dolby Atmos"),
+        SkipWhy::AtmosOnly => ("Your settings keep only Dolby Atmos", "Tus ajustes guardan solo Dolby Atmos"),
+    };
+    (if language() == Lang::Es { es } else { en }).to_owned()
 }
 
 #[cfg(test)]

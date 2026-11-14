@@ -14,6 +14,7 @@ import com.perseusoft.homefi.ui.theme.skinRowColors
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.combinedClickable
+import com.perseusoft.homefi.ui.ButtonSpinner
 import com.perseusoft.homefi.ui.QueueButton
 import com.perseusoft.homefi.ui.QueueMenu
 import androidx.compose.foundation.clickable
@@ -364,6 +365,8 @@ private fun BackBar(title: String, onBack: () -> Unit, onSound: (() -> Unit)? = 
     }
 }
 
+private enum class HeroAsk { PLAY, SHUFFLE, QUEUE }
+
 /** Big cover, title, subtitle and Play / Shuffle / Download for a list of tracks. */
 @Composable
 private fun Hero(
@@ -378,6 +381,8 @@ private fun Hero(
     onDownload: (() -> Unit)?,
     onSubtitle: (() -> Unit)? = null,
     explicit: Boolean = false,
+    /** Every track of the list is being fetched for a button below: it shows a spinner and the row waits. */
+    busy: Boolean = false,
     /** Below the subtitle: this release's badges, "Other versions" and a note on Atmos. */
     extra: @Composable () -> Unit = {},
 ) {
@@ -402,15 +407,17 @@ private fun Hero(
         extra()
         Spacer(Modifier.size(12.dp))
         val haptics = haptics()
+        // which button asked for the wait, so only that one turns into a spinner
+        var asked by remember { mutableStateOf(HeroAsk.PLAY) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { haptics.press(); onPlay(false) }, enabled = hasTracks) {
-                Icon(Icons.Rounded.PlayArrow, null)
+            Button(onClick = { asked = HeroAsk.PLAY; haptics.press(); onPlay(false) }, enabled = hasTracks && !busy) {
+                if (busy && asked == HeroAsk.PLAY) ButtonSpinner() else Icon(Icons.Rounded.PlayArrow, null)
                 Text(stringResource(R.string.library_play_all), Modifier.padding(start = 4.dp))
             }
-            FilledTonalButton(onClick = { haptics.press(); onPlay(true) }, enabled = hasTracks) {
-                Icon(Icons.Rounded.Shuffle, null)
+            FilledTonalButton(onClick = { asked = HeroAsk.SHUFFLE; haptics.press(); onPlay(true) }, enabled = hasTracks && !busy) {
+                if (busy && asked == HeroAsk.SHUFFLE) ButtonSpinner() else Icon(Icons.Rounded.Shuffle, null)
             }
-            QueueButton(onQueue, enabled = hasTracks)
+            QueueButton({ next -> asked = HeroAsk.QUEUE; onQueue(next) }, enabled = hasTracks && !busy, busy = busy && asked == HeroAsk.QUEUE)
             if (onDownload != null) {
                 OutlinedButton(onClick = { haptics.confirm(); onDownload() }) { Icon(Icons.Rounded.Download, stringResource(R.string.download)) }
             }
@@ -487,6 +494,7 @@ private fun AlbumVersionsLine(
 fun TidalRoutePage(route: TidalRoute, vm: TidalViewModel) {
     val pages by vm.pages.collectAsStateWithLifecycle()
     val versions by vm.versions.collectAsStateWithLifecycle()
+    val fetching by vm.fetchingAll.collectAsStateWithLifecycle()
     val ctx = rememberRowContext(vm)
     val player = LocalContext.current.homefi.player
     val sound = LocalContext.current.homefi.sound
@@ -530,6 +538,7 @@ fun TidalRoutePage(route: TidalRoute, vm: TidalViewModel) {
                             onPlay = { shuffle -> vm.play(key, shuffle = shuffle) },
                             onQueue = { next -> vm.queue(key, next) },
                             onDownload = { vm.download(album.title, "album/${album.id}") },
+                            busy = key in fetching,
                             onSubtitle = album.artistId?.let { id -> { vm.push(TidalRoute.Artist(id)) } },
                             explicit = album.explicit,
                         ) { AlbumVersionsLine(album.title, album.id, album.quality, versions[album.id].orEmpty(), vm::versionAction) }
@@ -561,6 +570,7 @@ fun TidalRoutePage(route: TidalRoute, vm: TidalViewModel) {
                             onPlay = { shuffle -> vm.play(key, shuffle = shuffle) },
                             onQueue = { next -> vm.queue(key, next) },
                             onDownload = { vm.download(playlist.title, "playlist/${playlist.uuid}") },
+                            busy = key in fetching,
                         )
                     }
                     if (tracks.items.isNotEmpty()) {

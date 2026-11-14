@@ -4,6 +4,7 @@
   import { app } from "../lib/state.svelte";
   import Cover from "./Cover.svelte";
   import Icon from "./Icon.svelte";
+  import Spinner from "./Spinner.svelte";
   import { snap } from "../lib/snap";
 
   /** A Tidal track / album / playlist / artist with download (or play, when already local). */
@@ -61,12 +62,19 @@
   });
   const openable = $derived(hit.kind === "album" || hit.kind === "playlist" || hit.kind === "artist" || hit.kind === "mix");
 
+  let queuing = $state(false);
+  let starting = $state(false);
+
   async function download() {
+    if (queuing) return;
+    queuing = true;
     try {
       error = null;
       await app.download(hit.title, [`${hit.kind}/${hit.id}`], hit.kind === "track" ? [hit.id] : []);
     } catch (e) {
       error = errorText(e);
+    } finally {
+      queuing = false;
     }
   }
 
@@ -79,11 +87,17 @@
   /** Plays this track, followed by the rest of `list`; the current one pauses / resumes. */
   async function play() {
     if (isCurrent) return api.toggle();
+    if (starting) return;
     let siblings = list ?? [hit];
-    try {
-      if (whole) siblings = await whole();
-    } catch (e) {
-      app.notify(errorText(e), true);
+    if (whole) {
+      starting = true;
+      try {
+        siblings = await whole();
+      } catch (e) {
+        app.notify(errorText(e), true);
+      } finally {
+        starting = false;
+      }
     }
     const at = siblings.indexOf(hit);
     app.playTidal(siblings, at >= 0 ? at : Math.max(0, siblings.findIndex((h) => h.id === hit.id)), false, source);
@@ -103,8 +117,8 @@
   {#if index != null}
     <!-- the one play control of a track row: the number (or the cover, below) -->
     {#if hit.kind === "track"}
-      <button class="n go-btn" onclick={play} aria-label="{playing ? 'Pause' : isCurrent ? 'Resume' : 'Play'} {hit.title}" title={playing ? "Pause" : isCurrent ? "Resume" : "Play"}>
-        {#if playing}<span class="num sound"><Icon name="volume" size={14} /></span>{:else}<span class="num">{index}</span>{/if}
+      <button class="n go-btn" onclick={play} aria-busy={starting} aria-label="{playing ? 'Pause' : isCurrent ? 'Resume' : 'Play'} {hit.title}" title={playing ? "Pause" : isCurrent ? "Resume" : "Play"}>
+        {#if starting}<span class="num"><Spinner size={14} /></span>{:else if playing}<span class="num sound"><Icon name="volume" size={14} /></span>{:else}<span class="num">{index}</span>{/if}
         <span class="go"><Icon name={playing ? "pause" : "play"} size={14} /></span>
       </button>
     {:else}
@@ -113,6 +127,7 @@
   {/if}
   <button
     class="main"
+    aria-busy={starting}
     onclick={hit.kind === "track" ? play : open}
     disabled={!openable && hit.kind !== "track"}
     title={hit.kind === "track"
@@ -130,7 +145,7 @@
       <Cover url={thumb(hit.cover_url)} size={48} radius={hit.kind === "artist" ? 24 : 8} icon={icons[hit.kind]} />
       {#if hit.kind === "track" && index == null}
         <span class="art-state" class:sound={playing}>
-          <span class="idle"><Icon name={playing ? "volume" : "play"} size={18} /></span>
+          <span class="idle">{#if starting}<Spinner size={18} />{:else}<Icon name={playing ? "volume" : "play"} size={18} />{/if}</span>
           <span class="hover"><Icon name={playing ? "pause" : "play"} size={18} /></span>
         </span>
       {/if}
@@ -216,9 +231,11 @@
       class:failed={dl?.state === "failed"}
       title={dl?.state === "failed" ? `Failed: ${dl.detail ?? ""} · retry` : "Download"}
       aria-label="Download {hit.title}"
+      aria-busy={queuing}
+      disabled={queuing}
       onclick={download}
     >
-      <Icon name={dl?.state === "failed" ? "alert" : "download"} />
+      {#if queuing}<Spinner size={16} />{:else}<Icon name={dl?.state === "failed" ? "alert" : "download"} />{/if}
     </button>
   {/if}
 </div>

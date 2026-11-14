@@ -278,7 +278,7 @@ impl HubSession {
         let host = Arc::new(DesktopHost { app: app.clone(), tx: tx.clone() });
         let hub = Hub::start(config, host).await.map_err(|e| match e {
             homefi_core::Error::Io(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
-                format!("Port {port} is in use (another HomeFi?). Pick another one in Settings.")
+                format!("Sharing could not start: the connection number {port} is already taken by another app. Pick another one in Settings.")
             }
             e => crate::commands::err(e),
         })?;
@@ -666,7 +666,12 @@ impl HubSession {
                 tracing::warn!("share: fetch {source}: {e}");
                 m.failed.insert(source);
                 if let Some(title) = title {
-                    notice(app, &format!("Couldn't get \u{201c}{title}\u{201d} from Tidal: {e}"), None, "error");
+                    notice(
+                        app,
+                        &format!("Couldn't get \u{201c}{title}\u{201d} from Tidal. It will be skipped."),
+                        None,
+                        "error",
+                    );
                 }
             }
         }

@@ -8,6 +8,7 @@
   import { playlists } from "../../lib/playlists.svelte";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
   import Skeleton from "../Skeleton.svelte";
   import BuildStatus from "./BuildStatus.svelte";
   import ChatClosed from "./ChatClosed.svelte";
@@ -98,9 +99,9 @@
       <form class="form" onsubmit={submit}>
         <PartyQuestions brief={chat.brief} disabled={chat.building} defaults={{ curve: defaults.party_curve, allow_explicit: defaults.party_allow_explicit }} onchange={(patch) => chat.setBrief(patch)} />
         <div class="actions">
-          <button type="submit" class="btn primary" disabled={chat.building || chat.thinking}><Icon name="play" size={16} /> {draft ? "Build again" : "Build playlist"}</button>
+          <button type="submit" class="btn primary" disabled={chat.building || chat.thinking} aria-busy={chat.building}>{#if chat.building}<Spinner size={16} /> Building…{:else}<Icon name="play" size={16} /> {draft ? "Build again" : "Build playlist"}{/if}</button>
           {#if !chat.chatting}
-            <button type="button" class="btn tonal" disabled={chat.building || chat.thinking} onclick={() => chat.talk()}>Talk it over with the AI first</button>
+            <button type="button" class="btn tonal" disabled={chat.building || chat.thinking} aria-busy={chat.thinking} onclick={() => chat.talk()}>{#if chat.thinking}<Spinner size={16} /> Thinking…{:else}Talk it over with the AI first{/if}</button>
           {/if}
         </div>
         {#if chat.error}<p class="error" role="alert">{chat.error}</p>{/if}

@@ -4,6 +4,7 @@
   import { errorText } from "../lib/api";
   import { app } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
+  import Spinner from "./Spinner.svelte";
 
   const trackIds = $derived(app.newPlaylist?.trackIds ?? []);
   let title = $state("");
@@ -52,7 +53,7 @@
     {#if error}<p class="error">{error}</p>{/if}
     <div class="actions">
       <button type="button" class="btn tonal" onclick={close}>Cancel</button>
-      <button type="submit" class="btn primary" disabled={!title.trim() || busy}>{busy ? "Creating…" : "Create on Tidal"}</button>
+      <button type="submit" class="btn primary" disabled={!title.trim() || busy} aria-busy={busy}>{#if busy}<Spinner size={16} /> Creating…{:else}Create on Tidal{/if}</button>
     </div>
   </form>
 </div>

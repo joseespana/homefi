@@ -179,6 +179,19 @@
   @keyframes digit { 0% { transform: scale(1.35); opacity: 0; } 22% { transform: scale(1); opacity: 1; }
     100% { transform: scale(0.92); opacity: 0.85; } }
   #countName { position: absolute; left: 0; right: 0; top: 6.0rem; font-size: 0.84rem; font-weight: 800; }
+  /* the big message as kinetic type: the words slam in with a hard shadow, outlined copies burst out above and
+     below and fade (one spec with the apps' RideCallout) */
+  #callout { position: fixed; z-index: 7; left: 0; right: 0; top: 0; bottom: 0; display: none; pointer-events: none;
+    background: radial-gradient(closest-side, rgba(0,0,0,0.55), rgba(0,0,0,0)); }
+  #calloutText { position: absolute; left: 1rem; right: 1rem; top: 50%; height: 0; text-align: center; color: var(--c);
+    font-weight: 900; letter-spacing: -0.01em; text-transform: uppercase; }
+  #calloutText b, #calloutText i { position: absolute; left: 0; right: 0; top: 0; transform: translateY(-50%); line-height: 1.02; font-style: normal; }
+  #calloutText b { text-shadow: 0.07em 0.07em 0 #000; animation: slam 0.26s cubic-bezier(0.2,0,0,1) both; }
+  #calloutText i { color: transparent; -webkit-text-stroke: 0.08rem var(--c); opacity: 0; animation: echo 0.9s cubic-bezier(0.4,0,0.2,1) both; }
+  #calloutText.short { font-size: 3rem; } #calloutText.medium { font-size: 2rem; } #calloutText.long { font-size: 1.35rem; }
+  @keyframes slam { 0% { opacity: 0; transform: translateY(-50%) scale(1.45); } 50% { opacity: 1; } 100% { transform: translateY(-50%) scale(1); } }
+  @keyframes echo { 0% { opacity: var(--o); transform: translateY(-50%); } 100% { opacity: 0; transform: translateY(calc(-50% + var(--k) * 0.8em)); } }
+  #calloutText.still b { animation: none; }
   #countRpm { position: absolute; left: 0; right: 0; top: 7.1rem; font-size: 0.56rem; font-weight: 700; color: #cfdcec; }
   #pausedMsg { position: fixed; z-index: 8; left: 50%; top: 50%; transform: translate(-50%, -50%); display: none; align-items: center;
     padding: 0.3rem 0.8rem 0.3rem 0.6rem; font-size: 1rem; font-weight: 800; border-radius: 1rem;
@@ -309,6 +322,7 @@
   <div id="url" class="abs w"><span id="urlText"></span></div>
 </div>
 <div id="flash"></div>
+<div id="callout" aria-live="polite"><span id="calloutText"></span></div>
 <div id="count"><div id="countBox"><div id="countDigit"></div><div id="countName"></div><div id="countRpm"></div></div></div>
 <div id="pausedMsg"><i></i><i></i><span id="pausedText"></span></div>
 <div id="reconnect"><i></i><span id="reconnectText"></span></div>
@@ -372,7 +386,7 @@
     track: $("track"), knob: $("knob"), ticks2: $("ticks2"), knobHalo: $("knobHalo"), pbar: $("pbar"), pbarFill: $("pbarFill"),
     flash: $("flash"), bars: $("bars"), effortWord: $("effortWord"), effortNum: $("effortNum"), effortLvl: $("effortLvl"), stepChip: $("stepChip"), nextCard: $("nextCard"),
     nextLabel: $("nextLabel"), nextName: $("nextName"), nextSub: $("nextSub"), link: $("link"), count: $("count"),
-    countDigit: $("countDigit"), countName: $("countName"), countRpm: $("countRpm"), pausedMsg: $("pausedMsg"),
+    calloutBox: $("callout"), calloutText: $("calloutText"), countDigit: $("countDigit"), countName: $("countName"), countRpm: $("countRpm"), pausedMsg: $("pausedMsg"),
     reconnect: $("reconnect"), clock: $("clock"), course: $("course"), panel: $("panel"),
     nowTop: $("nowTop"), pips: $("pips"), pipsCap: $("pipsCap"), done: $("done"), lyr: $("lyr"), lyP: $("lyP"),
     lyC: $("lyC"), lyN: $("lyN") };
@@ -1094,7 +1108,7 @@
 
   function setMode(m) {
     if (body.getAttribute("data-mode") !== m) { body.setAttribute("data-mode", m); }
-    if (m !== "ride") { lyr.on = false; setLy(false); body.setAttribute("data-paused", "0"); setS(el.count, "display", "none"); setS(el.pausedMsg, "display", "none"); }
+    if (m !== "ride") { lyr.on = false; setLy(false); body.setAttribute("data-paused", "0"); setS(el.count, "display", "none"); setS(el.calloutBox, "display", "none"); setS(el.pausedMsg, "display", "none"); }
   }
 
   // the 3-2-1 digit showing now, from the cues listed at the sampled position and the time since
@@ -1256,7 +1270,29 @@
       el.count._d = 0;
       setS(el.count, "display", "none");
     }
+    callout(paused || digit ? "" : (frame.text.callout || ""), ride.callout, color);
   }
+
+  // the big message from the app (already in the TV's language) as kinetic type: sprint colour while sprinting
+  var ECHOES = [-2, -1, 1, 2];
+  function esc(t) { return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function callout(text, c, color) {
+    if (!text) { setS(el.calloutBox, "display", "none"); el.calloutBox._t = ""; return; }
+    var kind = (c && c.kind) || "";
+    var sprinting = kind === "go" || kind === "cheer" || kind === "seconds_left";
+    if (el.calloutBox._t !== text) {
+      el.calloutBox._t = text;
+      el.calloutBox.style.setProperty("--c", sprinting ? (COLORS.sprint || color) : color);
+      var t = esc(text), html = "";
+      for (var i = 0; !reduced && i < ECHOES.length; i++) {
+        html += '<i style="--k:' + ECHOES[i] + ";--o:" + (1 / Math.abs(ECHOES[i])).toFixed(3) + '">' + t + "</i>";
+      }
+      el.calloutText.className = (text.length <= 8 ? "short" : text.length <= 18 ? "medium" : "long") + (reduced ? " still" : "");
+      el.calloutText.innerHTML = html + "<b>" + t + "</b>";
+    }
+    setS(el.calloutBox, "display", "block");
+  }
+
 
   // ---- the beat, computed from the grid and the position at display rate; three looks, calm with motion off
   var lastDot = -1, dotSide = 0;

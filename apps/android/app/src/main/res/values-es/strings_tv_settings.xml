@@ -66,11 +66,11 @@
     <string name="tv_set_min_free">Dejar libre al menos</string>
     <string name="tv_set_min_free_hint">En una unidad por debajo de eso no se escribe.</string>
     <string name="tv_set_usb_access">Acceso a la unidad USB</string>
-    <string name="tv_set_usb_access_hint">El acceso a todos los archivos deja a HomeFi guardar en una carpeta HomeFi de la unidad; sin él, usa su propia carpeta allí.</string>
+    <string name="tv_set_usb_access_hint">Con este permiso HomeFi puede guardar en una carpeta HomeFi de la unidad; sin él, usa su propia carpeta allí.</string>
     <string name="tv_set_forget_drives">Olvidar las unidades recordadas</string>
     <string name="tv_set_forget_drives_hint">Unidades cuyas canciones la biblioteca mantiene en la lista. Los archivos siguen en la unidad.</string>
-    <string name="tv_set_stream_cache">Caché del streaming de TIDAL</string>
-    <string name="tv_set_stream_cache_hint">Espacio para guardar las canciones que escuchas por streaming.</string>
+    <string name="tv_set_stream_cache">Canciones de TIDAL guardadas</string>
+    <string name="tv_set_stream_cache_hint">Espacio para guardar las canciones que escuchas, para que arranquen más rápido.</string>
     <string name="tv_set_threads">Canciones descargadas a la vez</string>
     <string name="tv_set_account">Cuenta de TIDAL</string>
     <string name="tv_set_party_auto">Dejar entrar las canciones de los invitados sin preguntar</string>
@@ -107,7 +107,7 @@
     <string name="tv_ai_key_type">Pulsa OK y escribe la clave con el teclado en pantalla.</string>
     <string name="tv_ai_get_key">Consigue una clave en %1$s</string>
     <string name="tv_ai_loading">Cargando…</string>
-    <string name="tv_ai_privacy">Tu clave se queda en esta tele, cifrada con el Keystore de Android. HomeFi solo se la envía a %1$s, solo para hablar con el asistente.</string>
+    <string name="tv_ai_privacy">Tu clave se queda en esta tele, guardada de forma segura y protegida por Android. HomeFi solo se la envía a %1$s, solo para hablar con el asistente.</string>
 
     <!-- teclado -->
     <string name="tv_kb_symbols">#+= símbolos</string>
@@ -123,7 +123,7 @@
     <!-- acceso USB -->
     <string name="tv_dl_paused_access">En pausa: esperando el acceso USB</string>
     <string name="tv_dl_access_wait">Esperando el acceso USB</string>
-    <string name="tv_dl_access_wait_body">%1$d descargas esperan a que permitas el acceso a todos los archivos. Vuelve y siguen, o pulsa Reanudar para que se te pregunte otra vez.</string>
+    <string name="tv_dl_access_wait_body">%1$d descargas esperan a que permitas el acceso a tus archivos. Vuelve y siguen, o pulsa Reanudar para que se te pregunte otra vez.</string>
 
     <!-- Train on the TV -->
     <string name="tv_train_here">Empezar una rodada en esta tele</string>

@@ -79,7 +79,7 @@
     <string name="tv_perm_step3">Press Back. The update continues by itself.</string>
     <string name="tv_perm_path">If the page does not open: Settings → Apps → Security &amp; restrictions → Install unknown apps → HomeFi</string>
     <string name="tv_perm_open">Open settings</string>
-    <string name="tv_perm_not_found">This TV could not open that page. Follow the path above.</string>
+    <string name="tv_perm_not_found">This TV couldn\'t open that page. Follow the steps above.</string>
     <string name="tv_notes_scroll">Use up and down to read</string>
     <string name="tv_ride_from">Ride from %1$s</string>
     <string name="tv_ride_watch">Watch</string>

@@ -70,6 +70,8 @@ class ShareStore {
   results = $state<ShareResults | null>(null);
   page = $state<SharePage | null>(null);
   searching = $state(false);
+  /** The hub or session call in flight (`start`, `stop`, `leave`): its button loads and a second press is ignored. */
+  working = $state<"start" | "stop" | "leave" | null>(null);
   /** The share panel (start sharing / the hub's guests / join). */
   panelOpen = $state(false);
   /** The join form: a found hub (only the code is missing) or a blank one. */
@@ -140,7 +142,7 @@ class ShareStore {
     }
     // the hub closed the connection (kicked, stopped) or it was lost
     if (was === "connected" && v.status === "disconnected") {
-      app.note(v.error ?? "The connection to the hub was lost", "error");
+      app.note(v.error ?? "The connection to the host was lost. Check your Wi-Fi.", "error");
       if (app.view.name === "guest") app.view = { name: "room" };
     }
   }
@@ -215,7 +217,7 @@ class ShareStore {
   /** Why a song's menu is greyed out. */
   editHint(item: QueueItem): string | null {
     if (this.canEdit(item)) return null;
-    return this.permissions?.edit === "own" ? "The hub only lets you change your own songs" : "The hub doesn’t let guests change the queue";
+    return this.permissions?.edit === "own" ? "The host only lets you change your own songs" : "The host doesn’t let guests change the queue";
   }
 
   // ------------------------------------------------------------ guest actions
@@ -274,10 +276,16 @@ class ShareStore {
       const ok = await app.confirm({ title: `Leave ${this.guest.session_name}?`, text: "You can join again later.", confirmLabel: "Leave", danger: true });
       if (!ok) return;
     }
-    await api.shareLeave();
-    this.results = null;
-    this.page = null;
-    if (app.view.name === "guest") app.view = { name: "room" };
+    if (this.working) return;
+    this.working = "leave";
+    try {
+      await api.shareLeave();
+      this.results = null;
+      this.page = null;
+      if (app.view.name === "guest") app.view = { name: "room" };
+    } finally {
+      this.working = null;
+    }
   }
 
   /** Opens the room (the guest view). */
@@ -314,10 +322,14 @@ class ShareStore {
   // ------------------------------------------------------------ hub actions
 
   async start(party: boolean) {
+    if (this.working) return;
+    this.working = "start";
     try {
       this.hub = await api.shareStart(party);
     } catch (e) {
       app.note(errorText(e), "error");
+    } finally {
+      this.working = null;
     }
   }
 
@@ -328,7 +340,13 @@ class ShareStore {
       confirmLabel: "Stop sharing",
       danger: true,
     });
-    if (ok) await api.shareStop();
+    if (!ok || this.working) return;
+    this.working = "stop";
+    try {
+      await api.shareStop();
+    } finally {
+      this.working = null;
+    }
   }
 
   setParty(on: boolean) {

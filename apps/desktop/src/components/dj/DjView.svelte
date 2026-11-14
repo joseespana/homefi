@@ -9,6 +9,7 @@
   import { homifitoDj } from "../../lib/homifito-dj.svelte";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
   import DjCrate from "./DjCrate.svelte";
   import DjDeck from "./DjDeck.svelte";
   import DjFirstRun from "./DjFirstRun.svelte";
@@ -47,9 +48,16 @@
     if (flags.has("djedit")) dj.editing = true;
   }
 
+  let exiting = $state(false);
   async function exit() {
-    await dj.stop();
-    app.view = { name: "room" };
+    if (exiting) return;
+    exiting = true;
+    try {
+      await dj.stop();
+      app.view = { name: "room" };
+    } finally {
+      exiting = false;
+    }
   }
 
   function key(e: KeyboardEvent, down: boolean) {
@@ -70,7 +78,7 @@
     <p>Mix two songs like a DJ: line up their beats, fade from one to the other, add effects. Everything works with the mouse.</p>
     <p class="muted small">The music that is playing pauses while DJ mode is on, and the sound is mixed (not bit-perfect). Turn it off to get your player back where it was.</p>
     {#if dj.startError}<p class="error" role="alert">{dj.startError}</p>{/if}
-    <button class="btn primary start" type="button" disabled={dj.starting} onclick={() => dj.start()}>{dj.starting ? "Starting…" : "Start DJ mode"}</button>
+    <button class="btn primary start" type="button" disabled={dj.starting} aria-busy={dj.starting} onclick={() => dj.start()}>{#if dj.starting}<Spinner size={16} /> Starting…{:else}Start DJ mode{/if}</button>
   </section>
 {:else}
   <main class="dj" class:hlook={homifitoDj.look} aria-label="DJ mode">
@@ -94,7 +102,7 @@
       </button>
       <button class="btn hbtn" type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onclick={() => (dj.sheetOpen = true)}><Icon name="key" size={16} /><span class="long">Shortcuts</span></button>
       {#if dj.crateVisible}<button class="btn hbtn" class:on={crateShown} type="button" aria-pressed={crateShown} title="Hide or show the crate" onclick={() => (drawer ? (dj.drawerOpen = !dj.drawerOpen) : (dj.crateOpen = !dj.crateOpen))}>Crate</button>{/if}
-      <button class="btn hbtn" type="button" title="Back to the normal player" onclick={exit}>Exit DJ</button>
+      <button class="btn hbtn" type="button" title="Back to the normal player" disabled={exiting} aria-busy={exiting} onclick={exit}>{#if exiting}<Spinner size={14} />{/if}Exit DJ</button>
     </header>
 
     {#if dj.settings.show_tips}<DjFirstRun />{/if}
@@ -103,7 +111,7 @@
       <div class="notice" role="status">
         <Icon name="info" size={16} />
         <span>The new pad sounds play after DJ mode restarts. The songs on the decks are unloaded.</span>
-        <button class="btn hbtn" type="button" disabled={dj.starting} onclick={() => dj.restart()}>Restart DJ mode</button>
+        <button class="btn hbtn" type="button" disabled={dj.starting} aria-busy={dj.starting} onclick={() => dj.restart()}>{#if dj.starting}<Spinner size={14} />{/if}Restart DJ mode</button>
       </div>
     {/if}
 

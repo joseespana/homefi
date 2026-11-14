@@ -8,6 +8,7 @@
   import { fade, rise } from "../../lib/motion";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
   import EqGraph from "./EqGraph.svelte";
   import SuggestionCard from "../sound/SuggestionCard.svelte";
   import TasteProposal from "../sound/TasteProposal.svelte";
@@ -84,13 +85,13 @@
         <p class="muted small">Checking your AI setup…</p>
       {:else if a.ready}
         <div class="choices">
-          <button class="btn primary" onclick={() => a.start(false)}><Icon name="ai" size={16} /> Chat with {a.provider?.name}</button>
-          <button class="btn tonal" onclick={() => a.start(true)}>Guided questions instead</button>
+          <button class="btn primary" disabled={a.thinking} aria-busy={a.thinking} onclick={() => a.start(false)}>{#if a.thinking}<Spinner size={16} /> Starting…{:else}<Icon name="ai" size={16} /> Chat with {a.provider?.name}{/if}</button>
+          <button class="btn tonal" disabled={a.thinking} onclick={() => a.start(true)}>Guided questions instead</button>
         </div>
         <p class="muted tiny"><Icon name="shield" size={12} /> Only what the conversation needs goes to {a.provider?.name} (your outputs, the genres and artists you play most): never your music files or your Tidal session.</p>
       {:else}
         <div class="choices">
-          <button class="btn primary" onclick={() => a.start(true)}>Start the guided setup</button>
+          <button class="btn primary" disabled={a.thinking} aria-busy={a.thinking} onclick={() => a.start(true)}>{#if a.thinking}<Spinner size={16} /> Starting…{:else}Start the guided setup{/if}</button>
         </div>
         <div class="no-ai">
           <Icon name="key" size={16} />
@@ -136,7 +137,7 @@
                   {#if p.explanation && !m.text.includes(p.explanation)}<p class="explain">{p.explanation}</p>{/if}
                   {#if !m.settled && !a.done}
                     <div class="pbuttons">
-                      <button class="btn primary" disabled={a.thinking} onclick={() => a.applyProfile()}><Icon name="check" size={16} /> Apply</button>
+                      <button class="btn primary" disabled={a.thinking} aria-busy={a.thinking} onclick={() => a.applyProfile()}>{#if a.thinking}<Spinner size={16} /> Applying…{:else}<Icon name="check" size={16} /> Apply{/if}</button>
                       <button class="btn tonal" disabled={a.thinking} onclick={() => keepTalking(m)}>Keep talking</button>
                     </div>
                   {/if}
@@ -181,7 +182,7 @@
         {/if}
         <form class="composer" onsubmit={(e) => (e.preventDefault(), send(text))}>
           <input bind:this={input} bind:value={text} placeholder={a.guided ? "Type an answer, or pick one above" : "Write a message"} maxlength="1000" disabled={a.thinking} aria-label="Your answer" />
-          <button class="btn primary" disabled={!text.trim() || a.thinking} aria-label="Send"><Icon name="send" size={16} /></button>
+          <button class="btn primary" disabled={!text.trim() || a.thinking} aria-busy={a.thinking} aria-label="Send">{#if a.thinking}<Spinner size={16} />{:else}<Icon name="send" size={16} />{/if}</button>
         </form>
       {/if}
     </section>

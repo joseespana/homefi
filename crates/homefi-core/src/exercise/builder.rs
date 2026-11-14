@@ -166,6 +166,18 @@ pub struct RidePlan {
     pub profile: Vec<ProfilePoint>,
 }
 
+impl RidePlan {
+    /// The part of `song_index` again from its start (the rider asked to repeat it): its song plays from 0 and
+    /// the part's clock with it, so a song swapped in mid-part now covers the whole part. False for no such song.
+    pub fn replay_song(&mut self, song_index: usize) -> bool {
+        let Some(song) = self.songs.get_mut(song_index) else { return false };
+        let Some(seg) = self.workout.segments.get(song.segment_index) else { return false };
+        song.at_segment_ms = 0;
+        song.play_ms = cut_ms(song.entry.duration_ms, u64::from(seg.seconds) * MS_PER_S, 0);
+        true
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct RideBuilt {
     pub plan: RidePlan,

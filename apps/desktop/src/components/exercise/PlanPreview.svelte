@@ -4,8 +4,10 @@
   import { BUILD_STEPS, FIT_TOOLTIP, buildStepOf, clock, courseText, describeWorkout, effortWord, exerciseApi, fitOf, partsOf, positionIcon, positionLabel, unitLabel, zoneName, zoneVar, type PlannedSong, type ShownTarget } from "../../lib/exercise-api";
   import { exercise } from "../../lib/exercise.svelte";
   import { app } from "../../lib/state.svelte";
+  import { onDestroy } from "svelte";
   import Cover from "../Cover.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
   import Mountain from "./Mountain.svelte";
   import WhereToWatch from "./WhereToWatch.svelte";
   import ZoneKey from "./ZoneKey.svelte";
@@ -81,6 +83,8 @@
   const openSaved = () => saved && (app.view = { name: "home-playlist", id: saved.id });
   // "new songs" runs on this screen: the plan stays until the new one replaces it
   const step = $derived(buildStepOf(exercise.progress));
+  // leaving the plan (back to the setup, the ride) ends a quick listen still playing
+  onDestroy(() => exercise.stopPreview());
 </script>
 
 <svelte:window onkeydown={(e) => e.key === "Escape" && (menu = null)} onclick={() => (menu = null)} />
@@ -94,7 +98,7 @@
     <span class="sp"></span>
     <button type="button" class="btn tonal" onclick={() => exercise.changeSetup()} disabled={exercise.rebuilding}>Change setup</button>
     <button type="button" class="btn tonal" onclick={() => exercise.rebuild()} disabled={exercise.rebuilding} title="Same ride, songs it did not play yet"><Icon name="refresh" size={16} />New songs</button>
-    <button type="button" class="start" onclick={() => exercise.start()} disabled={exercise.rebuilding}><Icon name="play" size={18} />Start ride</button>
+    <button type="button" class="start" onclick={() => exercise.start()} disabled={exercise.rebuilding || exercise.starting} aria-busy={exercise.starting}>{#if exercise.starting}<Spinner size={18} />Starting…{:else}<Icon name="play" size={18} />Start ride{/if}</button>
   </header>
 
   <!-- the TV is picked as the ride starts, not when it is built -->
@@ -146,7 +150,7 @@
 
   <section class="card table" bind:this={rows}>
     <div class="plan head" aria-hidden="true">
-      <span></span><span>Part</span><span>Time</span><span>Pedal</span><span>Effort</span><span>Song</span><span class="beatcell">Beat</span><span></span>
+      <span></span><span>Part</span><span>Time</span><span>Pedal</span><span>Effort</span><span>Song</span><span class="beatcell">Beat</span><span></span><span></span>
     </div>
     {#each segments as seg, i}
       {@const song = songOf(i)}
@@ -168,15 +172,26 @@
         <span class="beatcell">
           {#if fit}<span class="beat {fit.tone}" title={FIT_TOOLTIP}>{fit.text}</span>{/if}
         </span>
+        <span class="acts">
+          {#if song}
+            {@const n = plan.songs.indexOf(song)}
+            {@const listening = exercise.previewing?.song === n ? exercise.previewing : null}
+            <button type="button" class="icon-btn" aria-busy={listening?.loading ?? false} aria-pressed={!!listening && !listening.loading} aria-label={listening ? `Stop listening to ${song.entry.title}` : `Listen to ${song.entry.title}`} title={listening ? "Stop" : "Listen to a bit of it"} onclick={() => exercise.preview(n)}>
+              {#if listening?.loading}<Spinner size={18} />{:else}<Icon name={listening ? "stop" : "play"} size={16} />{/if}
+            </button>
+            {#if exercise.settings.ride_swap}
+              <button type="button" class="icon-btn" aria-busy={exercise.swapping === i} aria-label="Swap {song.entry.title}" title="Swap this song" disabled={exercise.swapping !== null || exercise.rebuilding} onclick={() => exercise.swap(i, null)}>
+                {#if exercise.swapping === i}<Spinner size={18} />{:else}<Icon name="refresh" size={16} />{/if}
+              </button>
+            {/if}
+          {/if}
+        </span>
         <span class="more">
-          {#if song && (song.source || exercise.settings.ride_swap)}
+          {#if song?.source}
             <button type="button" class="icon-btn" aria-label="More about this song" aria-haspopup="menu" aria-expanded={menu === i} onclick={(e) => (e.stopPropagation(), (menu = menu === i ? null : i))}><Icon name="more" size={18} /></button>
             {#if menu === i}
               <div class="menu" role="menu">
-                {#if exercise.settings.ride_swap}
-                  <button type="button" role="menuitem" class="item" disabled={exercise.swapping !== null} onclick={() => ((menu = null), exercise.swap(i, null))}><Icon name="refresh" size={14} />Swap this song</button>
-                {/if}
-                {#if song.source}<span role="menuitem" tabindex="-1">Tempo source: {SOURCES[song.source]}</span>{/if}
+                <span role="menuitem" tabindex="-1">Tempo source: {SOURCES[song.source]}</span>
               </div>
             {/if}
           {/if}
@@ -292,7 +307,7 @@
   }
   .plan {
     display: grid;
-    grid-template-columns: 14px minmax(130px, 170px) 60px 112px 62px minmax(0, 1fr) minmax(190px, 250px) 36px;
+    grid-template-columns: 14px minmax(130px, 170px) 60px 112px 62px minmax(0, 1fr) minmax(190px, 250px) 88px 36px;
     gap: 12px;
     align-items: center;
     min-height: 60px;
@@ -373,6 +388,19 @@
   .more {
     position: relative;
   }
+  .acts {
+    display: flex;
+    gap: 4px;
+    justify-content: flex-end;
+  }
+  .acts .icon-btn {
+    margin: 0;
+    display: inline-grid;
+    place-items: center;
+  }
+  .acts .icon-btn[aria-pressed="true"] {
+    color: var(--primary);
+  }
   .icon-btn {
     width: 44px;
     height: 44px;
@@ -393,18 +421,6 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-  }
-  .menu .item {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    min-height: 28px;
-    font-weight: 600;
-    color: var(--text);
-    text-align: left;
-  }
-  .menu .item:hover:not(:disabled) {
-    color: var(--primary);
   }
   .notes {
     list-style: none;
@@ -444,7 +460,7 @@
   /* (last, so it wins over the rules above) a laptop window: the beat tag moves under its song instead of squeezing it */
   @container plan-table (max-width: 920px) {
     .plan {
-      grid-template-columns: 14px minmax(110px, 150px) 52px 104px 46px minmax(0, 1fr) 36px;
+      grid-template-columns: 14px minmax(110px, 150px) 52px 104px 46px minmax(0, 1fr) 88px 36px;
       gap: 4px 10px;
     }
     .plan .beatcell {

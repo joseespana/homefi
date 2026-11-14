@@ -54,7 +54,7 @@
   />
   <SliderRow
     label="Web searches per playlist"
-    hint="More can find more shows; each search costs a little on your AI account."
+    hint="More can find more shows; each search may cost a little on your AI account."
     min={SEARCH_BUDGET_RANGE.min}
     max={SEARCH_BUDGET_RANGE.max}
     step={1}

@@ -180,6 +180,9 @@ pub struct ExerciseSettings {
     pub ride_karaoke: bool,
     /// Desktop: the ride opens fullscreen, over the whole screen (F or a button switches it during the ride).
     pub ride_fullscreen: bool,
+    /// Big messages in the middle of the ride: the sprint's "3, 2, 1" on the beeps, cheers while sprinting and
+    /// the ride's last words.
+    pub ride_callouts: bool,
 }
 
 impl Default for ExerciseSettings {
@@ -226,6 +229,7 @@ impl Default for ExerciseSettings {
             swap_uses_ai: true,
             ride_karaoke: false,
             ride_fullscreen: false,
+            ride_callouts: true,
         }
     }
 }
@@ -299,6 +303,7 @@ mod tests {
         assert_eq!(s.tv_window_display, "auto");
         assert!(s.tv_lyrics, "lyrics on the TV are on by default");
         assert!(!s.ride_karaoke, "the ride shows the mountain until the rider asks for the lyrics");
+        assert!(s.ride_callouts, "the sprint countdown and cheers show by default");
         assert_eq!((s.course_look, s.course_summits), (CourseLook::Ribbon, false));
         assert_eq!(s.ride_history_max, 30);
         assert_eq!(s.taste.popularity, Popularity::Hits, "big hits unless the rider asks otherwise");

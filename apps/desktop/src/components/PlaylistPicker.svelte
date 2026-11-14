@@ -6,6 +6,7 @@
   import { app } from "../lib/state.svelte";
   import Cover from "./Cover.svelte";
   import Icon from "./Icon.svelte";
+  import Spinner from "./Spinner.svelte";
 
   const picker = $derived(app.playlistPicker!);
   let error = $state<string | null>(null);
@@ -24,10 +25,16 @@
 
   const close = () => (app.playlistPicker = null);
 
-  function add(p: (typeof shown)[number]) {
-    const ids = picker.trackIds;
-    close();
-    app.addToPlaylist(p, ids);
+  // the row stays (spinning) until Tidal answers; the menu closes then
+  let adding = $state<string | null>(null);
+  async function add(p: (typeof shown)[number]) {
+    if (adding) return;
+    adding = p.id;
+    try {
+      await app.addToPlaylist(p, picker.trackIds);
+    } finally {
+      close();
+    }
   }
 
   function create() {
@@ -57,12 +64,13 @@
       <p class="muted">{filter ? "No match" : "You haven't created playlists yet"}</p>
     {/if}
     {#each shown as p (p.id)}
-      <button class="row" onclick={() => add(p)} role="menuitem">
+      <button class="row" onclick={() => add(p)} disabled={!!adding} aria-busy={adding === p.id} role="menuitem">
         <Cover url={p.cover_url} size={32} radius={6} icon="queue" />
         <div class="grow">
           <div class="ellipsis">{p.title}</div>
           <div class="muted ellipsis small">{p.subtitle}</div>
         </div>
+        {#if adding === p.id}<Spinner size={16} />{/if}
       </button>
     {/each}
   </div>

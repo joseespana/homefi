@@ -13,6 +13,7 @@
   import SettingsGroup from "./settings/SettingsGroup.svelte";
   import SettingsIntro from "./settings/SettingsIntro.svelte";
   import SettingsNote from "./settings/SettingsNote.svelte";
+  import Spinner from "./Spinner.svelte";
 
   let { settings, save }: { settings: Settings; save: (patch: Partial<Settings>) => Promise<void> | void } = $props();
 
@@ -61,7 +62,7 @@
     try {
       await api.aiTestKey(provider.id, baseUrl, typed);
       testedKey = typed;
-      result = { ok: true, text: typed ? "The key works. Save it to use it." : provider.needs_key ? "The saved key works." : "The server answers." };
+      result = { ok: true, text: typed ? "The key works. Save it to use it." : provider.needs_key ? "The saved key works." : "It answers." };
       return true;
     } catch (e) {
       result = { ok: false, text: errorText(e) };
@@ -81,7 +82,7 @@
       await api.aiKeySet(provider.id, typed);
       key = "";
       testedKey = null;
-      result = { ok: true, text: "Saved in this computer's keychain." };
+      result = { ok: true, text: "Saved safely on this computer." };
       await refreshKeys();
     } catch (e) {
       result = { ok: false, text: errorText(e) };
@@ -92,7 +93,7 @@
 
   async function removeKey() {
     if (!provider) return;
-    const ok = await app.confirm({ title: `Remove the ${provider.name} key?`, text: "It is deleted from this computer's keychain. The assistant falls back to the guided questions until you add one again.", confirmLabel: "Remove key", danger: true });
+    const ok = await app.confirm({ title: `Remove the ${provider.name} key?`, text: "It is deleted from this computer. The assistant falls back to the guided questions until you add one again.", confirmLabel: "Remove key", danger: true });
     if (!ok) return;
     busy = "remove";
     try {
@@ -136,7 +137,7 @@
   }
   // the provider cards: "None" first, then the list the backend ranks
   const choices = $derived([{ id: "" as AiProviderId | "", label: "None", hint: "Guided questions only" }, ...providers.map((p) => ({ id: p.id as AiProviderId | "", label: p.name, hint: p.hint }))]);
-  const providerNote = (p: AiProviderInfo) => (p.needs_key ? (keys[p.id] ? "Key saved" : "Needs a key") : p.custom_base_url && !p.default_base_url ? "Your own server" : "No key needed");
+  const providerNote = (p: AiProviderInfo) => (p.needs_key ? (keys[p.id] ? "Key saved" : "Needs a key") : p.custom_base_url && !p.default_base_url ? "Your own AI program" : "No key needed");
   $effect(() => {
     provider?.id;
     ready;
@@ -150,10 +151,10 @@
   });
 </script>
 
-<SettingsIntro>The sound assistant can chat with an AI you already pay for: Claude, ChatGPT, Gemini and others, or a model running on this computer with Ollama. Without one, “Set up my sound” asks a few guided questions instead.</SettingsIntro>
+<SettingsIntro>The sound assistant can chat with an AI you already pay for: Claude, ChatGPT, Gemini and others, or an AI running on this computer with Ollama. Without one, “Set up my sound” asks a few guided questions instead.</SettingsIntro>
 
-<SettingsGroup title="Provider" span={2}>
-  <SettingRow label="Provider" hint="Which AI the assistant talks to" stack="always">
+<SettingsGroup title="AI service" span={2}>
+  <SettingRow label="AI service" hint="Which AI the assistant talks to" stack="always">
     {#snippet children(ids)}
       <OptionGallery options={choices} value={(ai.provider || "") as AiProviderId | ""} onchange={pick} labelledby={ids.label} min={190}>
         {#snippet extra(o)}
@@ -167,7 +168,7 @@
 </SettingsGroup>
 
 {#if provider}
-  <SettingsGroup title={keyField ? (provider.needs_key ? "API key" : "API key (optional)") : "Connection"}>
+  <SettingsGroup title={keyField ? (provider.needs_key ? "Key" : "Key (optional)") : "Connection"}>
     {#if result}
       <SettingsNote kind={result.ok ? "info" : "error"}>{result.text}</SettingsNote>
     {/if}
@@ -178,7 +179,7 @@
           <button type="button" class="btn tonal" onclick={() => openUrl(provider!.key_url)}><Icon name="external" size={14} /> Get a key</button>
         {/if}
       </ActionRow>
-      <SettingRow label="{provider.name} API key" stack="always">
+      <SettingRow label="{provider.name} key" stack="always">
         {#snippet children(ids)}
           <form class="key" onsubmit={(e) => (e.preventDefault(), saveKey())}>
             <input
@@ -191,23 +192,23 @@
               placeholder={hasKey ? "Type a new key to replace the saved one" : `Paste your ${provider.name} key`}
               aria-labelledby={ids.label}
             />
-            <button type="button" class="btn tonal" disabled={!!busy || (!key.trim() && !hasKey)} onclick={test}>{busy === "test" ? "Testing…" : "Test"}</button>
-            <button class="btn primary" disabled={!!busy || !key.trim()}>{busy === "save" ? "Saving…" : "Save"}</button>
-            {#if hasKey}<button type="button" class="btn tonal danger" disabled={!!busy} onclick={removeKey}>Remove</button>{/if}
+            <button type="button" class="btn tonal" disabled={!!busy || (!key.trim() && !hasKey)} aria-busy={busy === "test"} onclick={test}>{#if busy === "test"}<Spinner size={14} /> Testing…{:else}Test{/if}</button>
+            <button class="btn primary" disabled={!!busy || !key.trim()} aria-busy={busy === "save"}>{#if busy === "save"}<Spinner size={14} /> Saving…{:else}Save{/if}</button>
+            {#if hasKey}<button type="button" class="btn tonal danger" disabled={!!busy} aria-busy={busy === "remove"} onclick={removeKey}>{#if busy === "remove"}<Spinner size={14} /> Removing…{:else}Remove{/if}</button>{/if}
           </form>
         {/snippet}
       </SettingRow>
     {:else}
-      <ActionRow label="No key needed" hint="This provider is used as it is">
+      <ActionRow label="No key needed" hint="Nothing to set up for this service">
         <span class="led ok" aria-hidden="true"></span>
         {#if provider.key_url}<button type="button" class="btn tonal" onclick={() => openUrl(provider!.key_url)}><Icon name="external" size={14} /> Get {provider.name}</button>{/if}
-        <button type="button" class="btn tonal" disabled={!!busy} onclick={test}>{busy === "test" ? "Testing…" : "Test connection"}</button>
+        <button type="button" class="btn tonal" disabled={!!busy} aria-busy={busy === "test"} onclick={test}>{#if busy === "test"}<Spinner size={14} /> Testing…{:else}Test connection{/if}</button>
       </ActionRow>
     {/if}
     {#if provider.custom_base_url}
       <FieldRow
-        label="Server address"
-        hint={provider.default_base_url ? `Empty uses ${provider.default_base_url}` : "The address of an OpenAI-compatible server (LM Studio, vLLM, llama.cpp…)"}
+        label="Your own AI program"
+        hint={provider.default_base_url ? `Empty uses ${provider.default_base_url}` : "For advanced setups: the address of an AI program running on your own computer or network (LM Studio, llama.cpp…)"}
         value={ai.base_url}
         placeholder={provider.default_base_url || "https://my-server.example/v1"}
         mono
@@ -243,7 +244,7 @@
 {/if}
 
 <SettingsGroup title="Privacy">
-  <SettingsNote>Your key stays in this computer's keychain. Only what the conversation needs is sent to the provider — never your music or your Tidal session.</SettingsNote>
+  <SettingsNote>Your key stays safely stored on this computer. Only what the conversation needs is sent to the AI service, never your music files or your Tidal account.</SettingsNote>
   <ActionRow label="Set up my sound" hint="Chat with the assistant, or answer its guided questions">
     <button type="button" class="btn tonal" onclick={() => (app.view = { name: "assistant" })}><Icon name="ai" size={16} /> Set up my sound</button>
   </ActionRow>

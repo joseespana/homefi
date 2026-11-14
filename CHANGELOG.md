@@ -7,6 +7,35 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Added
+- Everywhere: every button that waits for something (TIDAL, the AI, downloads, sign-in, updates, the TV, sharing,
+  saving or importing) now shows it is working with a spinner and can't be pressed twice. On the phone, the TV and
+  the computer.
+- Exercise: listen to a song of the plan before riding it. Each song has a play button that plays about 30 seconds
+  from its middle (tap again to stop); with the swap next to it, you can change the ones you don't like. Both
+  buttons show they are loading while the song is fetched or the new one is searched. On the computer the swap
+  moved out of the "more" menu onto the row, and "Start ride" shows it is starting.
+- Exercise: repeat a part. A "back" button on the ride (B on the computer) asks, then starts the part playing
+  now again from its beginning, with its song, its clock and its sounds.
+- Exercise: big messages in the middle of the ride, as animated titles (the words land big, with outlined copies
+  bursting out above and below). Before each sprint a big "Sprint in 3 · 2 · 1" on the
+  countdown's beeps, then "GO!", cheers while you sprint ("You can do it!", "Come on!"…) and its last seconds
+  ("3 seconds more!"); in the ride's last seconds "Good job!", "We're close to the finish", "Don't forget to
+  stretch your muscles after training" and "See you next time!". On the phone, the computer and the TV, in
+  English or Spanish; Settings → Exercise → "Messages in the ride" turns them off.
+
+### Changed
+- Everywhere: plain words instead of technical ones. No addresses, ports, file paths or raw error text from TIDAL or
+  the network in messages; "hub" is now "host"; "port" is a "connection number" marked advanced; ride, sound,
+  sharing, AI and update texts explain things the way a person would. The details stay in the logs.
+- TV, made for everyone: one "Connect the TV" button asks what TV you have and walks you through it in plain
+  words. Google TV / Android TV: install HomeFi once, open Train, scan its code, and every ride opens there by
+  itself. Another smart TV (Samsung, LG…): its web browser, with what to type in big letters (the only place an
+  address shows now). Chromecast without a remote: coming soon. The ride screen no longer shows an IP address,
+  the TV's own screen speaks plainly too, and on the computer "Smart TV" (was "TV app / browser") says the same.
+- Exercise (phone and tablet in landscape): the part's time left sits under the target (RPM or km/h) instead
+  of over the map, so it stays in sight with the lyrics too.
+
 ## [1.5.17] - 2026-11-13
 
 ### Changed

@@ -65,6 +65,7 @@ import com.perseusoft.homefi.core.TasteScope
 import com.perseusoft.homefi.data.TidalSave
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.library.EmbeddedCover
+import com.perseusoft.homefi.ui.ButtonSpinner
 import com.perseusoft.homefi.ui.QueueButton
 import com.perseusoft.homefi.ui.formatDuration
 import com.perseusoft.homefi.ui.haptics
@@ -244,7 +245,11 @@ private fun PreviewHeader(playlist: HomePlaylist, fallbackNote: String?, aiName:
                 }
                 actions.onSaveToTidal?.let { saveToTidal ->
                     OutlinedButton(onClick = { haptics.press(); saveToTidal() }, enabled = tidal !is TidalSave.Saving) {
-                        Icon(if (onTidal) Icons.Rounded.CloudSync else Icons.Rounded.CloudUpload, null, Modifier.size(ButtonDefaults.IconSize))
+                        if (tidal is TidalSave.Saving) {
+                            ButtonSpinner()
+                        } else {
+                            Icon(if (onTidal) Icons.Rounded.CloudSync else Icons.Rounded.CloudUpload, null, Modifier.size(ButtonDefaults.IconSize))
+                        }
                         Spacer(Modifier.size(ButtonDefaults.IconSpacing))
                         Text(
                             stringResource(

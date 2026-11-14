@@ -54,6 +54,8 @@ class DialogAction(
     val danger: Boolean = false,
     val enabled: Boolean = true,
     val icon: ImageVector? = null,
+    /** The work this button started is running: a spinner replaces the icon and the button waits. */
+    val busy: Boolean = false,
     val onClick: () -> Unit,
 )
 
@@ -149,7 +151,8 @@ fun HomefiDialog(
                         others.forEach { OtherPill(it) }
                         val bottom = quiet ?: dismiss?.let { DialogAction(it, onClick = onDismiss) }
                         if (bottom != null) {
-                            TextButton(onClick = bottom.onClick, enabled = bottom.enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                            TextButton(onClick = bottom.onClick, enabled = bottom.enabled && !bottom.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                                if (bottom.busy) ButtonSpinner(Modifier.padding(end = 8.dp), size = 18.dp)
                                 Text(bottom.label, fontSize = 15.sp)
                             }
                         }
@@ -166,8 +169,8 @@ private fun PrimaryPill(a: DialogAction, accent: Color?) {
     val pill = Modifier.fillMaxWidth().heightIn(min = BUTTON_DP.dp).clip(RoundedCornerShape(50))
     Button(
         onClick = a.onClick,
-        enabled = a.enabled,
-        modifier = if (solid == null && a.enabled) pill.background(Brand.gradient) else pill,
+        enabled = a.enabled && !a.busy,
+        modifier = if (solid == null && a.enabled && !a.busy) pill.background(Brand.gradient) else pill,
         shape = RoundedCornerShape(50),
         colors = if (solid == null) {
             ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White)
@@ -181,7 +184,7 @@ private fun PrimaryPill(a: DialogAction, accent: Color?) {
 private fun OtherPill(a: DialogAction) {
     FilledTonalButton(
         onClick = a.onClick,
-        enabled = a.enabled,
+        enabled = a.enabled && !a.busy,
         modifier = Modifier.fillMaxWidth().heightIn(min = BUTTON_DP.dp),
         shape = RoundedCornerShape(50),
         colors = if (a.danger) {
@@ -194,7 +197,7 @@ private fun OtherPill(a: DialogAction) {
 
 @Composable
 private fun PillLabel(a: DialogAction, sizeSp: Int) {
-    if (a.icon != null) Icon(a.icon, null, Modifier.padding(end = 8.dp).size(20.dp))
+    if (a.busy) ButtonSpinner(Modifier.padding(end = 8.dp), size = 20.dp) else if (a.icon != null) Icon(a.icon, null, Modifier.padding(end = 8.dp).size(20.dp))
     Text(a.label, fontSize = sizeSp.sp, fontWeight = FontWeight.Bold)
 }
 

@@ -5,6 +5,7 @@
   import { tick } from "svelte";
   import { exercise } from "../../lib/exercise.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
 
   let text = $state("");
   let list = $state<HTMLElement>();
@@ -36,7 +37,7 @@
   {/if}
   <form class="say" onsubmit={(e) => (e.preventDefault(), send())}>
     <input bind:value={text} placeholder="Say it in your own words" aria-label="Your answer" disabled={exercise.chatBusy} autocomplete="off" />
-    <button type="submit" class="btn primary" disabled={exercise.chatBusy || !text.trim()} aria-label="Send"><Icon name="send" size={16} /></button>
+    <button type="submit" class="btn primary" disabled={exercise.chatBusy || !text.trim()} aria-busy={exercise.chatBusy} aria-label="Send">{#if exercise.chatBusy}<Spinner size={16} />{:else}<Icon name="send" size={16} />{/if}</button>
     <button type="button" class="btn tonal" onclick={() => exercise.closeChat()}>Done</button>
   </form>
 </div>

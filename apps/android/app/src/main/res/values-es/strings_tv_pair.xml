@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Teléfono: Conectar a la TV (escanear el QR de la TV) -->
-    <string name="tv_connect">Conectar a la TV</string>
+    <string name="tv_connect">Conectar la TV</string>
     <string name="tv_connect_other">Conectar otra TV</string>
     <string name="tv_forget">Olvidar TV</string>
     <string name="tv_send_again">Enviar otra vez</string>
@@ -11,14 +11,14 @@
     <string name="tv_pair_done">Conectado a %1$s. Tu próxima ruta se abrirá ahí sola.</string>
     <string name="tv_pair_done_sent">Conectado a %1$s. Tu ruta se está abriendo ahí.</string>
     <string name="tv_pair_refused">La TV no aceptó ese código. Mira el código en la TV y escanéalo otra vez.</string>
-    <string name="tv_pair_unreachable">No se pudo llegar a la TV. El teléfono y la TV deben estar en el mismo Wi-Fi.</string>
+    <string name="tv_pair_unreachable">No encontramos la TV. El teléfono y la TV deben estar en el mismo Wi-Fi, y la TV debe estar encendida.</string>
     <string name="tv_pair_invalid">Ese no es un código de TV de HomeFi.</string>
     <string name="tv_scan_title">Escanear la TV</string>
     <string name="tv_scan_why">HomeFi usa la cámara solo para leer el código de tu TV. No se graba, guarda ni envía nada.</string>
     <string name="tv_scan_denied">La cámara está desactivada para HomeFi. Permítela en los ajustes de la app para escanear la TV, o escanea el código con la cámara de tu teléfono.</string>
     <string name="tv_scan_allow">Permitir la cámara</string>
     <string name="tv_scan_settings">Abrir ajustes de la app</string>
-    <string name="tv_scan_no_camera">No se encontró cámara en este teléfono. Escanea el código con otro teléfono o escribe la dirección en la TV.</string>
+    <string name="tv_scan_no_camera">No se encontró cámara en este teléfono. Escanea el código con otro teléfono.</string>
     <string name="tv_scan_hint">Apunta la cámara al código de tu TV (Entrenar)</string>
 
     <!-- Teléfono: Pon HomeFi en tu TV -->
@@ -29,7 +29,7 @@
     <string name="tv_install_close">Cerrar</string>
     <string name="tv_install_intro">La forma más fácil, sin instalar nada desde un ordenador. Lee esto en el teléfono y escribe en la TV.</string>
     <string name="tv_install_step1">En la TV, instala la app gratuita “Downloader” (búscala en Google Play Store o en Amazon Appstore).</string>
-    <string name="tv_install_step2">Abre Downloader y escribe esta dirección en su cuadro de URL; luego pulsa Ir:</string>
+    <string name="tv_install_step2">Abre Downloader y escribe esta dirección web en el cuadro de arriba; luego pulsa Ir:</string>
     <string name="tv_install_step3">Elige Instalar. La primera vez la TV pide permitir que Downloader instale apps: permítelo.</string>
     <string name="tv_install_step4">Abre HomeFi en la TV. En Entrenar muestra un código: escanéalo desde el teléfono (Entrenar → Conectar a la TV).</string>
     <string name="tv_install_updates">Después de esta primera instalación, la TV actualiza HomeFi sola.</string>
@@ -38,12 +38,36 @@
     <!-- TV: sección Entrenar esperando un teléfono -->
     <string name="tv_train_title">Conecta tu teléfono</string>
     <string name="tv_train_step1">En el teléfono abre HomeFi, Entrenar.</string>
-    <string name="tv_train_step2">Toca Conectar a la TV y apunta la cámara a este código. También sirve la cámara del teléfono.</string>
+    <string name="tv_train_step2">Toca Conectar la TV, elige Google TV o Android TV y apunta la cámara a este código.</string>
     <string name="tv_train_step3">Empieza una ruta. Se abre aquí sola.</string>
     <string name="tv_train_code">Código</string>
-    <string name="tv_train_looking">Buscando rutas en tu red…</string>
+    <string name="tv_train_looking">Buscando rutas en tu Wi-Fi…</string>
     <string name="tv_train_paired">Emparejados: %1$s. Se conectan solos cuando empiezan una ruta.</string>
     <string name="tv_train_just_paired">Emparejado con %1$s. Empieza una ruta en el teléfono.</string>
     <string name="tv_train_forget">Olvidar teléfonos emparejados</string>
-    <string name="tv_train_no_network">Esta TV no está en una red. Conéctala al Wi-Fi o al cable.</string>
+    <string name="tv_train_no_network">Esta TV no está conectada a internet. Conéctala al Wi-Fi o a un cable.</string>
+
+    <!-- Phone: the Connect the TV guide -->
+    <string name="tv_guide_title">Conectar la TV</string>
+    <string name="tv_guide_back">Atrás</string>
+    <string name="tv_guide_which">¿Qué TV tienes?</string>
+    <string name="tv_guide_android">Google TV o Android TV</string>
+    <string name="tv_guide_android_hint">Sony, TCL, Hisense, Philips, Xiaomi, Chromecast con Google TV… Tiene Play Store.</string>
+    <string name="tv_guide_other">Otra Smart TV</string>
+    <string name="tv_guide_other_hint">Samsung, LG, Roku… La rutina se abre en el navegador de la TV.</string>
+    <string name="tv_guide_cast">Solo un Chromecast, sin control</string>
+    <string name="tv_guide_cast_hint">Muy pronto</string>
+    <string name="tv_guide_cast_body">Muy pronto. Si tu Chromecast tiene control remoto (Chromecast con Google TV), regresa y elige Google TV o Android TV.</string>
+    <string name="tv_guide_same_wifi">El teléfono y la TV tienen que estar en el mismo Wi-Fi.</string>
+    <string name="tv_guide_android_step1">Instala HomeFi en la TV (solo la primera vez).</string>
+    <string name="tv_guide_how_install">Cómo instalarlo</string>
+    <string name="tv_guide_android_step2">En la TV abre HomeFi y entra a Entrenar. Aparece un código cuadrado.</string>
+    <string name="tv_guide_android_step3">Toca el botón de abajo y apunta la cámara a ese código.</string>
+    <string name="tv_guide_scan">Escanear el código de la TV</string>
+    <string name="tv_guide_android_once">Esto se hace una sola vez. Después, cada rutina se abre sola en esa TV.</string>
+    <string name="tv_guide_other_step1">En la TV abre el navegador de internet (puede llamarse Internet o Navegador web).</string>
+    <string name="tv_guide_other_step2">En la barra de direcciones web de arriba escribe exactamente esto:</string>
+    <string name="tv_guide_other_step3">Listo: la rutina aparece en la TV. Deja este teléfono con la rutina abierta.</string>
+    <string name="tv_guide_prepare">Preparar la página de la TV</string>
+    <string name="tv_guide_other_later">Empieza la rutina con Mostrar en una TV activado y vuelve aquí: verás qué escribir.</string>
 </resources>

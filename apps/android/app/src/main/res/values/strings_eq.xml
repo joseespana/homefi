@@ -85,7 +85,7 @@
     <string name="ai_provider">Provider</string>
     <string name="ai_none">None (guided questions)</string>
     <string name="ai_get_key">Get a key</string>
-    <string name="ai_key">API key</string>
+    <string name="ai_key">AI key</string>
     <string name="ai_key_saved">Key saved</string>
     <string name="ai_key_missing">No key yet</string>
     <string name="ai_key_not_needed">No key needed</string>
@@ -98,14 +98,14 @@
     <string name="ai_testing">Testing…</string>
     <string name="ai_saved">Saved.</string>
     <string name="ai_save_failed">The key couldn’t be saved on this phone.</string>
-    <string name="ai_model">Model</string>
+    <string name="ai_model">AI model</string>
     <string name="ai_model_auto">Automatic</string>
     <string name="ai_model_auto_named">Automatic (%1$s)</string>
     <string name="ai_models_load">Show the models</string>
-    <string name="ai_base_url">Server address</string>
+    <string name="ai_base_url">Custom AI address (advanced)</string>
     <string name="ai_base_url_hint">Empty uses %1$s</string>
-    <string name="ai_base_url_required">Required: the address of your OpenAI-compatible server.</string>
-    <string name="ai_privacy">Your key stays on this phone, encrypted with the Android Keystore. HomeFi only sends it to %1$s, only to talk to the assistant, and never shows it again.</string>
+    <string name="ai_base_url_required">Required: the web address of your own AI service.</string>
+    <string name="ai_privacy">Your key stays on this phone, stored safely and protected by Android. HomeFi only sends it to %1$s, only to talk to the assistant, and never shows it again.</string>
     <string name="ai_privacy_provider">the provider you pick</string>
     <string name="ai_used_for">Used by “Set up my sound” to talk with you about your sound, and by “How does it sound?” to word and place each change (one short call).</string>
 </resources>

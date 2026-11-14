@@ -5,25 +5,35 @@
   import { dialog, fade } from "../lib/motion";
   import { api, errorText } from "../lib/api";
   import { app } from "../lib/state.svelte";
+  import Spinner from "./Spinner.svelte";
   import TermsNotice from "./TermsNotice.svelte";
 
   let accepted = $state(false);
   let error = $state<string | null>(null);
+  let working = $state<"accept" | "signout" | null>(null);
 
   async function accept() {
+    if (working) return;
+    working = "accept";
     try {
       await app.acceptTerms();
     } catch (e) {
       error = errorText(e);
+    } finally {
+      working = null;
     }
   }
 
   async function signOut() {
+    if (working) return;
+    working = "signout";
     try {
       await api.logout();
       app.account = null;
     } catch (e) {
       error = errorText(e);
+    } finally {
+      working = null;
     }
   }
 </script>
@@ -34,8 +44,8 @@
     <TermsNotice bind:checked={accepted} />
     {#if error}<p class="error">{error}</p>{/if}
     <div class="actions">
-      <button type="button" class="btn tonal" onclick={signOut}>Sign out of Tidal</button>
-      <button type="button" class="btn primary" disabled={!accepted} onclick={accept}>Continue</button>
+      <button type="button" class="btn tonal" disabled={!!working} aria-busy={working === "signout"} onclick={signOut}>{#if working === "signout"}<Spinner size={16} /> Signing out…{:else}Sign out of Tidal{/if}</button>
+      <button type="button" class="btn primary" disabled={!accepted || !!working} aria-busy={working === "accept"} onclick={accept}>{#if working === "accept"}<Spinner size={16} /> Saving…{:else}Continue{/if}</button>
     </div>
   </div>
 </div>

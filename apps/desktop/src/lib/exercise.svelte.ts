@@ -2,6 +2,7 @@
 // request being edited, the newest ride view (10 a second from the `ride` event), the cues and the TV.
 // It lives here, not in a component, so leaving the screen does not stop a build or a ride. Components
 // draw from here and send intents; every rule (the course, the tempo fit, the clock) is homefi-core's.
+import { uiLanguage } from "./language";
 import { api, errorText } from "./api";
 import { assistant } from "./assistant.svelte";
 import { CuePlayer } from "./exerciseCues";
@@ -32,6 +33,7 @@ import {
   type RideProgress,
   type RideRequest,
   type RideTaste,
+  type RideTick,
   type RideView,
   type SavedRide,
 } from "./exercise-api";
@@ -103,12 +105,21 @@ class ExerciseStore {
   hotPoints = $state.raw<HotPoint[]>([]);
   /** The part whose song is being swapped (the AI may take a moment); null when none. */
   swapping = $state<number | null>(null);
+  /** The song of the plan being previewed (its index in `plan.songs`), loading until it plays; null when none. */
+  previewing = $state<{ song: number; loading: boolean } | null>(null);
+  /** "Start ride" is starting it (saving the playlist, fetching the first song): its button loads. */
+  starting = $state(false);
+  /** The saved-ride or TV call in flight (`"load:<id>"`, `"keep:<id>"`, `"delete:<id>"`, `"export:<id>"`, `"import"`, `"tv-window"`, `"tv-smart"`): its button loads and a second one waits. */
+  working = $state<string | null>(null);
+  /** The big message's words, in the system's language (from the backend, with each tick). */
+  calloutText = $state<string | null>(null);
 
   private started = false;
   private after: (() => void) | null = null;
   private cancelled = false;
   private cues = new CuePlayer();
   private lastSegment = -1;
+  private previewEnd: ReturnType<typeof setTimeout> | undefined;
   private announcedNotice = -1;
 
   settings = $derived<ExerciseSettings>(exerciseSettingsOf(app.settings));
@@ -156,6 +167,7 @@ class ExerciseStore {
     onExercise.state((s) => this.apply(s));
     onExercise.ride((t) => this.onTick(t));
     onExercise.rides(() => this.refreshRides());
+    exerciseApi.language(uiLanguage()).catch(() => {});
     assistant.loadStatus();
     try {
       this.apply(await exerciseApi.state());
@@ -188,10 +200,11 @@ class ExerciseStore {
     this.announcedNotice = -1;
   }
 
-  private onTick(t: { stage: ExerciseState["stage"]; playing: boolean; view: RideView }) {
+  private onTick(t: RideTick) {
     if (t.stage !== "riding" && t.stage !== "finished") return;
     this.view = t.view;
     this.playing = t.playing;
+    this.calloutText = t.callout_text ?? null;
     if (t.stage === "riding") {
       const s = this.settings;
       this.cues.onView(t.view, t.playing, { audible: s.audible_cues, volume: s.cue_volume, click: s.metronome_click });
@@ -352,6 +365,7 @@ class ExerciseStore {
 
   /** Back to the setup with everything kept. */
   changeSetup() {
+    this.stopPreview();
     this.editing = true;
     this.buildError = null;
     this.rebuildError = null;
@@ -366,6 +380,10 @@ class ExerciseStore {
   }
 
   private async runStart(plan: RidePlan) {
+    if (this.starting) return;
+    this.starting = true;
+    // the ride replaces the preview in the player
+    this.forgetPreview();
     this.cues.unlock();
     try {
       this.apply(await exerciseApi.start(plan));
@@ -373,6 +391,8 @@ class ExerciseStore {
       if (this.tvMode === "window") await exerciseApi.tvWindow(true, this.settings.tv_window_display === "auto" ? null : this.settings.tv_window_display);
     } catch (e) {
       app.note(errorText(e), "error", "exercise");
+    } finally {
+      this.starting = false;
     }
   }
 
@@ -416,12 +436,61 @@ class ExerciseStore {
   pause = () => api.toggle().catch((e) => app.note(errorText(e), "error", "exercise"));
   skip = () => api.next().catch((e) => app.note(errorText(e), "error", "exercise"));
 
+  /** The part playing now again from its start: the backend replays its song, its cues sound again. */
+  async repeat() {
+    try {
+      await exerciseApi.repeat();
+      this.cues.reset();
+    } catch (e) {
+      app.note(errorText(e), "error", "exercise");
+    }
+  }
+
+  /**
+   * A quick listen to a song of the plan (about 30 s from its middle) before riding it; the same song again stops it.
+   * The button loads until the song plays (a TIDAL song is fetched first); another song's tap replaces it.
+   */
+  async preview(song: number) {
+    if (this.previewing?.song === song) return this.stopPreview();
+    clearTimeout(this.previewEnd);
+    this.previewing = { song, loading: true };
+    try {
+      const ms = await exerciseApi.preview(song);
+      if (this.previewing?.song !== song) return;
+      if (ms <= 0) {
+        this.previewing = null;
+        return;
+      }
+      this.previewing = { song, loading: false };
+      this.previewEnd = setTimeout(() => {
+        if (this.previewing?.song === song) this.previewing = null;
+      }, ms);
+    } catch (e) {
+      if (this.previewing?.song === song) this.previewing = null;
+      app.note(errorText(e), "error", "exercise");
+    }
+  }
+
+  /** Stops the preview (the backend pauses only if it is still what plays). */
+  stopPreview() {
+    if (!this.previewing) return;
+    this.forgetPreview();
+    exerciseApi.previewStop().catch(() => {});
+  }
+
+  /** The screen lets go of the preview (something else takes the player). */
+  private forgetPreview() {
+    clearTimeout(this.previewEnd);
+    this.previewing = null;
+  }
+
   /**
    * Swaps the song of a part for another that fits (the core's rules): in the preview `atSegmentMs` is null; in the ride
    * it is the instant of the part now, so the part's clock goes on. The backend answers the new plan and tells the player.
    */
   async swap(segmentIndex: number, atSegmentMs: number | null) {
     if (this.swapping !== null) return;
+    this.stopPreview();
     this.swapping = segmentIndex;
     try {
       this.built = await exerciseApi.swap(segmentIndex, atSegmentMs);
@@ -450,6 +519,7 @@ class ExerciseStore {
   }
   /** "Same ride, new songs": the same request built again, on the preview (searched again, with other songs). */
   async rebuild() {
+    this.stopPreview();
     if (this.stage === "riding" || this.stage === "finished") await this.stop();
     await this.gated(() => this.runBuild(true));
   }
@@ -466,6 +536,17 @@ class ExerciseStore {
     } catch {}
   }
 
+  /** Runs `job` while `working` names it; a second call meanwhile is ignored. */
+  private async busyWith<T>(key: string, job: () => Promise<T | null | undefined>): Promise<T | null | undefined> {
+    if (this.working) return null;
+    this.working = key;
+    try {
+      return await job();
+    } finally {
+      this.working = null;
+    }
+  }
+
   /** Runs one call on the saved rides, then re-reads the list; the error is said, not thrown. */
   private async onRides<T>(job: () => Promise<T>): Promise<T | null> {
     try {
@@ -480,7 +561,7 @@ class ExerciseStore {
 
   /** "Ride again": the saved plan comes back as the preview (no AI, no build); Start ride rides it. */
   async loadRide(id: string) {
-    const loaded = await this.onRides(() => exerciseApi.rideLoad(id));
+    const loaded = await this.busyWith(`load:${id}`, () => this.onRides(() => exerciseApi.rideLoad(id)));
     if (!loaded) return;
     this.request = loaded.request;
     this.built = { plan: loaded.plan, playlist: loaded.playlist, saved: loaded.saved };
@@ -491,22 +572,29 @@ class ExerciseStore {
     } catch {}
   }
   /** "Keep it" (the automatic save becomes the rider's: pruning leaves it), with a name if given. */
-  keepRide = (id: string, name?: string) => this.onRides(() => exerciseApi.rideKeep(id, name));
+  keepRide = (id: string, name?: string) => this.busyWith(`keep:${id}`, () => this.onRides(() => exerciseApi.rideKeep(id, name)));
   renameRide = (id: string, name: string) => this.onRides(() => exerciseApi.rideRename(id, name));
   favoriteRide = (id: string, favorite: boolean) => this.onRides(() => exerciseApi.rideFavorite(id, favorite));
   async deleteRide(id: string) {
-    if (await this.onRides(() => exerciseApi.rideDelete(id))) app.note("Ride deleted", "success", "exercise-rides");
+    if (await this.busyWith(`delete:${id}`, () => this.onRides(() => exerciseApi.rideDelete(id)))) app.note("Ride deleted", "success", "exercise-rides");
   }
   async exportRide(ride: SavedRide) {
+    if (this.working) return;
+    this.working = `export:${ride.id}`;
     try {
       const path = await pickSavePath(RIDE_FILE, ride.name);
       if (!path) return;
-      app.note(`Exported to ${await exerciseApi.rideExport(ride.id, path)}`, "success", "exercise-rides");
+      await exerciseApi.rideExport(ride.id, path);
+      app.note("Ride exported", "success", "exercise-rides");
     } catch (e) {
       app.note(errorText(e), "error", "exercise-rides");
+    } finally {
+      this.working = null;
     }
   }
   async importRide() {
+    if (this.working) return;
+    this.working = "import";
     try {
       const path = await pickOpenPath(RIDE_FILE);
       if (!path) return;
@@ -514,6 +602,8 @@ class ExerciseStore {
       if (ride) app.note(`Imported “${ride.name}”`, "success", "exercise-rides");
     } catch (e) {
       app.note(errorText(e), "error", "exercise-rides");
+    } finally {
+      this.working = null;
     }
   }
 
@@ -540,18 +630,22 @@ class ExerciseStore {
   }
   /** The ride screen's TV button: the window on / off. */
   async toggleTvWindow() {
-    try {
-      await exerciseApi.tvWindow(!this.tv.window, this.settings.tv_window_display === "auto" ? null : this.settings.tv_window_display);
-    } catch (e) {
-      app.note(errorText(e), "error", "exercise-tv");
-    }
+    await this.busyWith("tv-window", async () => {
+      try {
+        await exerciseApi.tvWindow(!this.tv.window, this.settings.tv_window_display === "auto" ? null : this.settings.tv_window_display);
+      } catch (e) {
+        app.note(errorText(e), "error", "exercise-tv");
+      }
+    });
   }
   async openTvServer() {
-    try {
-      await exerciseApi.tv(true);
-    } catch (e) {
-      app.note(errorText(e), "error", "exercise-tv");
-    }
+    await this.busyWith("tv-smart", async () => {
+      try {
+        await exerciseApi.tv(true);
+      } catch (e) {
+        app.note(errorText(e), "error", "exercise-tv");
+      }
+    });
   }
   async playHere() {
     await this.saveSettings({ tv_audio: "phone" });

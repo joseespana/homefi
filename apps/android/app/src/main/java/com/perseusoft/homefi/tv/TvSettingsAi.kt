@@ -112,7 +112,8 @@ fun TvAiSettings(firstRow: FocusRequester, back: FocusRequester, onRowFocused: (
                     title = stringResource(R.string.ai_test),
                     value = null,
                     modifier = edge,
-                    enabled = canCall && ui.status != KeyStatus.Testing,
+                    enabled = canCall,
+                    busy = ui.status == KeyStatus.Testing,
                     onClick = { vm.test(chosen, "") },
                     onFocused = rowFocus,
                 )
@@ -127,7 +128,8 @@ fun TvAiSettings(firstRow: FocusRequester, back: FocusRequester, onRowFocused: (
                     title = stringResource(R.string.ai_model),
                     value = if (ui.loadingModels) stringResource(R.string.tv_ai_loading) else model.ifBlank { auto },
                     modifier = edge,
-                    enabled = canCall && !ui.loadingModels,
+                    enabled = canCall,
+                    busy = ui.loadingModels,
                     onFocused = rowFocus,
                     onClick = {
                         showModels = true
@@ -270,4 +272,5 @@ private fun AiLine(
     hint: String? = null,
     danger: Boolean = false,
     onFocused: (Boolean) -> Unit = {},
-) = TvSettingLine(title, hint, enabled, modifier, onClick, danger, onFocused) { focused -> if (value != null) ValueText(value, focused, arrows = false) }
+    busy: Boolean = false,
+) = TvSettingLine(title, hint, enabled, modifier, onClick, danger, onFocused, busy) { focused -> if (value != null) ValueText(value, focused, arrows = false) }

@@ -1,5 +1,7 @@
 package com.perseusoft.homefi.ui
 
+import androidx.compose.ui.res.stringResource
+import com.perseusoft.homefi.R
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -122,7 +124,8 @@ private fun SkeletonRow(index: Int, thumb: Dp, round: Boolean) {
 /** Placeholder rows shaped like a track / result list. */
 @Composable
 fun SkeletonList(count: Int = 8, round: Boolean = false, modifier: Modifier = Modifier) {
-    Column(modifier.semantics { contentDescription = "Loading" }) {
+    val loadingLabel = stringResource(R.string.loading)
+    Column(modifier.semantics { contentDescription = loadingLabel }) {
         repeat(count) { SkeletonRow(it, 52.dp, round) }
     }
 }
@@ -130,7 +133,8 @@ fun SkeletonList(count: Int = 8, round: Boolean = false, modifier: Modifier = Mo
 /** Placeholder for an artist / album / playlist page: big cover, title, rows. */
 @Composable
 fun SkeletonDetail(round: Boolean = false, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxWidth().semantics { contentDescription = "Loading" }, horizontalAlignment = Alignment.CenterHorizontally) {
+    val loadingLabel = stringResource(R.string.loading)
+    Column(modifier.fillMaxWidth().semantics { contentDescription = loadingLabel }, horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(56.dp))
         Box(Modifier.size(150.dp).shimmer(if (round) CircleShape else RoundedCornerShape(16.dp)))
         Spacer(Modifier.height(16.dp))

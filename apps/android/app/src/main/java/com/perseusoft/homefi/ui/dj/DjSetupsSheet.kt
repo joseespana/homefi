@@ -1,5 +1,7 @@
 package com.perseusoft.homefi.ui.dj
 
+import com.perseusoft.homefi.ui.rememberLoadingTask
+import com.perseusoft.homefi.ui.ButtonSpinner
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import com.perseusoft.homefi.ui.DialogAction
@@ -90,7 +92,8 @@ fun DjSetupsSheet(onDismiss: () -> Unit) {
     // the sheet covers the screen's own snackbar: show messages here too
     NoteNotices(snackbar)
 
-    val exchange = rememberFileExchange { text -> scope.launch { app.djSetups.import(text) } }
+    val importing = rememberLoadingTask()
+    val exchange = rememberFileExchange { text -> importing.run { app.djSetups.import(text) } }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Box {
@@ -109,8 +112,8 @@ fun DjSetupsSheet(onDismiss: () -> Unit) {
                         Icon(Icons.Rounded.Save, null, Modifier.size(18.dp))
                         Text(stringResource(R.string.djs_save_current), Modifier.padding(start = 8.dp))
                     }
-                    FilledTonalButton(onClick = exchange.pick, modifier = Modifier.heightIn(min = TARGET)) {
-                        Icon(Icons.Rounded.FileUpload, null, Modifier.size(18.dp))
+                    FilledTonalButton(onClick = exchange.pick, enabled = !importing.active, modifier = Modifier.heightIn(min = TARGET)) {
+                        if (importing.active) ButtonSpinner(size = 18.dp) else Icon(Icons.Rounded.FileUpload, null, Modifier.size(18.dp))
                         Text(stringResource(R.string.rides_import), Modifier.padding(start = 8.dp))
                     }
                 }

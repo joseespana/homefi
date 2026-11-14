@@ -6,6 +6,7 @@
   import type { DjSetupSummary } from "../../lib/dj-api";
   import { ago } from "../../lib/transfer";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
 
   const setups = $derived(djSetups.list);
   let name = $state("");
@@ -62,7 +63,7 @@
 <div class="panel">
   <form class="new" onsubmit={(e) => (e.preventDefault(), saveNew())}>
     <input class="field" bind:value={name} maxlength={SETUP_NAME_MAX} placeholder="Name this setup, e.g. Party night" aria-label="Setup name" />
-    <button type="submit" class="btn primary" disabled={!name.trim()} title="Saves the layout, pad sounds, shortcuts and every DJ option as they are now"><Icon name="save" size={16} />Save current</button>
+    <button type="submit" class="btn primary" disabled={!name.trim() || !!djSetups.working} aria-busy={djSetups.working === "save"} title="Saves the layout, pad sounds, shortcuts and every DJ option as they are now">{#if djSetups.working === "save"}<Spinner size={16} />Saving…{:else}<Icon name="save" size={16} />Save current{/if}</button>
   </form>
 
   {#if setups.length === 0}
@@ -75,7 +76,7 @@
             {#if renaming === s.id}
               <form class="rename" onsubmit={(e) => (e.preventDefault(), commitRename(s))}>
                 <input bind:this={field} bind:value={draft} class="field" maxlength={SETUP_NAME_MAX} aria-label="Setup name" onkeydown={(e) => e.key === "Escape" && (e.stopPropagation(), (renaming = null))} />
-                <button type="submit" class="icon-btn" aria-label="Save the name" title="Save the name"><Icon name="check" size={17} /></button>
+                <button type="submit" class="icon-btn" aria-label="Save the name" title="Save the name" disabled={!!djSetups.working} aria-busy={djSetups.working === `rename:${s.id}`}>{#if djSetups.working === `rename:${s.id}`}<Spinner size={17} />{:else}<Icon name="check" size={17} />{/if}</button>
                 <button type="button" class="icon-btn" aria-label="Cancel renaming" title="Cancel" onclick={() => (renaming = null)}><Icon name="x" size={17} /></button>
               </form>
             {:else}
@@ -84,11 +85,11 @@
                 <small>{#if djSetups.activeId === s.id}In use{#if djSetups.dirty}, changed since{/if}{" · "}{/if}Updated {ago(s.updated_ms)}</small>
               </span>
               <span class="acts">
-                <button type="button" class="btn tonal apply" onclick={() => ask(s, "apply")}>Apply</button>
-                <button type="button" class="icon-btn" aria-label="Update {s.name} with the current settings" title="Update it with the current settings" onclick={() => ask(s, "overwrite")}><Icon name="save" size={17} /></button>
+                <button type="button" class="btn tonal apply" disabled={!!djSetups.working} aria-busy={djSetups.working === `apply:${s.id}`} onclick={() => ask(s, "apply")}>{#if djSetups.working === `apply:${s.id}`}<Spinner size={16} />{:else}Apply{/if}</button>
+                <button type="button" class="icon-btn" aria-label="Update {s.name} with the current settings" title="Update it with the current settings" disabled={!!djSetups.working} aria-busy={djSetups.working === `overwrite:${s.id}`} onclick={() => ask(s, "overwrite")}>{#if djSetups.working === `overwrite:${s.id}`}<Spinner size={17} />{:else}<Icon name="save" size={17} />{/if}</button>
                 <button type="button" class="icon-btn" aria-label="Rename {s.name}" title="Rename" onclick={() => startRename(s)}><Icon name="edit" size={17} /></button>
-                <button type="button" class="icon-btn" aria-label="Export {s.name} to a file" title="Export to a file (.homefidj): move it to another computer, phone or tablet, or save it in your Google Drive folder" onclick={() => djSetups.exportSetup(s)}><Icon name="upload" size={17} /></button>
-                <button type="button" class="icon-btn" aria-label="Delete {s.name}" title="Delete" onclick={() => ask(s, "delete")}><Icon name="trash" size={17} /></button>
+                <button type="button" class="icon-btn" aria-label="Export {s.name} to a file" title="Export to a file (.homefidj): move it to another computer, phone or tablet, or save it in your Google Drive folder" disabled={!!djSetups.working} aria-busy={djSetups.working === `export:${s.id}`} onclick={() => djSetups.exportSetup(s)}>{#if djSetups.working === `export:${s.id}`}<Spinner size={17} />{:else}<Icon name="upload" size={17} />{/if}</button>
+                <button type="button" class="icon-btn" aria-label="Delete {s.name}" title="Delete" disabled={!!djSetups.working} aria-busy={djSetups.working === `remove:${s.id}`} onclick={() => ask(s, "delete")}>{#if djSetups.working === `remove:${s.id}`}<Spinner size={17} />{:else}<Icon name="trash" size={17} />{/if}</button>
               </span>
             {/if}
           </div>
@@ -96,7 +97,7 @@
             <div class="confirm" role="alertdialog" aria-label={pending.text}>
               <span>{pending.text}</span>
               <button type="button" class="btn tonal" bind:this={cancel} onclick={() => (pending = null)} onkeydown={(e) => e.key === "Escape" && (e.stopPropagation(), (pending = null))}>Cancel</button>
-              <button type="button" class="btn primary" onclick={confirm}>{pending.yes}</button>
+              <button type="button" class="btn primary" disabled={!!djSetups.working} onclick={confirm}>{pending.yes}</button>
             </div>
           {/if}
         </li>
@@ -105,7 +106,7 @@
   {/if}
 
   <div class="foot">
-    <button type="button" class="btn tonal" onclick={() => djSetups.importSetup()}><Icon name="download" size={16} />Import a setup</button>
+    <button type="button" class="btn tonal" disabled={!!djSetups.working} aria-busy={djSetups.working === "import"} onclick={() => djSetups.importSetup()}>{#if djSetups.working === "import"}<Spinner size={16} />Importing…{:else}<Icon name="download" size={16} />Import a setup{/if}</button>
     <small>.homefidj files from HomeFi on another computer, phone or tablet.</small>
   </div>
 </div>

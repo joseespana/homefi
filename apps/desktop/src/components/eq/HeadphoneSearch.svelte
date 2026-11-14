@@ -3,6 +3,7 @@
   import { api, errorText, type EqProfile, type HeadphoneEntry } from "../../lib/api";
   import { item } from "../../lib/motion";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
 
   let { target, onapply }: { target: string; onapply: (profile: EqProfile, entry: HeadphoneEntry) => void } = $props();
 
@@ -57,7 +58,7 @@
   <label class="searchbox">
     <Icon name="search" size={16} />
     <input type="search" placeholder="Brand and model, e.g. HD 650" bind:value={query} spellcheck="false" />
-    {#if searching}<span class="spin" aria-label="Searching"></span>{/if}
+    {#if searching}<Spinner size={14} />{/if}
   </label>
   {#if error}
     <p class="msg error"><Icon name="alert" size={14} /> {error}</p>
@@ -77,8 +78,8 @@
               <span class="muted">by {r.source}{r.rig ? ` · ${r.rig}` : ""}</span>
             </span>
           </div>
-          <button class="btn tonal small" disabled={!!applying} onclick={() => apply(r)} title="Use this correction for {target}">
-            {applying === r.path ? "Loading…" : "Apply"}
+          <button class="btn tonal small" disabled={!!applying} aria-busy={applying === r.path} onclick={() => apply(r)} title="Use this correction for {target}">
+            {#if applying === r.path}<Spinner size={14} /> Loading…{:else}Apply{/if}
           </button>
         </li>
       {/each}
@@ -108,19 +109,6 @@
     border: 0;
     padding: 0;
     background: transparent;
-  }
-  .spin {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    border: 2px solid var(--glass-border);
-    border-top-color: var(--accent-text);
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
   }
   .msg {
     display: flex;

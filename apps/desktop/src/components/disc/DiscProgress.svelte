@@ -9,6 +9,7 @@
   import { item, reflow } from "../../lib/motion";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
 
   const PHASE_TEXT: Record<RowProgress["phase"], string> = { waiting: "Waiting", reading: "Reading", encoding: "Saving", verifying: "Checking", done: "Done", failed: "Failed" };
   const rows = $derived((disc.current?.toc.tracks ?? []).filter((t) => disc.rows[t.number]));
@@ -48,7 +49,7 @@
       <p class="muted" role="status" aria-live="polite">{summary}</p>
     </div>
     {#if disc.ripping}
-      <button type="button" class="btn tonal" onclick={() => disc.cancel()} disabled={disc.cancelling}><Icon name="x" size={16} /> Cancel</button>
+      <button type="button" class="btn tonal" onclick={() => disc.cancel()} disabled={disc.cancelling} aria-busy={disc.cancelling}>{#if disc.cancelling}<Spinner size={16} /> Stopping…{:else}<Icon name="x" size={16} /> Cancel{/if}</button>
     {/if}
   </header>
   <div class="total" role="progressbar" aria-label="Whole disc" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(overall * 100)}><div class="bar" style:width="{overall * 100}%"></div></div>
@@ -59,7 +60,7 @@
       {@const v = verdict(r)}
       <li class="row {r.phase}" in:item|global animate:reflow>
         <span class="state" aria-hidden="true">
-          {#if r.phase === "done"}<Icon name="check" size={16} />{:else if r.phase === "failed"}<Icon name="alert" size={16} />{:else if r.phase === "waiting"}<span class="num">{String(t.number).padStart(2, "0")}</span>{:else}<span class="spinner"></span>{/if}
+          {#if r.phase === "done"}<Icon name="check" size={16} />{:else if r.phase === "failed"}<Icon name="alert" size={16} />{:else if r.phase === "waiting"}<span class="num">{String(t.number).padStart(2, "0")}</span>{:else}<Spinner size={18} />{/if}
         </span>
         <div class="grow">
           <div class="ellipsis">{disc.resolved().titleOf(t.number)}</div>
@@ -84,7 +85,7 @@
       {#if finished}<button type="button" class="btn primary" onclick={() => disc.showInLibrary()}><Icon name="music" size={16} /> Show in library</button>{/if}
       {#if albumDir}<button type="button" class="btn tonal" onclick={() => revealItemInDir(albumDir)}><Icon name="folder" size={16} /> Show in folder</button>{/if}
       <button type="button" class="btn tonal" onclick={() => disc.startOver()}><Icon name="refresh" size={16} /> Rip again</button>
-      <button type="button" class="btn tonal" onclick={() => disc.eject()}><Icon name="eject" size={16} /> Eject</button>
+      <button type="button" class="btn tonal" disabled={disc.ejecting} aria-busy={disc.ejecting} onclick={() => disc.eject()}>{#if disc.ejecting}<Spinner size={16} /> Ejecting…{:else}<Icon name="eject" size={16} /> Eject{/if}</button>
       {#if disc.summary?.logPath}<span class="muted small">Log saved next to the songs.</span>{/if}
     </footer>
   {/if}
@@ -181,19 +182,6 @@
   }
   .failed .state {
     color: var(--danger);
-  }
-  .spinner {
-    width: 18px;
-    height: 18px;
-    border: 3px solid var(--surface-3);
-    border-top-color: var(--primary);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
   }
   .verdict {
     flex: none;

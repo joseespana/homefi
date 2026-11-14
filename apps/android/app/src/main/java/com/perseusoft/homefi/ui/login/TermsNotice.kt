@@ -65,14 +65,14 @@ fun TermsNotice(checked: Boolean, onCheckedChange: (Boolean) -> Unit, modifier: 
  * going, or sign out. Nothing is lost either way; the library and downloads stay.
  */
 @Composable
-fun TermsDialog(onAccept: () -> Unit, onSignOut: () -> Unit) {
+fun TermsDialog(onAccept: () -> Unit, onSignOut: () -> Unit, signingOut: Boolean = false) {
     var checked by rememberSaveable { mutableStateOf(false) }
     HomefiDialog(
         title = stringResource(R.string.tidal_terms_dialog_title),
         icon = Icons.Rounded.Gavel,
         dismissible = false,
-        primary = DialogAction(stringResource(R.string.tidal_terms_continue), enabled = checked, onClick = onAccept),
-        quiet = DialogAction(stringResource(R.string.tidal_terms_sign_out), onClick = onSignOut),
+        primary = DialogAction(stringResource(R.string.tidal_terms_continue), enabled = checked && !signingOut, onClick = onAccept),
+        quiet = DialogAction(stringResource(R.string.tidal_terms_sign_out), busy = signingOut, onClick = onSignOut),
         onDismiss = {},
     ) {
         TermsNotice(checked, { checked = it })

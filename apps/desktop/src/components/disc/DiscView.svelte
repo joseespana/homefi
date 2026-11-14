@@ -9,6 +9,7 @@
   import Segmented from "../settings/Segmented.svelte";
   import SettingsNote from "../settings/SettingsNote.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
   import DiscIdentify from "./DiscIdentify.svelte";
   import DiscNotAudio from "./DiscNotAudio.svelte";
   import DiscProgress from "./DiscProgress.svelte";
@@ -46,8 +47,8 @@
       {#if disc.drives.length > 1}
         <Segmented options={disc.drives.map((d) => ({ id: d.id, label: d.name }))} value={drive?.id ?? ""} onchange={(id) => disc.show(id)} label="Drive" />
       {/if}
-      <button type="button" class="icon-btn" title="Look at the drive again" aria-label="Look at the drive again" onclick={() => disc.enter()} disabled={disc.ripping}><Icon name="refresh" size={18} /></button>
-      {#if view && !disc.ripping}<button type="button" class="btn tonal" onclick={() => disc.eject()}><Icon name="eject" size={16} /> Eject</button>{/if}
+      <button type="button" class="icon-btn" title="Look at the drive again" aria-label="Look at the drive again" onclick={() => disc.enter()} disabled={disc.ripping || disc.loading} aria-busy={disc.loading}>{#if disc.loading}<Spinner size={18} />{:else}<Icon name="refresh" size={18} />{/if}</button>
+      {#if view && !disc.ripping}<button type="button" class="btn tonal" disabled={disc.ejecting} aria-busy={disc.ejecting} onclick={() => disc.eject()}>{#if disc.ejecting}<Spinner size={16} /> Ejecting…{:else}<Icon name="eject" size={16} /> Eject{/if}</button>{/if}
     </div>
   </header>
 
@@ -57,7 +58,7 @@
 
   {#if !view}
     {#if disc.loading || (drive?.media === "audio" && !disc.error)}
-      <div class="reading" aria-busy="true"><span class="spinner" aria-hidden="true"></span> Reading the disc…</div>
+      <div class="reading" aria-busy="true"><Spinner size={20} /> Reading the disc…</div>
     {:else}
       <DiscNotAudio {drive} />
     {/if}
@@ -126,19 +127,6 @@
     gap: 12px;
     padding: 40px 8px;
     color: var(--muted);
-  }
-  .spinner {
-    width: 20px;
-    height: 20px;
-    border: 3px solid var(--surface-3);
-    border-top-color: var(--primary);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
   }
   .facts {
     display: flex;

@@ -1,5 +1,6 @@
 package com.perseusoft.homefi.ui.exercise
 
+import com.perseusoft.homefi.ui.ButtonSpinner
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import android.app.Activity
@@ -18,7 +19,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import com.perseusoft.homefi.ui.tvpair.ConnectToTvButton
+import com.perseusoft.homefi.ui.tvpair.ConnectTvButton
 import com.perseusoft.homefi.ui.tvpair.PairedTvLine
 import com.perseusoft.homefi.pair.TvSendState
 import androidx.compose.foundation.layout.heightIn
@@ -46,6 +47,7 @@ import androidx.compose.material.icons.rounded.Terrain
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material3.Button
@@ -161,6 +163,8 @@ private const val PAUSE_DP = 64
 private const val BIG_PAUSE_WIDTH_DP = 160
 private const val RPM_SP = 96
 private const val CLOCK_SP = 36
+/** The part's clock under the ring in landscape. */
+private const val CLOCK_ROW_DP = 48
 private const val RPM_SP_THREE_DIGITS = 80
 private const val SPEED_SP_PER_RING = 0.30f
 private const val STEP_CHIP_MS = 4_000L
@@ -197,6 +201,7 @@ private class RideActions(
     val lastPart: Boolean,
     val onPause: () -> Unit,
     val onSkip: () -> Unit,
+    val onRepeat: () -> Unit,
     val onEnd: () -> Unit,
     val onEndHold: () -> Unit,
 )
@@ -212,6 +217,7 @@ private fun RideScreen(plan: RidePlan, session: RideSession) {
     val haptics = haptics()
     var confirmEnd by remember { mutableStateOf(false) }
     var confirmSkip by remember { mutableStateOf(false) }
+    var confirmRepeat by remember { mutableStateOf(false) }
     var confirmSwap by remember { mutableStateOf(false) }
     val hotPoints = remember(plan) { exerciseHotPoints(plan.workout) }
 
@@ -244,7 +250,7 @@ private fun RideScreen(plan: RidePlan, session: RideSession) {
     val paused = !current.playing && !tv.waitingForTv
     val actions = RideActions(
         zone, paused, v.segmentIndex.toInt() >= v.segmentCount.toInt() - 1,
-        onPause = session::togglePause, onSkip = { confirmSkip = true }, onEnd = { confirmEnd = true }, onEndHold = session::end,
+        onPause = session::togglePause, onSkip = { confirmSkip = true }, onRepeat = { confirmRepeat = true }, onEnd = { confirmEnd = true }, onEndHold = session::end,
     )
     val swap = SwapState(settings.rideSwap, swapping != null) { confirmSwap = true }
     val bigControls = settings.rideBigControls
@@ -256,7 +262,7 @@ private fun RideScreen(plan: RidePlan, session: RideSession) {
             // the two columns: the ring with what the rider reads at arm's length, and the mountain with the controls over it
             val contentH = maxHeight.value - 2 * SCREEN_PAD_DP
             val columnI = (maxWidth.value - 2 * SCREEN_PAD_DP - COLUMN_GAP_DP) * COLUMN_I_SHARE
-            val below = BELOW_RING_DP + (if (v.next != null) NEXT_CARD_DP else 0) + (if (v.level != null) LEVEL_LINE_DP else 0)
+            val below = BELOW_RING_DP + CLOCK_ROW_DP + (if (v.next != null) NEXT_CARD_DP else 0) + (if (v.level != null) LEVEL_LINE_DP else 0)
             val ringDp = minOf(columnI, contentH - below).toInt().coerceIn(RING_MIN_DP, RING_MAX_DP)
             Row(Modifier.fillMaxSize().padding(SCREEN_PAD_DP.dp), horizontalArrangement = Arrangement.spacedBy(COLUMN_GAP_DP.dp)) {
                 Column(
@@ -265,13 +271,15 @@ private fun RideScreen(plan: RidePlan, session: RideSession) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Ring(current, settings, zone, ringDp)
+                    // the part's time left right under the target: in sight with the mountain or the lyrics
+                    PartClock(v, CLOCK_SP)
                     EffortLine(v, zone)
                     NextCard(current)
                     PositionAndSong(current, swap)
                 }
                 Column(Modifier.weight(1.5f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     TopRow(current, zone, session::close, showClock = false) { if (!bigControls) IconControls(actions) }
-                    MountainBlock(plan, hotPoints, current, map, Modifier.weight(1f), clockOver = true)
+                    MountainBlock(plan, hotPoints, current, map, Modifier.weight(1f))
                     TvChip(tv)
                 }
                 if (bigControls) BigControls(actions, vertical = true)
@@ -297,11 +305,13 @@ private fun RideScreen(plan: RidePlan, session: RideSession) {
                 else Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                     // stop on the left (thumb-safe), pause in the middle, skip on the right
                     HoldToEnd(actions.onEnd, actions.onEndHold)
+                    RepeatIcon(actions)
                     PauseIcon(actions)
                     SkipIcon(actions)
                 }
             }
         }
+        if (settings.rideCallouts && !paused) RideCalloutLayer(v.callout, zone)
         if (paused) PausedOverlay(session::togglePause, onEnd = { confirmEnd = true }, onEndHold = session::end)
     }
 
@@ -315,6 +325,17 @@ private fun RideScreen(plan: RidePlan, session: RideSession) {
             primary = DialogAction(stringResource(R.string.ex_skip_do)) { confirmSkip = false; session.skipSegment() },
             dismiss = stringResource(R.string.ex_keep),
             onDismiss = { confirmSkip = false },
+        )
+    }
+    if (confirmRepeat) {
+        HomefiDialog(
+            title = stringResource(R.string.ex_repeat_q, stringResource(v.kind.nameRes())),
+            text = stringResource(R.string.ex_repeat_body),
+            icon = Icons.Rounded.Replay,
+            accent = zone,
+            primary = DialogAction(stringResource(R.string.ex_repeat_do)) { confirmRepeat = false; session.repeatSegment() },
+            dismiss = stringResource(R.string.ex_keep),
+            onDismiss = { confirmRepeat = false },
         )
     }
     if (confirmEnd) {
@@ -351,7 +372,7 @@ private class SwapState(val enabled: Boolean, val busy: Boolean, val onAsk: () -
 
 /**
  * Hide (back to the app, the ride goes on), the zone, the time left and, in landscape, the icon controls: one row.
- * In landscape the time left sits over the mountain instead ([showClock] false), so the part's name never shortens.
+ * In landscape the time left sits under the ring instead ([showClock] false), next to the target.
  */
 @Composable
 private fun TopRow(
@@ -574,15 +595,15 @@ private class MapState(val karaoke: Boolean, val haptic: Boolean, val onToggle: 
 /** The mountain (or, in karaoke, the song's lyrics) with the step chip over it, and under it the progress row. */
 @Composable
 private fun MountainBlock(
-    plan: RidePlan, hotPoints: List<HotPoint>, frame: RideFrame, map: MapState, modifier: Modifier, clockOver: Boolean = false,
+    plan: RidePlan, hotPoints: List<HotPoint>, frame: RideFrame, map: MapState, modifier: Modifier,
 ) {
     val v = frame.view
     val zone = v.kind.zoneColor()
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Box(Modifier.fillMaxWidth().weight(1f)) {
             if (map.karaoke) {
-                // the clock and the mic sit on top: the lines keep clear of them
-                RideLyrics(zone, Modifier.fillMaxSize().padding(top = if (clockOver) 40.dp else 8.dp))
+                // the mic sits on top: the lines keep clear of it
+                RideLyrics(zone, Modifier.fillMaxSize().padding(top = 8.dp))
             } else {
                 MountainProfile(
                     profile = plan.profile, marker = v.marker, segments = plan.workout.segments,
@@ -591,7 +612,6 @@ private fun MountainBlock(
             }
             KaraokeToggle(map, zone, Modifier.align(Alignment.TopStart))
             StepChip(v.step, zone, map.haptic, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
-            if (clockOver) PartClock(v, CLOCK_SP, Modifier.align(Alignment.TopEnd).padding(horizontal = 12.dp, vertical = 4.dp))
         }
         Row(Modifier.height(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(clock(v.elapsedS.toInt()), fontSize = 12.sp)
@@ -674,9 +694,18 @@ private const val STEP_CHIP_SURFACE_ALPHA = 0.92f
 @Composable
 private fun IconControls(a: RideActions) {
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        RepeatIcon(a)
         PauseIcon(a)
         SkipIcon(a)
         HoldToEnd(a.onEnd, a.onEndHold)
+    }
+}
+
+/** Back: the part playing now again from its start (asks first, like skip). */
+@Composable
+private fun RepeatIcon(a: RideActions, size: Dp = ICON_CONTROL_DP.dp) {
+    IconButton(onClick = a.onRepeat, modifier = Modifier.size(size)) {
+        Icon(Icons.Rounded.Replay, stringResource(R.string.ex_repeat))
     }
 }
 
@@ -721,11 +750,11 @@ private fun BigControls(a: RideActions, vertical: Boolean) {
     }
     if (vertical) {
         Column(Modifier.fillMaxHeight().padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)) {
-            pause(Modifier.width(BIG_PAUSE_WIDTH_DP.dp)); skip(); end()
+            pause(Modifier.width(BIG_PAUSE_WIDTH_DP.dp)); RepeatIcon(a, BIG_CONTROL_DP.dp); skip(); end()
         }
     } else {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            end(); pause(Modifier.weight(1f)); skip()
+            end(); RepeatIcon(a, BIG_CONTROL_DP.dp); pause(Modifier.weight(1f)); skip()
         }
     }
 }
@@ -794,6 +823,7 @@ private fun TvChip(tv: RideTvStatus) {
     val app = LocalContext.current.homefi
     val paired by app.tvPairings.paired.collectAsStateWithLifecycle()
     val send by app.tvPairings.sendState.collectAsStateWithLifecycle()
+    val startingTv by app.ride.startingTv.collectAsStateWithLifecycle()
     val text = when {
         tv.waitingForTv -> stringResource(R.string.ex_tv_waiting_join)
         tv.active && tv.audioOnTv -> stringResource(R.string.ex_tv_playing_on_tv)
@@ -806,8 +836,8 @@ private fun TvChip(tv: RideTvStatus) {
     if (text == null && paired == null && !canStart) return
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         if (canStart) {
-            TextButton(onClick = app.ride::showOnTv, modifier = Modifier.heightIn(min = 48.dp)) {
-                Icon(Icons.Rounded.Tv, null, Modifier.padding(end = 8.dp).size(20.dp))
+            TextButton(onClick = app.ride::showOnTv, enabled = !startingTv, modifier = Modifier.heightIn(min = 48.dp)) {
+                if (startingTv) ButtonSpinner(Modifier.padding(end = 8.dp), size = 20.dp) else Icon(Icons.Rounded.Tv, null, Modifier.padding(end = 8.dp).size(20.dp))
                 Text(stringResource(R.string.ex_tv_show_now))
             }
         }
@@ -815,15 +845,21 @@ private fun TvChip(tv: RideTvStatus) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Icon(Icons.Rounded.Tv, null, Modifier.size(18.dp))
                 Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                tv.url?.takeIf { tv.active && paired == null }?.let { Text(stringResource(R.string.ex_tv_address_on_phone, it.asTypedAddress()), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
         PairedTvLine()
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // not paired yet: scan the TV's code; paired but the TV did not answer: send again
-            if (paired == null) ConnectToTvButton()
-            else if (tv.active && send == TvSendState.UNREACHABLE) {
-                TextButton(onClick = app.tvPairings::resend, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.tv_send_again)) }
+            // not paired yet: the guide (the address for a browser TV only inside it, as the last resort)
+            if (paired == null) ConnectTvButton(
+                address = tv.url?.takeIf { tv.active }?.asTypedAddress(),
+                onPrepare = app.ride::showOnTv.takeIf { canStart },
+            )
+            else if (tv.active && (send == TvSendState.UNREACHABLE || send == TvSendState.SENDING)) {
+                TextButton(onClick = app.tvPairings::resend, enabled = send != TvSendState.SENDING, modifier = Modifier.heightIn(min = 48.dp)) {
+                    if (send == TvSendState.SENDING) ButtonSpinner(Modifier.padding(end = 8.dp), size = 20.dp)
+                    Text(stringResource(R.string.tv_send_again))
+                }
             }
         }
     }

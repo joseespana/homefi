@@ -602,7 +602,7 @@ impl GuestTx {
             Kind::Other => {
                 if let Err(mpsc::error::TrySendError::Full(_)) = self.queue.try_send(text) {
                     tracing::debug!("share: a guest stopped reading, disconnecting it");
-                    self.close("The connection to the hub is too slow");
+                    self.close("Your connection is too slow to keep up.");
                 }
             }
         }
@@ -785,11 +785,11 @@ impl Inner {
         }
         let failures = self.failures.get(&ip).copied().unwrap_or(0);
         if failures >= MAX_CODE_FAILURES {
-            return Err("Too many wrong join codes".into());
+            return Err("Too many wrong codes. Ask the host for a new one.".into());
         }
         if hello.code.trim() != self.code {
             self.failures.insert(ip, failures + 1);
-            return Err("Wrong join code".into());
+            return Err("That code isn't right.".into());
         }
         self.failures.remove(&ip);
 
@@ -896,7 +896,7 @@ impl Inner {
             },
             GuestMessage::Volume { value } => match self.permissions.check_playback() {
                 Ok(()) if value.is_finite() => fx.commands.push(HostCommand::Volume(value.clamp(0.0, 1.0))),
-                Ok(()) => deny(self, "Invalid volume".into()),
+                Ok(()) => deny(self, "That volume isn't valid.".into()),
                 Err(reason) => deny(self, reason),
             },
             // A second hello is harmless; clock is answered by `Shared::handle`.
@@ -908,7 +908,7 @@ impl Inner {
             GuestMessage::Hello { .. } | GuestMessage::Clock { .. } => {}
             // Search / browse are answered asynchronously by `Shared::handle`.
             GuestMessage::Search { .. } | GuestMessage::Browse { .. } => {}
-            GuestMessage::Unknown => deny(self, "Not supported by this hub".into()),
+            GuestMessage::Unknown => deny(self, "The host's HomeFi can't do that yet.".into()),
         }
     }
 }
@@ -998,7 +998,10 @@ impl Shared {
                             results.q = q;
                             HubMessage::Results(results)
                         }
-                        Err(e) => HubMessage::Notice { text: format!("Search failed: {e}") },
+                        Err(e) => {
+                            tracing::debug!("share: search failed: {e}");
+                            HubMessage::Notice { text: e.humane() }
+                        }
                     };
                     tx.send(&reply);
                 });
@@ -1009,7 +1012,10 @@ impl Shared {
                 tokio::spawn(async move {
                     let reply = match host.browse(kind, id).await {
                         Ok(page) => HubMessage::Page(page),
-                        Err(e) => HubMessage::Notice { text: format!("Could not open it: {e}") },
+                        Err(e) => {
+                            tracing::debug!("share: browse failed: {e}");
+                            HubMessage::Notice { text: e.humane() }
+                        }
                     };
                     tx.send(&reply);
                 });
@@ -1138,7 +1144,7 @@ async fn serve_guest(shared: Arc<Shared>, socket: WebSocket, ip: IpAddr) {
         _ => None,
     };
     let Some(hello) = hello else {
-        let _ = sink.send(close_frame("Expected hello")).await;
+        let _ = sink.send(close_frame("Couldn't join the session. Update HomeFi and try again.")).await;
         return;
     };
 

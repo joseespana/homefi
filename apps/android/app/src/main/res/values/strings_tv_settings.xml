@@ -66,11 +66,11 @@
     <string name="tv_set_min_free">Keep this much free</string>
     <string name="tv_set_min_free_hint">A drive under it is not written to.</string>
     <string name="tv_set_usb_access">USB drive access</string>
-    <string name="tv_set_usb_access_hint">All files access lets HomeFi save in a HomeFi folder on the drive; without it, it uses its own folder there.</string>
+    <string name="tv_set_usb_access_hint">With this permission HomeFi can save in a HomeFi folder on the drive; without it, it uses its own folder there.</string>
     <string name="tv_set_forget_drives">Forget remembered drives</string>
     <string name="tv_set_forget_drives_hint">Drives whose songs the library keeps listed. The files stay on the drive.</string>
-    <string name="tv_set_stream_cache">TIDAL stream cache</string>
-    <string name="tv_set_stream_cache_hint">Space used to keep the songs you stream.</string>
+    <string name="tv_set_stream_cache">Saved TIDAL songs</string>
+    <string name="tv_set_stream_cache_hint">Space used to keep the songs you listen to, so they start faster.</string>
     <string name="tv_set_threads">Songs downloaded at once</string>
     <string name="tv_set_account">TIDAL account</string>
     <string name="tv_set_party_auto">Let guests\' songs in without asking</string>
@@ -107,7 +107,7 @@
     <string name="tv_ai_key_type">Press OK and type the key with the on-screen keyboard.</string>
     <string name="tv_ai_get_key">Get a key at %1$s</string>
     <string name="tv_ai_loading">Loading…</string>
-    <string name="tv_ai_privacy">Your key stays on this TV, encrypted with the Android Keystore. HomeFi only sends it to %1$s, only to talk to the assistant.</string>
+    <string name="tv_ai_privacy">Your key stays on this TV, stored safely and protected by Android. HomeFi only sends it to %1$s, only to talk to the assistant.</string>
 
     <!-- keyboard -->
     <string name="tv_kb_symbols">#+= symbols</string>
@@ -123,7 +123,7 @@
     <!-- USB access -->
     <string name="tv_dl_paused_access">Paused: waiting for the USB access</string>
     <string name="tv_dl_access_wait">Waiting for USB access</string>
-    <string name="tv_dl_access_wait_body">%1$d downloads wait for you to allow All files access. Come back and they go on, or press Resume to be asked again.</string>
+    <string name="tv_dl_access_wait_body">%1$d downloads are waiting for you to allow access to your files. Come back and they go on, or press Resume to be asked again.</string>
 
     <!-- Train on the TV -->
     <string name="tv_train_here">Start a ride on this TV</string>

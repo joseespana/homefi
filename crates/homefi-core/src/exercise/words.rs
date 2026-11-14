@@ -3,6 +3,7 @@
 
 use super::bike::{BikeProfile, ShownTarget, TargetUnit};
 use super::model::{Position, PresetId, RpmRange, SegmentKind};
+use super::ride::{Callout, CalloutKind};
 use crate::concert::words::say;
 use crate::error::Error;
 use crate::humane::Lang;
@@ -149,8 +150,8 @@ pub(crate) fn no_fit_note(lang: Lang, kind: SegmentKind) -> String {
     let name = segment_name(lang, kind);
     say(
         lang,
-        format!("{name}: no song matched the cadence exactly, so the closest one plays."),
-        format!("{name}: ninguna canción coincidió con la cadencia, suena la más cercana."),
+        format!("{name}: no song matched your pedaling pace exactly, so the closest one plays."),
+        format!("{name}: ninguna canción coincidió exacto con tu ritmo de pedaleo, suena la más cercana."),
     )
 }
 
@@ -158,8 +159,8 @@ pub(crate) fn metronome_note(lang: Lang, kind: SegmentKind) -> String {
     let name = segment_name(lang, kind);
     say(
         lang,
-        format!("{name}: the pulse is a metronome; this song's beat could not be read."),
-        format!("{name}: el pulso es un metrónomo; no se pudo leer el ritmo de esta canción."),
+        format!("{name}: couldn't read this song's beat, so a metronome keeps the pace."),
+        format!("{name}: no se pudo leer el ritmo de esta canción, así que un metrónomo marca el paso."),
     )
 }
 
@@ -171,8 +172,8 @@ pub(crate) fn no_song_note(lang: Lang, kind: SegmentKind) -> String {
 pub(crate) fn no_ai_note(lang: Lang) -> String {
     say(
         lang,
-        "No AI is set up: the songs come from your genres, matched by tempo.".into(),
-        "No hay una IA configurada: las canciones salen de tus géneros, elegidas por tempo.".into(),
+        "No AI is set up: the songs come from your genres, picked to match your pedaling pace.".into(),
+        "No hay una IA configurada: las canciones salen de tus géneros, elegidas para tu ritmo de pedaleo.".into(),
     )
 }
 
@@ -240,8 +241,8 @@ pub(crate) fn problem(lang: Lang, p: Problem) -> Error {
         ),
         Problem::TvBusy(port) => say(
             lang,
-            format!("Port {port} is in use. Pick another one in the Exercise settings."),
-            format!("El puerto {port} está en uso. Elige otro en los ajustes de Ejercicio."),
+            format!("The ride screen couldn't start because another app is using its channel (number {port}). Pick a different number in the Exercise settings."),
+            format!("No se pudo abrir la pantalla del paseo porque otra app usa su canal (número {port}). Elige otro número en los ajustes de Ejercicio."),
         ),
     };
     Error::Playlist(text)
@@ -311,6 +312,37 @@ pub(crate) fn tv_keep_going(lang: Lang) -> &'static str {
 
 pub(crate) fn tv_alternating_hint(lang: Lang) -> &'static str {
     pick(lang, "Stand and sit on the beat", "Párate y siéntate al ritmo")
+}
+
+/// The big message in the middle of the ride, in `lang`. For the countdown it is the words over the digit
+/// ("Sprint in"); the digit is `callout.n`.
+pub fn callout_text(lang: Lang, callout: Callout) -> String {
+    let n = callout.n;
+    match callout.kind {
+        CalloutKind::Countdown => pick(lang, "Sprint in", "Sprint en").into(),
+        CalloutKind::Go => pick(lang, "GO!", "¡YA!").into(),
+        CalloutKind::Cheer => {
+            const CHEERS: [(&str, &str); 4] = [
+                ("You can do it!", "¡Tú puedes!"),
+                ("Come on!", "¡Vamos!"),
+                ("Keep pushing!", "¡Dale, dale!"),
+                ("Stay strong!", "¡Aguanta!"),
+            ];
+            let (en, es) = CHEERS[usize::from(n) % CHEERS.len()];
+            pick(lang, en, es).into()
+        }
+        CalloutKind::SecondsLeft if n == 1 => pick(lang, "1 second more!", "¡1 segundo más!").into(),
+        CalloutKind::SecondsLeft => say(lang, format!("{n} seconds more!"), format!("¡{n} segundos más!")),
+        CalloutKind::GoodJob => pick(lang, "Good job!", "¡Buen trabajo!").into(),
+        CalloutKind::AlmostDone => pick(lang, "We're close to the finish", "Ya casi terminamos").into(),
+        CalloutKind::Stretch => pick(
+            lang,
+            "Don't forget to stretch your muscles after training",
+            "No olvides estirar tus músculos después de entrenar",
+        )
+        .into(),
+        CalloutKind::SeeYou => pick(lang, "See you next time!", "¡Nos vemos la próxima!").into(),
+    }
 }
 
 // ------------------------------------------------------------------- the chat

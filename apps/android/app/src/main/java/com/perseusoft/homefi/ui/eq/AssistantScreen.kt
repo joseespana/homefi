@@ -1,5 +1,6 @@
 package com.perseusoft.homefi.ui.eq
 
+import com.perseusoft.homefi.ui.ButtonSpinner
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -254,7 +255,12 @@ fun ColumnScope.AssistantContent(onClose: () -> Unit, onEqualizer: () -> Unit, v
             )
             Spacer(Modifier.width(4.dp))
             IconButton(onClick = send, enabled = text.isNotBlank() && !ui.typing) {
-                Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.assistant_send), tint = MaterialTheme.colorScheme.primary)
+                // the AI is answering: a spinner in place of the arrow
+                if (ui.typing) {
+                    ButtonSpinner(color = MaterialTheme.colorScheme.primary)
+                } else {
+                    Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.assistant_send), tint = MaterialTheme.colorScheme.primary)
+                }
             }
         }
     }

@@ -48,7 +48,7 @@
   {@const edit = share.canEdit(m.item)}
   <button class="scrim" aria-label="Close" onclick={() => (menu = null)}></button>
   <div class="menu" role="menu" style:left="{m.x}px" style:top="{m.y}px">
-    <button role="menuitem" disabled={!share.canPlayNow} title={share.canPlayNow ? "" : "The hub decides what plays"} onclick={() => run(() => share.playNow(m.item))}>
+    <button role="menuitem" disabled={!share.canPlayNow} title={share.canPlayNow ? "" : "The host decides what plays"} onclick={() => run(() => share.playNow(m.item))}>
       <Icon name="play" size={14} /> Play now
     </button>
     <button role="menuitem" disabled={!edit || m.index === 0} onclick={() => run(() => share.move(m.item, 0))}><Icon name="next" size={14} /> Play next</button>

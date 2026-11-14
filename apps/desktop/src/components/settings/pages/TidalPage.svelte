@@ -6,6 +6,7 @@
   import SegmentedRow from "../SegmentedRow.svelte";
   import SettingsGroup from "../SettingsGroup.svelte";
   import SwitchRow from "../SwitchRow.svelte";
+  import Spinner from "../../Spinner.svelte";
 
   let { settings }: { settings: Settings } = $props();
   const m = useSettings();
@@ -31,6 +32,8 @@
     { id: "remaster", label: "Latest remaster" },
   ] as const;
 
+  let signingOut = $state(false);
+
   async function logout() {
     const ok = await app.confirm({
       title: "Log out of Tidal?",
@@ -38,16 +41,21 @@
       confirmLabel: "Log out",
       danger: true,
     });
-    if (!ok) return;
-    await api.logout();
-    app.account = null;
+    if (!ok || signingOut) return;
+    signingOut = true;
+    try {
+      await api.logout();
+      app.account = null;
+    } finally {
+      signingOut = false;
+    }
   }
 </script>
 
 <SettingsGroup title="Account">
   {#if app.account}
-    <ActionRow label="Connected" hint="User {app.account.userId} · {app.account.countryCode}">
-      <button type="button" class="btn tonal danger" onclick={logout}>Log out</button>
+    <ActionRow label="Connected" hint="Country: {app.account.countryCode}">
+      <button type="button" class="btn tonal danger" disabled={signingOut} aria-busy={signingOut} onclick={logout}>{#if signingOut}<Spinner size={16} /> Logging out…{:else}Log out{/if}</button>
     </ActionRow>
   {:else}
     <ActionRow label="Not connected" hint="The player works without an account.">

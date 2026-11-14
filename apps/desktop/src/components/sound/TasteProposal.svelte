@@ -7,6 +7,7 @@
   import { usePreview } from "../../lib/preview.svelte";
   import { ruleWords, sound, targetsSummary } from "../../lib/sound.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
   import EqGraph from "../eq/EqGraph.svelte";
 
   let { rule, open = true, busy = false, onapply, onkeep }: { rule: TasteRule; open?: boolean; busy?: boolean; onapply: () => void; onkeep: () => void } = $props();
@@ -50,7 +51,7 @@
   {#if preview.value?.notes.length}<p class="kept"><Icon name="shield" size={12} /> Kept safe: {preview.value.notes.join(" · ")}</p>{/if}
   {#if open}
     <div class="pbuttons">
-      <button class="btn primary" disabled={busy} onclick={onapply}><Icon name="check" size={16} /> Apply</button>
+      <button class="btn primary" disabled={busy} aria-busy={busy} onclick={onapply}>{#if busy}<Spinner size={16} /> Applying…{:else}<Icon name="check" size={16} /> Apply{/if}</button>
       <button class="btn tonal" disabled={busy} onclick={onkeep}>Keep talking</button>
     </div>
   {/if}

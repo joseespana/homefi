@@ -1,25 +1,26 @@
 <script lang="ts">
-  // "Where to watch": no TV, a window on another screen, or HomeFi's TV page in a TV's browser / the
-  // Android TV app (a link and a QR), and where the music plays. The page itself is one renderer
+  // "Where to watch": no TV, a window on another screen, or a smart TV: HomeFi on a Google TV finds the ride by
+  // itself; any other TV types the page's address in its browser (the last resort, so it is the only place an
+  // address shows). And where the music plays. The page itself is one renderer
   // (homefi-core's ride.html) whichever way it is opened.
   import { EX_TV_DISPLAY_AUTO, type TvAudio } from "../../lib/exercise-api";
   import { exercise, type TvMode } from "../../lib/exercise.svelte";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
-  import QrCode from "../share/QrCode.svelte";
   import ExCard from "./ExCard.svelte";
   import ExSegmented from "./ExSegmented.svelte";
 
   const MODES: { id: TvMode; label: string }[] = [
     { id: "none", label: "No TV" },
-    { id: "window", label: "TV window" },
-    { id: "app", label: "TV app / browser" },
+    { id: "window", label: "Second screen" },
+    { id: "app", label: "Smart TV" },
   ];
   const AUDIO: { id: TvAudio; label: string }[] = [
     { id: "phone", label: "Here (headphones)" },
     { id: "tv", label: "On the TV" },
   ];
-  const QR_PX = 112;
+  /** What a person types in a TV's browser: no "http://", no trailing slash. */
+  const typed = $derived(exercise.tv.url ? exercise.tv.url.replace(/^https?:\/\//, "").replace(/\/$/, "") : "");
 
   const s = $derived(exercise.settings);
   const monitors = $derived(exercise.monitors);
@@ -37,7 +38,7 @@
   async function copy() {
     if (!exercise.tv.url) return;
     try {
-      await navigator.clipboard.writeText(exercise.tv.url);
+      await navigator.clipboard.writeText(typed);
       app.note("Link copied", "success", "exercise-copy");
     } catch {
       app.note("Could not copy the link", "error", "exercise-copy");
@@ -66,18 +67,23 @@
         </label>
       {/if}
     {:else if exercise.tvMode === "app"}
-      <div class="link">
-        {#if exercise.tv.url}
-          <QrCode text={exercise.tv.url} size={QR_PX} />
+      <div class="way">
+        <b>Google TV or Android TV</b>
+        <p class="help">Open HomeFi on the TV and go to Train. This ride shows up there by itself when it starts. No HomeFi on the TV yet? Install it from the phone app: Settings → Install HomeFi on a Google TV or Android TV.</p>
+      </div>
+      <div class="way">
+        <b>Another smart TV (Samsung, LG…)</b>
+        <p class="help">Open the TV's web browser and type exactly this in its address bar:</p>
+        {#if typed}
           <div class="url">
-            <span class="addr">{exercise.tv.url}</span>
-            <button type="button" class="btn tonal" onclick={copy}><Icon name="copy" size={16} />Copy link</button>
+            <span class="addr">{typed}</span>
+            <button type="button" class="btn tonal" onclick={copy}><Icon name="copy" size={16} />Copy</button>
           </div>
         {:else}
-          <p class="help">Starting the TV page…</p>
+          <p class="help">Getting the TV page ready…</p>
         {/if}
       </div>
-      <p class="help">Open this on the TV's browser or in HomeFi for Android TV.</p>
+      <p class="help">The computer and the TV need to be on the same Wi-Fi.</p>
     {/if}
   </div>
 </ExCard>
@@ -115,22 +121,24 @@
     min-height: 44px;
     max-width: 100%;
   }
-  .link {
+  .way {
     display: flex;
-    align-items: center;
-    gap: 14px;
+    flex-direction: column;
+    gap: 6px;
     min-width: 0;
   }
   .url {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
     min-width: 0;
-    align-items: flex-start;
   }
   .addr {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--primary);
     user-select: text;
     overflow-wrap: anywhere;
   }

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -72,6 +73,8 @@ fun GradientButton(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
     colors: List<Color>? = null,
+    /** The work this button started is running: a spinner replaces the icon and a press does nothing. */
+    busy: Boolean = false,
 ) {
     val source = remember { MutableInteractionSource() }
     val shape = RoundedCornerShape(BUTTON_RADIUS)
@@ -82,18 +85,22 @@ fun GradientButton(
             .shadow(BUTTON_ELEVATION, shape, ambientColor = Brand.Teal, spotColor = Brand.Teal)
             .defaultMinSize(minHeight = BUTTON_HEIGHT)
             .background(brush, shape)
-            .clickable(interactionSource = source, indication = null, role = Role.Button, onClick = onClick)
+            .clickable(interactionSource = source, indication = null, role = Role.Button, onClick = { if (!busy) onClick() })
             .padding(horizontal = 24.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (icon != null) Icon(icon, null, Modifier.size(24.dp), tint = Color.White)
+        if (busy) {
+            CircularProgressIndicator(Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
+        } else if (icon != null) {
+            Icon(icon, null, Modifier.size(24.dp), tint = Color.White)
+        }
         Text(
             text,
             color = Color.White,
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(start = if (icon != null) 8.dp else 0.dp),
+            modifier = Modifier.padding(start = if (icon != null || busy) 8.dp else 0.dp),
         )
     }
 }

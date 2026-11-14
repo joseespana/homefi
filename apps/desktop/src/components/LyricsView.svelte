@@ -167,7 +167,7 @@
               <span>Timing <small>{offsetText}</small></span>
               <div class="seg">
                 <button aria-label="Lyrics earlier" disabled={offset <= -2000} onclick={() => shift(-100)}><Icon name="minus" size={13} /></button>
-                <button aria-label="Back in time" disabled={offset === 0} onclick={() => saveRoom({ lyrics_offset_ms: 0 })}>0</button>
+                <button aria-label="Reset the timing" disabled={offset === 0} onclick={() => saveRoom({ lyrics_offset_ms: 0 })}>0</button>
                 <button aria-label="Lyrics later" disabled={offset >= 2000} onclick={() => shift(100)}><Icon name="plus" size={13} /></button>
               </div>
             </div>

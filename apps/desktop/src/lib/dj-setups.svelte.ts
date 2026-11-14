@@ -17,6 +17,8 @@ class DjSetupsStore {
   /** The setup the current settings were last saved to or loaded from, with what they said then. */
   private base = $state.raw<{ id: string; json: string } | null>(null);
   private started = false;
+  /** The call in flight, `"action"` or `"action:id"` (save, overwrite, rename, remove, apply, export, import): its button spins and nothing else starts. */
+  working = $state<string | null>(null);
 
   /** The setup in use, if any. */
   activeId = $derived(this.base && this.list.some((s) => s.id === this.base?.id) ? this.base.id : null);
@@ -48,37 +50,57 @@ class DjSetupsStore {
     }
   }
 
+  /** `run` while `working` names the call; a second call meanwhile is ignored. */
+  private async busy<T>(key: string, job: () => Promise<T | null>): Promise<T | null> {
+    if (this.working) return null;
+    this.working = key;
+    try {
+      return await job();
+    } finally {
+      this.working = null;
+    }
+  }
+
   /** "Save current as": a new setup holding the settings now. */
   async save(name: string) {
-    const made = await this.run(() => djSetupApi.save(name.trim().slice(0, SETUP_NAME_MAX)));
-    if (made) {
-      this.base = { id: made.id, json: stableJson(dj.settings) };
-      app.note(`Saved the setup “${made.name}”`, "success", "dj-setups");
-    }
-    return made;
+    return this.busy("save", async () => {
+      const made = await this.run(() => djSetupApi.save(name.trim().slice(0, SETUP_NAME_MAX)));
+      if (made) {
+        this.base = { id: made.id, json: stableJson(dj.settings) };
+        app.note(`Saved the setup “${made.name}”`, "success", "dj-setups");
+      }
+      return made;
+    });
   }
 
   /** The setup takes what the settings say now. */
   async overwrite(id: string) {
-    const made = await this.run(() => djSetupApi.overwrite(id));
-    if (made) {
-      this.base = { id, json: stableJson(dj.settings) };
-      app.note(`Updated “${made.name}”`, "success", "dj-setups");
-    }
+    await this.busy(`overwrite:${id}`, async () => {
+      const made = await this.run(() => djSetupApi.overwrite(id));
+      if (made) {
+        this.base = { id, json: stableJson(dj.settings) };
+        app.note(`Updated “${made.name}”`, "success", "dj-setups");
+      }
+      return made;
+    });
   }
 
-  rename = (id: string, name: string) => this.run(() => djSetupApi.rename(id, name.trim().slice(0, SETUP_NAME_MAX)));
+  rename = (id: string, name: string) => this.busy(`rename:${id}`, () => this.run(() => djSetupApi.rename(id, name.trim().slice(0, SETUP_NAME_MAX))));
 
   async remove(id: string) {
-    if (await this.run(() => djSetupApi.remove(id))) {
-      if (this.base?.id === id) this.base = null;
-      app.note("Setup deleted", "success", "dj-setups");
-    }
+    await this.busy(`remove:${id}`, async () => {
+      const gone = await this.run(() => djSetupApi.remove(id));
+      if (gone) {
+        if (this.base?.id === id) this.base = null;
+        app.note("Setup deleted", "success", "dj-setups");
+      }
+      return gone;
+    });
   }
 
   /** The setup's settings replace the current ones; the pads play after a restart of DJ mode. */
   async apply(id: string) {
-    const applied = await this.run(() => djSetupApi.apply(id));
+    const applied = await this.busy(`apply:${id}`, () => this.run(() => djSetupApi.apply(id)));
     if (!applied) return;
     if (app.settings) app.settings = { ...app.settings, dj: applied.settings };
     this.base = { id, json: stableJson(applied.settings) };
@@ -87,16 +109,23 @@ class DjSetupsStore {
   }
 
   async exportSetup(setup: DjSetupSummary) {
+    if (this.working) return;
+    this.working = `export:${setup.id}`;
     try {
       const path = await pickSavePath(DJ_SETUP_FILE, setup.name);
       if (!path) return;
-      app.note(`Exported to ${await djSetupApi.export(setup.id, path)}`, "success", "dj-setups");
+      await djSetupApi.export(setup.id, path);
+      app.note("Setup exported", "success", "dj-setups");
     } catch (e) {
       app.note(errorText(e), "error", "dj-setups");
+    } finally {
+      this.working = null;
     }
   }
 
   async importSetup() {
+    if (this.working) return;
+    this.working = "import";
     try {
       const path = await pickOpenPath(DJ_SETUP_FILE);
       if (!path) return;
@@ -104,6 +133,8 @@ class DjSetupsStore {
       if (made) app.note(`Imported “${made.name}”. Apply it to use it.`, "success", "dj-setups");
     } catch (e) {
       app.note(errorText(e), "error", "dj-setups");
+    } finally {
+      this.working = null;
     }
   }
 }

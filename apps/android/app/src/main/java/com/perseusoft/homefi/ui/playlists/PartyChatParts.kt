@@ -1,5 +1,7 @@
 package com.perseusoft.homefi.ui.playlists
 
+import androidx.compose.material3.LocalContentColor
+import com.perseusoft.homefi.ui.ButtonSpinner
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.StartOffset
 import androidx.compose.animation.core.animateFloat
@@ -174,7 +176,12 @@ internal fun LazyListScope.chat(chat: PartyChat, busy: Boolean, hint: Int, onSen
                 )
                 Spacer(Modifier.size(8.dp))
                 FilledIconButton(onClick = send, enabled = canSend, modifier = Modifier.size(MIN_TOUCH_DP.dp)) {
-                    Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.pl_party_send))
+                    // the AI is answering: a spinner in place of the arrow
+                    if (chat.thinking) {
+                        ButtonSpinner(color = LocalContentColor.current)
+                    } else {
+                        Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.pl_party_send))
+                    }
                 }
             }
         }

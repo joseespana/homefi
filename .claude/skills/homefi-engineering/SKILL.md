@@ -138,6 +138,9 @@ homefi-player (desktop audio engine) depends on homefi-core::dsp, never on the a
 - Every new look or behaviour is a setting on desktop **and** Android (CLAUDE.md).
 - Respect skins/themes (tokens, `LocalSkin`, `data-skin`), the motion setting and haptics.
 - Interactive things look interactive and do something: no decorative play icons.
+- Anything that calls an API, the network, the AI or otherwise takes time shows a loading button: the
+  button that started it turns into a spinner (or progress) until it answers, and can't be pressed twice
+  (José's rule: "todo lo que ejecute API o algo que lleve tiempo, loading button").
 - Accessible: keyboard focus, labels/aria, contrast in light and dark, touch targets ≥ 48 dp.
 - Verify visually (mock + headless screenshots, emulator) before saying a UI change is done.
 

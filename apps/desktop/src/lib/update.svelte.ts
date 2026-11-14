@@ -9,6 +9,8 @@ class Updates {
   /** The "What's new" notes are open in the banner. */
   notesOpen = $state(false);
   checking = $state(false);
+  /** The button that started a download or a restart waits for the app to answer. */
+  working = $state<"download" | "restart" | null>(null);
 
   async init() {
     try {
@@ -38,10 +40,14 @@ class Updates {
   }
 
   async download() {
+    if (this.working) return;
+    this.working = "download";
     try {
       await api.updateDownload();
     } catch (e) {
       app.note(errorText(e), "error");
+    } finally {
+      this.working = null;
     }
   }
 
@@ -55,10 +61,14 @@ class Updates {
       });
       if (!ok) return;
     }
+    if (this.working) return;
+    this.working = "restart";
     try {
       await api.updateRestart(when);
     } catch (e) {
       app.note(errorText(e), "error");
+    } finally {
+      this.working = null;
     }
   }
 
@@ -79,17 +89,17 @@ export const updates = new Updates();
 export function manualReasonText(reason: UpdateView["manualReason"]): string {
   switch (reason) {
     case "dev":
-      return "This is a development build: download the new version from the release page.";
+      return "This is a test build: download the new version from the release page.";
     case "dmg":
-      return "HomeFi is running from the disk image. Drag it to Applications to get updates from the app.";
+      return "HomeFi is running from the installer window. Drag it to Applications to get updates from the app.";
     case "translocated":
-      return "macOS is running HomeFi from a temporary place. Move it to Applications and open it again to get updates from the app.";
+      return "macOS is running HomeFi from a temporary spot. Move it to Applications and open it again to get updates from the app.";
     case "no-appimage":
-      return "Updates install themselves in the AppImage, .deb and .rpm versions. Download this one from the release page.";
+      return "This kind of install can't update itself. Download the new version from the release page.";
     case "no-pkexec":
-      return "Installing a package needs pkexec (polkit), which isn't here. Download the update from the release page.";
+      return "This computer can't ask for the permission needed to install the update. Download it from the release page.";
     case "no-package":
-      return "There's no update package for this system in that release yet. Download it from the release page.";
+      return "That release doesn't have a download for this computer yet. Download it from the release page.";
     default:
       return "This copy of HomeFi can't install updates by itself. Download the new version from the release page.";
   }

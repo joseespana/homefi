@@ -3,6 +3,7 @@
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { api } from "../lib/api";
   import { app } from "../lib/state.svelte";
+  import Spinner from "./Spinner.svelte";
   import Icon from "./Icon.svelte";
 
   const active = $derived(Object.values(app.active));
@@ -61,7 +62,7 @@
 
 {#each active as d (d.task)}
   <div class="row" in:item|global animate:reflow>
-    <span class="spinner"></span>
+    <Spinner size={28} />
     <div class="grow">
       <div class="ellipsis">{d.title}</div>
       <div class="muted small">{d.quality} · {mb(d.downloaded)}{d.total ? ` / ${mb(d.total)}` : ""}</div>
@@ -173,19 +174,6 @@
   }
   .error .state {
     color: var(--danger);
-  }
-  .spinner {
-    width: 28px;
-    height: 28px;
-    border: 3px solid var(--surface-3);
-    border-top-color: var(--primary);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
   }
   .empty {
     display: flex;

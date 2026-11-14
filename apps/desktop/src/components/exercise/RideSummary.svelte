@@ -3,6 +3,7 @@
   import { clock, courseText, partsOf } from "../../lib/exercise-api";
   import { exercise } from "../../lib/exercise.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
   import Mountain from "./Mountain.svelte";
 
   const plan = $derived(exercise.plan!);
@@ -33,8 +34,8 @@
   <p class="guide">This is a guide for effort, not a medical measurement.</p>
 
   <div class="acts">
-    <button type="button" class="again" onclick={() => exercise.rideAgain()}><Icon name="refresh" size={18} />Ride again</button>
-    <button type="button" class="btn tonal" onclick={() => exercise.rebuild()}>Same ride, new songs</button>
+    <button type="button" class="again" disabled={exercise.starting} aria-busy={exercise.starting} onclick={() => exercise.rideAgain()}>{#if exercise.starting}<Spinner size={18} />Starting…{:else}<Icon name="refresh" size={18} />Ride again{/if}</button>
+    <button type="button" class="btn tonal" disabled={exercise.building || exercise.starting} aria-busy={exercise.building} onclick={() => exercise.rebuild()}>{#if exercise.building}<Spinner size={16} />Searching…{:else}Same ride, new songs{/if}</button>
     <button type="button" class="btn tonal" onclick={() => exercise.finish()}>Done</button>
   </div>
 </div>

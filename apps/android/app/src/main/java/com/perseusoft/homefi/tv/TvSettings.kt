@@ -1,5 +1,7 @@
 package com.perseusoft.homefi.tv
 
+import com.perseusoft.homefi.ui.rememberLoadingTask
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -174,7 +176,8 @@ private val CATEGORY_HEIGHT = 38.dp
 private fun SettingRows(category: TvSettingsCategory, firstRow: FocusRequester, back: FocusRequester, onRowFocused: () -> Unit) {
     val context = LocalContext.current
     val app = context.homefi
-    val scope = rememberCoroutineScope()
+    val signingOut = rememberLoadingTask()
+    val loadingNotes = rememberLoadingTask()
     val settings by app.settings.settings.collectAsStateWithLifecycle()
     val account by app.account.account.collectAsStateWithLifecycle()
     val update by app.updates.state.collectAsStateWithLifecycle()
@@ -241,6 +244,12 @@ private fun SettingRows(category: TvSettingsCategory, firstRow: FocusRequester, 
                     SettingLine(
                         row, enabled, rowModifier,
                         onFocused = rowFocus,
+                        busy = when (row.action) {
+                            TvSettingAction.SIGN_OUT -> signingOut.active
+                            TvSettingAction.CHECK_UPDATES -> update.status == UpdateStatus.CHECKING
+                            TvSettingAction.WHATS_NEW -> loadingNotes.active
+                            else -> false
+                        },
                         onClick = {
                             when (row.action) {
                                 TvSettingAction.SIGN_OUT -> if (account == null) nav.go(TvSection.HOME) else signOut = true
@@ -250,7 +259,7 @@ private fun SettingRows(category: TvSettingsCategory, firstRow: FocusRequester, 
                                     app.library.refresh()
                                 }
                                 TvSettingAction.CHECK_UPDATES -> if (app.updates.enabled) app.updates.check(manual = true)
-                                TvSettingAction.WHATS_NEW -> scope.launch { app.whatsNew.latest()?.let { app.whatsNew.show(listOf(it)) } }
+                                TvSettingAction.WHATS_NEW -> loadingNotes.run { app.whatsNew.latest()?.let { app.whatsNew.show(listOf(it)) } }
                             }
                         },
                         value = { focused -> if (shown != null) ValueText(shown, focused, arrows = false) else Icon(Icons.Rounded.ChevronRight, null, tint = if (focused) LocalTvLook.current.onFocus else LocalTvLook.current.ink2, modifier = Modifier.size(20.dp)) },
@@ -285,7 +294,7 @@ private fun SettingRows(category: TvSettingsCategory, firstRow: FocusRequester, 
             text = stringResource(R.string.settings_logout_text),
             confirmLabel = stringResource(R.string.settings_logout),
             onConfirm = {
-                scope.launch {
+                signingOut.run {
                     app.downloads.cancelAll()
                     app.engine.logout()
                     app.account.signedOut()
@@ -335,8 +344,9 @@ private fun SettingLine(
     modifier: Modifier,
     onClick: () -> Unit,
     onFocused: (Boolean) -> Unit,
+    busy: Boolean = false,
     value: @Composable (focused: Boolean) -> Unit,
-) = TvSettingLine(stringResource(row.title), row.hint?.let { stringResource(it) }, enabled, modifier, onClick, onFocused = onFocused, value = value)
+) = TvSettingLine(stringResource(row.title), row.hint?.let { stringResource(it) }, enabled, modifier, onClick, onFocused = onFocused, busy = busy, value = value)
 
 /**
  * One line of Settings: title and hint on the left, the value on the right; white when focused, dim when it
@@ -351,12 +361,14 @@ internal fun TvSettingLine(
     onClick: () -> Unit,
     danger: Boolean = false,
     onFocused: (Boolean) -> Unit = {},
+    /** The work this row started is running: a spinner replaces the value and OK does nothing until it answers. */
+    busy: Boolean = false,
     value: @Composable (focused: Boolean) -> Unit,
 ) {
     val look = LocalTvLook.current
     val shape = RoundedCornerShape(12.dp)
     TvFocusable(
-        onClick = onClick,
+        onClick = { if (!busy) onClick() },
         modifier = modifier.fillMaxWidth().heightIn(min = ROW_MIN_HEIGHT),
         shape = shape,
         focusedScale = 1.02f,
@@ -382,7 +394,11 @@ internal fun TvSettingLine(
                 Text(title, style = TvType.cardTitle.copy(fontSize = 15.sp), color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 hint?.let { Text(it, style = TvType.secondary, color = if (focused) ROW_SUB_FOCUSED else look.ink2, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             }
-            value(focused)
+            if (busy) {
+                CircularProgressIndicator(Modifier.size(20.dp), color = if (focused) look.onFocus else look.accent2, strokeWidth = 2.dp)
+            } else {
+                value(focused)
+            }
         }
     }
 }

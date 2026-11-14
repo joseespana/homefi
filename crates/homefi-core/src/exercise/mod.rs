@@ -22,6 +22,7 @@ pub mod cues;
 pub mod library;
 pub mod model;
 pub mod presets;
+pub mod preview;
 pub mod profile;
 pub mod ride;
 pub mod settings;
@@ -45,8 +46,11 @@ pub use model::{
     MAX_STEPS, MAX_TASTE_ARTISTS, MIN_RIDE_MINUTES, MIN_STEP_SECONDS, RIDE_MINUTES_STEP,
 };
 pub use presets::{apply_climb_steps, beginner_caps, climb_steps, preset};
+pub use preview::{preview_window, PreviewWindow, PREVIEW_MS};
 pub use profile::{elevation_at, hot_points, profile, HotPoint, ProfilePoint};
-pub use ride::{Cue, IntervalPhase, IntervalView, NextView, PulseView, RideClock, RideView, StepView};
+pub use ride::{
+    Callout, CalloutKind, Cue, IntervalPhase, IntervalView, NextView, PulseView, RideClock, RideView, StepView, CHEERS,
+};
 pub use settings::{
     lenient_exercise, CourseLook, CourseRider, ExerciseSettings, PulseStyle, SourcesMode, TvAudio, DEFAULT_TV_PORT,
     TV_DISPLAY_AUTO,
@@ -56,6 +60,7 @@ pub use taste::{artist_suggestions, MAX_ARTIST_SUGGESTIONS};
 #[cfg(feature = "share")]
 pub use tv::{discover, RideTvEndpoint, TvServer, RIDE_SERVICE_TYPE};
 pub use tv::{render_page, RideTvView, TvPart, TvText, TV_PROTOCOL_VERSION};
+pub use words::callout_text;
 
 use crate::humane::Lang;
 

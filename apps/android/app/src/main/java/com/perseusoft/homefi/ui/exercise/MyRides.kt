@@ -1,5 +1,7 @@
 package com.perseusoft.homefi.ui.exercise
 
+import com.perseusoft.homefi.ui.rememberLoadingTask
+import com.perseusoft.homefi.ui.ButtonSpinner
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -82,11 +84,13 @@ fun MyRides() {
     val rides by app.rides.list.collectAsStateWithLifecycle()
     val haptics = haptics()
     val scope = rememberCoroutineScope()
+    val importing = rememberLoadingTask()
+    val loadingRide by app.ride.loadingRide.collectAsStateWithLifecycle()
     var all by rememberSaveable { mutableStateOf(false) }
     var dialog by remember { mutableStateOf<RideDialog?>(null) }
     LaunchedEffect(Unit) { app.rides.refresh() }
 
-    val exchange = rememberFileExchange { text -> scope.launch { app.rides.import(text) } }
+    val exchange = rememberFileExchange { text -> importing.run { app.rides.import(text) } }
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -98,8 +102,8 @@ fun MyRides() {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            TextButton(onClick = exchange.pick, modifier = Modifier.heightIn(min = MIN_TARGET)) {
-                Icon(Icons.Rounded.FileUpload, null, Modifier.size(18.dp))
+            TextButton(onClick = exchange.pick, enabled = !importing.active, modifier = Modifier.heightIn(min = MIN_TARGET)) {
+                if (importing.active) ButtonSpinner(size = 18.dp) else Icon(Icons.Rounded.FileUpload, null, Modifier.size(18.dp))
                 Text(stringResource(R.string.rides_import), Modifier.padding(start = 6.dp))
             }
         }
@@ -116,6 +120,7 @@ fun MyRides() {
             key(ride.id) {
                 RideCard(
                     ride = ride,
+                    loading = loadingRide == ride.id,
                     onRide = { haptics.tick(); app.ride.rideAgain(ride.id) },
                     onFavorite = { haptics.tick(); app.rides.setFavorite(ride.id, !ride.favorite) },
                     onKeep = { scope.launch { app.rides.keep(ride.id) } },
@@ -162,6 +167,7 @@ fun MyRides() {
 @Composable
 private fun RideCard(
     ride: SavedRideSummary,
+    loading: Boolean,
     onRide: () -> Unit,
     onFavorite: () -> Unit,
     onKeep: () -> Unit,
@@ -215,8 +221,8 @@ private fun RideCard(
             Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            FilledTonalButton(onClick = onRide, modifier = Modifier.heightIn(min = MIN_TARGET)) {
-                Icon(Icons.Rounded.PlayArrow, null, Modifier.size(18.dp))
+            FilledTonalButton(onClick = onRide, enabled = !loading, modifier = Modifier.heightIn(min = MIN_TARGET)) {
+                if (loading) ButtonSpinner(size = 18.dp) else Icon(Icons.Rounded.PlayArrow, null, Modifier.size(18.dp))
                 Text(stringResource(R.string.rides_again), Modifier.padding(start = 6.dp))
             }
             Box(Modifier.weight(1f))

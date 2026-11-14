@@ -9,6 +9,7 @@
   import PageMore from "./PageMore.svelte";
   import Skeleton from "./Skeleton.svelte";
   import type { Paged } from "../lib/paged.svelte";
+  import Spinner from "./Spinner.svelte";
   import { Progressive, Windowed } from "../lib/virtual.svelte";
 
   type Tab = "playlists" | "albums" | "artists" | "tracks";
@@ -63,12 +64,18 @@
   // every favorite track, for playing on from a row and for "Download missing"
   const allTracks = () => (list && !filter.trim() ? list.all() : Promise.resolve(shown));
 
+  let queuing = $state(false);
+
   async function downloadMissing() {
+    if (queuing) return;
+    queuing = true;
     try {
       const missing = (await allTracks()).filter(isMissing);
       if (missing.length) await app.download(`${missing.length} favorite tracks`, missing.map((h) => `track/${h.id}`), missing.map((h) => h.id));
     } catch (e) {
       app.notify(errorText(e), true);
+    } finally {
+      queuing = false;
     }
   }
 
@@ -81,13 +88,13 @@
   </div>
   <div class="actions fold" use:foldLabels>
     <div class="filter"><Icon name="search" size={16} /><input placeholder="Filter" bind:value={filter} /></div>
-    <button class="icon-btn" title="Refresh" onclick={() => load(tab, true)} disabled={loading && !items.length}><Icon name="refresh" /></button>
+    <button class="icon-btn" title="Refresh" onclick={() => load(tab, true)} disabled={loading} aria-busy={loading}>{#if loading}<Spinner size={18} />{:else}<Icon name="refresh" />{/if}</button>
     {#if tab === "playlists" && app.account}
       <button class="btn tonal" onclick={() => (app.newPlaylist = { trackIds: [] })}><Icon name="plus" size={16} /> New playlist</button>
     {/if}
     {#if tab === "tracks" && missingTracks.length}
-      <button class="btn primary" onclick={downloadMissing}>
-        <Icon name="download" size={16} /> Download {list?.done || filter.trim() ? missingTracks.length : ""} missing
+      <button class="btn primary" onclick={downloadMissing} disabled={queuing} aria-busy={queuing}>
+        {#if queuing}<Spinner size={16} />{:else}<Icon name="download" size={16} />{/if} Download {list?.done || filter.trim() ? missingTracks.length : ""} missing
       </button>
     {/if}
   </div>

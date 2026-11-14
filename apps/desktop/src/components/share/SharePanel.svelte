@@ -6,6 +6,7 @@
   import { share } from "../../lib/share.svelte";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
   import QrCode from "./QrCode.svelte";
 
   const hub = $derived(share.hub);
@@ -48,8 +49,8 @@
         <div class="code-box">
           <span class="muted small">Join code</span>
           <span class="code" aria-label="Join code {hub.info.code.split('').join(' ')}">{hub.info.code}</span>
-          <span class="muted small mono">{hub.info.host}:{hub.info.port}</span>
-          <p class="muted small hint">Scan it with the phone’s camera, or open HomeFi: the session shows up by itself.</p>
+          <span class="muted small">No camera? Type this address: <span class="mono">{hub.info.host}:{hub.info.port}</span></span>
+          <p class="muted small hint">Scan it with a phone camera, or open HomeFi on the other device: the session shows up by itself.</p>
         </div>
       </section>
 
@@ -108,15 +109,15 @@
 
       <footer>
         <button class="btn tonal" onclick={openRules}><Icon name="settings" size={15} /> Rules</button>
-        <button class="btn danger" onclick={() => share.stop()}>Stop sharing</button>
+        <button class="btn danger" disabled={!!share.working} aria-busy={share.working === "stop"} onclick={() => share.stop()}>{#if share.working === "stop"}<Spinner size={16} /> Stopping…{:else}Stop sharing{/if}</button>
       </footer>
     {:else if hub.starting}
-      <p class="muted starting"><span class="spin"></span> Starting…</p>
+      <p class="muted starting" aria-busy="true"><Spinner size={14} /> Starting…</p>
     {:else if share.inRoom}
       <section>
         <p>You are in “{share.guest.session_name}”. Leave it to share your own music.</p>
         <div class="actions">
-          <button class="btn tonal" onclick={() => share.leave()}>Leave</button>
+          <button class="btn tonal" disabled={!!share.working} aria-busy={share.working === "leave"} onclick={() => share.leave()}>{#if share.working === "leave"}<Spinner size={16} /> Leaving…{:else}Leave{/if}</button>
           <button class="btn primary" onclick={() => { share.open(); close(); }}>Open</button>
         </div>
       </section>
@@ -137,7 +138,7 @@
         <p class="muted small">As “{share.name}” · over this computer’s network (Wi-Fi or Ethernet)</p>
         {#if hub.error}<p class="error">{hub.error}</p>{/if}
         <div class="actions">
-          <button class="btn primary" onclick={() => share.start(party)}><Icon name="cast" size={16} /> Start sharing</button>
+          <button class="btn primary" disabled={!!share.working} aria-busy={share.working === "start"} onclick={() => share.start(party)}>{#if share.working === "start"}<Spinner size={16} /> Starting…{:else}<Icon name="cast" size={16} /> Start sharing{/if}</button>
         </div>
       </section>
 
@@ -148,13 +149,13 @@
             <span class="mark small-mark"><Icon name="wifi" size={15} /></span>
             <div class="grow">
               <div class="ellipsis">{n.name}</div>
-              <div class="muted small mono">{n.host}:{n.port}</div>
+              <div class="muted small">On your network</div>
             </div>
             <button class="btn primary small-btn" onclick={() => share.askJoin(n)}>Join</button>
           </div>
         {:else}
           <p class="muted small">
-            {app.settings?.share.discover === false ? "Looking for sessions nearby is off (Settings → Shared control & party)." : "Looking for sessions on this network…"}
+            {app.settings?.share.discover === false ? "Looking for sessions nearby is off (Settings → Shared control & party)." : "Looking for sessions on your Wi-Fi…"}
           </p>
         {/each}
         <button class="btn tonal" onclick={() => share.askJoin()}><Icon name="plus" size={15} /> Join with a code</button>
@@ -352,19 +353,6 @@
     display: flex;
     align-items: center;
     gap: 10px;
-  }
-  .spin {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
-    border-top-color: currentColor;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
   }
   @keyframes fade {
     from {

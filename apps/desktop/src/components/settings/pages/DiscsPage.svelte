@@ -45,10 +45,10 @@
 <DiscQuality settings={d} driveId={disc.drive?.id ?? null} advanced {save} />
 
 <SettingsGroup title="Names and covers" description="HomeFi asks you for the names before ripping.">
-  <SwitchRow label="Use the names on the disc" hint="Some discs carry the artist and song titles (CD-Text). They fill the form, and you can change them." checked={d.sources.cdText} onchange={(cdText) => save({ sources: { ...d.sources, cdText } })} />
+  <SwitchRow label="Use the names on the disc" hint="Some discs carry the artist and song titles inside. They fill the form, and you can change them." checked={d.sources.cdText} onchange={(cdText) => save({ sources: { ...d.sources, cdText } })} />
   <SwitchRow
     label="Look up discs on MusicBrainz"
-    hint="Off by default. Adds a “Look it up” button to the Disc screen; pressing it sends the disc's table of contents (not your name or files) to musicbrainz.org."
+    hint="Off by default. Adds a “Look it up” button to the Disc screen; pressing it sends the disc's track lengths (not your name or files) to musicbrainz.org."
     checked={d.sources.musicbrainz}
     onchange={(musicbrainz) => save({ sources: { ...d.sources, musicbrainz } })}
   />
@@ -65,6 +65,6 @@
     onchange={(text) => save({ template: text.trim() || null })}
   />
   <SwitchRow label="Write a log" hint="A text file next to the songs with the drive, the settings and how each song was read." checked={d.writeLog} onchange={(writeLog) => save({ writeLog })} />
-  <SwitchRow label="Write a cue sheet" hint="For people who burn the disc again or use players that read .cue files." checked={d.writeCue} onchange={(writeCue) => save({ writeCue })} />
-  <SwitchRow label="Hide the 16-bit / 44.1 kHz note" hint="The note about CD audio and ffmpeg in the format list." checked={d.hideCdOnlyNote} onchange={(hideCdOnlyNote) => save({ hideCdOnlyNote })} />
+  <SwitchRow label="Write a cue sheet" hint="For people who burn the disc again or use players that read cue files." checked={d.writeCue} onchange={(writeCue) => save({ writeCue })} />
+  <SwitchRow label="Hide the 16-bit / 44.1 kHz note" hint="The note about CD quality and extra formats in the format list." checked={d.hideCdOnlyNote} onchange={(hideCdOnlyNote) => save({ hideCdOnlyNote })} />
 </SettingsGroup>

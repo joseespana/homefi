@@ -15,13 +15,6 @@
 
   export type ChainLook = "room" | "glass" | "lcd" | "luna" | "alu" | "web";
 
-  /** 48000/44100 → "160 : 147". */
-  function ratio(to: number, from: number): string {
-    const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
-    const g = gcd(to, from) || 1;
-    return `${to / g} : ${from / g}`;
-  }
-
   const CONTAINERS: Record<string, string> = {
     flac: "FLAC file",
     m4a: "MP4 audio (.m4a)",
@@ -358,16 +351,16 @@
       {#if open === "source"}
         <div class="sc-head"><span class="chip">{codec}</span><b>{lossless ? "Lossless" : "Lossy"} source</b></div>
         <dl>
-          <dt>Codec</dt><dd>{codec}{lossless ? " (lossless)" : " (compressed)"}</dd>
-          <dt>Container</dt><dd>{tidal ? "Tidal stream" : (CONTAINERS[ext] ?? (ext ? `.${ext} file` : "—"))}</dd>
-          <dt>Bit depth</dt><dd>{stream.bits_per_sample ? `${stream.bits_per_sample}-bit` : lossless ? "—" : "decoded to float"}</dd>
+          <dt>Format</dt><dd>{codec}{lossless ? " (lossless)" : " (compressed)"}</dd>
+          <dt>Kind</dt><dd>{tidal ? "Streamed from Tidal" : (CONTAINERS[ext] ?? (ext ? `.${ext} file` : "—"))}</dd>
+          <dt>Bit depth</dt><dd>{stream.bits_per_sample ? `${stream.bits_per_sample}-bit` : lossless ? "—" : "—"}</dd>
           <dt>Sample rate</dt><dd>{khz(stream.source_rate)} kHz</dd>
           <dt>Channels</dt><dd>{stream.source_channels} ({channels(stream.source_channels)})</dd>
           {#if track?.quality}<dt>Quality</dt><dd>{track.quality}</dd>{/if}
           {#if src.remote}
             <dt>From</dt><dd>{src.label}</dd>
           {:else if tidal}
-            <dt>Tidal</dt><dd>{app.currentTidalId ? `track ${app.currentTidalId}` : "streaming"}</dd>
+            <dt>Tidal</dt><dd>Streaming</dd>
           {:else if track}
             <dt>File</dt><dd class="path" title={track.path}>{track.path.split("#")[0]}</dd>
           {/if}
@@ -377,18 +370,17 @@
         <dl>
           <dt>From</dt><dd>{khz(stream.source_rate)} kHz</dd>
           <dt>To</dt><dd>{khz(stream.output_rate)} kHz</dd>
-          <dt>Ratio</dt><dd>{ratio(stream.output_rate, stream.source_rate)}</dd>
-          <dt>Algorithm</dt><dd>Band-limited sinc (rubato), 64-bit float</dd>
+          <dt>Method</dt><dd>High-precision conversion</dd>
           {#if rates?.length}<dt>Output runs at</dt><dd>{rates.map(khz).join(" / ")} kHz</dd>{/if}
         </dl>
-        <p class="sc-note">Every sample is recalculated: very close to the original, but not bit-perfect. An output that supports {khz(stream.source_rate)} kHz plays it as it is.</p>
+        <p class="sc-note">The sound is recalculated at the new rate: very close to the original, but not bit-perfect. An output that supports {khz(stream.source_rate)} kHz plays it as it is.</p>
       {:else if open === "loudness"}
         <div class="sc-head"><b>Loudness normalization</b><span class="sub">{gain > 0 ? "+" : "−"}{Math.abs(gain).toFixed(1)} dB on this song</span></div>
         <dl>
           <dt>Mode</dt><dd>{LOUDNESS_MODES.find((m) => m.id === loud.mode)?.label ?? loud.mode}</dd>
           <dt>Target</dt><dd>{loud.targetLufs} LUFS</dd>
           <dt>Gain now</dt><dd>{formatDb(gain)}</dd>
-          <dt>From</dt><dd>ReplayGain tags (or a measure of the song)</dd>
+          <dt>From</dt><dd>The song’s volume info (or a measurement of the song)</dd>
           <dt>Clipping</dt><dd>{loud.preventClipping ? "Protected: never boosted past its peak" : "Not limited"}</dd>
         </dl>
       {:else if open === "eq"}
@@ -417,7 +409,7 @@
             {/if}
             {#if !soundName || outputCurveOn}<dt>Preamp</dt><dd>{app.settings?.eq.autoPreamp ? "Automatic, from the curve" : formatDb(eqProfile.preampDb)}</dd>{/if}
           {/if}
-          <dt>Processing</dt><dd>64-bit float DSP</dd>
+          <dt>Processing</dt><dd>High-precision</dd>
         </dl>
       {:else if open === "fade" && fading}
         {@const from = fading.from ? src.trackAt(fading.from) : null}

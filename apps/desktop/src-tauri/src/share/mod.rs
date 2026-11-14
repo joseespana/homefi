@@ -658,9 +658,9 @@ pub fn share_guest(app: AppHandle, message: GuestMessage) -> CmdResult<()> {
         message,
         GuestMessage::Hello { .. } | GuestMessage::Clock { .. } | GuestMessage::Ready { .. } | GuestMessage::Unknown
     ) {
-        return Err("Not a guest request".into());
+        return Err("That is not something a guest can do".into());
     }
-    let guest = app.state::<Share>().guest().ok_or("Not in a session")?;
+    let guest = app.state::<Share>().guest().ok_or("You are not in a session")?;
     guest.send(message)
 }
 

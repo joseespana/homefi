@@ -432,7 +432,7 @@ mod tests {
             // both `port` and `port + 1` are now taken
             let third =
                 TvServer::start(TvConfig { port, announce: false, lang: Lang::En, ..TvConfig::default() }).await;
-            assert!(third.err().is_some_and(|e| e.to_string().contains("in use")));
+            assert!(third.err().is_some_and(|e| e.to_string().contains("another app")));
             server.stop().await;
         }
     }

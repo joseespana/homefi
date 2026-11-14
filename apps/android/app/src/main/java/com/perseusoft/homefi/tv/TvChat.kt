@@ -135,6 +135,7 @@ fun TvChat(
                 icon = Icons.Rounded.Keyboard,
                 height = 34.dp,
                 primary = first && canSend,
+                busy = typing,
             )
             if (mic != null) TvPill(stringResource(R.string.tv_kb_speak), mic, icon = Icons.Rounded.Mic, height = 34.dp)
             actions()

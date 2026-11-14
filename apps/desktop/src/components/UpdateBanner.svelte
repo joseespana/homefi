@@ -6,6 +6,7 @@
   import { app } from "../lib/state.svelte";
   import { manualReasonText, updates } from "../lib/update.svelte";
   import Icon from "./Icon.svelte";
+  import Spinner from "./Spinner.svelte";
   import UpdateNotes from "./UpdateNotes.svelte";
 
   const v = $derived(updates.view!);
@@ -62,19 +63,19 @@
     {#if v.status === "available" || v.status === "error"}
       <button class="btn tonal small-btn" onclick={() => updates.later()}>Later</button>
       {#if v.inPlace}
-        <button class="btn primary small-btn" onclick={() => updates.download()}>{v.status === "error" ? "Try again" : "Update now"}</button>
+        <button class="btn primary small-btn" disabled={!!updates.working} aria-busy={updates.working === "download"} onclick={() => updates.download()}>{#if updates.working === "download"}<Spinner size={14} /> Starting…{:else}{v.status === "error" ? "Try again" : "Update now"}{/if}</button>
       {:else}
         <button class="btn primary small-btn" onclick={() => updates.openPage()}><Icon name="external" size={14} /> Download</button>
       {/if}
     {:else if v.status === "ready"}
       {#if playing && !v.afterSong}
-        <button class="btn tonal small-btn" onclick={() => updates.restart("song_end")}>When the song ends</button>
+        <button class="btn tonal small-btn" disabled={!!updates.working} onclick={() => updates.restart("song_end")}>When the song ends</button>
       {:else if v.afterSong}
         <button class="btn tonal small-btn" onclick={() => updates.later()}>Not now</button>
       {:else}
         <button class="btn tonal small-btn" onclick={() => updates.later()}>Later</button>
       {/if}
-      <button class="btn primary small-btn" onclick={() => updates.restart("now")}>Restart now</button>
+      <button class="btn primary small-btn" disabled={!!updates.working} aria-busy={updates.working === "restart"} onclick={() => updates.restart("now")}>{#if updates.working === "restart"}<Spinner size={14} /> Restarting…{:else}Restart now{/if}</button>
     {/if}
   </div>
 </div>

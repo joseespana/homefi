@@ -79,7 +79,7 @@
     <string name="tv_perm_step3">Pulsa Atrás. La actualización sigue sola.</string>
     <string name="tv_perm_path">Si la página no se abre: Ajustes → Aplicaciones → Seguridad y restricciones → Instalar aplicaciones desconocidas → HomeFi</string>
     <string name="tv_perm_open">Abrir ajustes</string>
-    <string name="tv_perm_not_found">Esta tele no pudo abrir esa página. Sigue la ruta de arriba.</string>
+    <string name="tv_perm_not_found">Esta tele no pudo abrir esa página. Sigue los pasos de arriba.</string>
     <string name="tv_notes_scroll">Usa arriba y abajo para leer</string>
     <string name="tv_ride_from">Entrenamiento de %1$s</string>
     <string name="tv_ride_watch">Ver</string>

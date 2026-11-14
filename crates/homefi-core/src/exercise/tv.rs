@@ -43,6 +43,9 @@ pub struct TvText {
     pub unit: String,
     /// "Resistance +1 · 2 of 3" once a resistance step has started, else empty. The page decides how long to show it.
     pub step: String,
+    /// The big message in the middle ("You can do it!", "3 seconds more!"), empty when none or when the rider
+    /// turned them off. The sprint's 3-2-1 is the page's own countdown, so it is never here.
+    pub callout: String,
 }
 
 /// How a TV client joins the ride's hub as a listening guest (audio `tv`): the hub accepts only
@@ -160,6 +163,8 @@ pub struct TvSession {
     pub hot_points: Vec<HotPoint>,
     /// How the TV draws the rider on the mountain.
     pub course_rider: CourseRider,
+    /// Big messages in the middle of the ride (`ride_callouts`): cheers while sprinting, the ride's last words.
+    pub callouts: bool,
 }
 
 /// The newest ride state the app published.
@@ -263,7 +268,16 @@ impl RideTvView {
             Some(f) => Self {
                 sampled_ms: f.sampled_ms,
                 playing: f.playing,
-                text: text_for(&f.view, lang),
+                text: TvText {
+                    callout: f
+                        .view
+                        .callout
+                        // the 3-2-1 is the page's own countdown screen
+                        .filter(|c| session.callouts && c.kind != crate::exercise::ride::CalloutKind::Countdown)
+                        .map(|c| words::callout_text(lang, c))
+                        .unwrap_or_default(),
+                    ..text_for(&f.view, lang)
+                },
                 paused: !f.playing && !f.view.finished,
                 countdown_s: countdown_digit(&f.view),
                 ride: Some(f.view.clone()),
@@ -281,7 +295,7 @@ impl RideTvView {
     pub fn from_json(json: &str) -> Result<Self> {
         let view: Self = serde_json::from_str(json)?;
         if view.v > TV_PROTOCOL_VERSION {
-            return Err(Error::Playlist(format!("ride TV protocol {} is newer than this app understands", view.v)));
+            return Err(Error::Playlist(super::words::ride_file_newer(crate::humane::language())));
         }
         Ok(view)
     }
@@ -314,6 +328,7 @@ fn text_for(view: &RideView, lang: Lang) -> TvText {
             .unwrap_or_default(),
         unit: view.shown.unit.label().to_owned(),
         step: view.step.filter(|s| s.index >= 2).map(|s| words::step_chip(lang, s.index, s.count)).unwrap_or_default(),
+        callout: String::new(),
     }
 }
 
@@ -456,7 +471,20 @@ mod tests {
             course_summits: true,
             hot_points: vec![HotPoint { t_s: 100, effort: 7, level: 2, count: 3 }],
             course_rider: CourseRider::Dot,
+            callouts: true,
         }
+    }
+
+    #[test]
+    fn the_callout_comes_as_text_in_the_tv_language_unless_turned_off() {
+        let mut v = view();
+        v.callout =
+            Some(crate::exercise::ride::Callout { kind: crate::exercise::ride::CalloutKind::SecondsLeft, n: 3 });
+        let frame = TvFrame { view: v, playing: true, sampled_ms: 900 };
+        let es = RideTvView::build(&session(), Some(&frame), 1_000, Lang::Es, true);
+        assert_eq!(es.text.callout, "¡3 segundos más!");
+        let off = TvSession { callouts: false, ..session() };
+        assert!(RideTvView::build(&off, Some(&frame), 1_000, Lang::En, true).text.callout.is_empty());
     }
 
     #[test]

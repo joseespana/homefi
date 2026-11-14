@@ -1,31 +1,31 @@
 <script lang="ts">
-  // The ride screen's TV button: its state (off / on) and a small menu for the window, the link and where
-  // the music plays. The TV shows homefi-core's own page, so "open in a browser" is just the link.
+  // The ride screen's TV button: its state (off / on) and a small menu for the second screen, a smart TV (HomeFi
+  // on a Google TV finds the ride by itself; any other TV types what it shows in its browser) and where the music plays.
   import { exercise } from "../../lib/exercise.svelte";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
-  import QrCode from "../share/QrCode.svelte";
+  import Spinner from "../Spinner.svelte";
 
-  const QR_PX = 128;
   let open = $state(false);
-  let qr = $state(false);
+  let smart = $state(false);
   const tv = $derived(exercise.tv);
   const on = $derived(tv.window || tv.server);
+  /** What a person types in a TV's browser: no "http://", no trailing slash. */
+  const typed = $derived(tv.url ? tv.url.replace(/^https?:\/\//, "").replace(/\/$/, "") : "");
 
-  async function copy() {
-    if (!tv.url) await exercise.openTvServer();
-    const url = exercise.tv.url;
-    if (!url) return;
-    try {
-      await navigator.clipboard.writeText(url);
-      app.note("Link copied. Open it on the TV's browser.", "success", "exercise-copy");
-    } catch {
-      app.note(url, "info", "exercise-copy");
-    }
+  /** "Smart TV": the TV page starts (a Google TV with HomeFi then finds the ride) and the two ways show. */
+  async function showSmart() {
+    smart = !smart;
+    if (smart && !tv.url) await exercise.openTvServer();
   }
-  async function showQr() {
-    if (!tv.url) await exercise.openTvServer();
-    qr = !qr;
+  async function copy() {
+    if (!typed) return;
+    try {
+      await navigator.clipboard.writeText(typed);
+      app.note("Copied", "success", "exercise-copy");
+    } catch {
+      app.note(typed, "info", "exercise-copy");
+    }
   }
 </script>
 
@@ -38,12 +38,17 @@
   </button>
   {#if open}
     <div class="menu" role="menu">
-      <button type="button" role="menuitemcheckbox" aria-checked={tv.window} onclick={() => exercise.toggleTvWindow()}>
-        <Icon name="monitor" size={16} />TV window<span class="state">{tv.window ? "On" : "Off"}</span>
+      <button type="button" role="menuitemcheckbox" aria-checked={tv.window} aria-busy={exercise.working === "tv-window"} disabled={!!exercise.working} onclick={() => exercise.toggleTvWindow()}>
+        <Icon name="monitor" size={16} />Second screen{#if exercise.working === "tv-window"}<span class="state"><Spinner size={14} /></span>{:else}<span class="state">{tv.window ? "On" : "Off"}</span>{/if}
       </button>
-      <button type="button" role="menuitem" onclick={copy}><Icon name="copy" size={16} />Open in browser (copy link)</button>
-      <button type="button" role="menuitem" onclick={showQr}><Icon name="external" size={16} />Show QR</button>
-      {#if qr && tv.url}<div class="qr"><QrCode text={tv.url} size={QR_PX} /></div>{/if}
+      <button type="button" role="menuitem" aria-expanded={smart} aria-busy={exercise.working === "tv-smart"} onclick={showSmart}>{#if exercise.working === "tv-smart"}<Spinner size={16} />{:else}<Icon name="external" size={16} />{/if}Smart TV</button>
+      {#if smart}
+        <div class="smart">
+          <p><b>Google TV or Android TV:</b> open HomeFi on the TV and go to Train. The ride shows up there by itself.</p>
+          <p><b>Another smart TV:</b> in its web browser, type</p>
+          {#if typed}<button type="button" class="addr" title="Copy" onclick={copy}>{typed}</button>{:else}<p>Getting it ready…</p>{/if}
+        </div>
+      {/if}
       <div class="sep" role="separator"></div>
       <span class="cap">Music plays</span>
       <div class="two" role="radiogroup" aria-label="Music plays">
@@ -55,6 +60,27 @@
 </span>
 
 <style>
+  .smart {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: 280px;
+    padding: 4px 10px 6px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .smart p {
+    margin: 0;
+  }
+  .smart .addr {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--primary);
+    text-align: left;
+    user-select: text;
+    overflow-wrap: anywhere;
+  }
   .wrap {
     position: relative;
     display: inline-flex;
@@ -114,11 +140,6 @@
     color: var(--muted);
     font-size: 12px;
     font-weight: 700;
-  }
-  .qr {
-    display: grid;
-    place-items: center;
-    padding: 6px;
   }
   .sep {
     height: 1px;

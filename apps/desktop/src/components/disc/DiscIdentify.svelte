@@ -8,6 +8,7 @@
   import type { DiscSource } from "../../lib/api";
   import Segmented from "../settings/Segmented.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
 
   const SOURCE_NOTE: Record<DiscSource, string> = {
     cdText: "Filled in from the names on the disc (CD-Text). Change anything you like.",
@@ -32,8 +33,8 @@
   <header>
     <h2 id="ident-h">About this disc</h2>
     {#if lookupOn}
-      <button type="button" class="btn tonal" onclick={() => disc.lookup()} disabled={disc.looking || disc.ripping}>
-        {#if disc.looking}<span class="spin" aria-hidden="true"></span> Looking…{:else}<Icon name="search" size={16} /> Look it up on MusicBrainz{/if}
+      <button type="button" class="btn tonal" onclick={() => disc.lookup()} disabled={disc.looking || disc.ripping} aria-busy={disc.looking}>
+        {#if disc.looking}<Spinner size={14} /> Looking…{:else}<Icon name="search" size={16} /> Look it up on MusicBrainz{/if}
       </button>
     {/if}
   </header>
@@ -176,23 +177,5 @@
     border-radius: var(--r-pill);
     background: var(--surface-3);
     font-size: 13px;
-  }
-  .spin {
-    width: 14px;
-    height: 14px;
-    border: 2px solid var(--surface-3);
-    border-top-color: var(--primary);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .spin {
-      animation-duration: 3s;
-    }
   }
 </style>

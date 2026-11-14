@@ -11,6 +11,7 @@
   import { kindLabel, ruleWords, sound } from "../../lib/sound.svelte";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
 
   /** The quick asks: what they say to the AI, and the reaction they stand for without one. */
   const CHIPS: { label: string; reaction: SoundReaction }[] = [
@@ -129,7 +130,7 @@
         aria-label="Ask the AI for a change"
         onfocus={() => (sound.askOpen = turns.length > 0 || sound.askOpen)}
       />
-      <button class="btn primary" disabled={!text.trim() || assistant.thinking}>Send</button>
+      <button class="btn primary" disabled={!text.trim() || assistant.thinking} aria-busy={assistant.thinking}>{#if assistant.thinking}<Spinner size={16} /> Thinking…{:else}Send{/if}</button>
     </form>
   {/if}
 

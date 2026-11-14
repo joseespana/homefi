@@ -192,6 +192,7 @@ internal fun ExerciseSettingsPage() {
         SwitchRow(stringResource(R.string.ex_set_big_controls), s.rideBigControls, hint = stringResource(R.string.ex_set_big_controls_hint)) { set(s.copy(rideBigControls = it)) }
         RowDivider()
         SwitchRow(stringResource(R.string.ex_set_karaoke), s.rideKaraoke, hint = stringResource(R.string.ex_set_karaoke_hint)) { set(s.copy(rideKaraoke = it)) }
+        SwitchRow(stringResource(R.string.ex_set_callouts), s.rideCallouts, hint = stringResource(R.string.ex_set_callouts_hint)) { set(s.copy(rideCallouts = it)) }
     }
 
     SettingsGroup(title = stringResource(R.string.ex_tv), description = stringResource(R.string.ex_set_tv_hint)) {

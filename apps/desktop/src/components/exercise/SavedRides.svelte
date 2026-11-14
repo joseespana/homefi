@@ -6,6 +6,7 @@
   import { exercise } from "../../lib/exercise.svelte";
   import { ago } from "../../lib/transfer";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
   import MiniProfile from "./MiniProfile.svelte";
 
   const rides = $derived(exercise.rides);
@@ -52,7 +53,7 @@
 <section class="rides" aria-label="My rides">
   <div class="top">
     <p class="sub">Every ride HomeFi builds is saved here. Ride one again with the same songs, no waiting and no AI.</p>
-    <button type="button" class="btn tonal" onclick={() => exercise.importRide()}><Icon name="download" size={16} />Import a ride</button>
+    <button type="button" class="btn tonal" disabled={!!exercise.working} aria-busy={exercise.working === "import"} onclick={() => exercise.importRide()}>{#if exercise.working === "import"}<Spinner size={16} />Importing…{:else}<Icon name="download" size={16} />Import a ride{/if}</button>
   </div>
 
   {#if rides.length === 0}
@@ -62,7 +63,7 @@
       <p>Build a ride and it is saved here by itself. You can also import one a friend sent you.</p>
       <div class="acts">
         <button type="button" class="btn primary" onclick={() => (exercise.setupTab = "new")}>Plan a ride</button>
-        <button type="button" class="btn tonal" onclick={() => exercise.importRide()}>Import a ride</button>
+        <button type="button" class="btn tonal" disabled={!!exercise.working} aria-busy={exercise.working === "import"} onclick={() => exercise.importRide()}>{#if exercise.working === "import"}<Spinner size={16} />Importing…{:else}Import a ride{/if}</button>
       </div>
     </div>
   {:else}
@@ -74,7 +75,7 @@
             {#if renaming === r.id}
               <form class="rename" onsubmit={(e) => (e.preventDefault(), commitRename(r))}>
                 <input bind:this={field} bind:value={draft} class="field" aria-label="Ride name" maxlength={80} onkeydown={(e) => e.key === "Escape" && (e.stopPropagation(), (renaming = null))} />
-                <button type="submit" class="icon-btn" aria-label="Save the name" title="Save the name"><Icon name="check" size={18} /></button>
+                <button type="submit" class="icon-btn" aria-label="Save the name" title="Save the name" disabled={!!exercise.working}><Icon name="check" size={18} /></button>
                 <button type="button" class="icon-btn" aria-label="Cancel renaming" title="Cancel" onclick={() => (renaming = null)}><Icon name="x" size={18} /></button>
               </form>
             {:else}
@@ -90,17 +91,17 @@
           {#if deleting === r.id}
             <div class="confirm" role="alertdialog" aria-label="Delete {r.name}?">
               <span>Delete this ride?</span>
-              <button type="button" class="btn danger" onclick={() => confirmDelete(r)}>Delete</button>
+              <button type="button" class="btn danger" disabled={!!exercise.working} onclick={() => confirmDelete(r)}>Delete</button>
               <button type="button" class="btn tonal" bind:this={cancelDelete} onclick={() => (deleting = null)} onkeydown={(e) => e.key === "Escape" && (deleting = null)}>Cancel</button>
             </div>
           {:else}
             <div class="actions">
-              <button type="button" class="ride" disabled={busy} onclick={() => exercise.loadRide(r.id)}><Icon name="play" size={15} />Ride again</button>
+              <button type="button" class="ride" disabled={busy || !!exercise.working} aria-busy={exercise.working === `load:${r.id}`} onclick={() => exercise.loadRide(r.id)}>{#if exercise.working === `load:${r.id}`}<Spinner size={15} />Loading…{:else}<Icon name="play" size={15} />Ride again{/if}</button>
               <button type="button" class="icon-btn star" class:on={r.favorite} aria-pressed={r.favorite} aria-label="Favorite" title={r.favorite ? "Remove from favorites" : "Favorite: kept and listed first"} onclick={() => exercise.favoriteRide(r.id, !r.favorite)}><Icon name={r.favorite ? "starFill" : "star"} size={18} /></button>
-              {#if r.auto}<button type="button" class="icon-btn" aria-label="Keep this ride" title="Keep it: it is never removed automatically" onclick={() => exercise.keepRide(r.id)}><Icon name="save" size={18} /></button>{:else}<span class="slot" aria-hidden="true"></span>{/if}
+              {#if r.auto}<button type="button" class="icon-btn" aria-label="Keep this ride" title="Keep it: it is never removed automatically" disabled={!!exercise.working} aria-busy={exercise.working === `keep:${r.id}`} onclick={() => exercise.keepRide(r.id)}>{#if exercise.working === `keep:${r.id}`}<Spinner size={18} />{:else}<Icon name="save" size={18} />{/if}</button>{:else}<span class="slot" aria-hidden="true"></span>{/if}
               <button type="button" class="icon-btn" aria-label="Rename" title="Rename" onclick={() => startRename(r)}><Icon name="edit" size={18} /></button>
-              <button type="button" class="icon-btn" aria-label="Export to a file" title="Export to a file (.homefiride): send it, or save it in your Google Drive folder" onclick={() => exercise.exportRide(r)}><Icon name="upload" size={18} /></button>
-              <button type="button" class="icon-btn" aria-label="Delete" title="Delete" onclick={() => ((renaming = null), (deleting = r.id))}><Icon name="trash" size={18} /></button>
+              <button type="button" class="icon-btn" aria-label="Export to a file" title="Export to a file (.homefiride): send it, or save it in your Google Drive folder" disabled={!!exercise.working} aria-busy={exercise.working === `export:${r.id}`} onclick={() => exercise.exportRide(r)}>{#if exercise.working === `export:${r.id}`}<Spinner size={18} />{:else}<Icon name="upload" size={18} />{/if}</button>
+              <button type="button" class="icon-btn" aria-label="Delete" title="Delete" disabled={!!exercise.working} aria-busy={exercise.working === `delete:${r.id}`} onclick={() => ((renaming = null), (deleting = r.id))}>{#if exercise.working === `delete:${r.id}`}<Spinner size={18} />{:else}<Icon name="trash" size={18} />{/if}</button>
             </div>
           {/if}
         </li>

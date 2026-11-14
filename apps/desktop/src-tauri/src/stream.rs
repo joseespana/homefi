@@ -144,6 +144,22 @@ pub fn play(app: AppHandle, items: Vec<StreamItem>) {
     });
 }
 
+/// Plays `item` alone from `from_ms` once it is fetched (a quick listen to a song), replacing the queue and any
+/// stream still being fetched. Answers the stream generation it took (the caller can tell later whether it is still
+/// the one playing); a later play that replaced it while fetching wins, and this one then plays nothing.
+pub async fn preview(app: &AppHandle, item: &StreamItem, from_ms: u64) -> Result<u64, String> {
+    let state = app.state::<AppState>();
+    let generation = state.stream_generation.fetch_add(1, Ordering::SeqCst) + 1;
+    clear_upcoming(app);
+    crate::sound::forget_sources(app);
+    let path = resolve(app, item).await?;
+    if state.stream_generation.load(Ordering::SeqCst) == generation {
+        state.player.set_shuffle(false);
+        state.player.load(vec![path], 0, from_ms, true);
+    }
+    Ok(generation)
+}
+
 /// Replaces everything after the track being heard with `items` (it keeps playing), fetching from Tidal as
 /// the queue advances like [`play`]. The first [`AHEAD`] songs are fetched before anything changes, so a
 /// failure leaves the queue as it was (`Err`); `before_apply` then runs (the caller's own state follows the

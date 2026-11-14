@@ -470,10 +470,12 @@ fun HomefiRoot(destinations: Flow<Destination>) {
 
     // signed in before the personal-use notice existed (or it changed): shown once, accept or sign out
     if (loggedIn && !settings.termsAccepted) {
+        val signingOut = rememberLoadingTask()
         TermsDialog(
             onAccept = { app.settings.acceptTerms() },
+            signingOut = signingOut.active,
             onSignOut = {
-                scope.launch {
+                signingOut.run {
                     app.downloads.cancelAll()
                     app.engine.logout()
                     app.account.signedOut()

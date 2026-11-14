@@ -17,7 +17,7 @@
 //! ride whose join code is a one-ride token.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -189,6 +189,26 @@ pub struct Exercise {
     tv: Mutex<Option<TvServer>>,
     /// What earlier builds of the ride proposed and played: "new songs" searches again and asks for others.
     memory: Mutex<Option<BuildMemory>>,
+    /// The ride's words (the big messages, the TV page) are Spanish: the system's language, told by the screen.
+    spanish: AtomicBool,
+    /// The stream generation of the song being previewed before the ride (0: none), see `exercise_preview`.
+    preview: AtomicU64,
+}
+
+impl Exercise {
+    fn lang(&self) -> Lang {
+        if self.spanish.load(Ordering::Relaxed) {
+            Lang::Es
+        } else {
+            Lang::En
+        }
+    }
+}
+
+/// The language the ride speaks in (the big messages and the TV page): the system's, as the screen reads it.
+#[tauri::command]
+pub fn exercise_language(exercise: State<'_, Exercise>, language: String) {
+    exercise.spanish.store(Lang::from_code(&language) == Lang::Es, Ordering::Relaxed);
 }
 
 // ------------------------------------------------------------------ views
@@ -230,6 +250,8 @@ pub struct RideTick {
     /// The music plays (paused: the view is frozen).
     pub playing: bool,
     pub view: RideView,
+    /// The big message's words in the ride's language (for the countdown, the words over the digit).
+    pub callout_text: Option<String>,
 }
 
 /// A built ride, as the screen gets it.
@@ -724,28 +746,27 @@ fn stream_items(playlist: &HomePlaylist) -> Vec<StreamItem> {
 /// [`stream_items`] of the entries from `from` on (what is left of the ride).
 fn stream_items_from(playlist: &HomePlaylist, from: usize) -> Vec<StreamItem> {
     let source = playlist.source_context();
-    playlist
-        .entries
-        .iter()
-        .skip(from)
-        .filter_map(|e| {
-            let local = e.local_path.as_ref().filter(|p| Path::new(p.as_str()).is_file()).cloned();
-            if local.is_none() && e.tidal_id.is_none() {
-                return None;
-            }
-            Some(StreamItem {
-                id: e.tidal_id.clone().unwrap_or_default(),
-                title: e.title.clone(),
-                local,
-                artist: e.artist.clone(),
-                album: e.album.clone(),
-                cover_url: e.cover_url.clone(),
-                duration_ms: Some(e.duration_ms).filter(|ms| *ms > 0),
-                explicit: e.explicit,
-                source: Some(source.clone()),
-            })
-        })
-        .collect()
+    playlist.entries.iter().skip(from).filter_map(|e| stream_item(e, &source)).collect()
+}
+
+/// One entry as the stream player takes it: its library file while it is there, else its TIDAL id; `None` when
+/// it has neither.
+fn stream_item(e: &PlaylistEntry, source: &homefi_core::dsp::SourceContext) -> Option<StreamItem> {
+    let local = e.local_path.as_ref().filter(|p| Path::new(p.as_str()).is_file()).cloned();
+    if local.is_none() && e.tidal_id.is_none() {
+        return None;
+    }
+    Some(StreamItem {
+        id: e.tidal_id.clone().unwrap_or_default(),
+        title: e.title.clone(),
+        local,
+        artist: e.artist.clone(),
+        album: e.album.clone(),
+        cover_url: e.cover_url.clone(),
+        duration_ms: Some(e.duration_ms).filter(|ms| *ms > 0),
+        explicit: e.explicit,
+        source: Some(source.clone()),
+    })
 }
 
 /// Which song of the plan plays: a library file by its path, a Tidal song by its id in the stream
@@ -788,10 +809,10 @@ fn sharing_notice() -> String {
     }
 }
 
-fn tv_sound_failed_notice(reason: &str) -> String {
+fn tv_sound_failed_notice() -> String {
     match humane::language() {
-        Lang::Es => format!("No pude preparar el sonido de la tele ({reason}): la música sigue en este equipo."),
-        Lang::En => format!("Could not set up the TV's sound ({reason}): the music stays on this computer."),
+        Lang::Es => "No pude preparar el sonido de la tele: la música sigue en este equipo.".to_owned(),
+        Lang::En => "Could not set up the TV's sound: the music stays on this computer.".to_owned(),
     }
 }
 
@@ -843,7 +864,7 @@ pub async fn exercise_start(app: AppHandle, plan: RidePlan) -> CmdResult<Exercis
         tauri::async_runtime::spawn(async move {
             if let Err(message) = tv_up(&app).await {
                 tracing::warn!("ride TV: {message}");
-                set_notice(&app, run, tv_sound_failed_notice(&message));
+                set_notice(&app, run, tv_sound_failed_notice());
             } else {
                 tv_for_ride(&app, run, sharing).await;
             }
@@ -889,6 +910,87 @@ fn set_notice(app: &AppHandle, run: u64, text: String) {
     if ride.run == run {
         ride.notice = Some(text);
     }
+}
+
+/// A quick listen to song `song_index` of the plan on screen, before riding it: about 30 s from its middle
+/// (core `preview_window`), alone in the player. Answers once it plays (fetching a TIDAL song takes a moment: the
+/// screen shows the button loading until then), and pauses by itself at the window's end: the answer is how long it
+/// plays (ms; 0 when nothing played). Not while riding, in DJ mode or while sharing (guests would hear it).
+#[tauri::command]
+pub async fn exercise_preview(app: AppHandle, song_index: usize) -> CmdResult<u64> {
+    if app.state::<crate::dj::Dj>().is_on() {
+        return Err(dj_on_text());
+    }
+    if app.state::<crate::share::Share>().in_session() {
+        return Err(preview_sharing_text());
+    }
+    let exercise = app.state::<Exercise>();
+    let (item, window) = {
+        let ride = lock(&exercise.ride);
+        if matches!(ride.stage, Stage::Riding | Stage::Finished) {
+            return Ok(0);
+        }
+        let built = ride.built.as_ref().ok_or_else(nothing_to_play_text)?;
+        let song = built.plan.songs.get(song_index).ok_or_else(nothing_to_play_text)?;
+        let item = stream_item(&song.entry, &built.playlist.source_context()).ok_or_else(nothing_to_play_text)?;
+        (item, ex::preview_window(song.entry.duration_ms))
+    };
+    let generation = crate::stream::preview(&app, &item, window.from_ms).await?;
+    exercise.preview.store(generation, Ordering::SeqCst);
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(window.length_ms)).await;
+        stop_preview(&app, generation);
+    });
+    Ok(window.length_ms)
+}
+
+/// Stops the preview playing (nothing when the player has moved on to something else).
+#[tauri::command]
+pub fn exercise_preview_stop(app: AppHandle) {
+    let generation = app.state::<Exercise>().preview.load(Ordering::SeqCst);
+    stop_preview(&app, generation);
+}
+
+/// Pauses the preview of stream `generation` if it is still the one playing.
+fn stop_preview(app: &AppHandle, generation: u64) {
+    let exercise = app.state::<Exercise>();
+    let state = app.state::<AppState>();
+    if generation == 0 || state.stream_generation.load(Ordering::SeqCst) != generation {
+        return;
+    }
+    if exercise.preview.compare_exchange(generation, 0, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+        state.player.pause();
+    }
+}
+
+fn preview_sharing_text() -> String {
+    match humane::language() {
+        Lang::Es => "Mientras compartes la música no se pueden escuchar canciones sueltas.".into(),
+        Lang::En => "While you share the music, songs can't be previewed.".into(),
+    }
+}
+
+/// The part playing now again from its start (the rider's "back"): its song from 0 and the part's clock with it.
+/// A song swapped in mid-part now covers the whole part; the saved ride is left as it was.
+#[tauri::command]
+pub fn exercise_repeat(app: AppHandle) -> CmdResult<()> {
+    let exercise = app.state::<Exercise>();
+    {
+        let mut r = lock(&exercise.ride);
+        if r.stage != Stage::Riding {
+            return Ok(());
+        }
+        let Some(plan) = r.plan.as_deref() else { return Ok(()) };
+        let mut plan = plan.clone();
+        if !plan.replay_song(r.last_index) {
+            return Ok(());
+        }
+        r.plan = Some(Arc::new(plan));
+        r.skip_requested_for = None;
+    }
+    app.state::<AppState>().player.seek(0);
+    Ok(())
 }
 
 /// Ends the ride: the music stops, the ride's hub goes, the TV page goes back to waiting (and its
@@ -1026,7 +1128,8 @@ pub fn on_player(app: &AppHandle, snapshot: &Snapshot) {
     if let Some(tv) = lock(&exercise.tv).as_ref() {
         tv.publish(view.clone(), playing && stage == Stage::Riding);
     }
-    let _ = app.emit("ride", RideTick { stage, playing: playing && stage == Stage::Riding, view });
+    let callout_text = view.callout.map(|c| ex::callout_text(exercise.lang(), c));
+    let _ = app.emit("ride", RideTick { stage, playing: playing && stage == Stage::Riding, view, callout_text });
     if stage == Stage::Finished {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
@@ -1150,13 +1253,13 @@ async fn tv_up(app: &AppHandle) -> CmdResult<String> {
         return Ok(url);
     }
     let settings = app.state::<AppState>().settings().exercise.clamped();
-    let config = TvConfig { port: settings.tv_port, name: TV_NAME.into(), lang: humane::language(), announce: true };
+    let config = TvConfig { port: settings.tv_port, name: TV_NAME.into(), lang: exercise.lang(), announce: true };
     let server = TvServer::start(config).await.map_err(err)?;
     let Some(url) = server.url() else {
         server.stop().await;
         return Err(match humane::language() {
-            Lang::Es => "No encontré una dirección de red local para la tele.".into(),
-            Lang::En => "No local network address found for the TV.".into(),
+            Lang::Es => "No encontré tu conexión Wi-Fi o de red, así que la tele no puede ver este equipo.".into(),
+            Lang::En => "Could not find your Wi-Fi or network connection, so the TV cannot see this computer.".into(),
         });
     };
     let spare = {
@@ -1201,9 +1304,9 @@ async fn tv_for_ride(app: &AppHandle, run: u64, sharing: bool) {
         let Some(plan) = r.plan.clone().filter(|_| r.run == run) else { return };
         (plan, app.state::<AppState>().settings().exercise.tv_audio == TvAudio::Tv)
     };
-    let (pulse_style, course_look, course_summits, course_rider) = {
+    let (pulse_style, course_look, course_summits, course_rider, callouts) = {
         let s = app.state::<AppState>().settings().exercise;
-        (s.pulse_style, s.course_look, s.course_summits, s.course_rider)
+        (s.pulse_style, s.course_look, s.course_summits, s.course_rider, s.ride_callouts)
     };
     let hot_points = ex::hot_points(&plan.workout);
     let session = |audio: TvAudio, listen: Option<RideListen>| TvSession {
@@ -1217,6 +1320,7 @@ async fn tv_for_ride(app: &AppHandle, run: u64, sharing: bool) {
         course_summits,
         hot_points: hot_points.clone(),
         course_rider,
+        callouts,
     };
     let begin = |audio: TvAudio, listen: Option<RideListen>| {
         if let Some(tv) = lock(&exercise.tv).as_ref() {
@@ -1262,7 +1366,8 @@ async fn tv_for_ride(app: &AppHandle, run: u64, sharing: bool) {
             begin(TvAudio::Phone, None);
         }
         Err(Some(reason)) => {
-            set_notice(app, run, tv_sound_failed_notice(&reason));
+            tracing::warn!("ride TV sound: {reason}");
+            set_notice(app, run, tv_sound_failed_notice());
             begin(TvAudio::Phone, None);
         }
     }
@@ -1326,7 +1431,7 @@ pub async fn exercise_tv_window(app: AppHandle, on: bool, monitor: Option<String
     let port = lock(&app.state::<Exercise>().tv)
         .as_ref()
         .map(TvServer::port)
-        .ok_or_else(|| "The TV server stopped.".to_owned())?;
+        .ok_or_else(|| "The TV screen stopped. Try again.".to_owned())?;
     let page = tauri::Url::parse(&format!("http://127.0.0.1:{port}/")).map_err(err)?;
     let fullscreen = settings.tv_window_fullscreen;
     let chosen = monitor.or_else(|| Some(settings.tv_window_display).filter(|d| d != ex::TV_DISPLAY_AUTO));
@@ -1791,7 +1896,7 @@ mod tests {
 
     #[test]
     fn json_shapes_of_the_contract() {
-        let tick = RideTick { stage: Stage::Riding, playing: true, view: RideView::default() };
+        let tick = RideTick { stage: Stage::Riding, playing: true, view: RideView::default(), callout_text: None };
         let json = serde_json::to_value(&tick).unwrap();
         assert_eq!(json["stage"], "riding");
         assert_eq!(json["playing"], true);

@@ -163,7 +163,6 @@ private fun QrCard(panel: PairPanel) {
                     style = TvType.display.copy(fontSize = 34.sp, fontFamily = FontFamily.Monospace),
                     color = look.ink,
                 )
-                Text("${panel.host}:${panel.port}", style = TvType.secondary, color = look.ink3)
             } else {
                 Text(stringResource(R.string.tv_train_no_network), style = TvType.body, color = look.ink2, modifier = Modifier.width(QR_SIZE))
             }

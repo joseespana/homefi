@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Phone: Connect to TV (scan the TV's QR) -->
-    <string name="tv_connect">Connect to TV</string>
+    <string name="tv_connect">Connect the TV</string>
     <string name="tv_connect_other">Connect another TV</string>
     <string name="tv_forget">Forget TV</string>
     <string name="tv_send_again">Send again</string>
@@ -11,14 +11,14 @@
     <string name="tv_pair_done">Connected to %1$s. Your next ride opens there by itself.</string>
     <string name="tv_pair_done_sent">Connected to %1$s. Your ride is opening there.</string>
     <string name="tv_pair_refused">The TV did not accept that code. Look at the code on the TV and scan it again.</string>
-    <string name="tv_pair_unreachable">Could not reach the TV. Phone and TV must be on the same Wi-Fi.</string>
+    <string name="tv_pair_unreachable">Couldn\'t find the TV. The phone and the TV need to be on the same Wi-Fi, and the TV needs to be on.</string>
     <string name="tv_pair_invalid">That is not a HomeFi TV code.</string>
     <string name="tv_scan_title">Scan the TV</string>
     <string name="tv_scan_why">HomeFi uses the camera only to read the code on your TV. Nothing is recorded, saved or sent.</string>
     <string name="tv_scan_denied">The camera is off for HomeFi. Allow it in the app settings to scan the TV, or scan the code with your phone\'s own camera app.</string>
     <string name="tv_scan_allow">Allow the camera</string>
     <string name="tv_scan_settings">Open app settings</string>
-    <string name="tv_scan_no_camera">No camera found on this phone. Scan the code with another phone, or type the address on the TV.</string>
+    <string name="tv_scan_no_camera">No camera found on this phone. Scan the code with another phone.</string>
     <string name="tv_scan_hint">Point the camera at the code on your TV (Train)</string>
 
     <!-- Phone: Put HomeFi on your TV -->
@@ -29,7 +29,7 @@
     <string name="tv_install_close">Close</string>
     <string name="tv_install_intro">Easiest way, nothing to sideload from a computer. Read this on your phone, type on the TV.</string>
     <string name="tv_install_step1">On the TV, install the free app “Downloader” (search for it in the Google Play Store or Amazon Appstore).</string>
-    <string name="tv_install_step2">Open Downloader and type this address in its URL box, then press Go:</string>
+    <string name="tv_install_step2">Open Downloader and type this web address in the box at the top, then press Go:</string>
     <string name="tv_install_step3">Choose Install. The first time, the TV asks to let Downloader install apps: allow it.</string>
     <string name="tv_install_step4">Open HomeFi on the TV. In Train it shows a code: scan it from your phone (Train → Connect to TV).</string>
     <string name="tv_install_updates">After this first install, the TV updates HomeFi by itself.</string>
@@ -38,12 +38,36 @@
     <!-- TV: Train section waiting for a phone -->
     <string name="tv_train_title">Connect your phone</string>
     <string name="tv_train_step1">On your phone open HomeFi, Train.</string>
-    <string name="tv_train_step2">Tap Connect to TV and point the camera at this code. The phone\'s own camera works too.</string>
+    <string name="tv_train_step2">Tap Connect the TV, choose Google TV or Android TV, and point the camera at this code.</string>
     <string name="tv_train_step3">Start a ride. It opens here by itself.</string>
     <string name="tv_train_code">Code</string>
-    <string name="tv_train_looking">Looking for rides on your network…</string>
+    <string name="tv_train_looking">Looking for rides on your Wi-Fi…</string>
     <string name="tv_train_paired">Paired: %1$s. They connect by themselves when they start a ride.</string>
     <string name="tv_train_just_paired">Paired with %1$s. Start a ride on the phone.</string>
     <string name="tv_train_forget">Forget paired phones</string>
-    <string name="tv_train_no_network">This TV is not on a network. Connect it to Wi-Fi or Ethernet.</string>
+    <string name="tv_train_no_network">This TV isn\'t connected to the internet. Connect it to Wi-Fi or a cable.</string>
+
+    <!-- Phone: the Connect the TV guide -->
+    <string name="tv_guide_title">Connect the TV</string>
+    <string name="tv_guide_back">Back</string>
+    <string name="tv_guide_which">What TV do you have?</string>
+    <string name="tv_guide_android">Google TV or Android TV</string>
+    <string name="tv_guide_android_hint">Sony, TCL, Hisense, Philips, Xiaomi, Chromecast with Google TV… It has the Play Store.</string>
+    <string name="tv_guide_other">Another smart TV</string>
+    <string name="tv_guide_other_hint">Samsung, LG, Roku… The ride opens in the TV\'s web browser.</string>
+    <string name="tv_guide_cast">Only a Chromecast, no remote</string>
+    <string name="tv_guide_cast_hint">Coming soon</string>
+    <string name="tv_guide_cast_body">Coming soon. If your Chromecast has a remote (Chromecast with Google TV), go back and choose Google TV or Android TV.</string>
+    <string name="tv_guide_same_wifi">The phone and the TV need to be on the same Wi-Fi.</string>
+    <string name="tv_guide_android_step1">Put HomeFi on the TV (only the first time).</string>
+    <string name="tv_guide_how_install">How to install it</string>
+    <string name="tv_guide_android_step2">On the TV, open HomeFi and go to Train. A square code shows up.</string>
+    <string name="tv_guide_android_step3">Tap the button below and point the camera at that code.</string>
+    <string name="tv_guide_scan">Scan the TV\'s code</string>
+    <string name="tv_guide_android_once">You do this once. After that, every ride opens on that TV by itself.</string>
+    <string name="tv_guide_other_step1">On the TV, open its web browser (it may be called Internet or Web Browser).</string>
+    <string name="tv_guide_other_step2">In the web address bar at the top, type exactly this:</string>
+    <string name="tv_guide_other_step3">That\'s it: the ride shows on the TV. Leave this phone with the ride open.</string>
+    <string name="tv_guide_prepare">Get the TV page ready</string>
+    <string name="tv_guide_other_later">Start the ride with Show on a TV on, then come back here: you\'ll see what to type.</string>
 </resources>

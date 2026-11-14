@@ -41,7 +41,7 @@
     <string name="tv_sound_no_band">Pulsa OK en la curva y usa izquierda y derecha para elegir una banda</string>
     <string name="tv_sound_band_info">Banda %1$d de %2$d · %3$s · %4$s Hz · %5$s · Q %6$s</string>
 
-    <string name="tv_party_title">Fiesta · el centro está en esta tele</string>
+    <string name="tv_party_title">Fiesta · la pone esta tele</string>
     <string name="tv_party_how">Misma Wi-Fi · abre HomeFi y toca Unirse</string>
     <string name="tv_party_empty">Nadie se ha unido todavía. Escanea el código para empezar.</string>
     <string name="tv_party_lan">En la tele solo Wi-Fi</string>

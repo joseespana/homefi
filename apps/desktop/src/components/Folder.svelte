@@ -3,6 +3,7 @@
   import { api, errorText, type Track } from "../lib/api";
   import { app } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
+  import Spinner from "./Spinner.svelte";
   import Skeleton from "./Skeleton.svelte";
   import TrackTable from "./TrackTable.svelte";
 
@@ -34,9 +35,15 @@
   );
   const name = $derived(path.split(/[\\/]/).filter(Boolean).pop() ?? path);
 
+  let adding = $state(false);
   async function addToLibrary() {
-    if (!app.settings) return;
-    await app.saveSettings({ library_dirs: [...app.settings.library_dirs, path] });
+    if (!app.settings || adding) return;
+    adding = true;
+    try {
+      await app.saveSettings({ library_dirs: [...app.settings.library_dirs, path] });
+    } finally {
+      adding = false;
+    }
   }
 </script>
 
@@ -50,7 +57,7 @@
   <div class="actions fold" use:foldLabels>
     <button class="btn tonal" title="Other folder" onclick={() => pickFolder()}><Icon name="folder" size={16} /> Other folder</button>
     {#if path && !inLibrary}
-      <button class="btn tonal" onclick={addToLibrary}>Add to library</button>
+      <button class="btn tonal" disabled={adding} aria-busy={adding} onclick={addToLibrary}>{#if adding}<Spinner size={16} /> Adding…{:else}Add to library{/if}</button>
     {/if}
     <button class="btn tonal" title="Shuffle" onclick={() => api.play(tracks.map((t) => t.path), 0, true)} disabled={!tracks.length}><Icon name="shuffle" size={16} /> Shuffle</button>
     <button class="btn primary" onclick={() => api.play(tracks.map((t) => t.path))} disabled={!tracks.length}><Icon name="play" size={16} /> Play</button>

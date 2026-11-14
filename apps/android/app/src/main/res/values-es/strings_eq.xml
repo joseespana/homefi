@@ -85,7 +85,7 @@
     <string name="ai_provider">Proveedor</string>
     <string name="ai_none">Ninguno (preguntas guiadas)</string>
     <string name="ai_get_key">Obtener una llave</string>
-    <string name="ai_key">Llave de API</string>
+    <string name="ai_key">Llave de IA</string>
     <string name="ai_key_saved">Llave guardada</string>
     <string name="ai_key_missing">Aún sin llave</string>
     <string name="ai_key_not_needed">No necesita llave</string>
@@ -98,14 +98,14 @@
     <string name="ai_testing">Probando…</string>
     <string name="ai_saved">Guardada.</string>
     <string name="ai_save_failed">No se pudo guardar la llave en este teléfono.</string>
-    <string name="ai_model">Modelo</string>
+    <string name="ai_model">Modelo de IA</string>
     <string name="ai_model_auto">Automático</string>
     <string name="ai_model_auto_named">Automático (%1$s)</string>
     <string name="ai_models_load">Ver los modelos</string>
-    <string name="ai_base_url">Dirección del servidor</string>
+    <string name="ai_base_url">Dirección propia de la IA (avanzado)</string>
     <string name="ai_base_url_hint">Vacía usa %1$s</string>
-    <string name="ai_base_url_required">Obligatoria: la dirección de tu servidor compatible con OpenAI.</string>
-    <string name="ai_privacy">Tu llave se queda en este teléfono, cifrada con el almacén de llaves de Android. HomeFi solo la envía a %1$s, solo para hablar con el asistente, y nunca la vuelve a mostrar.</string>
+    <string name="ai_base_url_required">Obligatoria: la dirección web de tu propio servicio de IA.</string>
+    <string name="ai_privacy">Tu llave se queda en este teléfono, guardada de forma segura y protegida por Android. HomeFi solo la envía a %1$s, solo para hablar con el asistente, y nunca la vuelve a mostrar.</string>
     <string name="ai_privacy_provider">el proveedor que elijas</string>
     <string name="ai_used_for">La usa “Configurar mi sonido” para conversar contigo sobre tu sonido, y “¿Cómo suena?” para decidir y explicar cada cambio (una llamada corta).</string>
 </resources>

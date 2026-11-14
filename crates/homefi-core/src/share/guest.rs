@@ -15,6 +15,8 @@ use super::sync::{expected_position, ClockSync};
 use crate::{Error, Result};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Shown when the host can't be reached (the technical cause goes to the log).
+const COULD_NOT_REACH: &str = "Couldn't reach the host. Check you're on the same Wi-Fi and try again.";
 /// The hub pings every 15 s; silence for this long means it is gone (e.g. the
 /// guest walked out of Wi-Fi range without a TCP close).
 const IDLE_TIMEOUT: Duration = Duration::from_secs(45);
@@ -134,8 +136,11 @@ impl GuestClient {
         let (mut ws, _) =
             tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(format!("ws://{authority}/ws")))
                 .await
-                .map_err(|_| Error::Share("Could not reach the hub (timed out)".into()))?
-                .map_err(|e| Error::Share(format!("Could not reach the hub: {e}")))?;
+                .map_err(|_| Error::Share(COULD_NOT_REACH.into()))?
+                .map_err(|e| {
+                    tracing::debug!("share: connect failed: {e}");
+                    Error::Share(COULD_NOT_REACH.into())
+                })?;
 
         let hello = GuestMessage::Hello {
             name: name.to_owned(),
@@ -143,9 +148,10 @@ impl GuestClient {
             code: code.to_owned(),
             app_version: crate::VERSION.to_owned(),
         };
-        ws.send(Message::Text(serde_json::to_string(&hello)?.into()))
-            .await
-            .map_err(|e| Error::Share(format!("Could not reach the hub: {e}")))?;
+        ws.send(Message::Text(serde_json::to_string(&hello)?.into())).await.map_err(|e| {
+            tracing::debug!("share: hello failed: {e}");
+            Error::Share(COULD_NOT_REACH.into())
+        })?;
 
         let welcome = tokio::time::timeout(CONNECT_TIMEOUT, async {
             while let Some(msg) = ws.next().await {
@@ -159,16 +165,19 @@ impl GuestClient {
                     },
                     Ok(Message::Close(frame)) => {
                         let reason = frame.map(|f| f.reason.as_str().to_owned()).filter(|r| !r.is_empty());
-                        return Err(Error::Share(reason.unwrap_or_else(|| "The hub closed the connection".into())));
+                        return Err(Error::Share(reason.unwrap_or_else(|| "The host ended the connection.".into())));
                     }
                     Ok(_) => {}
-                    Err(e) => return Err(Error::Share(format!("Connection to the hub failed: {e}"))),
+                    Err(e) => {
+                        tracing::debug!("share: connection failed: {e}");
+                        return Err(Error::Share("The connection was lost. Try joining again.".into()));
+                    }
                 }
             }
-            Err(Error::Share("The hub closed the connection".into()))
+            Err(Error::Share("The host ended the connection.".into()))
         })
         .await
-        .map_err(|_| Error::Share("The hub did not answer".into()))??;
+        .map_err(|_| Error::Share("The host didn't answer. Try again.".into()))??;
 
         let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Outbound>();
         let clock = Arc::new(Mutex::new(ClockSync::default()));
@@ -221,7 +230,7 @@ impl GuestClient {
                         Ok(Some(Ok(_))) => {}
                         Ok(Some(Err(_))) | Ok(None) => break,
                         Err(_) => {
-                            reason = Some("The hub stopped answering".into());
+                            reason = Some("The host stopped answering.".into());
                             break;
                         }
                     },
@@ -247,7 +256,9 @@ impl GuestClient {
 
     /// Queues `msg` for the hub. Fails once disconnected.
     pub fn send(&self, msg: GuestMessage) -> Result<()> {
-        self.tx.send(Outbound::Message(msg)).map_err(|_| Error::Share("Not connected to the hub".into()))
+        self.tx
+            .send(Outbound::Message(msg))
+            .map_err(|_| Error::Share("You're not connected to the session anymore.".into()))
     }
 
     /// Cover URLs may be paths on the hub (`/cover/<id>`): makes them absolute.

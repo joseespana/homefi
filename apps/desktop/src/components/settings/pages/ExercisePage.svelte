@@ -70,7 +70,7 @@
     { id: "dot", label: "Dot", hint: "Only the position dot" },
   ];
   const CONSOLES: SegmentOption<ConsoleUnit>[] = [
-    { id: "rpm", label: "RPM", hint: "Your console shows the cadence" },
+    { id: "rpm", label: "RPM", hint: "Your bike console shows how fast you pedal (turns per minute)" },
     { id: "kph", label: "km/h", hint: "Your console shows the speed in kilometres an hour" },
     { id: "mph", label: "mph", hint: "Your console shows the speed in miles an hour" },
     { id: "none", label: "Nothing", hint: "Targets show in RPM" },
@@ -98,7 +98,7 @@
   const saveBike = (patch: Partial<ExerciseSettings["bike"]>) => save({ bike: { ...bike, ...patch } });
   const canCalibrate = $derived(bike.console === "kph" || bike.console === "mph");
   let calibrating = $state(false);
-  const factorText = (f: number) => `1 RPM ≈ ${(bike.console === "mph" ? f / 1.609344 : f).toFixed(2)} ${bike.console === "mph" ? "mph" : "km/h"}`;
+  const factorText = (f: number) => `1 turn per minute ≈ ${(bike.console === "mph" ? f / 1.609344 : f).toFixed(2)} ${bike.console === "mph" ? "mph" : "km/h"}`;
 
   const port = (value: string) => {
     const n = Math.round(Number(value));
@@ -110,7 +110,7 @@
 
 <SettingsGroup title="Ride">
   <SwitchRow label="Exercise in the sidebar" hint="The button that opens Exercise. While a ride is on it stays." checked={e.show_entry} onchange={(show_entry) => save({ show_entry })} />
-  <SwitchRow label="Beginner mode" hint="Gentler caps: a calmer pace, lower effort, shorter sprints with more rest." checked={e.beginner_mode} onchange={(beginner_mode) => save({ beginner_mode })} />
+  <SwitchRow label="Beginner mode" hint="Gentler limits: a calmer pace, lower effort, shorter sprints with more rest." checked={e.beginner_mode} onchange={(beginner_mode) => save({ beginner_mode })} />
   <SegmentedRow label="Default style" hint="What the setup starts with." options={STYLES} value={e.default_preset} onchange={(default_preset) => save({ default_preset })} />
   <SliderRow label="Default length" hint="What the setup starts with." min={EX_MINUTES.min} max={EX_MINUTES.max} step={EX_MINUTES.step} value={e.ride_minutes} format={(n) => `${n} min`} onchange={(ride_minutes) => save({ ride_minutes })} />
 </SettingsGroup>
@@ -118,8 +118,8 @@
 <SettingsGroup title="My bike" description="So targets read the way your console does. Without it, everything is in RPM.">
   <SegmentedRow label="The console shows" options={CONSOLES} value={bike.console} onchange={(console) => saveBike({ console })} />
   <SliderRow label="Resistance levels" hint="How many positions your knob has. 0 if you don't know: effort shows as 1 to 10 only." min={EX_RESISTANCE_LEVELS.min} max={EX_RESISTANCE_LEVELS.max} step={1} value={bike.resistance_levels} format={(n) => (n === 0 ? "Don't know" : `${n} levels`)} onchange={(resistance_levels) => saveBike({ resistance_levels })} />
-  <ActionRow label="Calibrate speed" hint={!canCalibrate ? "Choose km/h or mph above first." : bike.kph_per_rpm > 0 ? `Calibrated: ${factorText(bike.kph_per_rpm)}.` : "Not calibrated: targets show in RPM."} disabled={!canCalibrate}>
-    <button class="btn tonal" type="button" disabled={!canCalibrate || calibrating} onclick={() => (calibrating = true)}>Calibrate…</button>
+  <ActionRow label="Match my console’s speed" hint={!canCalibrate ? "Choose km/h or mph above first." : bike.kph_per_rpm > 0 ? `Set up: ${factorText(bike.kph_per_rpm)}.` : "Not set up yet: targets show in RPM."} disabled={!canCalibrate}>
+    <button class="btn tonal" type="button" disabled={!canCalibrate || calibrating} onclick={() => (calibrating = true)}>Set up…</button>
     <button class="btn tonal" type="button" disabled={bike.kph_per_rpm <= 0} onclick={() => saveBike({ kph_per_rpm: 0 })}>Clear</button>
   </ActionRow>
   {#if calibrating && canCalibrate}
@@ -134,16 +134,16 @@
 <SettingsGroup title="Climbs and songs">
   <SegmentedRow label="Resistance steps on climbs" hint="Each climb asks for one more turn of resistance two or three times, like a class: the map marks the spots and a sound says when." options={STEPS} value={String(e.climb_steps)} onchange={(n) => save({ climb_steps: Number(n) })} />
   <SwitchRow label="Change a song during the ride" hint="A tap on the song puts another that fits the part's pace." checked={e.ride_swap} onchange={(ride_swap) => save({ ride_swap })} />
-  <SwitchRow label="Ask the AI for the replacement" hint="When nothing already found fits, the AI proposes one (uses your key); off, only TIDAL and the library are searched." checked={e.swap_uses_ai} disabled={!e.ride_swap} onchange={(swap_uses_ai) => save({ swap_uses_ai })} />
+  <SwitchRow label="Ask the AI for the replacement" hint="When nothing already found fits, the AI proposes one (uses your AI key); off, only TIDAL and the library are searched." checked={e.swap_uses_ai} disabled={!e.ride_swap} onchange={(swap_uses_ai) => save({ swap_uses_ai })} />
 </SettingsGroup>
 
 <SettingsGroup title="Music" description="How songs are matched to the beat of each part.">
   <SegmentedRow label="Pick songs from" options={SOURCES} value={e.sources} onchange={(sources) => save({ sources })} />
-  <SliderRow label="Tempo tolerance" hint="How far a song's tempo may be from the pace you are asked to keep." min={EX_TOLERANCE_RPM.min} max={EX_TOLERANCE_RPM.max} step={1} value={e.cadence_tolerance_rpm} format={(n) => `${n} RPM`} onchange={(cadence_tolerance_rpm) => save({ cadence_tolerance_rpm })} />
-  <SwitchRow label="Allow half-time" hint="A fast song (120 to 180 BPM) counts one pedal stroke every two beats." checked={e.allow_half_time} onchange={(allow_half_time) => save({ allow_half_time })} />
-  <SwitchRow label="Allow double-time" hint="A very slow song counts two pedal strokes a beat." checked={e.allow_double_time} onchange={(allow_double_time) => save({ allow_double_time })} />
+  <SliderRow label="How close the beat must be" hint="How far a song's tempo may be from the pace you are asked to keep." min={EX_TOLERANCE_RPM.min} max={EX_TOLERANCE_RPM.max} step={1} value={e.cadence_tolerance_rpm} format={(n) => `${n} RPM`} onchange={(cadence_tolerance_rpm) => save({ cadence_tolerance_rpm })} />
+  <SwitchRow label="Allow fast songs at half pace" hint="A fast song (120 to 180 BPM) can match a slower pace: you pedal once every two beats." checked={e.allow_half_time} onchange={(allow_half_time) => save({ allow_half_time })} />
+  <SwitchRow label="Allow slow songs at double pace" hint="A very slow song can match a faster pace: you pedal twice a beat." checked={e.allow_double_time} onchange={(allow_double_time) => save({ allow_double_time })} />
   <SwitchRow label="Allow explicit songs" checked={e.allow_explicit} onchange={(allow_explicit) => save({ allow_explicit })} />
-  <SliderRow label="Tempo check budget" hint="Songs HomeFi may listen to (decode) per ride when no tempo is known. 0 turns the check off." min={EX_ANALYSIS_BUDGET.min} max={EX_ANALYSIS_BUDGET.max} step={1} value={e.analysis_budget} format={(n) => (n === 0 ? "Off" : `${n} songs`)} onchange={(analysis_budget) => save({ analysis_budget })} />
+  <SliderRow label="Songs to check the beat of" hint="How many songs HomeFi may listen to per ride when it does not know their tempo. Off skips the check." min={EX_ANALYSIS_BUDGET.min} max={EX_ANALYSIS_BUDGET.max} step={1} value={e.analysis_budget} format={(n) => (n === 0 ? "Off" : `${n} songs`)} onchange={(analysis_budget) => save({ analysis_budget })} />
 </SettingsGroup>
 
 <SettingsGroup title="Cues and beat">
@@ -154,8 +154,8 @@
   <SliderRow label="Next-part notice" hint="How long before a change the Next card fills in." min={EX_NOTICE_S.min} max={EX_NOTICE_S.max} step={1} value={e.segment_notice_seconds} format={seconds} onchange={(segment_notice_seconds) => save({ segment_notice_seconds })} />
   <SwitchRow label="Click on the beat" hint="A soft click on every pedal stroke, for when you can't look at the screen." checked={e.metronome_click} onchange={(metronome_click) => save({ metronome_click })} />
   <SegmentedRow label="Beat pulse" hint="How the beat shows inside the ring." options={PULSES} value={e.pulse_style} onchange={(pulse_style) => save({ pulse_style })} />
-  <SliderRow label="Pulse offset" hint="Moves the pulse earlier or later, to match a Bluetooth speaker's delay." min={EX_PULSE_OFFSET_MS.min} max={EX_PULSE_OFFSET_MS.max} step={EX_PULSE_OFFSET_MS.step} value={e.pulse_offset_ms} format={offsetLabel} onchange={(pulse_offset_ms) => save({ pulse_offset_ms })} />
-  <ActionRow label="Match my lyrics offset" hint={`Uses the offset you set for synced lyrics (${offsetLabel(lyricsOffset)}).`}>
+  <SliderRow label="Pulse timing" hint="Moves the pulse earlier or later, to match a Bluetooth speaker's delay." min={EX_PULSE_OFFSET_MS.min} max={EX_PULSE_OFFSET_MS.max} step={EX_PULSE_OFFSET_MS.step} value={e.pulse_offset_ms} format={offsetLabel} onchange={(pulse_offset_ms) => save({ pulse_offset_ms })} />
+  <ActionRow label="Match my lyrics timing" hint={`Uses the timing you set for synced lyrics (${offsetLabel(lyricsOffset)}).`}>
     <button class="btn tonal" type="button" disabled={e.pulse_offset_ms === Math.max(EX_PULSE_OFFSET_MS.min, Math.min(EX_PULSE_OFFSET_MS.max, lyricsOffset))} onclick={() => save({ pulse_offset_ms: Math.max(EX_PULSE_OFFSET_MS.min, Math.min(EX_PULSE_OFFSET_MS.max, lyricsOffset)) })}>Match</button>
   </ActionRow>
 </SettingsGroup>
@@ -169,12 +169,13 @@
 <SettingsGroup title="Screen">
   <SwitchRow label="Karaoke in the ride" hint="The song's lyrics, filling as they are sung, where the mountain goes. The mic on the map switches during the ride." checked={e.ride_karaoke} onchange={(ride_karaoke) => save({ ride_karaoke })} />
   <SwitchRow label="Ride in fullscreen" hint="The ride fills the whole screen when it starts. F or the button on the ride switches it." checked={e.ride_fullscreen} onchange={(ride_fullscreen) => save({ ride_fullscreen })} />
-  <SwitchRow label="Always dark during a ride" hint="The ride screen stays dark in any theme." checked={e.ride_always_dark} onchange={(ride_always_dark) => save({ ride_always_dark })} />
-  <SwitchRow label="Keep the screen on" hint="No screen saver or sleep during a ride." checked={e.keep_screen_on} onchange={(keep_screen_on) => save({ keep_screen_on })} />
+  <SwitchRow label="Messages in the ride" hint="A big 3-2-1 before each sprint, on the beeps; cheers and the last seconds while you sprint; a goodbye at the end." checked={e.ride_callouts} onchange={(ride_callouts) => save({ ride_callouts })} />
+  <SwitchRow label="Always dark during a ride" hint="The ride screen stays dark whatever look you chose." checked={e.ride_always_dark} onchange={(ride_always_dark) => save({ ride_always_dark })} />
+  <SwitchRow label="Keep the screen on" hint="The screen will not dim or sleep during a ride." checked={e.keep_screen_on} onchange={(keep_screen_on) => save({ keep_screen_on })} />
 </SettingsGroup>
 
-<SettingsGroup title="TV" description="Show the ride on a TV: a window on another screen, or a link for a TV's browser.">
-  <SwitchRow label="TV" hint="Start the TV page with every ride." checked={e.tv_enabled} onchange={(tv_enabled) => save({ tv_enabled })} />
+<SettingsGroup title="TV" description="Show the ride on a TV: a window on another screen, or a link for a TV's web browser.">
+  <SwitchRow label="TV" hint="Show every ride on the TV." checked={e.tv_enabled} onchange={(tv_enabled) => save({ tv_enabled })} />
   <SegmentedRow label="Music plays" options={AUDIO} value={e.tv_audio} onchange={(tv_audio) => save({ tv_audio })} />
   <SettingRow label="TV window on" hint="The screen the TV window opens on." labelFor>
     {#snippet children(ids)}
@@ -186,8 +187,8 @@
     {/snippet}
   </SettingRow>
   <SwitchRow label="TV window fullscreen" checked={e.tv_window_fullscreen} onchange={(tv_window_fullscreen) => save({ tv_window_fullscreen })} />
-  <SwitchRow label="Lyrics on the TV" hint="Shows the song's lyrics on the TV, line by line, when they are available. The shift against the music is the one of the listening room's lyrics." checked={e.tv_lyrics} onchange={(tv_lyrics) => save({ tv_lyrics })} />
-  <FieldRow label="TV port" hint="The TV page is served on this port of your network. Takes effect the next time the TV page starts." type="number" inputmode="numeric" min={EX_TV_PORT.min} max={EX_TV_PORT.max} width="110px" mono value={e.tv_port} onchange={port} />
+  <SwitchRow label="Lyrics on the TV" hint="Shows the song's lyrics on the TV, line by line, when they are available. The timing is the one you set for the listening room’s lyrics." checked={e.tv_lyrics} onchange={(tv_lyrics) => save({ tv_lyrics })} />
+  <FieldRow label="TV connection number" hint="Only change this if the TV can’t open the page. Takes effect the next time the TV page starts." type="number" inputmode="numeric" min={EX_TV_PORT.min} max={EX_TV_PORT.max} width="110px" mono value={e.tv_port} onchange={port} />
 </SettingsGroup>
 
 <SettingsGroup title="Health">

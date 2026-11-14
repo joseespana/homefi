@@ -8,6 +8,7 @@
   import Cover from "./Cover.svelte";
   import Icon from "./Icon.svelte";
   import Skeleton from "./Skeleton.svelte";
+  import Spinner from "./Spinner.svelte";
   import TrackTable from "./TrackTable.svelte";
   import { Progressive } from "../lib/virtual.svelte";
 
@@ -31,7 +32,10 @@
   let artworkError = $state<string | null>(null);
   let folderMenu = $state(false);
 
+  const fixing = $derived(artwork !== null && artwork.current !== "");
+
   async function fixCovers() {
+    if (fixing) return;
     artworkError = null;
     artwork = { done: 0, total: 0, fixed: 0, current: "Looking for songs without a cover…" };
     const stop = await on.artwork((p) => (artwork = p));
@@ -115,11 +119,11 @@
           </div>
         {/if}
       </div>
-      <button class="icon-btn" title="Fetch missing covers from Tidal" aria-label="Fetch missing covers" onclick={fixCovers} disabled={!app.account || (artwork !== null && artwork.current !== "")}>
-        <Icon name="disc" />
+      <button class="icon-btn" title="Fetch missing covers from Tidal" aria-label="Fetch missing covers" onclick={fixCovers} disabled={!app.account || fixing} aria-busy={fixing}>
+        {#if fixing}<Spinner size={18} />{:else}<Icon name="disc" />{/if}
       </button>
-      <button class="icon-btn" title="Rescan folders" onclick={() => app.rescan()} disabled={app.scanning}>
-        <Icon name="refresh" />
+      <button class="icon-btn" title="Rescan folders" onclick={() => app.rescan()} disabled={app.scanning} aria-busy={app.scanning}>
+        {#if app.scanning}<Spinner size={18} />{:else}<Icon name="refresh" />{/if}
       </button>
       {#if view.name === "songs"}
         <button class="btn tonal" onclick={() => playAll(tracks, true)} disabled={!tracks.length}><Icon name="shuffle" size={16} /> Shuffle</button>
@@ -131,7 +135,7 @@
   {#if artwork}
     <div class="artwork">
       {#if artwork.current}
-        <span class="spin"></span> {artwork.current} · {artwork.done}/{artwork.total || "…"}
+        <Spinner size={14} /> {artwork.current} · {artwork.done}/{artwork.total || "…"}
       {:else}
         <Icon name="check" size={16} /> Covers: {artwork.fixed} added · {artwork.total - artwork.fixed} not found on Tidal
         <button class="icon-btn" aria-label="Dismiss" onclick={() => (artwork = null)}><Icon name="x" size={14} /></button>
@@ -410,19 +414,6 @@
     background: var(--glass-strong);
     border: 1px solid var(--glass-border);
     font-size: 13px;
-  }
-  .spin {
-    width: 14px;
-    height: 14px;
-    border: 2px solid var(--glass-border);
-    border-top-color: var(--room-accent);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
   }
   .error {
     color: var(--danger);

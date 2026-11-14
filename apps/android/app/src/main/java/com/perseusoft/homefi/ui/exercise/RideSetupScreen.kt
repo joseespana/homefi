@@ -1,5 +1,6 @@
 package com.perseusoft.homefi.ui.exercise
 
+import com.perseusoft.homefi.ui.ButtonSpinner
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
@@ -471,7 +472,12 @@ private fun RideChatBox(chat: RideChat, onStart: () -> Unit, onSay: (String) -> 
                 enabled = !chat.thinking,
             )
             FilledIconButton(onClick = send, enabled = !chat.thinking && text.isNotBlank()) {
-                Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.ex_ai_send))
+                // the AI is answering: a spinner in place of the arrow
+                if (chat.thinking) {
+                    ButtonSpinner(color = MaterialTheme.colorScheme.primary)
+                } else {
+                    Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.ex_ai_send))
+                }
             }
         }
     }

@@ -152,11 +152,11 @@ fun QueueMenu(expanded: Boolean, onDismiss: () -> Unit, onSound: (() -> Unit)? =
 
 /** Tonal "Queue" button with the menu above, for album / artist / playlist headers. */
 @Composable
-fun QueueButton(onQueue: (next: Boolean) -> Unit, enabled: Boolean = true) {
+fun QueueButton(onQueue: (next: Boolean) -> Unit, enabled: Boolean = true, busy: Boolean = false) {
     var open by remember { mutableStateOf(false) }
     Box {
         FilledTonalButton(onClick = { open = true }, enabled = enabled) {
-            Icon(Icons.AutoMirrored.Rounded.QueueMusic, stringResource(R.string.queue_add))
+            if (busy) ButtonSpinner() else Icon(Icons.AutoMirrored.Rounded.QueueMusic, stringResource(R.string.queue_add))
         }
         QueueMenu(open, { open = false }, onQueue = onQueue)
     }

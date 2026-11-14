@@ -135,7 +135,7 @@ impl Error {
         let say = |en: &str, sp: &str| if es { sp.to_owned() } else { en.to_owned() };
         match self.problem() {
             Problem::Storage => match self {
-                Error::Ffmpeg(_) => say("Couldn't convert the video.", "No se pudo convertir el video."),
+                Error::Ffmpeg(_) => say("Couldn't convert the file.", "No se pudo convertir el archivo."),
                 Error::Metadata { path, .. } => {
                     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                     if es {
@@ -147,34 +147,28 @@ impl Error {
                 _ => say("Couldn't read or write the file.", "No se pudo leer o guardar el archivo."),
             },
             Problem::BadLink => say("That doesn't look like a Tidal link.", "Eso no parece un enlace de Tidal."),
-            Problem::Settings => {
-                let detail = match self {
-                    Error::Template(m) | Error::Config(m) => m.as_str(),
-                    _ => "",
-                };
-                if es {
-                    format!("Hay un problema en tus ajustes: {detail}")
-                } else {
-                    format!("There's a problem in your settings: {detail}")
-                }
-            }
+            // the technical detail (a path, a parser message) stays in the log
+            Problem::Settings => match self {
+                Error::Template(_) => say(
+                    "The pattern that names your files has a mistake. Check it in Settings.",
+                    "El patrón que da nombre a tus archivos tiene un error. Revísalo en Ajustes.",
+                ),
+                _ => say(
+                    "HomeFi couldn't read your settings file. Fix it or delete it to start fresh.",
+                    "HomeFi no pudo leer tu archivo de ajustes. Corrígelo o bórralo para empezar de cero.",
+                ),
+            },
             Problem::Worded => match self {
                 Error::Share(m) => m.clone(),
                 Error::AutoEq(m) | Error::Playlist(m) | Error::Export(m) => m.clone(),
                 Error::Ai(e) => e.humane_in(lang),
                 e => e.to_string(),
             },
-            _ => match self {
-                // Tidal's own words are usually readable; leave out the codes
-                Error::Api { user_message, .. } if !user_message.is_empty() && user_message != "Unknown API error" => {
-                    if es {
-                        format!("Tidal dice: {user_message}")
-                    } else {
-                        format!("Tidal says: {user_message}")
-                    }
-                }
-                _ => say("Something went wrong. Try again.", "Algo salió mal. Vuelve a intentarlo."),
-            },
+            // Tidal's own text is often technical ("asset is not ready"): it goes to the log, not the screen
+            _ => say(
+                "Tidal couldn't do that right now. Try again in a moment.",
+                "Tidal no pudo hacerlo ahora. Vuelve a intentarlo en un momento.",
+            ),
         }
     }
 }
@@ -259,7 +253,10 @@ pub fn http_problem(e: &reqwest::Error) -> Problem {
 /// A failed HTTP request in plain words (for code that has no [`Error`]).
 pub fn humane_http(e: &reqwest::Error) -> String {
     let p = http_problem(e);
-    p.words(language()).unwrap_or_else(|| Problem::Other.words(language()).unwrap_or_default())
+    p.words(language()).unwrap_or_else(|| match language() {
+        Lang::Es => "Algo salió mal. Vuelve a intentarlo.".to_owned(),
+        Lang::En => "Something went wrong. Try again.".to_owned(),
+    })
 }
 
 fn status_problem(status: u16, msg: &str) -> Problem {
@@ -307,10 +304,9 @@ mod tests {
         assert_eq!(api(503, "0", "").problem(), Problem::TidalDown);
         assert_eq!(api(403, "4035", "Asset is not available").problem(), Problem::NotInRegion);
         assert_eq!(api(403, "0", "Not available in your region").problem(), Problem::NotInRegion);
-        assert_eq!(
-            api(400, "1002", "Asset is not ready for playback").humane_in(Lang::En),
-            "Tidal says: Asset is not ready for playback"
-        );
+        let other = api(400, "1002", "Asset is not ready for playback").humane_in(Lang::En);
+        assert_eq!(other, "Tidal couldn't do that right now. Try again in a moment.");
+        assert!(!other.contains("Asset"));
     }
 
     #[test]
@@ -333,6 +329,30 @@ mod tests {
         assert_eq!(e.problem(), Problem::Offline);
         assert!(e.humane_in(Lang::En).starts_with("No internet connection"));
         assert!(!e.humane_in(Lang::En).contains("127.0.0.1"));
+    }
+
+    #[test]
+    fn settings_mistakes_hide_paths_and_parser_words() {
+        let cfg = Error::Config("/home/x/.homefi/config.toml: unknown field `foo` at line 3".into());
+        let text = cfg.humane_in(Lang::Es);
+        assert!(text.starts_with("HomeFi no pudo leer"), "{text}");
+        assert!(!text.contains("toml") && !text.contains("/home"));
+        let tpl = Error::Template("unknown field {x}".into());
+        assert!(!tpl.humane_in(Lang::En).contains("{x}"));
+    }
+
+    #[test]
+    fn common_failures_have_actionable_words() {
+        for (e, needle) in [
+            (api(401, "11003", "Token expired"), "Sign in again"),
+            (api(429, "0", ""), "Wait a minute"),
+            (api(503, "0", ""), "few minutes"),
+            (Error::NotLoggedIn("x"), "Sign in"),
+            (Error::Io(std::io::Error::from(ErrorKind::PermissionDenied)), "Pick another"),
+        ] {
+            let text = e.humane_in(Lang::En);
+            assert!(text.contains(needle), "{text}");
+        }
     }
 
     #[test]

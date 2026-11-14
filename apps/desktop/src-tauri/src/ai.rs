@@ -59,7 +59,7 @@ fn keychain_error(e: keyring::Error) -> String {
 }
 
 fn provider(id: &str, base_url: Option<&str>) -> CmdResult<AiProvider> {
-    AiProvider::from_id(id, base_url).ok_or_else(|| format!("unknown AI provider `{id}`"))
+    AiProvider::from_id(id, base_url).ok_or_else(|| "That AI service is not available.".to_owned())
 }
 
 /// The stored key of `provider`, from memory or the keychain (off the async threads).
@@ -109,7 +109,7 @@ pub async fn ai_key_set(ai: State<'_, Ai>, provider: String, key: String) -> Cmd
     let id = self::provider(&provider, None)?.id().to_owned();
     let key = key.trim().to_owned();
     if key.is_empty() {
-        return Err("empty key".into());
+        return Err("Paste your key first".into());
     }
     let (account, secret) = (id.clone(), key.clone());
     tauri::async_runtime::spawn_blocking(move || entry(&account)?.set_password(&secret).map_err(keychain_error))
@@ -336,7 +336,7 @@ pub async fn eq_assistant_reply(app: AppHandle, text: String) -> CmdResult<Assis
     let ai = app.state::<Ai>();
     let mut slot = ai.session.lock().await;
     let Some(session) = slot.as_mut() else {
-        return Err("the assistant isn't open".into());
+        return Err("The assistant is not open. Start a new chat.".into());
     };
     // the conversation may be older than the user's last edits (a suggestion card stays open for
     // the whole run): give it the settings as they are now

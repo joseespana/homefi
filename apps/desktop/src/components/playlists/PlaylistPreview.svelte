@@ -9,6 +9,7 @@
   import { app } from "../../lib/state.svelte";
   import Cover from "../Cover.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
   import SearchSuggestions from "./SearchSuggestions.svelte";
   import SourcesSheet from "./SourcesSheet.svelte";
   import TagChip from "./TagChip.svelte";
@@ -26,7 +27,7 @@
     fallbackNote?: string | null;
     /** Saved in HomeFi (otherwise it is a draft with Save / Discard). */
     saved: boolean;
-    onsave?: () => void;
+    onsave?: () => void | Promise<void>;
     ondiscard?: () => void;
     /** Saved playlists show "Search again" / "Change answers" / "Keep chatting" (off on the screen that is already doing it). */
     rebuildable?: boolean;
@@ -65,7 +66,21 @@
 
   const dateLabel = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 
+  // Save and Delete wait for the disk (and TIDAL), so their buttons show it
+  let saving = $state(false);
+  let removing = $state(false);
+  async function save() {
+    if (saving) return;
+    saving = true;
+    try {
+      await onsave?.();
+    } finally {
+      saving = false;
+    }
+  }
+
   async function remove() {
+    if (removing) return;
     const withTidal = tidalSettings.tidal_delete_with && !!tidalUuid;
     const ok = await app.confirm({
       title: `Delete “${playlist.name}”?`,
@@ -76,8 +91,13 @@
       danger: true,
     });
     if (!ok) return;
-    await playlists.remove(playlist.id);
-    app.view = { name: "playlists" };
+    removing = true;
+    try {
+      await playlists.remove(playlist.id);
+      app.view = { name: "playlists" };
+    } finally {
+      removing = false;
+    }
   }
 </script>
 
@@ -102,7 +122,7 @@
       <div class="actions fold" use:foldLabels>
         {#if saved}
           {#if concert}
-            <button class="btn tonal" disabled={playlists.building} onclick={() => playlists.build(requestOf(concert), concert.id)}><Icon name="refresh" size={16} /> Search again</button>
+            <button class="btn tonal" disabled={playlists.building} aria-busy={playlists.building} onclick={() => playlists.build(requestOf(concert), concert.id)}>{#if playlists.building}<Spinner size={16} /> Searching…{:else}<Icon name="refresh" size={16} /> Search again{/if}</button>
           {:else if rebuildable && isChat(playlist)}
             <button class="btn tonal" onclick={() => conversations.begin("chat", { replaceId: playlist.id })}><Icon name="edit" size={16} /> Keep chatting</button>
           {:else if rebuildable}
@@ -110,17 +130,16 @@
           {/if}
           {#if tidalReady}
             <button class="btn tonal" disabled={tidalSaving} aria-busy={tidalSaving} onclick={() => playlists.saveToTidal(playlist)}>
-              <Icon name={tidalUuid ? "refresh" : "save"} size={16} />
-              {tidalSaving ? "Saving to TIDAL…" : tidalUuid ? "Update on TIDAL" : "Save to TIDAL"}
+              {#if tidalSaving}<Spinner size={16} /> Saving to TIDAL…{:else}<Icon name={tidalUuid ? "refresh" : "save"} size={16} /> {tidalUuid ? "Update on TIDAL" : "Save to TIDAL"}{/if}
             </button>
             {#if tidalUuid}
               <button class="btn tonal" onclick={() => (app.view = { name: "tidal-item", kind: "playlist", id: tidalUuid, back: app.view })}><Icon name="external" size={16} /> Open in TIDAL</button>
             {/if}
           {/if}
-          <button class="btn tonal" onclick={remove}><Icon name="trash" size={16} /> Delete playlist</button>
+          <button class="btn tonal" disabled={removing} aria-busy={removing} onclick={remove}>{#if removing}<Spinner size={16} /> Deleting…{:else}<Icon name="trash" size={16} /> Delete playlist{/if}</button>
         {:else}
-          <button class="btn primary" onclick={onsave}><Icon name="check" size={16} /> Save playlist</button>
-          <button class="btn tonal" onclick={ondiscard}>Discard</button>
+          <button class="btn primary" disabled={saving} aria-busy={saving} onclick={save}>{#if saving}<Spinner size={16} /> Saving…{:else}<Icon name="check" size={16} /> Save playlist{/if}</button>
+          <button class="btn tonal" disabled={saving} onclick={ondiscard}>Discard</button>
         {/if}
       </div>
       <div class="muted small">{saved ? savedNote : draftNote}</div>

@@ -86,12 +86,12 @@
   </ActionRow>
 </SettingsGroup>
 
-<SettingsGroup title="Loudness" description="From ReplayGain (Tidal's, or the file's tags); any change of level means it isn't bit-perfect.">
+<SettingsGroup title="Loudness" description="Evens out the volume of your songs, using Tidal's volume info or the file's own. Any change of level means it isn't bit-perfect.">
   <ChoiceList label="Normalization" options={LOUDNESS_MODES} value={loudness.mode} onchange={(id) => m.save({ loudness: { ...loudness, mode: id } })} />
   {#if loudness.mode !== "off"}
     <SliderRow
       label="Target"
-      hint="−14 is what streaming services use; lower is quieter with more headroom"
+      hint="−14 is what streaming services use; lower is quieter"
       min={TARGET_MIN_LUFS}
       max={TARGET_MAX_LUFS}
       step={1}
@@ -99,6 +99,6 @@
       format={(n) => `${n} LUFS`}
       onchange={(n) => m.save({ loudness: { ...loudness, targetLufs: n } })}
     />
-    <SwitchRow label="Prevent clipping" hint="Never raises a quiet song past its loudest peak" checked={loudness.preventClipping} onchange={(on) => m.save({ loudness: { ...loudness, preventClipping: on } })} />
+    <SwitchRow label="Prevent clipping" hint="Never makes a quiet song so loud that it distorts" checked={loudness.preventClipping} onchange={(on) => m.save({ loudness: { ...loudness, preventClipping: on } })} />
   {/if}
 </SettingsGroup>

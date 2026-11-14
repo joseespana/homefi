@@ -4,6 +4,7 @@
   import HitRow from "./HitRow.svelte";
   import Icon from "./Icon.svelte";
   import Skeleton from "./Skeleton.svelte";
+  import Spinner from "./Spinner.svelte";
 
   let query = $state("");
   let results = $state<SearchResults | null>(null);
@@ -32,13 +33,19 @@
     }
   }
 
+  let queuing = $state(false);
+
   async function downloadLink() {
+    if (queuing) return;
+    queuing = true;
     try {
       await api.download(query.trim(), [query.trim()]);
       query = "";
       app.view = { name: "downloads" };
     } catch (e) {
       error = errorText(e);
+    } finally {
+      queuing = false;
     }
   }
 
@@ -77,7 +84,7 @@
       oninput={onInput}
       onkeydown={(e) => e.key === "Enter" && (isLink ? downloadLink() : run())}
     />
-    {#if loading}<span class="spinner"></span>{/if}
+    {#if loading}<Spinner size={16} />{/if}
   </div>
 
   {#if isLink}
@@ -87,7 +94,7 @@
         <div><b>Tidal link</b></div>
         <div class="muted ellipsis">{query.trim()}</div>
       </div>
-      <button class="btn primary" onclick={downloadLink}>Download</button>
+      <button class="btn primary" disabled={queuing} aria-busy={queuing} onclick={downloadLink}>{#if queuing}<Spinner size={16} /> Starting…{:else}Download{/if}</button>
     </div>
   {/if}
 
@@ -127,19 +134,6 @@
     border: 0;
     background: none;
     font-size: 15px;
-  }
-  .spinner {
-    width: 16px;
-    height: 16px;
-    border: 2px solid var(--surface-3);
-    border-top-color: var(--primary);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
   }
   .link-card {
     display: flex;

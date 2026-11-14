@@ -1098,7 +1098,7 @@ pub async fn delete_tracks<R: Runtime>(app: AppHandle<R>, paths: Vec<String>) ->
     .await
     .map_err(err)?;
     if removed.len() < known.len() && removed.is_empty() {
-        return Err("Could not move the files to the Trash".into());
+        return Err("Could not move the files to the Trash. Check they are not in use.".into());
     }
     state.library.lock().unwrap().retain(|t| !removed.contains(&t.path));
     let _ = app.emit("library", removed.len());

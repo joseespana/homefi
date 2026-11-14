@@ -268,7 +268,7 @@ private fun RidePlan(state: RideUi.Preview, session: com.perseusoft.homefi.playe
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             val ready = state.rebuilding == null
             TvPill(stringResource(R.string.ex_start), { if (ready) session.start(state.built) }, Modifier.tvInitialFocus().tvLeftToDrawer(), icon = Icons.Rounded.PlayArrow, primary = true, height = 38.dp)
-            TvPill(stringResource(R.string.ex_another_mix), { if (ready) session.rebuild() }, height = 38.dp)
+            TvPill(stringResource(R.string.ex_another_mix), { if (ready) session.rebuild() }, icon = Icons.Rounded.AutoAwesome, height = 38.dp, busy = !ready)
             TvPill(stringResource(R.string.ex_change), { if (ready) session.backToSetup() }, height = 38.dp)
         }
     }

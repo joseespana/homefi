@@ -144,7 +144,7 @@
   <section class="idle" in:rise>
     {#if show.mascot}<MascotHost size={220} asleep />{/if}
     <h1>Nothing playing in {share.guest.session_name}</h1>
-    <p class="muted">Search the hub’s music and add a song.</p>
+    <p class="muted">Search the host’s music and add a song.</p>
     <div class="actions">
       <button class="btn primary" onclick={() => share.open("search")}><Icon name="search" size={16} /> Search</button>
     </div>

@@ -29,23 +29,37 @@ class TvPairings(private val app: HomefiApplication) {
     val paired: StateFlow<PairedTv?> = _paired.asStateFlow()
     private val _sendState = MutableStateFlow(TvSendState.IDLE)
     val sendState: StateFlow<TvSendState> = _sendState.asStateFlow()
+    private val _connecting = MutableStateFlow(false)
+
+    /** Pairing with a scanned TV is in flight: its button shows a spinner. */
+    val connecting: StateFlow<Boolean> = _connecting.asStateFlow()
 
     /** A scanned or opened link: pairs, sends the running ride if there is one, and says how it went. */
     fun connect(link: TvPairLink) {
+        if (_connecting.value) return
+        _connecting.value = true
         app.appScope.launch {
-            val rideUrl = app.ride.tv.value.url.orEmpty()
-            when (val reply = post(link.host, link.port, PairRequest(link.code, null, rideUrl, app.share.displayName()))) {
-                is Outcome.Replied -> {
-                    save(PairedTv(reply.value.tvName, link.host, link.port, reply.value.token))
-                    // pairing means "show my rides on that TV"
-                    app.settings.exercise.value.let { if (!it.tvEnabled) app.settings.setExercise(it.copy(tvEnabled = true)) }
-                    _sendState.value = if (rideUrl.isNotEmpty()) TvSendState.SENT else TvSendState.IDLE
-                    val text = if (rideUrl.isNotEmpty()) R.string.tv_pair_done_sent else R.string.tv_pair_done
-                    app.notes.post(app.getString(text, reply.value.tvName))
-                }
-                Outcome.Refused -> app.notes.post(app.getString(R.string.tv_pair_refused))
-                Outcome.Unreachable -> app.notes.post(app.getString(R.string.tv_pair_unreachable))
+            try {
+                pair(link)
+            } finally {
+                _connecting.value = false
             }
+        }
+    }
+
+    private suspend fun pair(link: TvPairLink) {
+        val rideUrl = app.ride.tv.value.url.orEmpty()
+        when (val reply = post(link.host, link.port, PairRequest(link.code, null, rideUrl, app.share.displayName()))) {
+            is Outcome.Replied -> {
+                save(PairedTv(reply.value.tvName, link.host, link.port, reply.value.token))
+                // pairing means "show my rides on that TV"
+                app.settings.exercise.value.let { if (!it.tvEnabled) app.settings.setExercise(it.copy(tvEnabled = true)) }
+                _sendState.value = if (rideUrl.isNotEmpty()) TvSendState.SENT else TvSendState.IDLE
+                val text = if (rideUrl.isNotEmpty()) R.string.tv_pair_done_sent else R.string.tv_pair_done
+                app.notes.post(app.getString(text, reply.value.tvName))
+            }
+            Outcome.Refused -> app.notes.post(app.getString(R.string.tv_pair_refused))
+            Outcome.Unreachable -> app.notes.post(app.getString(R.string.tv_pair_unreachable))
         }
     }
 

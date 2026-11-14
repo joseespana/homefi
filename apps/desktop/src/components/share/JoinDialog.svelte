@@ -6,6 +6,7 @@
   import { share } from "../../lib/share.svelte";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
 
   const form = $derived(share.joinForm!);
   const found = $derived(!!form.sessionName && !!form.host);
@@ -27,7 +28,7 @@
     if (text.startsWith("homefi://")) {
       const link = await api.shareParseLink(text);
       if (!link) {
-        error = "Not a HomeFi join link";
+        error = "That is not a HomeFi invitation link";
         return;
       }
       host = link.host;
@@ -49,7 +50,7 @@
     if (busy) return;
     await readAddress();
     if (!host.trim()) {
-      error = "Enter the hub’s address (or paste its homefi:// link)";
+      error = "Paste the invitation link, or type the address shown on the other computer";
       return;
     }
     busy = true;
@@ -58,7 +59,7 @@
     if (!sessionName) sessionName = (await api.shareProbe(host.trim(), port).catch(() => null))?.name ?? "";
     const ok = await share.join(host.trim(), port, code.trim(), sessionName, name.trim() || undefined, color);
     busy = false;
-    if (!ok) error = share.guest.error ?? "Could not join";
+    if (!ok) error = share.guest.error ?? "Could not join. Check the code and that you are on the same Wi-Fi.";
   }
 
   function autofocus(el: HTMLInputElement) {
@@ -73,15 +74,15 @@
     <button type="button" class="icon-btn close" aria-label="Close" onclick={close}><Icon name="x" /></button>
     <h2>{found ? `Join ${form.sessionName}` : "Join with a code"}</h2>
     {#if found}
-      <p class="muted mono">{form.host}:{form.port}</p>
+      <p class="muted">Found on your network. Just type the code shown on the other screen.</p>
     {:else}
       <div class="pair">
         <label class="grow">
-          <span>Address or link</span>
+          <span>Invitation link or address</span>
           <input bind:value={host} placeholder="192.168.1.20 or homefi://join?…" onblur={readAddress} use:autofocus />
         </label>
         <label class="port">
-          <span>Port</span>
+          <span>Connection number</span>
           <input type="number" min="1" max="65535" bind:value={port} />
         </label>
       </div>
@@ -102,8 +103,8 @@
       <label>
         <span>Your colour</span>
         <span class="colors">
-          {#each COLORS as c}
-            <button type="button" class="swatch" class:on={color.toLowerCase() === c.toLowerCase()} style:background={c} aria-label="Colour {c}" onclick={() => (color = c)}></button>
+          {#each COLORS as c, i}
+            <button type="button" class="swatch" class:on={color.toLowerCase() === c.toLowerCase()} style:background={c} aria-label="Colour {i + 1}" onclick={() => (color = c)}></button>
           {/each}
         </span>
       </label>
@@ -111,7 +112,7 @@
     {#if error}<p class="error">{error}</p>{/if}
     <div class="actions">
       <button type="button" class="btn tonal" onclick={close}>Cancel</button>
-      <button type="submit" class="btn primary" disabled={busy}>{busy ? "Joining…" : "Join"}</button>
+      <button type="submit" class="btn primary" disabled={busy} aria-busy={busy}>{#if busy}<Spinner size={16} /> Joining…{:else}Join{/if}</button>
     </div>
   </form>
 </div>
@@ -144,10 +145,6 @@
   }
   p {
     margin: 0;
-  }
-  .mono {
-    font-family: var(--font-mono);
-    font-size: 13px;
   }
   .close {
     position: absolute;

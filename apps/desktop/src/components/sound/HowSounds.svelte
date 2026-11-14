@@ -7,6 +7,7 @@
   import { REACTIONS, ruleWords, scopeIcon, scopeShort, sound } from "../../lib/sound.svelte";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
 
   // `look`: the deck's hardware button, the top bar's quiet button, the room's chip, or a skin's chip (light on light skins)
   let { place, look = "chip", up = false }: { place: "deck" | "room" | "top"; look?: "hw" | "tb" | "chip" | "skin" | "skin-light"; up?: boolean } = $props();
@@ -64,9 +65,9 @@
 
       <div class="grid">
         {#each REACTIONS as r (r.id)}
-          <button class="react" class:perfect={r.id === "perfect"} class:wide={r.id === "vocalsBuried"} class:busy={sound.busy === r.id} disabled={!!sound.busy} onclick={() => sound.react(r.id, scope)}>
+          <button class="react" class:perfect={r.id === "perfect"} class:wide={r.id === "vocalsBuried"} class:busy={sound.busy === r.id} disabled={!!sound.busy} aria-busy={sound.busy === r.id} onclick={() => sound.react(r.id, scope)}>
             <b>{r.label}</b>
-            <small>{sound.busy === r.id ? "Adjusting…" : r.hint}</small>
+            <small>{#if sound.busy === r.id}<Spinner size={12} /> Adjusting…{:else}{r.hint}{/if}</small>
           </button>
         {/each}
       </div>

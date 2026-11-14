@@ -5,6 +5,7 @@
   import { EX_CALIBRATION, exerciseApi, type ConsoleUnit } from "../../../lib/exercise-api";
   import { CuePlayer } from "../../../lib/exerciseCues";
   import { errorText } from "../../../lib/api";
+  import Spinner from "../../Spinner.svelte";
 
   let {
     console: consoleUnit,
@@ -28,14 +29,19 @@
   const player = new CuePlayer();
   let left = $state(0);
   let running = $state(false);
+  let starting = $state(false);
+  let saving = $state(false);
   let speed = $state("");
   let problem = $state<string | null>(null);
   let timer = 0;
 
   async function start() {
+    if (starting || running) return;
     problem = null;
     player.unlock();
-    if (!(await player.clickTrain(CLICKS, EX_CALIBRATION.clickMs, volume))) {
+    starting = true;
+    const played = await player.clickTrain(CLICKS, EX_CALIBRATION.clickMs, volume).finally(() => (starting = false));
+    if (!played) {
       problem = "The click could not play. Check the sound output and try again.";
       return;
     }
@@ -64,12 +70,16 @@
       problem = `Type the speed in ${unit}.`;
       return;
     }
+    if (saving) return;
+    saving = true;
     try {
       const factor = await exerciseApi.calibrate(consoleUnit, EX_CALIBRATION.rpm, value);
       if (factor === null) problem = `${value} ${unit} does not look right for ${EX_CALIBRATION.rpm} RPM. Check the number and try again.`;
       else onsave(factor);
     } catch (e) {
       problem = errorText(e);
+    } finally {
+      saving = false;
     }
   }
 </script>
@@ -77,14 +87,14 @@
 <div class="cal" role="group" aria-label="Calibrate speed">
   <p class="how">Pedal to the clicks for {EX_CALIBRATION.seconds} s ({EX_CALIBRATION.rpm} RPM), then type the speed your console shows.</p>
   <div class="row">
-    <button type="button" class="btn tonal" disabled={running} onclick={start}>{running ? `Pedal… ${left} s` : "Play the clicks"}</button>
+    <button type="button" class="btn tonal" disabled={running || starting} aria-busy={starting} onclick={start}>{#if starting}<Spinner size={16} /> Starting…{:else}{running ? `Pedal… ${left} s` : "Play the clicks"}{/if}</button>
     {#if running}<button type="button" class="btn tonal" onclick={stopClicks}>Stop</button>{/if}
     <label class="speed">
       <span>Console speed</span>
       <input type="text" inputmode="decimal" bind:value={speed} placeholder="0.0" aria-describedby="cal-unit" onkeydown={(e) => e.key === "Enter" && save()} />
       <b id="cal-unit">{unit}</b>
     </label>
-    <button type="button" class="btn primary" disabled={!speed.trim()} onclick={save}>Save</button>
+    <button type="button" class="btn primary" disabled={!speed.trim() || saving} aria-busy={saving} onclick={save}>{#if saving}<Spinner size={16} /> Saving…{:else}Save{/if}</button>
     <button type="button" class="btn tonal" onclick={onclose}>Cancel</button>
   </div>
   {#if problem}<p class="err" role="alert">{problem}</p>{/if}

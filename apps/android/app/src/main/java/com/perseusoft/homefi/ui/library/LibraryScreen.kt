@@ -33,6 +33,7 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import com.perseusoft.homefi.ui.theme.ListEntrance
 import com.perseusoft.homefi.ui.theme.LocalMotion
 import com.perseusoft.homefi.ui.theme.itemMotion
+import com.perseusoft.homefi.ui.ButtonSpinner
 import com.perseusoft.homefi.ui.QueueButton
 import com.perseusoft.homefi.ui.QueueMenu
 import com.perseusoft.homefi.ui.NowCoverMark
@@ -422,6 +423,7 @@ private fun LibraryTabs(
                     TabBody.Loading -> SkeletonList(10, round = tab == LibraryTab.ARTISTS)
                     TabBody.Empty -> EmptyLibrary(
                         hasAccess = state.hasAccess,
+                        scanning = state.scanning,
                         onGrant = onGrant,
                         onRescan = app.library::refresh,
                     )
@@ -444,7 +446,7 @@ private fun LibraryTabs(
 }
 
 @Composable
-private fun EmptyLibrary(hasAccess: Boolean, onGrant: () -> Unit, onRescan: () -> Unit) {
+private fun EmptyLibrary(hasAccess: Boolean, scanning: Boolean, onGrant: () -> Unit, onRescan: () -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
@@ -460,7 +462,13 @@ private fun EmptyLibrary(hasAccess: Boolean, onGrant: () -> Unit, onRescan: () -
             Button(onClick = onGrant) { Text(stringResource(R.string.library_access_grant)) }
             Spacer(Modifier.height(8.dp))
         }
-        FilledTonalButton(onClick = onRescan) { Text(stringResource(R.string.library_rescan)) }
+        FilledTonalButton(onClick = onRescan, enabled = !scanning) {
+            if (scanning) {
+                ButtonSpinner()
+                Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+            }
+            Text(stringResource(R.string.library_rescan))
+        }
     }
 }
 

@@ -491,7 +491,7 @@ impl share::HubHost for CallbackHost {
             blocking(move || cb.search(q))
                 .await
                 .map(Into::into)
-                .ok_or_else(|| homefi_core::Error::Share("the hub could not search".into()))
+                .ok_or_else(|| homefi_core::Error::Share("The search didn't work. Try again.".into()))
         }
         .boxed()
     }
@@ -502,7 +502,7 @@ impl share::HubHost for CallbackHost {
             blocking(move || cb.browse(kind.into(), id))
                 .await
                 .map(Into::into)
-                .ok_or_else(|| homefi_core::Error::Share("the hub could not open it".into()))
+                .ok_or_else(|| homefi_core::Error::Share("Couldn't open that. Try again.".into()))
         }
         .boxed()
     }

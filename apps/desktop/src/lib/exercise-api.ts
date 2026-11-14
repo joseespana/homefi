@@ -228,7 +228,17 @@ export interface RideView {
   next: NextView | null;
   pulse: PulseView;
   cues: Cue[];
+  /** The big message in the middle of the ride (sprint countdown, cheers, the ride's last words). */
+  callout?: RideCallout | null;
 }
+
+/** What the big message says; `n` is the digit, the seconds or the cheer, by kind. */
+export type CalloutKind = "countdown" | "go" | "cheer" | "seconds_left" | "good_job" | "almost_done" | "stretch" | "see_you";
+export interface RideCallout {
+  kind: CalloutKind;
+  n: number;
+}
+
 
 // ------------------------------------------------------------------ the backend's state
 
@@ -259,6 +269,8 @@ export interface RideTick {
   stage: Stage;
   playing: boolean;
   view: RideView;
+  /** The big message's words in the ride's language (the countdown: the words over the digit). */
+  callout_text?: string | null;
 }
 
 export type RideProgress =
@@ -407,6 +419,8 @@ export interface ExerciseSettings {
   ride_karaoke: boolean;
   /** The ride opens fullscreen (desktop). */
   ride_fullscreen: boolean;
+  /** Big messages in the middle of the ride: the sprint's 3-2-1, cheers, the ride's last words. */
+  ride_callouts: boolean;
   /** Android only; kept so the JSON round-trips. */
   haptic_cues: boolean;
   health_notice_seen: boolean;
@@ -473,6 +487,7 @@ export const DEFAULT_EXERCISE_SETTINGS: ExerciseSettings = {
   swap_uses_ai: true,
   ride_karaoke: false,
   ride_fullscreen: false,
+  ride_callouts: true,
   haptic_cues: true,
   health_notice_seen: false,
   tempo_nudge_pct: 0,
@@ -730,6 +745,12 @@ export const exerciseApi = {
   rideExport: (id: string, path: string) => invoke<string>("exercise_ride_export", { id, path }),
   rideImport: (path: string) => invoke<SavedRide>("exercise_ride_import", { path }),
   /** Swaps the song of a part for another that fits: preview (`atSegmentMs` null) or live, at that instant of the part. */
+  repeat: () => invoke<void>("exercise_repeat"),
+  /** A quick listen to song `songIndex` of the plan on screen; answers how long it plays (ms) once it plays. */
+  preview: (songIndex: number) => invoke<number>("exercise_preview", { songIndex }),
+  previewStop: () => invoke<void>("exercise_preview_stop"),
+  /** The ride speaks the system's language: its big messages and the TV page. */
+  language: (language: string) => invoke<void>("exercise_language", { language }),
   swap: (segmentIndex: number, atSegmentMs: number | null) => invoke<RideBuilt>("exercise_swap", { segmentIndex, atSegmentMs }),
   /** km/h per RPM from what the console showed at `rpm`, or null when the number can't be right. */
   calibrate: (console: ConsoleUnit, rpm: number, speed: number) => invoke<number | null>("exercise_calibrate", { console, rpm, speed }),

@@ -395,6 +395,7 @@ private fun TvHomePlaylistPage(playlist: HomePlaylist, signedIn: Boolean, onDele
                     { if (!saving) app.appScope.launch { app.playlists.saveToTidal(playlist.id) } },
                     edge,
                     icon = if (onTidal) Icons.Rounded.CloudSync else Icons.Rounded.CloudUpload,
+                    busy = saving,
                 )
             }
             TvPill(stringResource(R.string.tv_pl_more), { more = true }, edge, icon = Icons.Rounded.MoreHoriz)

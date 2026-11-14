@@ -188,6 +188,37 @@ mirror_enum!(CueKind <=> ex::CueKind {
     Countdown3, Countdown2, Countdown1, Change, Standing, Seated, SprintGo, Recover, Finish, Click, Resistance
 });
 
+/// What the big message in the middle of the ride says (see `RideView::callout`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, uniffi::Enum)]
+pub enum CalloutKind {
+    /// "Sprint in 3 · 2 · 1" (`n` is the digit).
+    Countdown,
+    Go,
+    /// A cheer while sprinting (`n` picks one of `exercise_cheer_count()`).
+    Cheer,
+    /// The sprint's last `n` seconds.
+    SecondsLeft,
+    GoodJob,
+    AlmostDone,
+    Stretch,
+    SeeYou,
+}
+
+mirror_enum!(CalloutKind <=> ex::CalloutKind { Countdown, Go, Cheer, SecondsLeft, GoodJob, AlmostDone, Stretch, SeeYou });
+
+/// The big message in the middle of the ride; `n` is the digit, the seconds or the cheer, by kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct RideCallout {
+    pub kind: CalloutKind,
+    pub n: u8,
+}
+
+/// How many different cheers a sprint rotates through.
+#[uniffi::export]
+pub fn exercise_cheer_count() -> u8 {
+    ex::CHEERS
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum RidePosition {
     Seated,
@@ -373,6 +404,9 @@ pub struct ExerciseSettings {
     /// Desktop: the ride opens fullscreen.
     #[uniffi(default = false)]
     pub ride_fullscreen: bool,
+    /// Big messages in the middle of the ride (sprint countdown, cheers, the ride's last words).
+    #[uniffi(default = true)]
+    pub ride_callouts: bool,
 }
 
 impl From<ex::ExerciseSettings> for ExerciseSettings {
@@ -419,6 +453,7 @@ impl From<ex::ExerciseSettings> for ExerciseSettings {
             swap_uses_ai: s.swap_uses_ai,
             ride_karaoke: s.ride_karaoke,
             ride_fullscreen: s.ride_fullscreen,
+            ride_callouts: s.ride_callouts,
         }
     }
 }
@@ -467,6 +502,7 @@ impl From<ExerciseSettings> for ex::ExerciseSettings {
             swap_uses_ai: s.swap_uses_ai,
             ride_karaoke: s.ride_karaoke,
             ride_fullscreen: s.ride_fullscreen,
+            ride_callouts: s.ride_callouts,
         }
     }
 }
@@ -1085,6 +1121,8 @@ pub struct RideView {
     pub cues: Vec<RideCue>,
     /// The song reached its cut: skip to the next one now (the ride's segment ended before the song did).
     pub skip_to_next: bool,
+    /// The big message in the middle of the screen, if any.
+    pub callout: Option<RideCallout>,
 }
 
 impl From<ex::RideView> for RideView {
@@ -1137,6 +1175,7 @@ impl From<ex::RideView> for RideView {
             },
             cues: v.cues.into_iter().map(|c| RideCue { id: c.id, kind: c.kind.into(), in_ms: c.in_ms }).collect(),
             skip_to_next: v.skip_to_next,
+            callout: v.callout.map(|c| RideCallout { kind: c.kind.into(), n: c.n }),
         }
     }
 }
@@ -1184,6 +1223,29 @@ impl ExerciseRide {
 pub struct CueAt {
     pub at_ms: u64,
     pub kind: CueKind,
+}
+
+/// The plan with the part of `song_index` played again from its start (the rider's "repeat this part"): the
+/// app then plays that song from 0 with a new `ExerciseRide` for the returned plan.
+#[uniffi::export]
+pub fn exercise_replay_song(plan: RidePlan, song_index: u32) -> RidePlan {
+    let mut plan = ex::RidePlan::from(plan);
+    plan.replay_song(song_index as usize);
+    plan.into()
+}
+
+/// The part of a song a preview plays (core `preview_window`).
+#[derive(uniffi::Record)]
+pub struct PreviewWindow {
+    pub from_ms: u64,
+    pub length_ms: u64,
+}
+
+/// What a quick listen to a song `duration_ms` long plays, before the ride: about 30 s from its middle.
+#[uniffi::export]
+pub fn exercise_preview_window(duration_ms: u64) -> PreviewWindow {
+    let w = ex::preview_window(duration_ms);
+    PreviewWindow { from_ms: w.from_ms, length_ms: w.length_ms }
 }
 
 /// [`ExerciseRide::view`] without keeping the plan (converts it every call: prefer the object).
@@ -1604,6 +1666,9 @@ pub struct TvSession {
     /// How the TV draws the rider (`None` = the bike, the default).
     #[uniffi(default = None)]
     pub course_rider: Option<CourseRider>,
+    /// Big messages in the middle of the ride (`ride_callouts`).
+    #[uniffi(default = true)]
+    pub callouts: bool,
 }
 
 /// The ride TV server: the page, `/ride.json` and the mDNS announcement. One per app.
@@ -1655,6 +1720,7 @@ impl ExerciseTv {
                 course_summits: session.course_summits,
                 hot_points: session.hot_points.into_iter().map(Into::into).collect(),
                 course_rider: session.course_rider.map(Into::into).unwrap_or_default(),
+                callouts: session.callouts,
             });
         }
     }
@@ -2102,6 +2168,7 @@ mod tests {
             course_summits: false,
             hot_points: ride.hot_points(),
             course_rider: None,
+            callouts: true,
         });
         tv.publish(ride, 0, 12_000, 1, true);
         let body = reqwest_get(port).await;

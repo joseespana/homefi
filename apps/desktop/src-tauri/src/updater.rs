@@ -227,7 +227,7 @@ fn humane(e: &tauri_plugin_updater::Error) -> String {
         | E::Base64(_)
         | E::SignedVersionMismatch { .. }
         | E::MissingSignedVersion => {
-            "The update's signature didn't match, so it wasn't installed. Download it from the release page instead."
+            "This update couldn't be verified as genuine, so it wasn't installed. Download it from the release page instead."
                 .into()
         }
         E::Reqwest(_) | E::Network(_) => "Couldn't reach GitHub. Check your internet connection and try again.".into(),
@@ -486,7 +486,7 @@ fn install(update: &Update, bytes: &[u8]) -> Result<(), tauri_plugin_updater::Er
 pub fn restart(app: &AppHandle, when: &str) -> Result<(), String> {
     let updates = app.state::<Updates>();
     if updates.view().status != "ready" {
-        return Err("The update isn't downloaded yet.".into());
+        return Err("The update is not ready yet.".into());
     }
     let state = app.state::<AppState>();
     let snapshot = state.player.snapshot();

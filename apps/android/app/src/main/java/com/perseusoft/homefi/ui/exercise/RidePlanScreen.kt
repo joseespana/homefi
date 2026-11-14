@@ -1,5 +1,6 @@
 package com.perseusoft.homefi.ui.exercise
 
+import com.perseusoft.homefi.ui.ButtonSpinner
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import com.perseusoft.homefi.player.exercise.RidePreviewing
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -153,6 +159,9 @@ fun RidePreview(state: RideUi.Preview, session: RideSession) {
     val app = LocalContext.current.homefi
     val settings by app.settings.exercise.collectAsStateWithLifecycle()
     val swapping by session.swapping.collectAsStateWithLifecycle()
+    val previewing by session.previewing.collectAsStateWithLifecycle()
+    // leaving the plan (back to the setup, another screen) ends a quick listen still playing
+    DisposableEffect(session) { onDispose { session.stopPreview() } }
     val hotPoints = remember(plan) { exerciseHotPoints(plan.workout) }
     val totalS = segments.sumOf { it.seconds.toInt() }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -183,6 +192,7 @@ fun RidePreview(state: RideUi.Preview, session: RideSession) {
                 // the songs of this part, with their place in the plan (the swap names a song by it)
                 plan.songs.withIndex().filter { it.value.segmentIndex.toInt() == i },
                 swappable = settings.rideSwap && rebuilding == null, swapping = swapping, onSwap = { session.swapSong(it, false) },
+                previewing = previewing, onPreview = session::previewSong,
             )
         }
         // the TV is picked as the ride starts, not when it is built
@@ -194,7 +204,10 @@ fun RidePreview(state: RideUi.Preview, session: RideSession) {
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = session::rebuild, enabled = rebuilding == null) { Text(stringResource(R.string.ex_another_mix)) }
+            TextButton(onClick = session::rebuild, enabled = rebuilding == null) {
+                if (rebuilding != null) ButtonSpinner(Modifier.padding(end = 8.dp), size = 18.dp)
+                Text(stringResource(R.string.ex_another_mix))
+            }
             TextButton(onClick = session::backToSetup, enabled = rebuilding == null) { Text(stringResource(R.string.ex_change)) }
         }
         Spacer(Modifier.height(16.dp))
@@ -238,6 +251,8 @@ private fun SegmentRow(
     swappable: Boolean,
     swapping: Int?,
     onSwap: (Int) -> Unit,
+    previewing: RidePreviewing?,
+    onPreview: (Int) -> Unit,
 ) {
     val zone = segment.kind.zoneColor()
     Card(Modifier.fillMaxWidth()) {
@@ -262,6 +277,7 @@ private fun SegmentRow(
                         )
                     }
                     BpmFit(song)
+                    PreviewButton(song.entry.title, previewing?.takeIf { it.song == index }) { onPreview(index) }
                     if (swappable) {
                         // one swap at a time: the song being replaced shows a spinner, the others wait
                         Box(Modifier.size(SWAP_TOUCH), contentAlignment = Alignment.Center) {
@@ -281,6 +297,28 @@ private fun SegmentRow(
 }
 
 private val SWAP_TOUCH = 48.dp
+
+/** Listen to a bit of the song: a spinner while it loads (TIDAL fetches it first), then a stop button. */
+@Composable
+private fun PreviewButton(title: String, listening: RidePreviewing?, onClick: () -> Unit) {
+    Box(Modifier.size(SWAP_TOUCH), contentAlignment = Alignment.Center) {
+        if (listening?.loading == true) {
+            // still tappable: a second tap gives up on it
+            val loading = stringResource(R.string.ex_preview_loading, title)
+            IconButton(onClick = onClick, modifier = Modifier.size(SWAP_TOUCH).semantics { contentDescription = loading }) {
+                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+            }
+        } else {
+            IconButton(onClick = onClick, modifier = Modifier.size(SWAP_TOUCH)) {
+                if (listening != null) {
+                    Icon(Icons.Rounded.Stop, stringResource(R.string.ex_preview_stop_cd), tint = MaterialTheme.colorScheme.primary)
+                } else {
+                    Icon(Icons.Rounded.PlayArrow, stringResource(R.string.ex_preview_cd, title))
+                }
+            }
+        }
+    }
+}
 
 /** The part's cadence range in the bike's unit ("70-80 RPM", "17.4-19.2 km/h"). */
 @Composable

@@ -151,7 +151,7 @@ async fn join_needs_the_right_code() {
     let port = hub.local_addr().port();
 
     let err = GuestClient::connect("127.0.0.1", port, "Eve", "#000000", "0000").await.err().unwrap();
-    assert_eq!(err.to_string(), "Wrong join code");
+    assert_eq!(err.to_string(), "That code isn't right.");
     assert!(hub.guests().is_empty());
 
     let (_ana, mut rx) = join(&hub, "Ana").await;
@@ -165,7 +165,7 @@ async fn join_needs_the_right_code() {
         assert!(GuestClient::connect("127.0.0.1", port, "Eve", "", "1111").await.is_err());
     }
     let err = GuestClient::connect("127.0.0.1", port, "Eve", "", "4821").await.err().unwrap();
-    assert_eq!(err.to_string(), "Too many wrong join codes");
+    assert_eq!(err.to_string(), "Too many wrong codes. Ask the host for a new one.");
 
     let info = hub.join_info("192.168.49.1");
     assert_eq!((info.port, info.code.as_str()), (port, "4821"));

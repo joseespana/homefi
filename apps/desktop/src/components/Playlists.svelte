@@ -11,6 +11,7 @@
   import { isChat, isConcert, isParty, playlists } from "../lib/playlists.svelte";
   import Cover from "./Cover.svelte";
   import Icon from "./Icon.svelte";
+  import Spinner from "./Spinner.svelte";
   import Skeleton from "./Skeleton.svelte";
   import TrackTable from "./TrackTable.svelte";
 
@@ -116,7 +117,7 @@
       <button class="btn primary" onclick={() => conversations.begin("chat")}><Icon name="ai" size={16} /> Make a playlist with AI</button>
       <button class="btn tonal" onclick={() => (app.view = { name: "concert" })}><Icon name="mic" size={16} /> Get ready for a concert</button>
       <button class="btn tonal" onclick={() => conversations.begin("party")}><Icon name="music" size={16} /> Make a party playlist</button>
-      <button class="icon-btn" title="Refresh" aria-label="Refresh" onclick={() => load(true)} disabled={loading}><Icon name="refresh" /></button>
+      <button class="icon-btn" title="Refresh" aria-label="Refresh" onclick={() => load(true)} disabled={loading} aria-busy={loading}>{#if loading}<Spinner size={18} />{:else}<Icon name="refresh" />{/if}</button>
       {#if app.account}
         <button class="btn tonal" onclick={() => (app.newPlaylist = { trackIds: [] })}><Icon name="plus" size={16} /> New playlist</button>
       {/if}

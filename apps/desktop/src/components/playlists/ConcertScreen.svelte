@@ -8,6 +8,7 @@
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
   import BuildStatus from "./BuildStatus.svelte";
+  import Spinner from "../Spinner.svelte";
   import PlaylistPreview from "./PlaylistPreview.svelte";
 
   const settings = $derived(app.settings?.playlists ?? DEFAULT_PLAYLIST_SETTINGS);
@@ -85,7 +86,7 @@
   {/if}
 
   <div class="actions">
-    <button type="submit" class="btn primary" disabled={!ready}><Icon name="play" size={16} /> Build playlist</button>
+    <button type="submit" class="btn primary" disabled={!ready} aria-busy={playlists.building}>{#if playlists.building}<Spinner size={16} /> Building…{:else}<Icon name="play" size={16} /> Build playlist{/if}</button>
     <button type="button" class="btn tonal" disabled={!ready} onclick={() => build(true)}>Use Tidal's most played</button>
   </div>
 </form>

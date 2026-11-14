@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -180,11 +181,13 @@ fun TvPill(
     labelStyle: androidx.compose.ui.text.TextStyle = TvType.body,
     /** What a screen reader says for an icon-only pill. */
     description: String? = null,
+    /** The work this pill started is running: a spinner replaces the icon and OK does nothing until it answers. */
+    busy: Boolean = false,
     onFocused: (Boolean) -> Unit = {},
 ) {
     val look = LocalTvLook.current
     TvFocusable(
-        onClick = onClick,
+        onClick = { if (!busy) onClick() },
         modifier = modifier.height(height).defaultMinSize(minWidth = height),
         shape = CircleShape,
         onFocused = onFocused,
@@ -207,7 +210,9 @@ fun TvPill(
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             ) {
                 // play / pause and the like morph instead of snapping
-                if (icon != null) Crossfade(icon, animationSpec = LocalMotion.current.tween(160), label = "tv-pill-icon") { shown ->
+                if (busy) {
+                    CircularProgressIndicator(Modifier.size(height * 0.45f), color = ink, strokeWidth = 2.dp)
+                } else if (icon != null) Crossfade(icon, animationSpec = LocalMotion.current.tween(160), label = "tv-pill-icon") { shown ->
                     Icon(shown, label.ifEmpty { description }, tint = ink, modifier = Modifier.size(height * 0.5f))
                 }
                 if (label.isNotEmpty()) Text(label, style = labelStyle, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)

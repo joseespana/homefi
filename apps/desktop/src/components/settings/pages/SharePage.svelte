@@ -45,7 +45,7 @@
   const MAX_SONGS_PER_GUEST = 50;
 </script>
 
-<SettingsIntro>One computer or phone plays the music (the hub); others join from theirs to add songs, or play along on their own speakers. On a computer it works over the network it is on (Wi-Fi or Ethernet).</SettingsIntro>
+<SettingsIntro>One computer or phone plays the music (the host); others join from theirs to add songs, or play along on their own speakers. Everyone needs to be on the same Wi-Fi or home network.</SettingsIntro>
 
 <SettingsGroup title="You">
   <FieldRow label="Your name" value={sh.name} placeholder={share.name} maxlength={32} onchange={(v) => m.saveShare({ name: v.trim() })} />
@@ -61,7 +61,7 @@
   </SettingRow>
   <SliderRow
     label="Speaker delay"
-    hint="This computer’s speaker latency (Bluetooth speakers lag 100-300 ms); used as a guest and as the hub"
+    hint="Fixes sound that arrives late. Bluetooth speakers usually need 100 to 300 ms. Used as a guest and as the host."
     min={-500}
     max={1000}
     step={10}
@@ -71,11 +71,11 @@
   />
 </SettingsGroup>
 
-<SettingsGroup title="This computer as the hub">
+<SettingsGroup title="This computer as the host">
   <FieldRow label="Session name" value={sh.session_name} placeholder={share.sessionName} maxlength={60} onchange={(v) => m.saveShare({ session_name: v.trim() })} />
   <FieldRow
-    label="Port"
-    hint="47800 by default; 0 picks a free one. Changes apply the next time you start sharing."
+    label="Connection number"
+    hint="Only change this if sharing says the number is taken. 47800 is the usual one; 0 picks a free one. Applies the next time you start sharing."
     type="number"
     value={sh.port}
     min={0}
@@ -105,7 +105,7 @@
   <SwitchRow label="Remove a guest’s songs when they leave" checked={sh.drop_songs_on_leave} onchange={(on) => m.saveShare({ drop_songs_on_leave: on })} />
   <SliderRow
     label="New song"
-    hint="In a party, each new song waits until every guest has it loaded, then everyone starts at the same moment. Songs are downloaded ahead, so it is usually under a second."
+    hint="In a party, each new song waits until every guest has it loaded, then everyone starts at the same moment. Songs are loaded ahead, so it is usually under a second."
     min={0}
     max={10}
     step={1}
@@ -113,10 +113,10 @@
     format={(n) => (n ? `wait up to ${n} s for everyone` : "start at once")}
     onchange={(n) => m.saveShare({ party_start_wait_sec: n })}
   />
-  <SwitchRow label="Send the visualizer to guests" hint="Guests in remote control see the meters, spectrum and mascot move with your music. A few hundred bytes a second." checked={sh.send_levels} onchange={(on) => m.saveShare({ send_levels: on })} />
+  <SwitchRow label="Send the visualizer to guests" hint="Guests in remote control see the meters, spectrum and mascot move with your music." checked={sh.send_levels} onchange={(on) => m.saveShare({ send_levels: on })} />
 </SettingsGroup>
 
-<SettingsGroup title="Notices on the hub" description="Small and silent, they go away by themselves">
+<SettingsGroup title="Notices for the host" description="Small and silent, they go away by themselves">
   <SwitchRow label="Someone joins" checked={sh.notice_joined} onchange={(on) => m.saveShare({ notice_joined: on })} />
   <SwitchRow label="Someone leaves" checked={sh.notice_left} onchange={(on) => m.saveShare({ notice_left: on })} />
   <SwitchRow label="Someone adds a song" checked={sh.notice_added} onchange={(on) => m.saveShare({ notice_added: on })} />
@@ -126,16 +126,16 @@
 
 <SettingsGroup title="This computer as a guest">
   <SwitchRow label="Play the party on this computer by default" checked={sh.play_along} onchange={(on) => m.saveShare({ play_along: on })} />
-  <SwitchRow label="Open on the player" hint="Joining a session shows the hub’s song in your player layout; off, it opens on the room (queue, votes and volume)" checked={sh.guest_opens_player} onchange={(on) => m.saveShare({ guest_opens_player: on })} />
+  <SwitchRow label="Open on the player" hint="Joining a session shows the host’s song in your player layout; off, it opens on the room (queue, votes and volume)" checked={sh.guest_opens_player} onchange={(on) => m.saveShare({ guest_opens_player: on })} />
   <SwitchRow
     label="Smooth sync"
-    hint="Closes small gaps by playing a touch faster or slower. This computer’s player can’t change speed yet, so here it always jumps when it is more than 80 ms off; phones use it."
+    hint="Keeps everyone together by playing a touch faster or slower. This computer can’t do that yet, so it skips ahead to catch up; phones use it."
     checked={sh.sync_by_speed}
     onchange={(on) => m.saveShare({ sync_by_speed: on })}
   />
   <SwitchRow
     label="Download the songs ahead"
-    hint="Keeps the next and the previous song on this computer and plays them from here, so the party doesn’t cut out when the network is busy. Deleted when you leave."
+    hint="Keeps the next and the previous song on this computer and plays them from here, so the party doesn’t cut out when the Wi-Fi is busy. Deleted when you leave."
     checked={sh.preload_songs}
     onchange={(on) => m.saveShare({ preload_songs: on })}
   />
@@ -144,7 +144,7 @@
 <SettingsGroup title="Finding each other">
   <SwitchRow label="Look for music nearby" checked={sh.discover} onchange={(on) => m.saveShare({ discover: on })} />
   <SwitchRow label="Offer it on any screen, not only in the listening room" checked={sh.discover_everywhere} disabled={!sh.discover} disabledReason="Turn on “Look for music nearby” first" onchange={(on) => m.saveShare({ discover_everywhere: on })} />
-  <SwitchRow label="Announce the session on the network" hint="Phones and computers on this network find it without typing an address (mDNS / Bonjour). They still need the join code." checked={sh.announce_lan} onchange={(on) => m.saveShare({ announce_lan: on })} />
+  <SwitchRow label="Let nearby devices find the session" hint="Phones and computers on your Wi-Fi see it without typing anything. They still need the join code." checked={sh.announce_lan} onchange={(on) => m.saveShare({ announce_lan: on })} />
 </SettingsGroup>
 
 <style>

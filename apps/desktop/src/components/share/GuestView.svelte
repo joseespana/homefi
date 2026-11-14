@@ -7,6 +7,7 @@
   import { app } from "../../lib/state.svelte";
   import Cover from "../Cover.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
   import Room from "../Room.svelte";
   import RoomQueue from "./RoomQueue.svelte";
 
@@ -55,7 +56,7 @@
         <button class:selected={share.tab === t.id} onclick={() => (share.tab = t.id)}><Icon name={t.icon} size={15} /> {t.label}</button>
       {/each}
     </nav>
-    <button class="btn tonal leave" onclick={() => share.leave()}>Leave</button>
+    <button class="btn tonal leave" disabled={!!share.working} aria-busy={share.working === "leave"} onclick={() => share.leave()}>{#if share.working === "leave"}<Spinner size={14} /> Leaving…{:else}Leave{/if}</button>
   </header>
 
   {#if share.tab === "player"}
@@ -86,7 +87,7 @@
             <button class="btn tonal" disabled={!now || !share.canSkip} title={share.canSkip ? "" : "Only the host can skip"} onclick={() => share.skip()}><Icon name="next" size={15} /> Skip</button>
           {/if}
           {#if share.canToggle && st?.volume != null}
-            <label class="volume" title="The hub’s volume">
+            <label class="volume" title="The host’s volume">
               <Icon name="volume" size={15} />
               <input type="range" min="0" max="1" step="0.01" value={st.volume} onchange={(e) => share.volume(Number(e.currentTarget.value))} aria-label="Volume" />
             </label>
@@ -97,7 +98,7 @@
       <section class="card">
         <label class="toggle">
           <input type="checkbox" checked={g.play_along} onchange={(e) => share.playAlong(e.currentTarget.checked)} />
-          <span><b>Play on this computer</b><small class="muted">{st?.audio ? "On your own speakers, in sync with the hub" : "The hub is not streaming its music right now"}</small></span>
+          <span><b>Play on this computer</b><small class="muted">{st?.audio ? "On your own speakers, in sync with the host" : "The host is not sharing its music to speakers right now"}</small></span>
         </label>
         {#if s}
           <label class="delay">
@@ -118,8 +119,8 @@
     <div class="search">
       <form class="box" onsubmit={search}>
         <Icon name="search" size={16} />
-        <input type="search" bind:value={query} placeholder="Search the hub’s music" />
-        <button class="btn primary" type="submit" disabled={!query.trim()}>Search</button>
+        <input type="search" bind:value={query} placeholder="Search the host’s music" />
+        <button class="btn primary" type="submit" disabled={!query.trim() || share.searching} aria-busy={share.searching}>{#if share.searching}<Spinner size={16} /> Searching…{:else}Search{/if}</button>
       </form>
       {#if share.searching}<p class="muted">Searching…</p>{/if}
       {#if page}

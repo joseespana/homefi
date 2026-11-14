@@ -5,6 +5,7 @@
   import { manualReasonText, updates } from "../../../lib/update.svelte";
   import { whatsNew } from "../../../lib/whatsNew.svelte";
   import Icon from "../../Icon.svelte";
+  import Spinner from "../../Spinner.svelte";
   import { useSettings } from "../model.svelte";
   import ActionRow from "../ActionRow.svelte";
   import SegmentedRow from "../SegmentedRow.svelte";
@@ -50,24 +51,24 @@
 </script>
 
 <SettingsGroup title="HomeFi">
-  <SettingRow label="Version" hint="{app.info?.platform} · ffmpeg {app.info?.ffmpeg ? 'found' : 'not found (not needed for FLAC / Hi-Res)'}">
+  <SettingRow label="Version" hint="{app.info?.platform} · {app.info?.ffmpeg ? 'Extra audio formats ready' : 'Extra audio formats (MP3, AAC…) need a free add-on (ffmpeg); FLAC and Hi-Res do not'}">
     <span class="version">{app.info?.version}</span>
   </SettingRow>
   <SettingRow label="Data folder" hint={app.info?.appDir} />
 </SettingsGroup>
 
-<SettingsGroup title="Updates" description="Privacy: checking only asks GitHub for HomeFi's public releases (api.github.com and the release files). Nothing about you, your account or your music is sent.">
+<SettingsGroup title="Updates" description="Privacy: checking only asks GitHub which HomeFi versions exist. Nothing about you, your account or your music is sent.">
   {#if upd}
     {#if !upd.inPlace}<SettingsNote>{manualReasonText(upd.manualReason)}</SettingsNote>{/if}
     <ActionRow label={updateLine} hint={upd.lastChecked ? `Last checked ${new Date(upd.lastChecked).toLocaleString()}` : "Not checked yet"}>
       {#if upd.status === "available" && upd.inPlace}
-        <button type="button" class="btn primary" onclick={() => updates.download()}>Update now</button>
+        <button type="button" class="btn primary" disabled={!!updates.working} aria-busy={updates.working === "download"} onclick={() => updates.download()}>{#if updates.working === "download"}<Spinner size={16} /> Starting…{:else}Update now{/if}</button>
       {:else if upd.status === "available" || (upd.status === "error" && upd.version && !upd.inPlace)}
         <button type="button" class="btn primary" onclick={() => updates.openPage()}><Icon name="external" size={14} /> Download</button>
       {:else if upd.status === "ready"}
-        <button type="button" class="btn primary" onclick={() => updates.restart("now")}>Restart now</button>
+        <button type="button" class="btn primary" disabled={!!updates.working} aria-busy={updates.working === "restart"} onclick={() => updates.restart("now")}>{#if updates.working === "restart"}<Spinner size={16} /> Restarting…{:else}Restart now{/if}</button>
       {/if}
-      <button type="button" class="btn tonal" disabled={busy} onclick={() => updates.check()}>Check now</button>
+      <button type="button" class="btn tonal" disabled={busy} aria-busy={busy} onclick={() => updates.check()}>{#if busy}<Spinner size={16} /> Checking…{:else}Check now{/if}</button>
     </ActionRow>
     {#if upd.version && ["available", "downloading", "ready"].includes(upd.status)}
       <ActionRow label="What's new in {upd.version}">

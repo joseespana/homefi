@@ -93,7 +93,7 @@ fun JoinDialog(request: JoinRequest) {
         title = address?.sessionName?.takeIf(String::isNotBlank) ?: stringResource(R.string.sharing_join_manual),
         icon = Icons.Rounded.GroupAdd,
         dismissible = !connecting,
-        primary = DialogAction(stringResource(R.string.sharing_join), enabled = !connecting && name.isNotBlank()) {
+        primary = DialogAction(stringResource(R.string.sharing_join), enabled = !connecting && name.isNotBlank(), busy = connecting) {
             val hub = target()
             when {
                 hub == null -> invalid = true

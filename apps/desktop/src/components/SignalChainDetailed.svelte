@@ -22,7 +22,7 @@
       <div class="node warn">
         <span class="cap">Resample</span>
         <b>{khz(stream.source_rate)} → {khz(stream.output_rate)}</b>
-        <span>sinc, 256 taps</span>
+        <span>high-precision</span>
       </div>
     {/if}
     {#if gain}
@@ -30,7 +30,7 @@
       <div class="node warn">
         <span class="cap">Loudness</span>
         <b>{gain > 0 ? "+" : "−"}{Math.abs(gain).toFixed(1)} dB</b>
-        <span>ReplayGain</span>
+        <span>Volume match</span>
       </div>
     {/if}
     {#if eq}

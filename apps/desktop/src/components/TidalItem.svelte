@@ -12,6 +12,7 @@
   import Icon from "./Icon.svelte";
   import PageMore from "./PageMore.svelte";
   import Skeleton from "./Skeleton.svelte";
+  import Spinner from "./Spinner.svelte";
 
   const v = $derived(app.view.name === "tidal-item" ? app.view : null);
   let detail = $state<TidalDetail | null>(null);
@@ -88,11 +89,20 @@
   const more = $derived(done ? "" : "+");
   let wiping = $state(false);
 
-  async function run(job: () => unknown) {
+  /** The action whose button shows the spinner (`null`: none): gathering every page of a list can take a while. */
+  let working = $state<"play" | "shuffle" | "download" | "deletePlaylist" | null>(null);
+
+  async function run(job: () => unknown, key: NonNullable<typeof working> | null = null) {
+    if (key) {
+      if (working) return;
+      working = key;
+    }
     try {
       await job();
     } catch (e) {
       app.notify(errorText(e), true);
+    } finally {
+      if (key) working = null;
     }
   }
 
@@ -138,7 +148,7 @@
       const links = partial ? lacking.map((t) => `track/${t.id}`) : [`${kind}/${id}`];
       await app.download(title, links, (partial ? lacking : every).map((t) => t.id));
       queued = true;
-    });
+    }, "download");
   }
 
   const fav = $derived(v ? app.isFavorite(v.kind, v.id) : false);
@@ -193,6 +203,8 @@
       danger: true,
     });
     if (!ok || v?.id !== id || !detail) return;
+    if (working) return;
+    working = "deletePlaylist";
     try {
       await api.playlistDelete(v.id);
       app.tidalCache.delete("playlists");
@@ -201,13 +213,15 @@
       app.view = { name: "tidal", tab: "playlists" };
     } catch (e) {
       app.notify(errorText(e), true);
+    } finally {
+      working = null;
     }
   }
 
   // downloaded tracks play from the library, the others stream from Tidal
   const source = $derived<SourceContext | null>(v && detail && v.kind !== "artist" ? { kind: v.kind, id: v.id, name: detail.header.title } : null);
   const scope = $derived<TasteScope | null>(v && detail && v.kind !== "mix" ? { kind: v.kind, id: v.id, name: detail.header.title } : null);
-  const play = (shuffle = false) => run(async () => app.playTidal(await allTracks(), 0, shuffle, source));
+  const play = (shuffle = false) => run(async () => app.playTidal(await allTracks(), 0, shuffle, source), shuffle ? "shuffle" : "play");
 </script>
 
 <button class="back" onclick={back}><Icon name="back" size={16} /> Back</button>
@@ -242,8 +256,8 @@
       {#if detail.description}<p class="desc muted">{detail.description}</p>{/if}
       <div class="actions fold" use:foldLabels>
         {#if tracks.length}
-          <button class="btn primary" onclick={() => play()}><Icon name="play" size={16} /> Play</button>
-          <button class="btn tonal" title="Shuffle" onclick={() => play(true)}><Icon name="shuffle" size={16} /> Shuffle</button>
+          <button class="btn primary" onclick={() => play()} disabled={!!working} aria-busy={working === "play"}>{#if working === "play"}<Spinner size={16} />{:else}<Icon name="play" size={16} />{/if} Play</button>
+          <button class="btn tonal" title="Shuffle" onclick={() => play(true)} disabled={!!working} aria-busy={working === "shuffle"}>{#if working === "shuffle"}<Spinner size={16} />{:else}<Icon name="shuffle" size={16} />{/if} Shuffle</button>
           <button
             class="btn tonal"
             title="Queue"
@@ -263,9 +277,10 @@
             class="btn tonal"
             title={queued && dlActive ? "Downloading…" : v?.kind === "artist" ? "Download discography" : owned.length ? `Download ${done ? missing.length : ""} missing` : "Download all"}
             onclick={downloadAll}
-            disabled={queued && dlActive}
+            disabled={(queued && dlActive) || !!working}
+            aria-busy={working === "download"}
           >
-            <Icon name={queued && dlActive ? "clock" : "download"} size={16} />
+            {#if working === "download"}<Spinner size={16} />{:else}<Icon name={queued && dlActive ? "clock" : "download"} size={16} />{/if}
             {#if queued && dlActive}Downloading…
             {:else if v?.kind === "artist"}Download discography
             {:else if owned.length}Download {done ? missing.length : ""} missing
@@ -293,8 +308,8 @@
           </button>
         {/if}
         {#if detail.owned}
-          <button class="btn tonal danger" title="Delete playlist" onclick={deletePlaylist}>
-            <Icon name="trash" size={16} /> Delete playlist
+          <button class="btn tonal danger" title="Delete playlist" onclick={deletePlaylist} disabled={!!working} aria-busy={working === "deletePlaylist"}>
+            {#if working === "deletePlaylist"}<Spinner size={16} /> Deleting…{:else}<Icon name="trash" size={16} /> Delete playlist{/if}
           </button>
         {/if}
       </div>

@@ -119,6 +119,35 @@ pub struct Cue {
     pub in_ms: i64,
 }
 
+/// What the big message in the middle of the ride screen says now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CalloutKind {
+    /// "Sprint in 3 · 2 · 1", on the countdown's beeps (`Callout::n` is the digit).
+    Countdown,
+    /// The sprint starts now.
+    Go,
+    /// A cheer during the sprint (`n` picks one of [`CHEERS`]).
+    Cheer,
+    /// The last seconds of the sprint (`n` seconds).
+    SecondsLeft,
+    /// The last seconds of the ride, in this order.
+    GoodJob,
+    AlmostDone,
+    Stretch,
+    SeeYou,
+}
+
+/// How many different cheers there are (the apps and the TV hold one text for each).
+pub const CHEERS: u8 = 4;
+
+/// The big message, or nothing; `n` is the digit, the seconds or the cheer, by kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Callout {
+    pub kind: CalloutKind,
+    pub n: u8,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct RideView {
@@ -164,6 +193,8 @@ pub struct RideView {
     /// The playing song has reached its cut (`PlannedSong::play_ms`): the app must go to the next song now
     /// (on the last one, end the ride). Stays true until the queue moves.
     pub skip_to_next: bool,
+    /// The big message in the middle of the screen (sprint countdown, cheers, the ride's last words).
+    pub callout: Option<Callout>,
 }
 
 /// Namespace of the pure view function.
@@ -223,6 +254,7 @@ impl RideClock {
         });
         let effort = seg.effort_at(position_s);
         let level = bike.level(effort);
+        let cues = cues_of(plan, index, segment_ms, finished);
 
         RideView {
             at_ms: now_ms,
@@ -250,10 +282,79 @@ impl RideClock {
             notice: !finished && next.is_some() && remaining_s <= u32::from(plan.cues.notice_seconds),
             next,
             pulse: pulse_view(song, range, pulse_ms),
-            cues: cues_of(plan, index, segment_ms, finished),
+            callout: callout(plan, index, segment_ms, &cues, interval, finished, total_s.saturating_sub(elapsed_s)),
+            cues,
             skip_to_next,
         }
     }
+}
+
+/// The "Go" shows this long into a sprint (s).
+const GO_S: u32 = 2;
+/// The last seconds of a sprint are counted out loud from here (s).
+const SPRINT_LAST_S: u32 = 3;
+/// Each cheer stays this long before the next (s).
+const CHEER_EVERY_S: u32 = 4;
+/// The ride's last words, each this long, counted back from the end: good job, almost done, stretch, see you.
+const OUTRO_STEP_S: u32 = 3;
+
+/// The big message at `segment_ms` into segment `index`: a countdown to a sprint (on its beeps), "go", cheers
+/// and the last seconds while sprinting, and the ride's last words in its final seconds.
+fn callout(
+    plan: &RidePlan,
+    index: usize,
+    segment_ms: u64,
+    cues: &[Cue],
+    interval: Option<IntervalView>,
+    finished: bool,
+    ride_left_s: u32,
+) -> Option<Callout> {
+    let segments = &plan.workout.segments;
+    let seg = &segments[index];
+    if finished {
+        return Some(Callout { kind: CalloutKind::SeeYou, n: 0 });
+    }
+    let position_s = (segment_ms / MS_PER_S).min(u64::from(u32::MAX)) as u32;
+    let is_sprint = |s: &Segment| s.interval.is_some() || s.kind == SegmentKind::Sprint;
+    // the countdown before a sprint starts: a round's horn, or the next part when it is a sprint
+    let countdown_ms = i64::from(plan.cues.countdown_seconds) * MS_PER_S as i64;
+    let next_is_sprint = segments.get(index + 1).is_some_and(is_sprint);
+    let to_sprint = cues.iter().filter(|c| c.in_ms > 0).find_map(|c| {
+        let opens_next = c.id == (index as u32 + 1) * ID_PER_SEGMENT;
+        (c.kind == CueKind::SprintGo || (opens_next && next_is_sprint)).then_some(c.in_ms)
+    });
+    if let Some(in_ms) = to_sprint.filter(|ms| *ms <= countdown_ms) {
+        let digit = (in_ms + MS_PER_S as i64 - 1) / MS_PER_S as i64;
+        return Some(Callout { kind: CalloutKind::Countdown, n: digit.clamp(1, 9) as u8 });
+    }
+    // sprinting: the work phase of an interval, or a whole sprint part without one
+    let work = match (interval, &seg.interval) {
+        (Some(iv), Some(def)) if iv.phase == IntervalPhase::Work => {
+            Some((def.work_s - iv.phase_remaining_s, iv.phase_remaining_s))
+        }
+        (None, None) if seg.kind == SegmentKind::Sprint => Some((position_s, seg.seconds.saturating_sub(position_s))),
+        _ => None,
+    };
+    if let Some((into_s, left_s)) = work {
+        return Some(if into_s < GO_S {
+            Callout { kind: CalloutKind::Go, n: 0 }
+        } else if left_s <= SPRINT_LAST_S && left_s > 0 {
+            Callout { kind: CalloutKind::SecondsLeft, n: left_s as u8 }
+        } else {
+            Callout { kind: CalloutKind::Cheer, n: (((into_s - GO_S) / CHEER_EVERY_S) % u32::from(CHEERS)) as u8 }
+        });
+    }
+    // the ride's last seconds
+    if index + 1 == segments.len() && ride_left_s > 0 && ride_left_s <= OUTRO_STEP_S * 4 {
+        let kind = match (ride_left_s - 1) / OUTRO_STEP_S {
+            3 => CalloutKind::GoodJob,
+            2 => CalloutKind::AlmostDone,
+            1 => CalloutKind::Stretch,
+            _ => CalloutKind::SeeYou,
+        };
+        return Some(Callout { kind, n: 0 });
+    }
+    None
 }
 
 /// The elevation under the rider, moving smoothly inside the second.
@@ -670,5 +771,54 @@ mod tests {
         assert_eq!((old.segment_index, old.at_segment_ms), (2, 0));
         let v = RideClock::view(&plan(), 0, 30_000, 0);
         assert_eq!(v.remaining_s, 90, "no offset: the song's clock is the segment's");
+    }
+
+    #[test]
+    fn a_sprint_is_counted_in_on_its_beeps_then_cheered_and_counted_out() {
+        let p = plan();
+        let at = |q, ms| RideClock::view(&p, q, ms, 0).callout;
+        let c = |kind, n| Some(Callout { kind, n });
+        // the climb before the sprint: its last 3 s count down to the sprint, digit with each beep
+        assert_eq!(at(1, 176_500), None);
+        assert_eq!(at(1, 177_000), c(CalloutKind::Countdown, 3));
+        assert_eq!(at(1, 178_500), c(CalloutKind::Countdown, 2));
+        assert_eq!(at(1, 179_900), c(CalloutKind::Countdown, 1));
+        // the sprint: go, cheers, then its last seconds
+        assert_eq!(at(2, 500), c(CalloutKind::Go, 0));
+        assert_eq!(at(2, 2_000), c(CalloutKind::Cheer, 0));
+        assert_eq!(at(2, 6_000), c(CalloutKind::Cheer, 1));
+        assert_eq!(at(2, 17_000), c(CalloutKind::SecondsLeft, 3));
+        assert_eq!(at(2, 19_000), c(CalloutKind::SecondsLeft, 1));
+        // resting: nothing, then the next round's countdown
+        assert_eq!(at(2, 30_000), None);
+        assert_eq!(at(2, 58_000), c(CalloutKind::Countdown, 2));
+        assert_eq!(at(2, 60_500), c(CalloutKind::Go, 0));
+    }
+
+    #[test]
+    fn the_ride_ends_with_its_last_words() {
+        let p = climb_plan();
+        let at = |ms| RideClock::view(&p, 1, ms, 0).callout.map(|c| c.kind);
+        assert_eq!(at(100_000), None);
+        assert_eq!(at(108_500), Some(CalloutKind::GoodJob));
+        assert_eq!(at(111_500), Some(CalloutKind::AlmostDone));
+        assert_eq!(at(114_500), Some(CalloutKind::Stretch));
+        assert_eq!(at(118_000), Some(CalloutKind::SeeYou));
+        assert_eq!(RideClock::view(&p, 2, 0, 0).callout.map(|c| c.kind), Some(CalloutKind::SeeYou));
+        // not the end of an earlier part
+        assert_eq!(RideClock::view(&p, 0, 295_000, 0).callout, None);
+    }
+
+    #[test]
+    fn replaying_a_swapped_song_gives_it_the_whole_part() {
+        let mut p = plan();
+        p.songs[1].entry.duration_ms = 240_000;
+        p.songs[1].at_segment_ms = 60_000;
+        p.songs[1].play_ms = Some(120_000);
+        assert!(p.replay_song(1));
+        assert_eq!((p.songs[1].at_segment_ms, p.songs[1].play_ms), (0, Some(180_000)));
+        let v = RideClock::view(&p, 1, 0, 0);
+        assert_eq!((v.remaining_s, v.elapsed_s), (180, 120));
+        assert!(!p.replay_song(9));
     }
 }

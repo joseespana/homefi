@@ -61,11 +61,7 @@ export function newBand(bands: EqBand[], freqHz?: number, gainDb = 0): EqBand {
   return { kind: "peak", freqHz: clamp(freqHz, EQ_LIMITS.freqHz), gainDb: clamp(gainDb, EQ_LIMITS.gainDb), q: 1, enabled: true };
 }
 
-/** "es" when the system speaks Spanish, else "en" (the assistant talks in it). */
-export function uiLanguage(): "es" | "en" {
-  const langs = typeof navigator === "undefined" ? [] : [navigator.language, ...(navigator.languages ?? [])];
-  return langs.some((l) => l?.toLowerCase().startsWith("es")) ? "es" : "en";
-}
+export { uiLanguage } from "./language";
 
 class EqStore {
   settings = $state<EqSettings | null>(null);

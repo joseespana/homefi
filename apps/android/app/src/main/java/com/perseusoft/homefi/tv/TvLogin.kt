@@ -152,6 +152,7 @@ private fun CodeStage(state: LoginUiState, entryKey: Int, vm: LoginViewModel) {
             icon = Icons.Rounded.Refresh,
             primary = true,
             height = 40.dp,
+            busy = state is LoginUiState.Starting,
         )
         val status = when {
             state is LoginUiState.Error -> state.message.takeIf { it.isNotBlank() } ?: stringResource(R.string.tv_login_expired)

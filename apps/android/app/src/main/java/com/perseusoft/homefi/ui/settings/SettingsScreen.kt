@@ -1,5 +1,7 @@
 package com.perseusoft.homefi.ui.settings
 
+import com.perseusoft.homefi.ui.rememberLoadingTask
+import com.perseusoft.homefi.ui.ButtonSpinner
 import com.perseusoft.homefi.ui.AiIcon
 import com.perseusoft.homefi.ui.haptics
 import androidx.compose.material.icons.automirrored.rounded.DirectionsBike
@@ -697,7 +699,6 @@ private fun SavedIndicator() {
 @Composable
 private fun AccountSettings(loggedIn: Boolean, onLogin: () -> Unit, onLoggedOut: () -> Unit) {
     val app = LocalContext.current.homefi
-    val scope = rememberCoroutineScope()
     val account = app.account.account.collectAsStateWithLifecycle().value
     SettingsGroup(title = stringResource(R.string.settings_account)) {
         if (account == null) {
@@ -707,13 +708,14 @@ private fun AccountSettings(loggedIn: Boolean, onLogin: () -> Unit, onLoggedOut:
             )
         } else {
             var confirming by remember { mutableStateOf(false) }
+            val loggingOut = rememberLoadingTask()
             if (confirming) {
                 ConfirmDialog(
                     title = stringResource(R.string.settings_logout_title),
                     text = stringResource(R.string.settings_logout_text),
                     confirm = stringResource(R.string.settings_logout),
                     onConfirm = {
-                        scope.launch {
+                        loggingOut.run {
                             app.downloads.cancelAll()
                             app.engine.logout()
                             app.account.signedOut()
@@ -726,7 +728,10 @@ private fun AccountSettings(loggedIn: Boolean, onLogin: () -> Unit, onLoggedOut:
             SettingRow(
                 label = stringResource(R.string.settings_account_info, account.userId, account.countryCode),
                 trailing = {
-                    TextButton(onClick = { confirming = true }) {
+                    TextButton(onClick = { confirming = true }, enabled = !loggingOut.active) {
+                        if (loggingOut.active) {
+                            ButtonSpinner(Modifier.padding(end = 8.dp), color = MaterialTheme.colorScheme.error)
+                        }
                         Text(stringResource(R.string.settings_logout), color = MaterialTheme.colorScheme.error)
                     }
                 },
@@ -1010,7 +1015,7 @@ private fun TvInstallSettings() {
 private fun WhatsNewSettings() {
     val app = LocalContext.current.homefi
     val settings by app.settings.settings.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
+    val loading = rememberLoadingTask()
     val haptics = haptics()
     var shown by remember { mutableStateOf<List<com.perseusoft.homefi.core.ReleaseNotes>?>(null) }
     shown?.let { notes -> com.perseusoft.homefi.ui.ReleaseNotesDialog(notes, onDismiss = { shown = null }) }
@@ -1022,10 +1027,16 @@ private fun WhatsNewSettings() {
                 androidx.compose.material3.FilledTonalButton(
                     onClick = {
                         haptics.press()
-                        scope.launch { shown = listOfNotNull(app.whatsNew.latest()) }
+                        loading.run { shown = listOfNotNull(app.whatsNew.latest()) }
                     },
+                    enabled = !loading.active,
                     modifier = Modifier.heightIn(min = 48.dp),
-                ) { Text(stringResource(R.string.whats_new_show)) }
+                ) {
+                    if (loading.active) {
+                        ButtonSpinner(Modifier.padding(end = 8.dp))
+                    }
+                    Text(stringResource(R.string.whats_new_show))
+                }
             },
         )
         RowDivider()
@@ -1072,10 +1083,20 @@ private fun UpdateSettingsSection() {
             OutlinedButton(
                 onClick = { updates.check(manual = true) },
                 enabled = ui.status != UpdateStatus.CHECKING && ui.status != UpdateStatus.DOWNLOADING,
-            ) { Text(stringResource(R.string.update_check_now)) }
+            ) {
+                if (ui.status == UpdateStatus.CHECKING) {
+                    ButtonSpinner(Modifier.padding(end = 8.dp))
+                }
+                Text(stringResource(R.string.update_check_now))
+            }
             Spacer(Modifier.width(8.dp))
             when (ui.status) {
                 UpdateStatus.AVAILABLE -> TextButton(onClick = updates::download) { Text(stringResource(R.string.update_update)) }
+                // the download runs: the same button waits with a spinner
+                UpdateStatus.DOWNLOADING -> TextButton(onClick = {}, enabled = false) {
+                    ButtonSpinner(Modifier.padding(end = 8.dp))
+                    Text(stringResource(R.string.update_update))
+                }
                 UpdateStatus.READY -> TextButton(onClick = updates::install) { Text(stringResource(R.string.update_install)) }
                 else -> Unit
             }

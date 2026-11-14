@@ -30,7 +30,7 @@
   const SPEEDS: DiscSpeed[] = ["auto", "max", 4, 8, 16, 24];
 
   const ffmpeg = $derived(app.info?.ffmpeg ?? false);
-  const noFfmpeg = "Needs ffmpeg, which HomeFi didn't find on this computer. Install it and this works at once.";
+  const noFfmpeg = "Needs a free add-on called ffmpeg, which HomeFi didn't find on this computer. Install it and this works at once.";
   const f = $derived(settings.format);
 
   const formats = $derived<Choice<RipFormatKind>[]>([
@@ -75,7 +75,7 @@
 
 <SettingsGroup title="Format" description="What the songs are saved as.">
   {#if !settings.hideCdOnlyNote}
-    <SettingsNote>CD audio is 16-bit / 44.1 kHz, so a higher bit depth or sample rate would add nothing. ALAC, MP3, AAC and Opus need ffmpeg; FLAC and WAV don't.</SettingsNote>
+    <SettingsNote>CD audio is 16-bit / 44.1 kHz, so a higher bit depth or sample rate would add nothing. ALAC, MP3, AAC and Opus need a free add-on (ffmpeg); FLAC and WAV don't.</SettingsNote>
   {/if}
   <ChoiceList label="Format" options={formats} value={f.kind} onchange={choose} />
   {#if f.kind === "flac"}

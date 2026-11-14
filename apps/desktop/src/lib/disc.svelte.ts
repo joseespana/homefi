@@ -62,6 +62,8 @@ class DiscStore {
   filledFrom = $state<DiscMatch["source"] | null>(null);
   matches = $state.raw<DiscMatch[]>([]);
   looking = $state(false);
+  /** The disc is being ejected: its button loads. */
+  ejecting = $state(false);
   lookupNote = $state<string | null>(null);
   selection = $state.raw<ReadonlySet<number>>(new Set());
   rows = $state.raw<Record<number, RowProgress>>({});
@@ -297,7 +299,8 @@ class DiscStore {
 
   async eject() {
     const id = this.current?.drive.id ?? this.drive?.id;
-    if (!id || this.ripping) return;
+    if (!id || this.ripping || this.ejecting) return;
+    this.ejecting = true;
     try {
       await api.discEject(id);
       this.current = null;
@@ -305,6 +308,8 @@ class DiscStore {
       this.summary = null;
     } catch (e) {
       this.error = errorText(e);
+    } finally {
+      this.ejecting = false;
     }
     await this.refresh();
   }

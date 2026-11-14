@@ -4,6 +4,7 @@
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { api, errorText, type DeviceLogin } from "../lib/api";
   import { app } from "../lib/state.svelte";
+  import Spinner from "./Spinner.svelte";
   import Icon from "./Icon.svelte";
   import TermsNotice from "./TermsNotice.svelte";
 
@@ -14,13 +15,18 @@
   // the personal-use notice comes first until it's accepted (once per notice version)
   let gate = $state(untrack(() => !app.termsAccepted));
   let accepted = $state(false);
+  let accepting = $state(false);
 
   async function acceptAndStart() {
+    if (accepting) return;
+    accepting = true;
     try {
       await app.acceptTerms();
     } catch (e) {
       error = errorText(e);
       return;
+    } finally {
+      accepting = false;
     }
     gate = false;
     start();
@@ -72,17 +78,17 @@
     {#if gate}
       <TermsNotice bind:checked={accepted} />
       {#if error}<p class="error">{error}</p>{/if}
-      <button class="btn primary" disabled={!accepted} onclick={acceptAndStart}>Sign in with Tidal</button>
+      <button class="btn primary" disabled={!accepted || accepting} aria-busy={accepting} onclick={acceptAndStart}>{#if accepting}<Spinner size={16} /> Signing in…{:else}Sign in with Tidal{/if}</button>
     {:else if error}
       <p class="error">{error}</p>
       <button class="btn primary" onclick={start}>Try again</button>
     {:else if device}
-      <p class="muted">Approve this code in the browser window that just opened:</p>
+      <p class="muted">Check this code matches, then approve it in the browser window that just opened:</p>
       <div class="code">{device.userCode}</div>
       <button class="btn tonal" onclick={() => openUrl(device!.url)}><Icon name="external" size={16} /> Open Tidal again</button>
-      <p class="muted small">Waiting for approval… {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")}</p>
+      <p class="muted small"><Spinner size={12} /> Waiting for approval… {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")}</p>
     {:else}
-      <p class="muted">Contacting Tidal…</p>
+      <p class="muted" aria-busy="true"><Spinner size={14} /> Contacting Tidal…</p>
     {/if}
   </div>
 </div>

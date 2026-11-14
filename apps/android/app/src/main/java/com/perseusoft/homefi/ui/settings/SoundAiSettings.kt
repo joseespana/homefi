@@ -1,5 +1,6 @@
 package com.perseusoft.homefi.ui.settings
 
+import com.perseusoft.homefi.ui.ButtonSpinner
 import com.perseusoft.homefi.ui.AiIcon
 import android.app.Application
 import android.content.ActivityNotFoundException
@@ -499,6 +500,9 @@ private fun ProviderSetup(info: AiProviderInfo, ai: AiSettings, hasKey: Boolean,
         FlowRow(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val canCall = !info.needsKey || hasKey || typed.isNotBlank()
             OutlinedButton(onClick = { haptics.tick(); vm.test(info, typed) }, enabled = canCall && ui.status != KeyStatus.Testing) {
+                if (ui.status == KeyStatus.Testing) {
+                    ButtonSpinner(Modifier.padding(end = 8.dp), size = 16.dp)
+                }
                 Text(stringResource(R.string.ai_test))
             }
             if (info.needsKey) {

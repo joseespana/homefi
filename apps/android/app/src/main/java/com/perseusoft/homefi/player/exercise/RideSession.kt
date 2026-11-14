@@ -29,6 +29,8 @@ import com.perseusoft.homefi.core.SavedRideSummary
 import com.perseusoft.homefi.core.TvAudio
 import com.perseusoft.homefi.core.TvSession
 import com.perseusoft.homefi.core.exerciseArtistSuggestions
+import com.perseusoft.homefi.core.exerciseReplaySong
+import com.perseusoft.homefi.core.exercisePreviewWindow
 import com.perseusoft.homefi.core.exerciseDefaultRequest
 import com.perseusoft.homefi.core.exerciseListenPermissions
 import com.perseusoft.homefi.core.exerciseRideToken
@@ -130,6 +132,12 @@ data class RideFrame(
 )
 
 /** The TV of the ride, as the ride screen shows it. */
+/** The song of the plan ([song], its index in `plan.songs`) being previewed, [loading] until the player plays it. */
+data class RidePreviewing(val song: Int, val loading: Boolean)
+
+/** A preview that hasn't started playing by then failed (no network, TIDAL not answering). */
+private const val PREVIEW_LOAD_TIMEOUT_MS = 20_000L
+
 data class RideTvStatus(
     val url: String? = null,
     /** The music plays on the TV (listen-only hub); false: pictures only. */
@@ -177,6 +185,23 @@ class RideSession(private val app: HomefiApplication) {
     private val _swapping = MutableStateFlow<Int?>(null)
     /** The segment (song index of the plan) being swapped for another song, or null when idle. */
     val swapping: StateFlow<Int?> = _swapping.asStateFlow()
+
+    private val _loadingRide = MutableStateFlow<String?>(null)
+
+    /** The id of the saved ride being opened ("Ride again"): its button shows a spinner. */
+    val loadingRide: StateFlow<String?> = _loadingRide.asStateFlow()
+
+    private val _startingTv = MutableStateFlow(false)
+
+    /** "Show on TV" is starting the TV page mid-ride: its button shows a spinner. */
+    val startingTv: StateFlow<Boolean> = _startingTv.asStateFlow()
+
+    private val _previewing = MutableStateFlow<RidePreviewing?>(null)
+    /** The song of the plan on screen being listened to before the ride, or null. */
+    val previewing: StateFlow<RidePreviewing?> = _previewing.asStateFlow()
+    private var previewJob: Job? = null
+    /** The media id the preview put in the player (so stopping it never pauses anything else). */
+    private var previewMediaId: String? = null
 
     private val _calibrating = MutableStateFlow(false)
     /** The bike calibration's clicks are sounding. */
@@ -274,6 +299,7 @@ class RideSession(private val app: HomefiApplication) {
 
     /** The setup again (after a failed build, a preview or a summary). */
     fun backToSetup() {
+        stopPreview()
         buildJob?.cancel()
         _ui.value = RideUi.Setup
     }
@@ -352,6 +378,7 @@ class RideSession(private val app: HomefiApplication) {
     fun rebuild() = launchBuild(inPlace = _ui.value is RideUi.Preview)
 
     private fun launchBuild(inPlace: Boolean) {
+        stopPreview()
         buildJob?.cancel()
         buildJob = scope.launch {
             val form = _form.value
@@ -407,9 +434,14 @@ class RideSession(private val app: HomefiApplication) {
 
     /** Puts a saved ride's plan on the screen, ready to start: no build, no AI call. Only from the setup. */
     fun rideAgain(id: String) {
-        if (_ui.value != RideUi.Setup) return
+        if (_ui.value != RideUi.Setup || _loadingRide.value != null) return
+        _loadingRide.value = id
         scope.launch {
-            val loaded = app.rides.load(id) ?: return@launch
+            val loaded = try {
+                app.rides.load(id)
+            } finally {
+                _loadingRide.value = null
+            } ?: return@launch
             val request = loaded.ride.request
             _form.update {
                 it.copy(
@@ -444,6 +476,8 @@ class RideSession(private val app: HomefiApplication) {
 
     /** Saves the ride as a HomeFi playlist, plays it and starts the clock (and the TV when the settings say so). */
     fun start(built: RideBuilt) {
+        // the ride takes the player: the preview just lets go of it
+        forgetPreview()
         scope.launch {
             if (app.share.isHub || app.share.isGuest) {
                 _ui.value = RideUi.Failed(app.getString(R.string.ex_busy_sharing))
@@ -500,12 +534,41 @@ class RideSession(private val app: HomefiApplication) {
      */
     fun showOnTv() {
         val plan = plan ?: return
-        if (_ui.value !is RideUi.Riding || _tv.value.active || _tv.value.waitingForTv) return
+        if (_ui.value !is RideUi.Riding || _tv.value.active || _tv.value.waitingForTv || _startingTv.value) return
         if (!settings.tvEnabled) app.settings.setExercise(settings.copy(tvEnabled = true))
-        scope.launch { startTv(plan, audioToTv = false, rideName = ridePlaylist?.name.orEmpty(), midRide = true) }
+        _startingTv.value = true
+        scope.launch {
+            try {
+                startTv(plan, audioToTv = false, rideName = ridePlaylist?.name.orEmpty(), midRide = true)
+            } finally {
+                _startingTv.value = false
+            }
+        }
     }
 
     fun skipSegment() = app.player.next()
+
+    /**
+     * The part playing now again from its start (the rider's "back"): its song from 0, the part's clock and its
+     * cues with it. A song swapped in mid-part now covers the whole part. The saved ride is left as it was.
+     */
+    fun repeatSegment() {
+        val player = app.player.player ?: return
+        val current = plan ?: return
+        if (_ui.value !is RideUi.Riding) return
+        val itemIndex = player.currentMediaItemIndex.coerceAtLeast(0)
+        val songIndex = itemToSong.getOrNull(itemIndex) ?: itemIndex
+        val replayed = exerciseReplaySong(current, songIndex.toUInt())
+        plan = replayed
+        ride = ExerciseRide(replayed, settings.bike)
+        _ui.update { if (it is RideUi.Riding) RideUi.Riding(replayed) else it }
+        preparedItem = NO_ITEM
+        skippedItem = NO_ITEM
+        lastClick = NO_CLICK
+        // the part's cues sound again: the ids seen the first time no longer count
+        cues.reset()
+        player.seekTo(itemIndex, 0L)
+    }
 
     /** The rider ended the ride: the music stops and the summary shows what was done. */
     fun end() {
@@ -631,8 +694,76 @@ class RideSession(private val app: HomefiApplication) {
      * already behind, or a ride that moved on while the search ran, is left alone. Progress is [swapping]; a
      * failure ("no other song", the setting off) goes to the notes in plain words and the plan stays as it was.
      */
+    /**
+     * A quick listen to song [songIndex] of the plan on screen (about 30 s from its middle, core
+     * `exercisePreviewWindow`), alone in the player; the same song again stops it. It loads until the player really
+     * plays it (a TIDAL song is fetched first) and pauses by itself at the window's end. Not while sharing.
+     */
+    fun previewSong(songIndex: Int) {
+        if (_previewing.value?.song == songIndex) {
+            stopPreview()
+            return
+        }
+        val shown = _ui.value as? RideUi.Preview ?: return
+        if (app.share.isHub || app.share.isGuest) {
+            app.notes.post(app.getString(R.string.ex_preview_sharing))
+            return
+        }
+        val song = shown.built.plan.songs.getOrNull(songIndex) ?: return
+        val item = entryMediaItem(song.entry, app.library::find)?.withSource(shown.built.playlist.source())
+        val player = app.player.player
+        if (item == null || player == null) {
+            app.notes.post(app.getString(R.string.ex_preview_failed))
+            return
+        }
+        val window = exercisePreviewWindow(song.entry.durationMs)
+        previewJob?.cancel()
+        previewMediaId = item.mediaId
+        _previewing.value = RidePreviewing(songIndex, loading = true)
+        previewJob = scope.launch {
+            try {
+                player.setMediaItem(item, window.fromMs.toLong())
+                player.prepare()
+                player.play()
+                val heard = withTimeoutOrNull(PREVIEW_LOAD_TIMEOUT_MS) {
+                    app.player.state.first { (it.isPlaying && it.current?.mediaId == item.mediaId) || it.error != null }
+                }
+                if (heard == null || !heard.isPlaying) {
+                    app.notes.post(heard?.error ?: app.getString(R.string.ex_preview_failed))
+                    return@launch
+                }
+                _previewing.value = RidePreviewing(songIndex, loading = false)
+                delay(window.lengthMs.toLong())
+                pausePreview()
+            } finally {
+                if (_previewing.value?.song == songIndex) _previewing.value = null
+                if (previewMediaId == item.mediaId) previewMediaId = null
+            }
+        }
+    }
+
+    /** Stops the preview (the player pauses only if the preview is still what it plays). */
+    fun stopPreview() {
+        pausePreview()
+        forgetPreview()
+    }
+
+    /** Lets go of the preview without touching the player (the ride takes it). */
+    private fun forgetPreview() {
+        previewJob?.cancel()
+        previewJob = null
+        previewMediaId = null
+        _previewing.value = null
+    }
+
+    private fun pausePreview() {
+        val player = app.player.player ?: return
+        if (previewMediaId != null && player.currentMediaItem?.mediaId == previewMediaId) player.pause()
+    }
+
     fun swapSong(segmentIndex: Int, current: Boolean) {
         if (_swapping.value != null) return
+        stopPreview()
         val shown = _ui.value
         val riding = shown is RideUi.Riding
         if (!riding && shown !is RideUi.Preview) return
@@ -820,6 +951,7 @@ class RideSession(private val app: HomefiApplication) {
                 courseSummits = s.courseSummits,
                 hotPoints = ride?.hotPoints().orEmpty(),
                 courseRider = s.courseRider,
+                callouts = s.rideCallouts,
             ),
         )
         _tv.value = RideTvStatus(url = url.getOrNull(), audioOnTv = listen != null, waitingForTv = listen != null)

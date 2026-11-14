@@ -6,11 +6,13 @@
   import { exercise } from "../../lib/exercise.svelte";
   import Cover from "../Cover.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
   import EffortBars from "./EffortBars.svelte";
   import EndButton from "./EndButton.svelte";
   import Mountain from "./Mountain.svelte";
   import NextCard from "./NextCard.svelte";
   import PulseRing from "./PulseRing.svelte";
+  import RideCallout from "./RideCallout.svelte";
   import RideLyrics from "./RideLyrics.svelte";
   import TvButton from "./TvButton.svelte";
 
@@ -43,6 +45,13 @@
     const id = setTimeout(() => (chip = ""), STEP_CHIP_MS);
     return () => clearTimeout(id);
   });
+
+  // back: the part again from its start, after a yes (like a tap on skip would be too easy to hit by accident)
+  let askRepeat = $state(false);
+  function doRepeat() {
+    askRepeat = false;
+    exercise.repeat();
+  }
 
   // swapping the song: the song line asks first; "Swap the next one" when there is one
   let askSwap = $state(false);
@@ -78,8 +87,12 @@
       exercise.pause();
     } else if (e.key.toLowerCase() === "n" && !e.metaKey && !e.ctrlKey && !e.altKey && !lastPart) {
       exercise.skip();
+    } else if (e.key.toLowerCase() === "b" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      askRepeat = true;
     } else if (e.key.toLowerCase() === "f" && !e.metaKey && !e.ctrlKey && !e.altKey) {
       exercise.setFullscreen(!exercise.fullscreen);
+    } else if (e.key === "Escape" && askRepeat) {
+      askRepeat = false;
     } else if (e.key === "Escape" && paused) {
       exercise.pause();
     } else if (e.key === "Escape" && exercise.fullscreen) {
@@ -109,10 +122,10 @@
       <span class="sp"></span>
       {#if song}
         {#if s.ride_swap}
-          <button type="button" class="song swap" aria-label="Swap this song: {song.title}" aria-haspopup="dialog" disabled={exercise.swapping !== null} onclick={() => (askSwap = true)}>
+          <button type="button" class="song swap" aria-label="Swap this song: {song.title}" aria-haspopup="dialog" disabled={exercise.swapping !== null} aria-busy={exercise.swapping !== null} onclick={() => (askSwap = true)}>
             <Cover url={song.cover_url} path={song.local_path} size={44} radius={6} />
             <span class="txt"><b class="ell">{song.title}</b><small class="ell">{exercise.swapping !== null ? "Finding another song…" : song.artist}</small></span>
-            <Icon name="refresh" size={16} />
+            {#if exercise.swapping !== null}<Spinner size={16} />{:else}<Icon name="refresh" size={16} />{/if}
           </button>
         {:else}
           <span class="song">
@@ -128,6 +141,7 @@
       <button type="button" class="skip" title={exercise.fullscreen ? "Leave fullscreen [F]" : "Fullscreen [F]"} aria-label={exercise.fullscreen ? "Leave fullscreen" : "Fullscreen"} aria-pressed={exercise.fullscreen} onclick={() => exercise.setFullscreen(!exercise.fullscreen)}>
         <Icon name={exercise.fullscreen ? "shrink" : "expand"} size={18} />
       </button>
+      <button type="button" class="skip" title="Repeat this part [B]" aria-label="Repeat this part" aria-haspopup="dialog" onclick={() => (askRepeat = true)}><Icon name="replay" size={18} /></button>
       <button type="button" class="pause" title="Pause the ride [Space]" aria-label={exercise.playing ? "Pause" : "Resume"} onclick={() => exercise.pause()}>
         <Icon name={exercise.playing ? "pause" : "play"} size={24} />
       </button>
@@ -198,6 +212,21 @@
         <span>{clock(view.total_s)}</span>
       </div>
     </section>
+
+    {#if s.ride_callouts && !paused}<RideCallout callout={view.callout} text={exercise.calloutText} />{/if}
+
+    {#if askRepeat}
+      <div class="veil" role="presentation" onclick={() => (askRepeat = false)}>
+        <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="ex-repeat-t" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.key === "Escape" && (askRepeat = false)}>
+          <h2 id="ex-repeat-t">Repeat {zoneName(view.kind)}?</h2>
+          <p>The part starts again from its beginning, with its song.</p>
+          <div class="acts">
+            <button type="button" class="resume" use:focusFirst onclick={doRepeat}>Repeat</button>
+            <button type="button" class="btn tonal" onclick={() => (askRepeat = false)}>Keep going</button>
+          </div>
+        </div>
+      </div>
+    {/if}
 
     {#if askSwap}
       <div class="veil" role="presentation" onclick={() => (askSwap = false)}>

@@ -387,6 +387,7 @@ private fun LoadMoreGrid(state: LazyGridState, list: PagedHits, onLoadMore: () -
 @Composable
 fun TvTidalRoutePage(route: TidalRoute, vm: TidalViewModel, entryKey: Int) {
     val pages by vm.pages.collectAsStateWithLifecycle()
+    val fetching by vm.fetchingAll.collectAsStateWithLifecycle()
     val ctx = rememberRowContext(vm)
     val app = LocalContext.current.homefi
     val nav = LocalTvNav.current
@@ -410,7 +411,7 @@ fun TvTidalRoutePage(route: TidalRoute, vm: TidalViewModel, entryKey: Int) {
                     coverIcon = Icons.Rounded.Album,
                     tags = listOfNotNull(album.quality),
                     pills = {
-                        PagePills(first, rowsEntry, entryKey, onPlay = { shuffle -> vm.play(key, shuffle = shuffle); nav.openPlayer() }, onQueue = { queueMenu = true }, onDownload = { vm.download(album.title, "album/${album.id}") })
+                        PagePills(first, rowsEntry, entryKey, onPlay = { shuffle -> vm.play(key, shuffle = shuffle); nav.openPlayer() }, onQueue = { queueMenu = true }, onDownload = { vm.download(album.title, "album/${album.id}") }, busy = key in fetching)
                     },
                 ) { PageRows(vm, ctx, page.tracks, key, state, rowsEntry, first) }
                 if (queueMenu) TvActionMenu(album.title, null, queueActions { next -> vm.queue(key, next) }) { queueMenu = false }
@@ -426,7 +427,7 @@ fun TvTidalRoutePage(route: TidalRoute, vm: TidalViewModel, entryKey: Int) {
                     cover = playlist.coverUrl,
                     coverIcon = Icons.AutoMirrored.Rounded.QueueMusic,
                     pills = {
-                        PagePills(first, rowsEntry, entryKey, onPlay = { shuffle -> vm.play(key, shuffle = shuffle); nav.openPlayer() }, onQueue = { queueMenu = true }, onDownload = { vm.download(playlist.title, "playlist/${playlist.uuid}") })
+                        PagePills(first, rowsEntry, entryKey, onPlay = { shuffle -> vm.play(key, shuffle = shuffle); nav.openPlayer() }, onQueue = { queueMenu = true }, onDownload = { vm.download(playlist.title, "playlist/${playlist.uuid}") }, busy = key in fetching)
                     },
                 ) { PageRows(vm, ctx, page.tracks, key, state, rowsEntry, first) }
                 if (queueMenu) TvActionMenu(playlist.title, null, queueActions { next -> vm.queue(key, next) }) { queueMenu = false }
@@ -460,11 +461,23 @@ fun TvTidalRoutePage(route: TidalRoute, vm: TidalViewModel, entryKey: Int) {
     }
 }
 
+private enum class PageAsk { PLAY, SHUFFLE, QUEUE }
+
 @Composable
-private fun PagePills(first: androidx.compose.ui.focus.FocusRequester, rowsEntry: androidx.compose.ui.focus.FocusRequester, entryKey: Int, onPlay: (shuffle: Boolean) -> Unit, onQueue: () -> Unit, onDownload: (() -> Unit)?) {
-    TvPill(stringResource(R.string.library_play_all), { onPlay(false) }, Modifier.tvInitialFocus(first, entryKey, PAGE_FOCUS_DELAY_MS).tvLeftToDrawer().tvRightTo(rowsEntry).width(DETAIL_PILL_WIDTH), icon = Icons.Rounded.PlayArrow, primary = true)
-    TvPill(stringResource(R.string.library_shuffle), { onPlay(true) }, Modifier.tvLeftToDrawer().tvRightTo(rowsEntry).width(DETAIL_PILL_WIDTH), icon = Icons.Rounded.Shuffle)
-    TvPill(stringResource(R.string.queue_add), onQueue, Modifier.tvLeftToDrawer().tvRightTo(rowsEntry).width(DETAIL_PILL_WIDTH), icon = Icons.AutoMirrored.Rounded.QueueMusic)
+private fun PagePills(
+    first: androidx.compose.ui.focus.FocusRequester,
+    rowsEntry: androidx.compose.ui.focus.FocusRequester,
+    entryKey: Int,
+    onPlay: (shuffle: Boolean) -> Unit,
+    onQueue: () -> Unit,
+    onDownload: (() -> Unit)?,
+    /** Every track of the list is being fetched: the pill that asked shows a spinner and the three wait. */
+    busy: Boolean = false,
+) {
+    var asked by remember { mutableStateOf(PageAsk.PLAY) }
+    TvPill(stringResource(R.string.library_play_all), { asked = PageAsk.PLAY; onPlay(false) }, Modifier.tvInitialFocus(first, entryKey, PAGE_FOCUS_DELAY_MS).tvLeftToDrawer().tvRightTo(rowsEntry).width(DETAIL_PILL_WIDTH), icon = Icons.Rounded.PlayArrow, primary = true, busy = busy && asked == PageAsk.PLAY)
+    TvPill(stringResource(R.string.library_shuffle), { asked = PageAsk.SHUFFLE; onPlay(true) }, Modifier.tvLeftToDrawer().tvRightTo(rowsEntry).width(DETAIL_PILL_WIDTH), icon = Icons.Rounded.Shuffle, busy = busy && asked == PageAsk.SHUFFLE)
+    TvPill(stringResource(R.string.queue_add), { asked = PageAsk.QUEUE; onQueue() }, Modifier.tvLeftToDrawer().tvRightTo(rowsEntry).width(DETAIL_PILL_WIDTH), icon = Icons.AutoMirrored.Rounded.QueueMusic, busy = busy && asked == PageAsk.QUEUE)
     if (onDownload != null) TvPill(stringResource(R.string.download), onDownload, Modifier.tvLeftToDrawer().tvRightTo(rowsEntry).width(DETAIL_PILL_WIDTH), icon = Icons.Rounded.Download)
 }
 

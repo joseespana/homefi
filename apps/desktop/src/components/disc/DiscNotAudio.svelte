@@ -5,6 +5,7 @@
   import { disc } from "../../lib/disc.svelte";
   import { app } from "../../lib/state.svelte";
   import Icon from "../Icon.svelte";
+  import Spinner from "../Spinner.svelte";
 
   let { drive }: { drive: DriveView | null } = $props();
 
@@ -37,9 +38,9 @@
         <button type="button" class="btn primary" onclick={() => (app.view = { name: "folder", path: drive.mount! })}><Icon name="folder" size={16} /> Open folder</button>
       {/if}
       {#if drive && kind !== "none"}
-        <button type="button" class="btn tonal" onclick={() => disc.eject()}><Icon name="eject" size={16} /> Eject</button>
+        <button type="button" class="btn tonal" disabled={disc.ejecting} aria-busy={disc.ejecting} onclick={() => disc.eject()}>{#if disc.ejecting}<Spinner size={16} /> Ejecting…{:else}<Icon name="eject" size={16} /> Eject{/if}</button>
       {/if}
-      <button type="button" class="btn tonal" onclick={() => disc.enter()}><Icon name="refresh" size={16} /> Look again</button>
+      <button type="button" class="btn tonal" disabled={disc.loading} aria-busy={disc.loading} onclick={() => disc.enter()}>{#if disc.loading}<Spinner size={16} /> Looking…{:else}<Icon name="refresh" size={16} /> Look again{/if}</button>
     </div>
   </div>
 </section>

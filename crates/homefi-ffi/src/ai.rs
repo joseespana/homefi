@@ -502,8 +502,13 @@ impl EqAssistantSession {
         config: Option<AiConfig>,
         api_key: Option<String>,
     ) -> Result<Arc<Self>> {
-        let saved: SavedSession =
-            serde_json::from_str(&state_json).map_err(|e| failed(format!("saved conversation: {e}")))?;
+        let saved: SavedSession = serde_json::from_str(&state_json).map_err(|e| {
+            tracing::warn!("saved conversation unreadable: {e}");
+            failed(match homefi_core::humane::language() {
+                homefi_core::humane::Lang::Es => "No se pudo abrir la conversación guardada.",
+                homefi_core::humane::Lang::En => "Couldn't open the saved conversation.",
+            })
+        })?;
         Ok(Self::wrap(EqSession::resume(saved, config.map(|c| core_config(c, api_key))), cache_dir))
     }
 

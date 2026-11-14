@@ -112,6 +112,11 @@ class TidalViewModel(app: Application) : AndroidViewModel(app) {
     val queued: StateFlow<Set<String>> = _queued.asStateFlow()
 
     /** Every release of the albums opened (by album id), for "Other versions". */
+    private val _fetchingAll = MutableStateFlow<Set<ListKey>>(emptySet())
+
+    /** The lists whose every track is being fetched (for Play, Shuffle or Queue): their buttons show a spinner. */
+    val fetchingAll: StateFlow<Set<ListKey>> = _fetchingAll.asStateFlow()
+
     private val _versions = MutableStateFlow<Map<String, List<AlbumVersionHit>>>(emptyMap())
     val versions: StateFlow<Map<String, List<AlbumVersionHit>>> = _versions.asStateFlow()
 
@@ -223,9 +228,14 @@ class TidalViewModel(app: Application) : AndroidViewModel(app) {
         if (current.complete) return current.items
         val job = wholeJobs[key]?.takeIf { it.isActive } ?: viewModelScope.async {
             moreJobs.remove(key)?.cancel()
-            val all = Busy.track { fetchWhole(key) }
-            updateList(key) { it.copy(items = all, next = null, loadingMore = false, moreError = null) }
-            all
+            _fetchingAll.update { it + key }
+            try {
+                val all = Busy.track { fetchWhole(key) }
+                updateList(key) { it.copy(items = all, next = null, loadingMore = false, moreError = null) }
+                all
+            } finally {
+                _fetchingAll.update { it - key }
+            }
         }.also { wholeJobs[key] = it }
         return try {
             job.await()

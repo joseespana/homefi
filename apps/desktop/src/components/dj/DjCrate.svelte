@@ -134,7 +134,7 @@
       >
         <span class="c">{#if item.cover}<img src={item.cover} alt="" loading="lazy" />{/if}</span>
         <span class="tt">{item.title}<small>{item.artist}</small></span>
-        <span class="bp" title="Beats per minute (after the song was analyzed once)">{bpmOf(item)}</span>
+        <span class="bp" title="Beats per minute (shown after HomeFi has listened to the song once)">{bpmOf(item)}</span>
         <span class="ab">
           <button class="a" type="button" aria-label="Load {item.title} on deck A" title="Load this song on deck A" onclick={() => load("a", item)}>A</button>
           <button class="b" type="button" aria-label="Load {item.title} on deck B" title="Load this song on deck B" onclick={() => load("b", item)}>B</button>

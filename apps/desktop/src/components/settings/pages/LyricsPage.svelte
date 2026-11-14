@@ -22,7 +22,7 @@
   const OFFSET_STEP_MS = 100;
 </script>
 
-<SettingsIntro>The song's words in the listening room: open them with the Lyrics button in the room or the player bar. They come from the file (a .lrc next to it, or the lyrics tag) or from Tidal.</SettingsIntro>
+<SettingsIntro>The song's words in the listening room: open them with the Lyrics button in the room or the player bar. They come from your file (a lyrics file next to the song, or lyrics saved inside it) or from Tidal.</SettingsIntro>
 
 <SettingsGroup title="Reading">
   <ChoiceList label="Mode" options={MODES} value={settings.room.lyrics_mode === "karaoke" ? "karaoke" : "normal"} onchange={(id) => m.saveRoom({ lyrics_mode: id })} />

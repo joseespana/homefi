@@ -159,6 +159,7 @@ private fun TvPartyStart(hub: HubUi, guest: GuestUi, entryKey: Int) {
                 Modifier.fillMaxWidth().tvLeftToDrawer(),
                 icon = Icons.Rounded.Groups,
                 primary = true,
+                busy = hub.starting,
             )
         }
         TvGlass(Modifier.weight(1f).fillMaxHeight()) {
