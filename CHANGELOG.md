@@ -7,6 +7,8 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.18] - 2026-11-14
+
 ### Added
 - Everywhere: every button that waits for something (TIDAL, the AI, downloads, sign-in, updates, the TV, sharing,
   saving or importing) now shows it is working with a spinner and can't be pressed twice. On the phone, the TV and
