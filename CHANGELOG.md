@@ -7,6 +7,9 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.19] - 2026-11-17
+
+
 ### Added
 - Exercise: ride with no internet. "Download for offline" on the ride's plan and on each ride in My rides puts
   the ride's TIDAL songs on your phone or computer (only the ones you don't have yet, in the download queue under

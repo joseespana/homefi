@@ -2380,7 +2380,7 @@ dependencies = [
 
 [[package]]
 name = "homefi-cli"
-version = "1.5.18"
+version = "1.5.19"
 dependencies = [
  "anyhow",
  "clap",
@@ -2399,7 +2399,7 @@ dependencies = [
 
 [[package]]
 name = "homefi-core"
-version = "1.5.18"
+version = "1.5.19"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -2432,7 +2432,7 @@ dependencies = [
 
 [[package]]
 name = "homefi-desktop"
-version = "1.5.18"
+version = "1.5.19"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2465,7 +2465,7 @@ dependencies = [
 
 [[package]]
 name = "homefi-disc"
-version = "1.5.18"
+version = "1.5.19"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2488,7 +2488,7 @@ dependencies = [
 
 [[package]]
 name = "homefi-ffi"
-version = "1.5.18"
+version = "1.5.19"
 dependencies = [
  "futures",
  "homefi-core",
@@ -2502,7 +2502,7 @@ dependencies = [
 
 [[package]]
 name = "homefi-player"
-version = "1.5.18"
+version = "1.5.19"
 dependencies = [
  "cpal",
  "homefi-core",
