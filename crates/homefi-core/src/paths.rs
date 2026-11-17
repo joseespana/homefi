@@ -79,8 +79,20 @@ pub fn write_durable(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let mut tmp = tempfile::Builder::new().prefix(".homefi-").suffix(".tmp").tempfile_in(dir)?;
     tmp.write_all(bytes)?;
     tmp.as_file().sync_all()?;
-    tmp.persist(path).map_err(|e| e.error)?;
-    Ok(())
+    // Windows refuses to replace a file while another save is replacing it ("Access is denied"); that lasts
+    // milliseconds, so wait a little and try again. Elsewhere the rename never fails this way.
+    let mut tries = 0u64;
+    loop {
+        match tmp.persist(path) {
+            Ok(_) => return Ok(()),
+            Err(e) if cfg!(windows) && e.error.kind() == std::io::ErrorKind::PermissionDenied && tries < 20 => {
+                tries += 1;
+                tmp = e.file;
+                std::thread::sleep(std::time::Duration::from_millis(5 * tries));
+            }
+            Err(e) => return Err(e.error),
+        }
+    }
 }
 
 /// Replaces (or appends) the extension of the *last* path component.
