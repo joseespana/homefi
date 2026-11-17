@@ -488,7 +488,7 @@ jobs:
             aws s3 cp manifest.json "s3://$R2_BUCKET/$latest/manifest.json" --endpoint-url "$endpoint" --content-type application/json --only-show-errors
           fi
           echo "Uploaded to r2://$R2_BUCKET/$dir${latest:+ and $latest}" >> "$GITHUB_STEP_SUMMARY"
-      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+      - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         if: github.ref_type == 'tag' && needs.checks.result == 'success' && needs.desktop.result == 'success' && needs.android.result == 'success'
         with:
           name: HomeFi ${{ needs.version.outputs.version }}
