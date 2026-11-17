@@ -161,7 +161,7 @@ async fn openrouter_uses_the_web_plugin() {
         .await;
     let reply = chat_with(&config(AiProvider::OpenRouter, &server), "sys", &ask(), &[], &search(5)).await.unwrap();
     let sent = &bodies(&server).await[0];
-    assert_eq!(sent["plugins"], json!([{"id": "web", "max_results": 5}]));
+    assert_eq!(sent["plugins"], json!([{"id": "web", "max_results": 10}]));
     assert_eq!(urls(&reply), ["https://www.example.com/or-one", "https://news.example.org/or-two"]);
     assert_eq!(reply.sources[0].title, "OR One");
 }

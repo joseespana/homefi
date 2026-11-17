@@ -30,5 +30,18 @@ class RideAddressTest {
     }
 
     @Test
-    fun `typed form`() = assertEquals("192.168.1.5:47801", "http://192.168.1.5:47801/".asTypedAddress())
+    fun `the ride key travels with the address`() {
+        val sent = parseRideAddress("http://192.168.1.20:47801/K7M2QXPA4B/", 47801)!!
+        assertEquals("http://192.168.1.20:47801/K7M2QXPA4B/ride.json", sent.rideUrl)
+        // typed on a remote, as the phone shows it, in any case
+        val typed = parseRideAddress("192.168.1.20:47801/k7m2qxpa4b", 47801)!!
+        assertEquals("http://192.168.1.20:47801/K7M2QXPA4B/ride.json", typed.rideUrl)
+        assertNull(parseRideAddress("192.168.1.20:47801/not a key", 47801))
+    }
+
+    @Test
+    fun `typed form`() {
+        assertEquals("192.168.1.5:47801", "http://192.168.1.5:47801/".asTypedAddress())
+        assertEquals("192.168.1.5:47801/K7M2QXPA4B", "http://192.168.1.5:47801/K7M2QXPA4B/".asTypedAddress())
+    }
 }

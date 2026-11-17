@@ -35,6 +35,8 @@ pub enum AiErrorKind {
     BadAnswer,
     /// Web search was asked for from a provider that can't do it.
     NoWebSearch,
+    /// The user's monthly AI spending limit is reached (Settings → AI).
+    SpendLimit,
 }
 
 const TRUNCATED: &str = "answer cut off at the output limit";
@@ -141,8 +143,14 @@ impl AiError {
                 format!("Tu llave de {p} no tiene permiso para esto. Revisa sus permisos."),
             ),
             AiErrorKind::Quota => (
-                format!("Your {p} account is out of credit or reached its limit."),
-                format!("Tu cuenta de {p} no tiene saldo o llegó a su límite."),
+                format!(
+                    "Your {p} account is out of credit or reached its limit. Add credit there: searching the web \
+                     needs a bit more balance than a chat."
+                ),
+                format!(
+                    "Tu cuenta de {p} no tiene saldo o llegó a su límite. Agrega saldo allá: buscar en internet \
+                     necesita un poco más de saldo que una conversación."
+                ),
             ),
             AiErrorKind::RateLimited => (
                 format!("{p} asked us to slow down. Wait a minute and try again."),
@@ -193,6 +201,10 @@ impl AiError {
                 format!(
                     "{p} no puede buscar en la web. Elige Claude, Gemini, OpenAI, xAI u OpenRouter en Ajustes → IA."
                 ),
+            ),
+            AiErrorKind::SpendLimit => (
+                "You reached the AI spending limit you set for this month. You can raise it in Settings → AI.".to_owned(),
+                "Llegaste al límite de gasto en IA que pusiste para este mes. Puedes subirlo en Ajustes → IA.".to_owned(),
             ),
         };
         if es {

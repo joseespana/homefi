@@ -71,3 +71,18 @@ to the first proposal.
 The last line adds up every check. Compare models by running the same command
 with a different `HOMEFI_EVAL_MODEL`. Results vary from run to run, so run it a
 couple of times before drawing conclusions.
+
+## Songs: rides and concerts (`music_eval`)
+
+Checks the song-picking prompts with a real provider and the real Tidal catalog (searches only, nothing is
+saved). It builds a ride from "polish music" with decades and genres, and a concert playlist per artist, and
+prints the songs and sources. Signed in to Tidal first; it spends the key's tokens.
+
+```bash
+HOMEFI_EVAL_PROVIDER=openrouter HOMEFI_EVAL_KEY=... HOMEFI_EVAL_MODEL=google/gemini-2.5-flash \
+  HOMEFI_EVAL_ONLY=concert HOMEFI_EVAL_ARTISTS="Korn,Dawid Podsiadło" \
+  cargo run -p homefi-core --example music_eval
+```
+
+OpenRouter blocks web searches (402 `in_flight_budget_exhausted`) when the account balance is low, even when a
+plain chat still works: concerts then fall back to Tidal's most played.

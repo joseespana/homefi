@@ -84,6 +84,10 @@ internal fun ExerciseSettingsPage() {
             readout = { stringResource(R.string.rides_set_history_value, it) }, hint = stringResource(R.string.rides_set_history_hint),
         ) { set(s.copy(rideHistoryMax = it.toUShort())) }
         RowDivider()
+        SwitchRow(
+            stringResource(R.string.rides_set_auto_download), s.autoDownloadRides, hint = stringResource(R.string.rides_set_auto_download_hint),
+        ) { set(s.copy(autoDownloadRides = it)) }
+        RowDivider()
         SegmentedRow(
             stringResource(R.string.ex_set_climb_steps), CLIMB_STEP_CHOICES, s.climbSteps.toInt(),
             label = { if (it == 0) stringResource(R.string.ex_set_steps_off) else "$it" },

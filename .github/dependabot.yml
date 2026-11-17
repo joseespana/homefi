@@ -1,0 +1,8 @@
+# Keeps the GitHub Actions pinned to exact commits (ci.yml, release.yml) up to date: Dependabot opens a PR
+# with the new commit and version comment; nothing changes without a review.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

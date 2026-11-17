@@ -228,6 +228,11 @@ private fun RideCard(
             Box(Modifier.weight(1f))
             RideMenu(ride, onKeep, onRename, onSaveAs, onShare, onDelete)
         }
+        // the ride's songs on the phone, to ride it with no internet ("Ready offline" once they all are)
+        RideOfflineButton(
+            key = ride.id, name = ride.name, songs = ride.songSources,
+            modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+        )
     }
 }
 

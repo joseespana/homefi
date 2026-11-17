@@ -2,6 +2,7 @@
 // request being edited, the newest ride view (10 a second from the `ride` event), the cues and the TV.
 // It lives here, not in a component, so leaving the screen does not stop a build or a ride. Components
 // draw from here and send intents; every rule (the course, the tempo fit, the clock) is homefi-core's.
+import { spendOk } from "./spend";
 import { uiLanguage } from "./language";
 import { api, errorText } from "./api";
 import { assistant } from "./assistant.svelte";
@@ -27,6 +28,7 @@ import {
   type ExerciseTurn,
   type HotPoint,
   type MonitorView,
+  type OfflineStatus,
   type PresetView,
   type RideBuilt,
   type RidePlan,
@@ -39,6 +41,21 @@ import {
 } from "./exercise-api";
 import { app } from "./state.svelte";
 import { pickOpenPath, pickSavePath } from "./transfer";
+
+/** What a ride's "Download for offline" button shows. */
+export type OfflineView =
+  /** Not known yet, or the ride has no song to play: no button. */
+  | { kind: "none" }
+  /** Every song has a file here: the ride plays with no internet. */
+  | { kind: "ready" }
+  /** `count` TIDAL songs still need the internet. */
+  | { kind: "missing"; count: number }
+  /** Its songs wait for their turn (`started` false) or come down: `done` of `of`. */
+  | { kind: "downloading"; done: number; of: number; started: boolean };
+
+const TRACK_LINK = "track/";
+
+const entriesOf = (plan: RidePlan) => plan.songs.map((s) => s.entry);
 
 /** The two halves of the setup screen. */
 export type SetupTab = "new" | "rides";
@@ -97,6 +114,8 @@ class ExerciseStore {
   chat = $state<ChatMessage[]>([]);
   chatQuick = $state<string[]>([]);
   chatBusy = $state(false);
+  /** "Ask before spending" was answered for this conversation. */
+  private chatSpendAsked = false;
   chatError = $state<string | null>(null);
   /** The saved rides, favorites first then the most recent (the backend's order). */
   rides = $state.raw<SavedRide[]>([]);
@@ -113,6 +132,10 @@ class ExerciseStore {
   working = $state<string | null>(null);
   /** The big message's words, in the system's language (from the backend, with each tick). */
   calloutText = $state<string | null>(null);
+  /** How ready each saved ride is to play with no internet, by ride id (the core's rule, re-read when the library changes). */
+  offline = $state.raw<Record<string, OfflineStatus>>({});
+  /** The same for the plan on the screen. */
+  planOffline = $state.raw<OfflineStatus | null>(null);
 
   private started = false;
   private after: (() => void) | null = null;
@@ -331,6 +354,7 @@ class ExerciseStore {
   /** `again`: "new songs" for the plan on the screen, which stays until the new one is there (a failure keeps it). */
   private async runBuild(again: boolean) {
     if (this.building) return;
+    if (!(await spendOk("ride_build"))) return;
     this.building = true;
     this.keptPlan = again ? this.plan : null;
     this.rebuilding = !!this.keptPlan;
@@ -341,6 +365,7 @@ class ExerciseStore {
     this.editing = false;
     try {
       this.built = await exerciseApi.build($state.snapshot(this.request) as RideRequest, EX_LANGUAGE, (p) => (this.progress = p));
+      this.autoDownload(this.built);
     } catch (e) {
       if (!this.cancelled) {
         if (this.rebuilding) this.rebuildError = errorText(e);
@@ -490,11 +515,14 @@ class ExerciseStore {
    */
   async swap(segmentIndex: number, atSegmentMs: number | null) {
     if (this.swapping !== null) return;
+    if (this.settings.swap_uses_ai && !(await spendOk("ride_swap"))) return;
     this.stopPreview();
     this.swapping = segmentIndex;
     try {
       this.built = await exerciseApi.swap(segmentIndex, atSegmentMs);
       this.apply(await exerciseApi.state());
+      // the new song streams now; with the setting on it is downloaded for the next ride too
+      this.autoDownload(this.built);
     } catch (e) {
       app.note(errorText(e), "error", "exercise");
     } finally {
@@ -533,6 +561,62 @@ class ExerciseStore {
   async refreshRides() {
     try {
       this.rides = await exerciseApi.rides();
+    } catch {}
+    this.refreshOffline();
+  }
+
+  // ------------------------------------------------------------ offline
+
+  /** Re-reads how ready the saved rides and the plan on the screen are to play with no internet. */
+  async refreshOffline() {
+    const plan = this.plan;
+    try {
+      const [rides, mine] = await Promise.all([exerciseApi.ridesOffline(), plan ? exerciseApi.offline(entriesOf(plan)) : null]);
+      this.offline = rides;
+      if (this.plan === plan) this.planOffline = mine;
+    } catch {}
+  }
+
+  /** The button's state for a ride: the core's count, with the downloads of its songs as they come. */
+  offlineView(status: OfflineStatus | null | undefined): OfflineView {
+    if (!status || status.songs === 0) return { kind: "none" };
+    const ids = status.to_download;
+    if (!ids.length) return { kind: "ready" };
+    let done = 0;
+    let waiting = 0;
+    let running = false;
+    for (const id of ids) {
+      const state = app.trackDownloads[id]?.state;
+      if (state === "done") done++;
+      else if (state === "waiting") waiting++;
+      else if (state === "downloading") running = true;
+    }
+    if (running || waiting) return { kind: "downloading", done, of: ids.length, started: running || done > 0 };
+    // every file is written: the library is reading them
+    if (done === ids.length) return { kind: "ready" };
+    return { kind: "missing", count: ids.length - done };
+  }
+
+  /** "Download for offline": queues the ride's TIDAL songs that have no file here (nothing when they are all queued). */
+  async downloadOffline(name: string, status: OfflineStatus | null | undefined) {
+    const ids = (status?.to_download ?? []).filter((id) => {
+      const state = app.trackDownloads[id]?.state;
+      return state !== "done" && state !== "waiting" && state !== "downloading";
+    });
+    if (!ids.length) return;
+    try {
+      await app.download(name, ids.map((id) => `${TRACK_LINK}${id}`), ids);
+    } catch (e) {
+      app.note(errorText(e), "error", "exercise");
+    }
+  }
+
+  /** "Download each new ride's songs automatically" (a setting, off by default). */
+  private async autoDownload(built: RideBuilt | null) {
+    if (!built || !this.settings.auto_download_rides) return;
+    try {
+      const status = await exerciseApi.offline(entriesOf(built.plan));
+      await this.downloadOffline(built.saved?.name ?? built.playlist.name, status);
     } catch {}
   }
 
@@ -670,6 +754,9 @@ class ExerciseStore {
   async say(text: string) {
     const said = text.trim();
     if (!said || this.chatBusy) return;
+    // once per conversation: its turns are one item of the history
+    if (!this.chatSpendAsked && !(await spendOk("ride_chat"))) return;
+    this.chatSpendAsked = true;
     this.chat = [...this.chat, { who: "me" as const, text: said }].slice(-MAX_CHAT_MESSAGES);
     this.chatBusy = true;
     this.chatError = null;
@@ -688,6 +775,7 @@ class ExerciseStore {
   }
   async closeChat() {
     this.chatOpen = false;
+    this.chatSpendAsked = false;
     this.chat = [];
     this.chatQuick = [];
     this.chatError = null;

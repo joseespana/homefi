@@ -27,7 +27,11 @@ git push --follow-tags
 ```
 
 The release workflow checks that the tag matches `Cargo.toml`, builds every artifact and
-publishes a GitHub Release with them.
+publishes a GitHub Release with them. It also runs the whole CI (`ci.yml`: Rust tests and Clippy on
+three systems, desktop tests, Android unit tests and lint, dependency audit) on the tag's exact
+commit, and publishes nothing (GitHub Release or R2) unless that passes, even when every installer
+built. Only the job that publishes may write to the repository; every action is pinned to a commit
+(Dependabot proposes updates monthly) and Rust is pinned in `rust-toolchain.toml`.
 
 ## Stable download links
 

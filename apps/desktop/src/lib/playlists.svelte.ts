@@ -2,6 +2,7 @@
 // can take a couple of minutes, and leaving the screen must not lose it. Lists are
 // `$state.raw` (replaced, never mutated). The product rules (tour set, thresholds, fallback
 // order) are in homefi-core; this only holds state and sends intents.
+import { spendOk } from "./spend";
 import { api, errorText, on, type ChatBrief, type ConcertBuilt, type ConcertMode, type ConcertProgress, type ConcertRequest, type ConcertSources, type HomePlaylist, type PartyBrief, type PlaylistOrigin, type PlaylistSettings, type SourceContext, type StreamItem, type TidalSyncEvent } from "./api";
 import { uiLanguage } from "./eq.svelte";
 
@@ -143,6 +144,7 @@ class PlaylistStore {
   /** Builds a playlist; `replaceId` keeps a saved playlist's identity ("Search again"). */
   async build(request: ConcertRequest, replaceId: string | null = null): Promise<void> {
     if (this.building) return;
+    if (!request.popular_only && !(await spendOk("concert"))) return;
     this.building = true;
     this.#cancelling = false;
     this.error = null;

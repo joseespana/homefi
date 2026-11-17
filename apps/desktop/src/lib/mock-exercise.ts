@@ -531,6 +531,10 @@ export const exerciseMock = {
     exercise_build: ({ request: r, onProgress }: { request: RideRequest; onProgress: { id: number } }) => build(r, onProgress),
     exercise_cancel: () => (abort?.(), null),
     exercise_rides: () => sortedRides(),
+    // the first saved ride is on this computer already; the others still need three TIDAL songs
+    exercise_rides_offline: () =>
+      Object.fromEntries(sortedRides().map((r, i) => [r.id, i === 0 ? { songs: r.songs, ready: r.songs, to_download: [] } : { songs: r.songs, ready: Math.max(0, r.songs - 3), to_download: ["m-1", "m-2", "m-3"] }])),
+    exercise_offline: ({ entries }: { entries: unknown[] }) => ({ songs: entries.length, ready: Math.max(0, entries.length - 3), to_download: ["m-1", "m-2", "m-3"] }),
     exercise_ride_load: ({ id }: { id: string }) => {
       const ride = rideById(id);
       if (stage === "riding" || stage === "building") throw "Finish the ride in progress before loading another.";

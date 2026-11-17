@@ -169,6 +169,8 @@ homefi --help
 
 App data lives in `~/.homefi` (`%USERPROFILE%\.homefi` on Windows). Set `HOMEFI_PATH` to move it.
 Every option can be set in `config.toml`: see [docs/config.example.toml](docs/config.example.toml).
+Tidal's answers are kept in `~/.homefi/api_cache` (up to 200 MB by default: `cache_size_mb`, 0 keeps none;
+`homefi config clear-cache` empties it). The apps set the same size in Settings → Tidal.
 Coming from tiddl? Copy `~/.tiddl/config.toml` and `auth.json` into `~/.homefi/`.
 
 If the default client credentials stop working, set `HOMEFI_AUTH=<CLIENT_ID>;<CLIENT_SECRET>`.
@@ -215,6 +217,11 @@ Features:
   on every device signed in to it ("Update on TIDAL" makes that copy match again). Settings →
   Playlists → Save to TIDAL can do it automatically and delete the TIDAL copy along with HomeFi's
   (both off by default).
+- **What the AI costs** (phone, TV and desktop): Settings → AI shows this month's total, what each kind
+  of AI action costs (a party playlist, a concert, a ride…) and the history (exact with OpenRouter, which
+  also tells the balance left; an estimate with ≈ or "Cost unknown" for the others). "Ask before spending"
+  can confirm before every AI action or only above an amount, and a monthly limit stops the AI once it's
+  reached (both off by default).
 - **Homefito** (also on the desktop): the mascot dances to the music; in mosh mode it grows long hair
   and headbangs on the beat. Settings → Mascot (hair, follow the beat, headbang strength).
 - **Picture-in-picture**: leaving the app while music plays keeps a small player on screen, with

@@ -70,6 +70,9 @@
       <div class="way">
         <b>Google TV or Android TV</b>
         <p class="help">Open HomeFi on the TV and go to Train. This ride shows up there by itself when it starts. No HomeFi on the TV yet? Install it from the phone app: Settings → Install HomeFi on a Google TV or Android TV.</p>
+        {#if s.tv_audio === "tv"}
+          <p class="help">For the music to play on the TV too, choose "Type what the phone shows" there and type the address below, all of it: the last part is this ride's private key, so only a TV you gave it to can play the music.</p>
+        {/if}
       </div>
       <div class="way">
         <b>Another smart TV (Samsung, LG…)</b>

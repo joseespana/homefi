@@ -84,7 +84,7 @@ pub fn load_track(
     let analysis = match cached {
         Some(a) => a,
         None => {
-            let mono: Vec<f32> = samples.chunks_exact(2).map(|f| 0.5 * (f[0] + f[1])).collect();
+            let mono: Vec<f32> = samples.as_chunks::<2>().0.iter().map(|f| 0.5 * (f[0] + f[1])).collect();
             let a = analyze(&mono, rate);
             if let Some(c) = cache {
                 if let Err(e) = c.put(&key, &a) {

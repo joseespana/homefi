@@ -101,7 +101,8 @@ mod tests {
             assert_eq!(u32::from_le_bytes(file[24..28].try_into().unwrap()), 44_100);
             assert_eq!(&file[36..40], b"data");
             assert_eq!(u32::from_le_bytes(file[40..44].try_into().unwrap()) as usize, data);
-            let back: Vec<i16> = file[44..].chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect();
+            let back: Vec<i16> =
+                file[44..].as_chunks::<2>().0.iter().map(|b| i16::from_le_bytes([b[0], b[1]])).collect();
             assert_eq!(back, pcm);
         }
     }

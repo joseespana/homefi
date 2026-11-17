@@ -260,6 +260,8 @@ data class AppSettings(
     val mascotScale: Float = 1f,
     /** Tidal lists show their first page at once and load the rest while scrolling; off loads them whole. */
     val lazyLists: Boolean = true,
+    /** Disk space for saved Tidal answers (the core's API cache), in MB; 0 keeps none. Same as the desktop's `api_cache_mb`. */
+    val apiCacheMb: Int = ApiCacheDefaults.DEFAULT_MB,
     /** One card per album on Tidal lists (explicit / clean, Atmos, remasters... behind a "versions" chip). */
     val albumVersionsGroup: Boolean = true,
     /** Which release the card shows, when both exist. */
@@ -392,6 +394,7 @@ class SettingsStore(context: Context) {
         skipExisting = prefs.getBoolean("skip_existing", true),
         threads = prefs.getInt("threads", 3),
         lazyLists = prefs.getBoolean("lazy_lists", true),
+        apiCacheMb = prefs.getInt("api_cache_mb", ApiCacheDefaults.DEFAULT_MB).coerceIn(0, ApiCacheDefaults.MAX_MB),
         albumVersionsGroup = prefs.getBoolean("album_versions_group", true),
         albumExplicit = enumPref("album_explicit", AlbumExplicitPref.EXPLICIT),
         albumSpatial = enumPref("album_spatial", AlbumSpatialPref.STEREO),
@@ -575,6 +578,7 @@ class SettingsStore(context: Context) {
             .putBoolean("skip_existing", next.skipExisting)
             .putInt("threads", next.threads)
             .putBoolean("lazy_lists", next.lazyLists)
+            .putInt("api_cache_mb", next.apiCacheMb.coerceIn(0, ApiCacheDefaults.MAX_MB))
             .putBoolean("album_versions_group", next.albumVersionsGroup)
             .putString("album_explicit", next.albumExplicit.name)
             .putString("album_spatial", next.albumSpatial.name)

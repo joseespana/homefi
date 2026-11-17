@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Gasto en IA: cuánto costó cada acción, "preguntar antes de gastar" y el límite mensual -->
+    <string name="spend_title">Gasto</string>
+    <string name="spend_intro">Lo que te ha costado la IA, contado en este dispositivo. Los montos con ≈ son estimaciones con el precio de lista del modelo; lo que vale es la factura de tu servicio de IA.</string>
+    <string name="spend_month">Este mes</string>
+    <plurals name="spend_month_actions">
+        <item quantity="one">%1$d acción con IA</item>
+        <item quantity="many">%1$d acciones con IA</item>
+        <item quantity="other">%1$d acciones con IA</item>
+    </plurals>
+    <plurals name="spend_month_unknown">
+        <item quantity="one">%1$d sin precio conocido, no se cuenta</item>
+        <item quantity="many">%1$d sin precio conocido, no se cuentan</item>
+        <item quantity="other">%1$d sin precio conocido, no se cuentan</item>
+    </plurals>
+    <string name="spend_nothing">Nada todavía</string>
+    <string name="spend_nothing_hint">Cada acción con IA (un recorrido, un concierto, una lista de fiesta, el asistente de sonido…) aparece aquí con lo que costó.</string>
+    <string name="spend_balance">Saldo en OpenRouter</string>
+    <string name="spend_balance_check">Ver saldo</string>
+    <string name="spend_balance_checking">Consultando…</string>
+    <string name="spend_balance_hint">Se lo pregunta a OpenRouter; no gasta nada</string>
+    <string name="spend_balance_left">Te quedan %1$s</string>
+    <string name="spend_balance_unknown">OpenRouter no lo dijo</string>
+    <string name="spend_guard_title">Preguntar antes de gastar</string>
+    <string name="spend_guard_intro">Para que la IA nunca se gaste tu saldo por sorpresa. El límite mensual se revisa en cada llamada a la IA.</string>
+    <string name="spend_ask">Preguntar antes de usar la IA</string>
+    <string name="spend_ask_never">No preguntar</string>
+    <string name="spend_ask_always">Siempre</string>
+    <string name="spend_ask_above">Si pasa de un monto</string>
+    <string name="spend_ask_never_hint">Las acciones con IA empiezan enseguida.</string>
+    <string name="spend_ask_always_hint">Verás cuánto suele costar y confirmarás antes de cada acción con IA.</string>
+    <string name="spend_ask_above_hint">Pregunta solo si suele costar más que el monto, o si aún no se sabe.</string>
+    <string name="spend_ask_above_amount">Preguntar si cuesta más de %1$s</string>
+    <string name="spend_limit">Límite mensual</string>
+    <string name="spend_limit_hint">Detiene las acciones con IA cuando el gasto del mes llega al límite. Vuelve a empezar el día 1.</string>
+    <string name="spend_limit_amount">Límite por mes: %1$s</string>
+    <string name="spend_limit_off">Sin límite</string>
+    <string name="spend_history">Historial de gasto</string>
+    <string name="spend_history_empty">Aún no hay acciones con IA</string>
+    <string name="spend_more">Ver %1$d más</string>
+    <string name="spend_clear">Borrar historial</string>
+    <string name="spend_clear_hint">Solo la lista de este dispositivo</string>
+    <string name="spend_clear_title">¿Borrar el historial de gasto en IA?</string>
+    <string name="spend_clear_text">La lista y los totales vuelven a cero. Lo que gastaste en el servicio de IA no cambia, y tu límite se queda.</string>
+    <string name="spend_continue">Continuar</string>
+    <string name="spend_ok">Entendido</string>
+</resources>

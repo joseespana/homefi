@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.perseusoft.homefi.HomefiApplication
+import com.perseusoft.homefi.core.AiFeature
 import com.perseusoft.homefi.core.ConcertBuilt
 import com.perseusoft.homefi.core.ConcertListener
 import com.perseusoft.homefi.core.ConcertMode
@@ -88,6 +89,8 @@ class ConcertViewModel(app: Application) : AndroidViewModel(app) {
         job?.cancel()
         job = viewModelScope.launch {
             val ready = if (popularOnly) null else withContext(Dispatchers.IO) { home.ai.ready() }
+            // "ask before spending": a no leaves the screen as it was
+            if (ready != null && ready.info.webSearch && !home.spend.allow(AiFeature.CONCERT)) return@launch
             _ui.value = ConcertUi.Building(null, ready?.info?.name)
             try {
                 val settings = home.settings.playlists.value

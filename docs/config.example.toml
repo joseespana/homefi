@@ -11,6 +11,12 @@
 # to purge it.
 enable_cache = true
 
+# Disk space the API cache may take, in MB (at most 4096). Answers older than a
+# week, then the oldest ones, are deleted in the background to stay under it;
+# answers bigger than 4 MB (or an eighth of this) are never kept. 0 keeps none.
+# Only this folder is touched: your downloads and library never are.
+cache_size_mb = 200
+
 # Save every Tidal API response to `<app dir>/api_debug` (for bug reports).
 debug = false
 

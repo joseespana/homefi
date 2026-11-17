@@ -1,13 +1,19 @@
 //! The TV's HTTP server (page and `/ride.json`), its mDNS announcement and the client's discovery.
 //! Separate from `share::Hub` on purpose: no guests, no code, just a read-only view of the ride.
+//!
+//! Two doors. The public one (`/`, `/ride.json`) is what anyone on the network can open, the way the mDNS
+//! announcement finds it: the ride's picture, never how to join its music. The private one carries the ride key
+//! in the path (`/<key>/`, `/<key>/ride.json`): the address the rider gives a TV (the link the phone sends a
+//! paired TV, or what the screen says to type). Only that door adds `listen`, and only to the local network.
+//! The key is random per ride: a new server, and every [`TvServer::clear`], makes a new one.
 
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use axum::extract::{ConnectInfo, State};
-use axum::http::{header, HeaderValue};
+use axum::extract::{ConnectInfo, Path, State};
+use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
@@ -16,7 +22,10 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
-use super::{is_lan, listen_permissions, render_page, RideTvView, TvFrame, TvLyrics, TvSession, TV_PROTOCOL_VERSION};
+use super::{
+    is_lan, listen_permissions, render_page, RideTvView, TvFrame, TvLyrics, TvSession, TOKEN_ALPHABET,
+    TV_PROTOCOL_VERSION,
+};
 use crate::error::{Error, Result};
 use crate::exercise::ride::RideView;
 use crate::exercise::settings::DEFAULT_TV_PORT;
@@ -30,6 +39,11 @@ pub const RIDE_SERVICE_TYPE: &str = "_homefi-ride._tcp.local.";
 /// Longest the server waits to stop before giving up on the task.
 const STOP_WAIT: Duration = Duration::from_secs(2);
 const SERVICE_NAME_MAX_BYTES: usize = 63;
+/// Characters of the ride key, from the no-look-alike alphabet: about 49 bits, far past what guessing over
+/// the network can reach while a ride lasts, and still short enough to type on a TV remote when it must.
+const RIDE_KEY_LEN: usize = 10;
+/// Random bytes drawn per batch while picking key characters (rejection sampling may need more than one).
+const KEY_DRAW_BYTES: usize = 32;
 
 /// What the server needs to start.
 #[derive(Debug, Clone)]
@@ -61,6 +75,8 @@ pub fn ride_hub_config(name: &str, port: u16, token: &str) -> HubConfig {
 }
 
 struct Shared {
+    /// The ride key: the private door's path. Replaced when a ride ends.
+    key: RwLock<Arc<str>>,
     session: RwLock<Arc<TvSession>>,
     frame: RwLock<Option<Arc<TvFrame>>>,
     /// The song's lyrics, apart from the session: they change with every song.
@@ -87,13 +103,20 @@ impl TvServer {
         let listener = bind(config.port, config.lang).await?;
         let addr = listener.local_addr()?;
         let shared = Arc::new(Shared {
+            key: RwLock::new(new_ride_key().into()),
             session: RwLock::new(Arc::new(TvSession { title: config.name.clone(), ..TvSession::default() })),
             frame: RwLock::new(None),
             lyrics: RwLock::new(None),
             lang: config.lang,
             page: render_page(&config.name, config.lang),
         });
-        let app = Router::new().route("/", get(page)).route("/ride.json", get(ride_json)).with_state(shared.clone());
+        let app = Router::new()
+            .route("/", get(page))
+            .route("/ride.json", get(public_ride_json))
+            .route("/{key}", get(keyed_page))
+            .route("/{key}/", get(keyed_page))
+            .route("/{key}/ride.json", get(keyed_ride_json))
+            .with_state(shared.clone());
         let (tx, rx) = oneshot::channel::<()>();
         let task = tokio::spawn(async move {
             let service = app.into_make_service_with_connect_info::<SocketAddr>();
@@ -120,9 +143,15 @@ impl TvServer {
         self.addr.port()
     }
 
-    /// Where a TV browser opens the page: one URL per LAN address this computer has (the best guess first).
+    /// The address the rider gives a TV (`http://<lan ip>:<port>/<key>/`): a browser opens the page with it, and
+    /// HomeFi on a TV also gets the ride's music through it. `None` without a LAN address.
     pub fn url(&self) -> Option<String> {
-        crate::share::local_ip_guess().map(|ip| format!("http://{}:{}/", host_text(ip), self.port()))
+        crate::share::local_ip_guess().map(|ip| format!("http://{}:{}{}", host_text(ip), self.port(), self.page_path()))
+    }
+
+    /// The private door's page path, `/<key>/` (its JSON is `ride.json` next to it).
+    pub fn page_path(&self) -> String {
+        format!("/{}/", self.shared.key())
     }
 
     /// A ride starts: its title, profile and how the audio goes. Clears the last frame (not the lyrics: `begin` may be
@@ -144,10 +173,12 @@ impl TvServer {
         *self.shared.frame.write().unwrap_or_else(|e| e.into_inner()) = Some(frame);
     }
 
-    /// The ride is over: the page goes back to waiting.
+    /// The ride is over: the page goes back to waiting, and the ride key changes, so an address given for this
+    /// ride never joins the music of the next one ([`TvServer::url`] has the new key).
     pub fn clear(&self) {
         *self.shared.frame.write().unwrap_or_else(|e| e.into_inner()) = None;
         self.set_lyrics(None);
+        *self.shared.key.write().unwrap_or_else(|e| e.into_inner()) = new_ride_key().into();
     }
 
     pub async fn stop(self) {
@@ -192,6 +223,50 @@ fn host_text(ip: IpAddr) -> String {
     }
 }
 
+impl Shared {
+    fn key(&self) -> Arc<str> {
+        self.key.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+/// A new ride key from the OS's random source, uniform over [`TOKEN_ALPHABET`] (bytes past the last whole
+/// alphabet's worth are drawn again). Without a random source it falls back to the one-ride token's source.
+fn new_ride_key() -> String {
+    let alphabet_len = TOKEN_ALPHABET.len();
+    let usable = u8::MAX as usize + 1 - (u8::MAX as usize + 1) % alphabet_len;
+    let mut key = String::with_capacity(RIDE_KEY_LEN);
+    let mut bytes = [0u8; KEY_DRAW_BYTES];
+    while key.len() < RIDE_KEY_LEN {
+        if let Err(e) = getrandom::fill(&mut bytes) {
+            tracing::warn!("ride TV: no OS randomness ({e}), using the fallback source");
+            let mut fallback = super::ride_token();
+            fallback.push_str(&super::ride_token());
+            fallback.truncate(RIDE_KEY_LEN);
+            return fallback;
+        }
+        key.extend(
+            bytes
+                .iter()
+                .filter(|b| usize::from(**b) < usable)
+                .map(|b| TOKEN_ALPHABET[usize::from(*b) % alphabet_len] as char)
+                .take(RIDE_KEY_LEN - key.len()),
+        );
+    }
+    key
+}
+
+/// `given` is the ride key, in constant time (no early exit a timing could reveal). Letters may come in lower
+/// case: a key typed on a TV.
+fn is_ride_key(given: &str, key: &str) -> bool {
+    let (given, key) = (given.as_bytes(), key.as_bytes());
+    given.len() == key.len() && given.iter().zip(key).fold(0u8, |diff, (g, k)| diff | (g.to_ascii_uppercase() ^ k)) == 0
+}
+
+/// Has the shape of a ride key (not necessarily this ride's).
+fn looks_like_key(text: &str) -> bool {
+    text.len() == RIDE_KEY_LEN && text.bytes().all(|b| TOKEN_ALPHABET.contains(&b.to_ascii_uppercase()))
+}
+
 fn no_store(mut response: Response) -> Response {
     let headers = response.headers_mut();
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
@@ -199,27 +274,55 @@ fn no_store(mut response: Response) -> Response {
 }
 
 async fn page(State(shared): State<Arc<Shared>>) -> Response {
-    no_store(([(header::CONTENT_TYPE, "text/html; charset=utf-8")], shared.page.clone()).into_response())
-}
-
-async fn ride_json(State(shared): State<Arc<Shared>>, ConnectInfo(peer): ConnectInfo<SocketAddr>) -> Response {
-    let session = shared.session.read().unwrap_or_else(|e| e.into_inner()).clone();
-    let frame = shared.frame.read().unwrap_or_else(|e| e.into_inner()).clone();
-    let lyrics = shared.lyrics.read().unwrap_or_else(|e| e.into_inner()).clone();
-    let mut view = RideTvView::build(&session, frame.as_deref(), now_ms(), shared.lang, is_lan(peer.ip()));
-    // only while a ride shows: the idle page has no song
-    view.lyrics = lyrics.filter(|_| view.ride.is_some()).map(|l| (*l).clone());
     no_store(
         (
             [
-                (header::CONTENT_TYPE, "application/json"),
-                // a page served elsewhere (a casting receiver) may read it too
-                (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+                (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                // the private address never travels to anyone else
+                (header::REFERRER_POLICY, "no-referrer"),
             ],
-            view.to_json(),
+            shared.page.clone(),
         )
             .into_response(),
     )
+}
+
+/// The same page behind the ride key (it reads the public `/ride.json`: it never needs `listen`). Any path that
+/// is not key-shaped is not found, the right key or not.
+async fn keyed_page(state: State<Arc<Shared>>, Path(key): Path<String>) -> Response {
+    if looks_like_key(&key) {
+        page(state).await
+    } else {
+        StatusCode::NOT_FOUND.into_response()
+    }
+}
+
+/// The ride for anyone: never `listen`.
+async fn public_ride_json(State(shared): State<Arc<Shared>>) -> Response {
+    ride_json(&shared, false)
+}
+
+/// The ride for a client the rider pointed here: `listen` when the key is this ride's and the client is on the
+/// local network (both, not either). A wrong or old key still gets the picture.
+async fn keyed_ride_json(
+    State(shared): State<Arc<Shared>>,
+    Path(key): Path<String>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+) -> Response {
+    let paired = is_ride_key(&key, &shared.key()) && is_lan(peer.ip());
+    ride_json(&shared, paired)
+}
+
+/// No `Access-Control-Allow-Origin`: only HomeFi's own clients (same-origin page, native apps) read it, so a web
+/// page elsewhere cannot.
+fn ride_json(shared: &Shared, share_listen: bool) -> Response {
+    let session = shared.session.read().unwrap_or_else(|e| e.into_inner()).clone();
+    let frame = shared.frame.read().unwrap_or_else(|e| e.into_inner()).clone();
+    let lyrics = shared.lyrics.read().unwrap_or_else(|e| e.into_inner()).clone();
+    let mut view = RideTvView::build(&session, frame.as_deref(), now_ms(), shared.lang, share_listen);
+    // only while a ride shows: the idle page has no song
+    view.lyrics = lyrics.filter(|_| view.ride.is_some()).map(|l| (*l).clone());
+    no_store(([(header::CONTENT_TYPE, "application/json")], view.to_json()).into_response())
 }
 
 // -------------------------------------------------------------------- mDNS
@@ -396,11 +499,11 @@ mod tests {
             ..TvSession::default()
         });
         server.publish(RideClock::view(&plan, 0, 10_000, 0), true);
-        let response = http.get(format!("{base}/ride.json")).send().await.unwrap();
+        let response = http.get(format!("{base}{}ride.json", server.page_path())).send().await.unwrap();
         assert_eq!(response.headers()["cache-control"], "no-store");
         let live: RideTvView = response.json().await.unwrap();
         assert!(live.playing && live.ride.is_some_and(|r| r.target_rpm == 87));
-        assert_eq!(live.listen.unwrap().code, "ABC", "loopback is on the local network");
+        assert_eq!(live.listen.unwrap().code, "ABC", "the ride's own address, from the local network");
         assert!(live.sampled_ms > 0 && live.server_now_ms >= live.sampled_ms);
 
         // lyrics ride along while set, and go with set_lyrics(None) or the end of the ride
@@ -419,6 +522,83 @@ mod tests {
         let cleared: RideTvView = http.get(format!("{base}/ride.json")).send().await.unwrap().json().await.unwrap();
         assert!(cleared.ride.is_none() && cleared.lyrics.is_none());
         server.stop().await;
+    }
+
+    fn listening_session() -> TvSession {
+        use crate::exercise::settings::TvAudio;
+        TvSession {
+            title: "Ride".into(),
+            audio: TvAudio::Tv,
+            listen: Some(super::super::RideListen { port: 1, code: "SECRET".into(), name: "n".into() }),
+            ..TvSession::default()
+        }
+    }
+
+    async fn get(http: &reqwest::Client, url: String) -> reqwest::Response {
+        http.get(url).send().await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn only_the_address_the_rider_gave_gets_the_music() {
+        let server = TvServer::start(TvConfig { port: 0, announce: false, ..TvConfig::default() }).await.unwrap();
+        let base = format!("http://127.0.0.1:{}", server.port());
+        let http = reqwest::Client::new();
+        server.begin(listening_session());
+        let key_path = server.page_path();
+        let key = key_path.trim_matches('/').to_owned();
+        assert_eq!(key.len(), RIDE_KEY_LEN);
+
+        // found on the network (mDNS, a guess): the picture, never how to join the music, even from loopback
+        let public = get(&http, format!("{base}/ride.json")).await;
+        assert!(public.headers().get("access-control-allow-origin").is_none(), "no wildcard CORS");
+        let public: RideTvView = public.json().await.unwrap();
+        assert_eq!(public.title, "Ride");
+        assert!(public.listen.is_none(), "an unpaired client gets no listen");
+
+        // a wrong key (right shape) is the same as no key; another shape is not found
+        let wrong = if key.starts_with('A') { "B" } else { "A" }.to_owned() + &key[1..];
+        let guessed: RideTvView = get(&http, format!("{base}/{wrong}/ride.json")).await.json().await.unwrap();
+        assert!(guessed.listen.is_none());
+        assert_eq!(get(&http, format!("{base}/favicon.ico")).await.status(), 404);
+
+        // the address the rider gave: the music too, also typed in lower case
+        let paired = get(&http, format!("{base}{key_path}ride.json")).await;
+        assert!(paired.headers().get("access-control-allow-origin").is_none(), "no wildcard CORS");
+        let paired: RideTvView = paired.json().await.unwrap();
+        assert_eq!(paired.listen.map(|l| l.code).as_deref(), Some("SECRET"));
+        let typed: RideTvView =
+            get(&http, format!("{base}/{}/ride.json", key.to_lowercase())).await.json().await.unwrap();
+        assert!(typed.listen.is_some());
+
+        // the page opens behind the key, with or without the last slash, and keeps the key to itself
+        for path in [key_path.clone(), format!("/{key}")] {
+            let page = get(&http, format!("{base}{path}")).await;
+            assert_eq!(page.status(), 200);
+            assert_eq!(page.headers()["referrer-policy"], "no-referrer");
+        }
+
+        // the ride ends: the key changes, the old address no longer joins the next ride's music
+        server.clear();
+        let next_path = server.page_path();
+        assert_ne!(next_path, key_path, "a new key per ride");
+        server.begin(listening_session());
+        let stale: RideTvView = get(&http, format!("{base}{key_path}ride.json")).await.json().await.unwrap();
+        assert!(stale.listen.is_none());
+        let fresh: RideTvView = get(&http, format!("{base}{next_path}ride.json")).await.json().await.unwrap();
+        assert!(fresh.listen.is_some());
+        server.stop().await;
+    }
+
+    #[test]
+    fn ride_keys_are_random_well_formed_and_compared_exactly() {
+        let keys: std::collections::HashSet<String> = (0..64).map(|_| new_ride_key()).collect();
+        assert_eq!(keys.len(), 64, "no repeats");
+        for key in &keys {
+            assert!(looks_like_key(key) && key.bytes().all(|b| TOKEN_ALPHABET.contains(&b)), "{key}");
+            assert!(is_ride_key(key, key) && is_ride_key(&key.to_lowercase(), key));
+            assert!(!is_ride_key(&key[1..], key) && !is_ride_key(&format!("{key}A"), key) && !is_ride_key("", key));
+        }
+        assert!(!looks_like_key("ride.json") && !looks_like_key("ABCDEFGHJ0"), "0 is not in the alphabet");
     }
 
     #[tokio::test]

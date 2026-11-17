@@ -129,6 +129,7 @@
 
 <SettingsGroup title="Saved rides" description="Every ride HomeFi builds is saved by itself, so you can ride it again without the AI. They are in Exercise → My rides.">
   <SliderRow label="Automatic rides to keep" hint="When there are more, the oldest automatic ones go. Rides you keep, star or import are never removed." min={EX_HISTORY.min} max={EX_HISTORY.max} step={EX_HISTORY.step} value={e.ride_history_max} format={(n) => `${n} rides`} onchange={(ride_history_max) => save({ ride_history_max })} />
+  <SwitchRow label="Download each new ride's songs automatically" hint="So you can ride it with no internet. Songs you already have are not downloaded again." checked={e.auto_download_rides} onchange={(auto_download_rides) => save({ auto_download_rides })} />
 </SettingsGroup>
 
 <SettingsGroup title="Climbs and songs">

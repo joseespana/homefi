@@ -52,6 +52,8 @@ data class DownloadState(
     val askingAccess: DownloadJob? = null,
     /** The paused jobs wait for the user to grant All files access (not for a drive): they resume when he comes back. */
     val pausedForAccess: Boolean = false,
+    /** Songs of [current] already done (downloaded, already there or skipped): "3 of 12". */
+    val currentDone: Int = 0,
 ) {
     val isBusy: Boolean get() = current != null || pending.isNotEmpty()
 }
@@ -101,7 +103,7 @@ class DownloadRepository(
         scope.launch {
             for (job in jobs) {
                 if (_state.value.pending.none { it.id == job.id }) continue // cancelled
-                _state.update { it.copy(pending = it.pending - job, current = job) }
+                _state.update { it.copy(pending = it.pending - job, current = job, currentDone = 0) }
                 running = launch { process(job) }
                 running?.join()
                 _state.update { it.copy(current = null, active = emptyMap()) }
@@ -110,11 +112,13 @@ class DownloadRepository(
         }
     }
 
-    fun enqueue(label: String, links: List<String>) {
+    /** Queues [links] under [label]; the job's id (to follow it in [state]). */
+    fun enqueue(label: String, links: List<String>): Long {
         val job = DownloadJob(ids.incrementAndGet(), label, links)
         _state.update { it.copy(pending = it.pending + job) }
         jobs.trySend(job)
         DownloadService.start(context)
+        return job.id
     }
 
     private fun enqueueAgain(job: DownloadJob) {
@@ -279,16 +283,16 @@ class DownloadRepository(
                     )
                 }
                 is DownloadEvent.Finished -> {
-                    _state.update { it.copy(active = it.active - event.task, finished = it.finished + 1) }
+                    _state.update { it.copy(active = it.active - event.task, finished = it.finished + 1, currentDone = it.currentDone + 1) }
                     Storage.scan(context, event.path)
                     log(LogKind.DONE, event.title, "${event.quality} · ${event.relativePath}", event.path)
                 }
                 is DownloadEvent.Exists -> {
-                    _state.update { it.copy(finished = it.finished + 1) }
+                    _state.update { it.copy(finished = it.finished + 1, currentDone = it.currentDone + 1) }
                     log(LogKind.EXISTS, event.title, event.relativePath, event.path)
                 }
                 is DownloadEvent.Skipped -> {
-                    _state.update { it.copy(finished = it.finished + 1) }
+                    _state.update { it.copy(finished = it.finished + 1, currentDone = it.currentDone + 1) }
                     log(LogKind.SKIPPED, event.title, event.reason)
                 }
                 is DownloadEvent.Failed -> log(LogKind.ERROR, event.context, event.message)

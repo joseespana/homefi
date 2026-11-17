@@ -468,6 +468,9 @@ fun HomefiRoot(destinations: Flow<Destination>) {
 
     joinRequest?.let { JoinDialog(it) }
 
+    // "Ask before spending" before an AI action, over every screen
+    SpendGateDialog()
+
     // signed in before the personal-use notice existed (or it changed): shown once, accept or sign out
     if (loggedIn && !settings.termsAccepted) {
         val signingOut = rememberLoadingTask()

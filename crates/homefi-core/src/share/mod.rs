@@ -23,7 +23,7 @@ mod hub;
 #[cfg(feature = "share")]
 pub use guest::{GuestClient, GuestEvent, Welcome, EVENT_QUEUE as GUEST_EVENT_QUEUE};
 #[cfg(feature = "share")]
-pub use hub::{CoverImage, HostCommand, Hub, HubConfig, HubEvent, HubHost};
+pub use hub::{CoverImage, HostCommand, Hub, HubConfig, HubEvent, HubHost, MAX_GUESTS};
 
 pub use permissions::{AddMode, EditMode, Permissions, QueueOrder, SkipMode};
 pub use protocol::{

@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.perseusoft.homefi.player
 
 import android.app.PendingIntent
@@ -21,6 +23,7 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor
 import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.session.LibraryResult
+import androidx.media3.session.SessionError
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import com.google.common.collect.ImmutableList
@@ -282,7 +285,7 @@ class PlaybackService : MediaLibraryService() {
             params: LibraryParams?,
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = future {
             val children = car.children(parentId)
-            if (children == null) LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
+            if (children == null) LibraryResult.ofError(SessionError.ERROR_BAD_VALUE)
             else LibraryResult.ofItemList(children.page(page, pageSize), params)
         }
 
@@ -292,7 +295,7 @@ class PlaybackService : MediaLibraryService() {
             mediaId: String,
         ): ListenableFuture<LibraryResult<MediaItem>> = future {
             val item = if (mediaId == CarLibrary.ROOT) car.root() else car.expand(listOf(MediaItem.Builder().setMediaId(mediaId).build()))?.let { (items, start) -> items[start] }
-            if (item == null) LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE) else LibraryResult.ofItem(item, null)
+            if (item == null) LibraryResult.ofError(SessionError.ERROR_BAD_VALUE) else LibraryResult.ofItem(item, null)
         }
 
         /** "Play … on HomeFi": the results are fetched by [onGetSearchResult]. */

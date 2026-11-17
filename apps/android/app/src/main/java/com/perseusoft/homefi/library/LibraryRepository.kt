@@ -4,6 +4,7 @@ import android.content.Context
 import com.perseusoft.homefi.core.HomefiEngine
 import com.perseusoft.homefi.core.LibraryTrack
 import com.perseusoft.homefi.core.LocalPlaylist
+import com.perseusoft.homefi.core.PlaylistEntry
 import com.perseusoft.homefi.core.findPlaylists
 import com.perseusoft.homefi.data.DownloadRepository
 import com.perseusoft.homefi.data.Storage
@@ -60,6 +61,10 @@ class LibraryRepository(
     @Volatile
     private var byPath: Map<String, LibraryTrack> = emptyMap()
 
+    /** The library's files by ISRC (the first file wins), so a TIDAL song downloaded later is found again. */
+    @Volatile
+    private var byIsrc: Map<String, LibraryTrack> = emptyMap()
+
     init {
         refresh()
         // pick up new downloads once a download run finishes
@@ -73,6 +78,16 @@ class LibraryRepository(
     }
 
     fun find(path: String): LibraryTrack? = byPath[path]
+
+    /**
+     * The library file a playlist entry plays: its own file while the library has it, else the file with the same
+     * ISRC (a TIDAL song of a ride or playlist downloaded after it was made); null streams it. The core's rule
+     * (`playlist::LocalCopies`); both ISRCs come from the core already trimmed and upper case.
+     */
+    fun localCopy(localPath: String?, isrc: String?): LibraryTrack? =
+        localPath?.let(byPath::get) ?: isrc?.let(byIsrc::get)
+
+    fun localCopy(entry: PlaylistEntry): LibraryTrack? = localCopy(entry.localPath, entry.isrc)
 
     fun refresh() {
         scope.launch {
@@ -90,6 +105,7 @@ class LibraryRepository(
                 val offline = _state.value.tracks.filter { it.path !in found && TvStorage.isUnavailable(it.path, missing) }
                 val tracks = scanned + offline
                 byPath = tracks.associateBy { it.path }
+                byIsrc = HashMap<String, LibraryTrack>(tracks.size).apply { tracks.forEach { t -> t.isrc?.let { putIfAbsent(it, t) } } }
                 _state.update { it.copy(tracks = tracks, playlists = playlists, scanning = false, scanned = true, missingRoots = missing) }
             }
         }

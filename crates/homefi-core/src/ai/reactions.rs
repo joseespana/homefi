@@ -108,6 +108,11 @@ impl SoundReaction {
     fn is_loudness(self) -> bool {
         matches!(self, Self::TooQuiet | Self::TooLoud)
     }
+
+    /// The AI is asked about it (when one is set up); "perfect" and the loudness ones never call it.
+    pub fn uses_ai(self) -> bool {
+        self != Self::Perfect && !self.is_loudness()
+    }
 }
 
 /// What a reaction knows.
@@ -359,10 +364,10 @@ fn relevant_rules<'a>(ctx: &'a ReactionContext, playing: Option<&str>) -> Vec<&'
 /// line (`set_taste_rule`), validated like [`react_guided`]; on any failure
 /// (no key, offline, no tool call) the fixed steps answer instead.
 pub async fn react(reaction: SoundReaction, ctx: &ReactionContext, config: Option<&AiConfig>) -> ReactionResult {
-    let Some(config) = config.filter(|_| reaction != SoundReaction::Perfect && !reaction.is_loudness()) else {
+    let Some(config) = config.filter(|_| reaction.uses_ai()) else {
         return react_guided(reaction, ctx);
     };
-    match react_ai(reaction, ctx, config).await {
+    match super::usage::track(super::AiFeature::SoundReaction, None, react_ai(reaction, ctx, config)).await {
         Ok(Some(r)) => r,
         Ok(None) => react_guided(reaction, ctx),
         Err(e) => {

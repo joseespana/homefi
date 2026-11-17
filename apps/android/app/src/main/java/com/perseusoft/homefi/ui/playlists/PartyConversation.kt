@@ -2,6 +2,7 @@ package com.perseusoft.homefi.ui.playlists
 
 import com.perseusoft.homefi.HomefiApplication
 import com.perseusoft.homefi.R
+import com.perseusoft.homefi.core.AiFeature
 import com.perseusoft.homefi.core.ChatBrief
 import com.perseusoft.homefi.core.HomePlaylist
 import com.perseusoft.homefi.core.PartyBrief
@@ -210,6 +211,7 @@ class PartyConversation internal constructor(
             }
             session?.close()
             session = fresh
+            spendAsked = false
             aiName = ready.info.name
             runCatching { fresh.title() }.onSuccess { _title.value = it }
             _ui.value = PartyUi.Asking(PartyForm(brief, PartyChat(maxTurns = mode.maxTurns), chatBrief = chatBrief))
@@ -249,17 +251,32 @@ class PartyConversation internal constructor(
         }
     }
 
+    /** "Ask before spending" was answered yes for this conversation (its turns and builds are one history item). */
+    private var spendAsked = false
+
+    /** Runs [then] once the spending guard lets the conversation use the AI (asked once per conversation). */
+    private fun afterSpendCheck(then: () -> Unit) {
+        if (spendAsked) return then()
+        scope.launch {
+            val feature = if (mode == PartyMode.CHAT) AiFeature.CHAT_PLAYLIST else AiFeature.PARTY_PLAYLIST
+            if (app.spend.allow(feature)) {
+                spendAsked = true
+                then()
+            }
+        }
+    }
+
     /** "Talk it over with the AI first": the AI's first question. */
-    fun talk() {
-        val form = formOrNull() ?: return
-        if (form.chat.started) return
+    fun talk() = afterSpendCheck {
+        val form = formOrNull() ?: return@afterSpendCheck
+        if (form.chat.started) return@afterSpendCheck
         turn(form) { it.start() }
     }
 
-    fun send(text: String) {
-        val form = formOrNull() ?: return
+    fun send(text: String) = afterSpendCheck {
+        val form = formOrNull() ?: return@afterSpendCheck
         val answer = text.trim()
-        if (answer.isEmpty() || form.chat.thinking || form.chat.closed) return
+        if (answer.isEmpty() || form.chat.thinking || form.chat.closed) return@afterSpendCheck
         val user = ChatLine(nextLineId++, true, answer)
         turn(form, user) { it.reply(answer) }
     }
@@ -299,7 +316,9 @@ class PartyConversation internal constructor(
     }
 
     /** Asks the AI for songs and checks them against the library and Tidal. Replaces a draft. */
-    fun build() {
+    fun build() = afterSpendCheck { buildNow() }
+
+    private fun buildNow() {
         val state = _ui.value
         val form = formOrNull() ?: return
         if (form.chat.thinking || !canBuild(form)) return

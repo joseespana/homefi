@@ -124,7 +124,9 @@ pub(crate) async fn responses(
         None => {}
     }
     let req = bearer(config, http().post(url)).timeout(CHAT_TIMEOUT).json(&payload);
-    parse_responses(config, send(config, req, false).await?)
+    let answer = send(config, req, false).await?;
+    super::usage::note(config, Api::OpenAiResponses, &answer, search.is_some());
+    parse_responses(config, answer)
 }
 
 /// A quick list task ([`super::chat::ChatOptions::light_reasoning`]): a thinking model keeps its reasoning
@@ -238,8 +240,14 @@ pub(crate) async fn chat_completions(
     if search.is_some() {
         web_search::openrouter_request(&mut payload);
     }
+    if config.provider == AiProvider::OpenRouter {
+        // the exact price of the call comes back in `usage.cost`
+        payload["usage"] = json!({ "include": true });
+    }
     let req = bearer(config, http().post(url)).timeout(CHAT_TIMEOUT).json(&payload);
-    parse_chat(config, send(config, req, false).await?)
+    let answer = send(config, req, false).await?;
+    super::usage::note(config, Api::ChatCompletions, &answer, search.is_some());
+    parse_chat(config, answer)
 }
 
 // --------------------------------------------------------------------- models
@@ -272,6 +280,29 @@ pub(crate) async fn check_openrouter_key(config: &AiConfig) -> crate::Result<()>
     let req = bearer(config, http().get(format!("{}/key", config.base()))).timeout(LIST_TIMEOUT);
     send(config, req, false).await?;
     Ok(())
+}
+
+/// What's left to spend on OpenRouter, in USD: the account's credits (`GET /credits`) or, when the
+/// key has its own spending limit (`GET /key`), whichever is lower. Read-only. `None`: neither says.
+pub(crate) async fn openrouter_balance(config: &AiConfig) -> crate::Result<Option<f64>> {
+    let get = |path: &'static str| {
+        let req = bearer(config, http().get(format!("{}/{path}", config.base()))).timeout(LIST_TIMEOUT);
+        send(config, req, false)
+    };
+    let (credits, key) = tokio::join!(get("credits"), get("key"));
+    let account = credits.as_ref().ok().and_then(|c| {
+        let total = c.pointer("/data/total_credits").and_then(Value::as_f64)?;
+        let used = c.pointer("/data/total_usage").and_then(Value::as_f64).unwrap_or(0.0);
+        Some((total - used).max(0.0))
+    });
+    let of_key = key.as_ref().ok().and_then(|k| k.pointer("/data/limit_remaining").and_then(Value::as_f64));
+    match (account, of_key, credits) {
+        (Some(a), Some(k), _) => Ok(Some(a.min(k.max(0.0)))),
+        (Some(a), None, _) => Ok(Some(a)),
+        (None, Some(k), _) => Ok(Some(k.max(0.0))),
+        (None, None, Err(e)) => Err(e.into()),
+        (None, None, Ok(_)) => Ok(None),
+    }
 }
 
 #[cfg(test)]
@@ -467,5 +498,75 @@ mod tests {
         assert_eq!((r["max_output_tokens"].as_u64(), r["instructions"].as_str()), (Some(777), Some("rules. state")));
         let c = chat_body(&cfg(AiProvider::Groq, "http://x"), &system, &[], &[], 555);
         assert_eq!((c["max_tokens"].as_u64(), c["messages"][0]["content"].as_str()), (Some(555), Some("rules. state")));
+    }
+
+    #[tokio::test]
+    async fn openrouter_balance_is_the_lower_of_account_and_key() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/credits"))
+            .and(header("authorization", "Bearer sk-test"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"data": {"total_credits": 20.0, "total_usage": 7.5}})),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/key"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({"data": {"limit": null, "limit_remaining": null, "usage": 7.5}})),
+            )
+            .mount(&server)
+            .await;
+        let c = cfg(AiProvider::OpenRouter, &server.uri());
+        assert_eq!(openrouter_balance(&c).await.unwrap(), Some(12.5));
+    }
+
+    #[tokio::test]
+    async fn a_key_limit_below_the_account_is_what_is_left() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/credits"))
+            .respond_with(
+                ResponseTemplate::new(403).set_body_json(json!({"error": {"message": "Only management keys"}})),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/key"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"data": {"limit": 5.0, "limit_remaining": 1.25}})),
+            )
+            .mount(&server)
+            .await;
+        assert_eq!(openrouter_balance(&cfg(AiProvider::OpenRouter, &server.uri())).await.unwrap(), Some(1.25));
+    }
+
+    #[tokio::test]
+    async fn openrouter_reports_the_exact_cost_and_is_asked_for_it() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .and(body_partial_json(json!({"usage": {"include": true}})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "hola"}}],
+                "usage": {"prompt_tokens": 1200, "completion_tokens": 300, "total_tokens": 1500, "cost": 0.0081}
+            })))
+            .expect(2)
+            .mount(&server)
+            .await;
+        let c = cfg(AiProvider::OpenRouter, &server.uri());
+        let ask = [Message::User { text: "hi".into() }];
+        let (reply, action) = crate::ai::usage::tracked(crate::ai::AiFeature::PartyPlaylist, async {
+            crate::ai::chat(&c, "s", &ask, &[]).await.unwrap();
+            crate::ai::chat(&c, "s", &ask, &[]).await
+        })
+        .await;
+        assert_eq!(reply.unwrap().text, "hola");
+        assert_eq!((action.calls, action.input_tokens, action.output_tokens), (2, 2400, 600));
+        assert_eq!(action.cost_kind, crate::ai::CostKind::Exact);
+        assert!((action.cost_usd.unwrap() - 0.0162).abs() < 1e-9);
+        assert_eq!(action.provider, "openrouter");
     }
 }

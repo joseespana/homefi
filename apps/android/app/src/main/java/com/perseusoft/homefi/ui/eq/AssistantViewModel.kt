@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.perseusoft.homefi.R
+import com.perseusoft.homefi.core.AiFeature
 import com.perseusoft.homefi.core.AssistantTurn
 import com.perseusoft.homefi.core.EqAssistantSession
 import com.perseusoft.homefi.core.EqProfile
@@ -126,7 +127,8 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun start(notes: String? = null, focusRule: String? = null) {
-        val ready = home.ai.ready()
+        // "ask before spending": a no (or the month's limit) opens the guided questions, which cost nothing
+        val ready = home.ai.ready()?.takeIf { home.spend.allow(AiFeature.SOUND_ASSISTANT) }
         val context = home.sound.assistantContext(notes, focusRule.takeIf { ready != null })
         val s = withContext(Dispatchers.Default) {
             if (ready != null) {

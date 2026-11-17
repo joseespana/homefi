@@ -122,7 +122,7 @@ pub(crate) fn parse_toc(data: &[u8]) -> Result<Toc> {
     let end = declared.min(data.len());
     let mut entries = Vec::new();
     let mut leadout = None;
-    for row in data[4..end].chunks_exact(8) {
+    for row in data[4..end].as_chunks::<8>().0 {
         let (control, number) = (row[1] & 0x0F, row[2]);
         let lba = u32::from_be_bytes([row[4], row[5], row[6], row[7]]);
         if number == LEADOUT_TRACK {
@@ -151,7 +151,7 @@ pub(crate) fn parse_full_toc(data: &[u8]) -> Result<Toc> {
     let end = declared.min(data.len());
     let mut entries: Vec<RawTocEntry> = Vec::new();
     let mut leadout = 0u32;
-    for row in data[4..end].chunks_exact(DESCRIPTOR) {
+    for row in data[4..end].as_chunks::<DESCRIPTOR>().0 {
         let (adr, control, point) = (row[1] >> 4, row[1] & 0x0F, row[3]);
         if adr != 1 {
             continue;

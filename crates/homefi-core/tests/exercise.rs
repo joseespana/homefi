@@ -728,3 +728,90 @@ async fn songs_the_analyzer_cannot_read_do_not_use_up_the_budget() {
     assert_eq!(song.source, Some(BpmSource::Analysis), "the one analysis went to the file, not the Tidal-only song");
     assert_eq!(analyzer.0.calls.load(Ordering::SeqCst), 1);
 }
+
+// ------------------------------------------------------------ "polish music" with genres and decades
+
+/// Tidal's search with Polish songs spelled without diacritics (as the catalog often does), found only by
+/// a query that names the song/artist or says "polish".
+struct PolishSearch;
+
+const POLISH: &[(&str, &str, i64)] = &[
+    ("Agnieszka", "Lzy", 98),
+    ("Sen o Warszawie", "Czeslaw Niemen", 90),
+    ("Hej Sokoly", "Kombii", 112),
+    ("Ona tanczy dla mnie", "Weekend", 150),
+];
+
+impl Respond for PolishSearch {
+    fn respond(&self, request: &Request) -> ResponseTemplate {
+        let query =
+            request.url.query_pairs().find(|(k, _)| k == "query").map(|(_, v)| v.into_owned()).unwrap_or_default();
+        let q = query.to_lowercase();
+        let items = POLISH
+            .iter()
+            .enumerate()
+            .filter(|(_, (title, artist, _))| {
+                q.contains("polish") || q.contains(&title.to_lowercase()) || q.contains(&artist.to_lowercase())
+            })
+            .map(|(i, (title, artist, bpm))| track(700 + i as i64, title, artist, Some(*bpm), SONG_SECONDS))
+            .collect();
+        ResponseTemplate::new(200).set_body_json(page(items))
+    }
+}
+
+fn polish_request() -> RideRequest {
+    let mut r = request(four_segments(), &["rock", "pop"], false);
+    r.wish.sentence = "polish music".into();
+    r.wish.taste.eras = vec![1980, 1990];
+    r
+}
+
+#[tokio::test]
+async fn polish_music_with_decades_and_genres_builds_when_the_ais_names_are_spelled_with_diacritics() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/v1/search")).respond_with(PolishSearch).mount(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/messages"))
+        .respond_with(proposals(&[
+            &[("Agnieszka", "Łzy")],
+            &[("Sen o Warszawie", "Czesław Niemen")],
+            &[("Hej Sokoły", "Kombii")],
+            &[("Ona tańczy dla mnie", "Weekend")],
+        ]))
+        .mount(&server)
+        .await;
+    let api = tidal_api(&server);
+    let ai = ai_config(&server);
+    let fx = Fixture::new();
+    let built = build(&polish_request(), &fx.ctx(Some(&api), Some(&ai), None), &|_| {}).await.unwrap();
+    assert!(!built.plan.songs.is_empty());
+    let sent = server.received_requests().await.unwrap();
+    let body = sent
+        .iter()
+        .find(|r| r.method.as_str() == "POST")
+        .map(|r| String::from_utf8_lossy(&r.body).into_owned())
+        .unwrap();
+    assert!(body.contains("polish music") && body.contains("1980s"), "free text and decades reach the AI");
+}
+
+#[tokio::test]
+async fn polish_music_with_a_useless_ai_answer_still_builds_from_the_search() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/v1/search")).respond_with(PolishSearch).mount(&server).await;
+    // the model writes a refusal instead of calling the tool
+    Mock::given(method("POST"))
+        .and(path("/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "m", "type": "message", "role": "assistant", "model": "x", "stop_reason": "end_turn",
+            "content": [{ "type": "text", "text": "I cannot find such songs." }],
+            "usage": { "input_tokens": 1, "output_tokens": 1 }
+        })))
+        .mount(&server)
+        .await;
+    let api = tidal_api(&server);
+    let ai = ai_config(&server);
+    let fx = Fixture::new();
+    let built = build(&polish_request(), &fx.ctx(Some(&api), Some(&ai), None), &|_| {}).await.unwrap();
+    assert!(!built.plan.songs.is_empty());
+    assert!(built.plan.ai_problem.is_some());
+}

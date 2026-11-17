@@ -37,16 +37,24 @@ sealed interface TvClientUi {
 
     /**
      * Showing [endpoint]'s page. [listening]: this TV plays the ride's music as a listen-only guest of
-     * the phone's hub and tells the page where its own playback is.
+     * the phone's hub and tells the page where its own playback is. [musicLocked]: the ride wants its music
+     * on a TV, but this one found it without the ride's own address (the network listing, an old address),
+     * so the music stays on the phone; the screen says how to bring it here.
      */
-    data class Watching(val endpoint: RideTvEndpoint, val listening: Boolean = false) : TvClientUi
+    data class Watching(
+        val endpoint: RideTvEndpoint,
+        val listening: Boolean = false,
+        val musicLocked: Boolean = false,
+    ) : TvClientUi
 }
 
 /**
  * HomeFi on an Android TV / Chromecast with Google TV: a pure client of a phone's ride. It finds rides
  * (mDNS `_homefi-ride._tcp`, with a multicast lock), and while one is shown it polls `/ride.json` at 2 Hz
  * only to learn whether the music plays here: with `listen` present it joins the ride's hub as a guest
- * with the one-ride code and plays on the shared clock. The picture is the core's own page, in a WebView.
+ * with the one-ride code and plays on the shared clock. `listen` only comes to the ride's own address (its key,
+ * from a paired phone or typed), never to a ride found on the network. The picture is the core's own page, in a
+ * WebView.
  */
 class RideTvClient(private val app: HomefiApplication) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -127,10 +135,18 @@ class RideTvClient(private val app: HomefiApplication) {
                 }
             } else {
                 failures = 0
-                val listen = view.listen.takeIf { view.audio == TvAudio.TV && view.ride != null }
+                val wantsTv = view.audio == TvAudio.TV && view.ride != null
+                val listen = view.listen.takeIf { wantsTv }
                 if (listen != null) joinHub(endpoint, listen) else if (joinedCode != null) leaveHub()
                 val listening = listen != null && app.share.guest.value.status == GuestStatus.CONNECTED
-                _ui.update { if (it is TvClientUi.Watching && it.listening != listening) it.copy(listening = listening) else it }
+                val locked = wantsTv && listen == null
+                _ui.update {
+                    if (it is TvClientUi.Watching && (it.listening != listening || it.musicLocked != locked)) {
+                        it.copy(listening = listening, musicLocked = locked)
+                    } else {
+                        it
+                    }
+                }
             }
             delay(POLL_MS)
         }

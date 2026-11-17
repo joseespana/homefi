@@ -318,6 +318,16 @@ export interface SavedRide {
   profile: ProfilePoint[];
 }
 
+/** homefi_core::playlist::OfflineStatus: how ready a ride is to play with no internet. */
+export interface OfflineStatus {
+  /** Songs that can play at all (a file or a TIDAL song). */
+  songs: number;
+  /** Of those, the ones with a file on this computer. */
+  ready: number;
+  /** TIDAL ids of the others: what "Download for offline" queues. */
+  to_download: string[];
+}
+
 /** What `exercise_ride_load` answers: the request and plan, ready to start (no build, no AI). */
 export interface RideLoaded {
   request: RideRequest;
@@ -421,6 +431,8 @@ export interface ExerciseSettings {
   ride_fullscreen: boolean;
   /** Big messages in the middle of the ride: the sprint's 3-2-1, cheers, the ride's last words. */
   ride_callouts: boolean;
+  /** Every new ride's TIDAL songs are downloaded by themselves, to ride with no internet. */
+  auto_download_rides: boolean;
   /** Android only; kept so the JSON round-trips. */
   haptic_cues: boolean;
   health_notice_seen: boolean;
@@ -488,6 +500,7 @@ export const DEFAULT_EXERCISE_SETTINGS: ExerciseSettings = {
   ride_karaoke: false,
   ride_fullscreen: false,
   ride_callouts: true,
+  auto_download_rides: false,
   haptic_cues: true,
   health_notice_seen: false,
   tempo_nudge_pct: 0,
@@ -735,6 +748,10 @@ export const exerciseApi = {
   monitors: () => invoke<MonitorView[]>("exercise_monitors"),
   tvWindow: (on: boolean, monitor: string | null) => invoke<void>("exercise_tv_window", { on, monitor }),
   rides: () => invoke<SavedRide[]>("exercise_rides"),
+  /** How ready each saved ride is to play with no internet, by ride id. */
+  ridesOffline: () => invoke<Record<string, OfflineStatus>>("exercise_rides_offline"),
+  /** The same for a list of songs (the plan on the screen). */
+  offline: (entries: PlaylistEntry[]) => invoke<OfflineStatus>("exercise_offline", { entries }),
   /** Puts a saved ride on the screen as ready: no AI, no build. */
   rideLoad: (id: string) => invoke<RideLoaded>("exercise_ride_load", { id }),
   rideKeep: (id: string, name?: string) => invoke<SavedRide>("exercise_ride_keep", { id, name: name ?? null }),

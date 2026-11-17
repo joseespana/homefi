@@ -221,7 +221,8 @@ pub(crate) async fn build_within(
     memory: Option<BuildMemory>,
     deadline: Duration,
 ) -> Result<(RideBuilt, BuildMemory)> {
-    tokio::time::timeout(deadline, build_inner(request, ctx, progress, memory))
+    let work = tokio::time::timeout(deadline, build_inner(request, ctx, progress, memory));
+    crate::ai::usage::track(crate::ai::AiFeature::RideBuild, None, work)
         .await
         .unwrap_or_else(|_| Err(words::problem(ctx.lang, Problem::TooSlow)))
 }
@@ -518,6 +519,9 @@ impl Gatherer<'_> {
             notes.push(words::no_ai_note(lang));
         }
         if !with_ai {
+            if !self.wish.taste.eras.is_empty() {
+                notes.push(words::eras_without_ai_note(lang));
+            }
             if let Some(api) = self.api {
                 progress(RideProgress::Searching { with_ai: false });
                 let lib = self.ctx.library;
@@ -637,7 +641,9 @@ pub(super) fn search_queries(wish: &MusicWish, extra: &str) -> Vec<(String, Stri
     }
     for genre in &wish.genres {
         queries.push((genre.clone(), join(&[genre, extra])));
-        if extra.is_empty() && !wish.sentence.is_empty() {
+        // the rider's own words stay in the widening search too, so "polish music" is not lost when the first
+        // search came back thin
+        if !wish.sentence.is_empty() {
             queries.push((genre.clone(), join(&[genre, &wish.sentence])));
         }
     }
@@ -1453,5 +1459,14 @@ mod tests {
             search_queries(&wish, widen_words(Popularity::Hits)).into_iter().map(|q| q.1).collect();
         assert_eq!(queries, ["metal hits", "Slayer"]);
         assert_eq!(widen_words(Popularity::Discover), "workout");
+    }
+
+    #[test]
+    fn the_riders_words_stay_in_the_widening_search_and_stroked_letters_fold() {
+        let wish = MusicWish { genres: vec!["rock".into()], sentence: "polish music".into(), ..MusicWish::default() };
+        let queries: Vec<String> = search_queries(&wish, "workout").into_iter().map(|q| q.1).collect();
+        assert_eq!(queries, ["rock workout", "rock polish music"]);
+        assert_eq!(artist_key("Łzy"), artist_key("Lzy"));
+        assert!(same_artist("Czeslaw Niemen", "Czesław Niemen"));
     }
 }

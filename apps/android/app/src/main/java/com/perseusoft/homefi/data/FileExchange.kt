@@ -27,6 +27,18 @@ object FileExchange {
     private const val MAX_NAME_CHARS = 60
     private val UNSAFE = Regex("""[\\/:*?"<>|\p{Cntrl}]""")
 
+    /** Up to [limit] bytes of [input] (`InputStream.readNBytes` needs Android 13; the app runs from Android 8). */
+    internal fun readAtMost(input: java.io.InputStream, limit: Int): ByteArray {
+        val out = java.io.ByteArrayOutputStream(minOf(limit, 64 * 1024))
+        val buffer = ByteArray(8 * 1024)
+        while (out.size() < limit) {
+            val n = input.read(buffer, 0, minOf(buffer.size, limit - out.size()))
+            if (n < 0) break
+            out.write(buffer, 0, n)
+        }
+        return out.toByteArray()
+    }
+
     /** "My Sunday ride" + `homefiride` -> "My Sunday ride.homefiride", safe for any file system. */
     fun fileName(name: String, extension: String): String {
         val clean = name.replace(UNSAFE, " ").trim().replace(Regex("\\s+"), " ").take(MAX_NAME_CHARS).trim('.', ' ')
@@ -36,7 +48,7 @@ object FileExchange {
     suspend fun read(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
         val stream = context.contentResolver.openInputStream(uri) ?: throw IOException(context.getString(R.string.xfer_cant_open))
         stream.use { input ->
-            val bytes = input.readNBytes(MAX_BYTES + 1)
+            val bytes = readAtMost(input, MAX_BYTES + 1)
             if (bytes.size > MAX_BYTES) throw IOException(context.getString(R.string.xfer_too_big))
             bytes.toString(Charsets.UTF_8)
         }

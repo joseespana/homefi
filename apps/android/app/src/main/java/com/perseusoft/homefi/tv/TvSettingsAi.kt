@@ -35,6 +35,7 @@ import com.perseusoft.homefi.core.AiProviderInfo
 import com.perseusoft.homefi.core.ModelInfo
 import com.perseusoft.homefi.homefi
 import com.perseusoft.homefi.ui.settings.AiSettingsViewModel
+import com.perseusoft.homefi.ui.settings.AiSpendingViewModel
 import com.perseusoft.homefi.ui.settings.KeyStatus
 
 /**
@@ -61,6 +62,11 @@ fun TvAiSettings(firstRow: FocusRequester, back: FocusRequester, onRowFocused: (
     var showModels by remember { mutableStateOf(false) }
     val noneLabel = stringResource(R.string.ai_none)
     val canCall = chosen != null && (!chosen.needsKey || hasKey)
+    val spending: AiSpendingViewModel = viewModel()
+    val spendingUi by spending.ui.collectAsStateWithLifecycle()
+    var spendPick by remember { mutableStateOf<SpendPick?>(null) }
+    // the page may come back after AI actions: show the latest totals
+    LaunchedEffect(Unit) { spending.refresh() }
 
     // the model list arrived after OK on "Model": show it
     LaunchedEffect(ui.models) { if (ui.models == null) showModels = false }
@@ -142,6 +148,7 @@ fun TvAiSettings(firstRow: FocusRequester, back: FocusRequester, onRowFocused: (
                 AiLine(title = stringResource(R.string.ai_remove), value = null, modifier = edge, onClick = { removing = true }, danger = true, onFocused = rowFocus)
             }
         }
+        spendingRows(spending, spendingUi, ai.provider, edge, rowFocus) { spendPick = it }
         row("privacy") {
             Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Rounded.Lock, null, tint = look.ink3, modifier = Modifier.size(16.dp).padding(top = 2.dp))
@@ -210,6 +217,7 @@ fun TvAiSettings(firstRow: FocusRequester, back: FocusRequester, onRowFocused: (
             onDismiss = { showModels = false },
         )
     }
+    spendPick?.let { pick -> TvSpendingDialog(pick, spending, spendingUi) { spendPick = null } }
     if (removing && chosen != null) {
         TvConfirmDialog(
             title = stringResource(R.string.ai_remove_confirm, chosen.name),
@@ -221,7 +229,7 @@ fun TvAiSettings(firstRow: FocusRequester, back: FocusRequester, onRowFocused: (
     }
 }
 
-private fun LazyListScope.row(key: String, content: @Composable () -> Unit) {
+internal fun LazyListScope.row(key: String, content: @Composable () -> Unit) {
     item(key = key) { content() }
 }
 
@@ -249,7 +257,7 @@ private fun ModelInfo.chipText(): String {
 
 /** A line of text that is not a control (a hint, a result): no focus. */
 @Composable
-private fun Note(text: String, error: Boolean = false) {
+internal fun Note(text: String, error: Boolean = false) {
     val look = LocalTvLook.current
     Text(
         text,
@@ -263,7 +271,7 @@ private fun Note(text: String, error: Boolean = false) {
 
 /** A focusable line of the AI page; [value] is what the row holds, [danger] tints a destructive one. */
 @Composable
-private fun AiLine(
+internal fun AiLine(
     title: String,
     value: String?,
     modifier: Modifier,

@@ -3,7 +3,7 @@
 mod cache;
 mod client;
 
-pub use cache::DiskCache;
+pub use cache::{DiskCache, DEFAULT_MAX_MB as DEFAULT_CACHE_MB, MAX_MAX_MB as MAX_CACHE_MB};
 pub use client::{CachePolicy, TidalClient, TokenRefresher, API_URL, API_V2_URL};
 
 use std::sync::Arc;
@@ -18,8 +18,9 @@ use crate::quality::{TrackQuality, VideoQuality};
 use crate::resource::ResourceKind;
 
 const HOUR: CachePolicy = CachePolicy::Ttl(Duration::from_secs(3600));
-/// Genres rarely (if ever) change: cache them for a week.
-const WEEK: CachePolicy = CachePolicy::Ttl(Duration::from_secs(604_800));
+/// Genres rarely (if ever) change: cache them for a week (the longest any
+/// entry is kept: the cache's prune deletes older ones).
+const WEEK: CachePolicy = CachePolicy::Ttl(cache::MAX_AGE);
 
 /// Page sizes: the biggest each endpoint accepts, so long lists take few calls.
 pub mod limits {

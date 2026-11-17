@@ -361,6 +361,8 @@ export interface Settings {
   progress_animated: boolean;
   /** Tidal lists load page by page while scrolling; off loads them whole. */
   lazy_lists: boolean;
+  /** Disk space for saved Tidal answers (the API cache), in MB; 0 keeps none. */
+  api_cache_mb: number;
   share: ShareSettings;
   /** Version of the personal-use notice accepted before connecting Tidal; 0 = never. */
   tidal_terms_accepted: number;
@@ -1495,6 +1497,76 @@ export interface AiSettings {
   base_url: string;
 }
 
+// ---------------------------------------------------------------- AI spending
+// homefi-core's `ai::usage` and src-tauri/src/spending.rs: what each AI action cost, "ask before
+// spending" and the monthly limit (enforced by the core on every call).
+
+/** The thing the user did that called the AI (core `AiFeature`). */
+export type AiFeature = "ride_chat" | "ride_build" | "ride_swap" | "concert" | "party_playlist" | "chat_playlist" | "sound_assistant" | "sound_reaction" | "other";
+export type AiCostKind = "exact" | "estimated" | "unknown";
+export type AiAskMode = "never" | "always" | "above";
+
+export interface AiSpendGuard {
+  ask: AiAskMode;
+  /** "Ask only above" this, in USD. */
+  ask_above_usd: number;
+  /** Blocks AI actions once the month reaches it; null = no limit. */
+  monthly_limit_usd: number | null;
+}
+
+export interface AiFeatureSpend {
+  feature: AiFeature;
+  label: string;
+  times: number;
+  total_usd: number;
+  average_usd: number | null;
+  estimated: boolean;
+  /** "$0.12 in 4 times · ≈$0.03 each". */
+  text: string;
+}
+
+export interface AiSpendItem {
+  id: string;
+  feature: AiFeature;
+  label: string;
+  at_ms: number;
+  provider: string;
+  model: string;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  web_searches: number;
+  cost_usd: number | null;
+  cost_kind: AiCostKind;
+  /** "≈$0.04", "$0.04" or "Cost unknown". */
+  cost_text: string;
+  /** "model · 3 calls · 12.3k tokens · 2 web searches". */
+  detail: string;
+}
+
+export interface AiSpendSummary {
+  month_total_usd: number;
+  month_estimated: boolean;
+  /** Actions this month without a known price (left out of the total). */
+  month_unknown: number;
+  month_actions: number;
+  month_text: string;
+  features: AiFeatureSpend[];
+  /** Newest first. */
+  history: AiSpendItem[];
+  guard: AiSpendGuard;
+}
+
+export interface AiSpendPrompt {
+  title: string;
+  text: string;
+}
+
+export type AiSpendDecision =
+  | { kind: "allow" }
+  | { kind: "confirm"; estimate_usd: number | null; estimated: boolean; month_total_usd: number; prompt: AiSpendPrompt }
+  | { kind: "blocked"; month_total_usd: number; limit_usd: number; prompt: AiSpendPrompt };
+
 /** @deprecated the same as `EqBand`. */
 export type AssistantEqBand = EqBand;
 /** @deprecated the same as `EqProfile`. */
@@ -1536,6 +1608,10 @@ export const api = {
   startLogin: () => invoke<DeviceLogin>("start_login"),
   pollLogin: (deviceCode: string) => invoke<"pending" | "success" | "expired">("poll_login", { deviceCode }),
   logout: () => invoke<void>("logout"),
+  /** Bytes the saved Tidal answers take on disk now. */
+  apiCacheUsage: () => invoke<number>("api_cache_usage"),
+  /** Deletes every saved Tidal answer (never downloads or the library). */
+  clearApiCache: () => invoke<void>("clear_api_cache"),
   search: (query: string) => invoke<SearchResults>("search", { query }),
   tidalLibraryPage: (kind: LibraryKind, offset = 0, rest = false) => invoke<HitPage>("tidal_library_page", { kind, offset, rest }),
   /** The whole collection, every page. */
@@ -1693,6 +1769,12 @@ export const api = {
   aiTestKey: (provider: AiProviderId, baseUrl: string | null = null, key: string | null = null) => invoke<void>("ai_test_key", { provider, baseUrl, key }),
   /** The model used when the settings name none. */
   aiDefaultModel: (provider: AiProviderId, baseUrl: string | null = null) => invoke<string>("ai_default_model", { provider, baseUrl }),
+  aiSpendingSummary: (language: string) => invoke<AiSpendSummary>("ai_spending_summary", { language }),
+  aiSpendCheck: (feature: AiFeature, language: string) => invoke<AiSpendDecision>("ai_spend_check", { feature, language }),
+  aiSpendingSetGuard: (guard: AiSpendGuard) => invoke<void>("ai_spending_set_guard", { guard }),
+  aiSpendingClear: () => invoke<void>("ai_spending_clear"),
+  /** What's left on the AI account in USD (OpenRouter); null when the provider doesn't say. */
+  aiBalance: () => invoke<number | null>("ai_balance"),
   /** Opens the EQ assistant with the AI of the settings, or the guided wizard (`guided`, or no provider). */
   eqAssistantStart: (guided: boolean, language: string, notes: string | null = null, focusRule: string | null = null) =>
     invoke<AssistantTurn>("eq_assistant_start", { guided, language, notes, focusRule }),

@@ -16,8 +16,9 @@ use super::arrange::{arrange, cap_per_artist, effective_ms, pick_for_duration, P
 use super::chat::{opener, set_playlist_tool, MAX_SONG_FIELD_CHARS, SET_PLAYLIST};
 use super::words::{self, Problem};
 use super::{Brief, ChatBrief, PartyBrief};
-use crate::ai::prompt::{json_in_text, language_rule, one_line, tagged, DATA_RULE, ORIGINAL_TITLES_RULE};
+use crate::ai::prompt::{json_in_text, language_rule, one_line, tagged, DATA_RULE, ORIGINAL_TITLES_RULE, PLACE_RULE};
 use crate::ai::replies::{quick_replies, suggest_replies_tool, SUGGEST_REPLIES};
+use crate::ai::usage::{self, AiFeature};
 use crate::ai::{
     chat, chat_with, resolve_model, AiConfig, AiError, AiErrorKind, ChatOptions, Message, Tool, ToolResult,
     MAX_OUTPUT_CEILING,
@@ -118,6 +119,8 @@ pub struct PartySession {
     user_turns: u8,
     /// "Artist – Title" of the last playlist built, so "build again" can adjust it.
     last_songs: Vec<String>,
+    /// Ties this conversation's turns and builds into one item of the AI spending history.
+    spend_group: String,
 }
 
 /// "Party playlists are made by your AI…" in `lang`.
@@ -144,6 +147,15 @@ impl PartySession {
             messages: Vec::new(),
             user_turns: 0,
             last_songs: Vec::new(),
+            spend_group: usage::new_group(),
+        }
+    }
+
+    /// What this session is in the AI spending history.
+    fn spend_feature(&self) -> AiFeature {
+        match self.brief {
+            Brief::Party(_) => AiFeature::PartyPlaylist,
+            Brief::Chat(_) => AiFeature::ChatPlaylist,
         }
     }
 
@@ -209,7 +221,8 @@ impl PartySession {
     /// The chat loop. On a failed call the history and the brief go back to `undo`
     /// (the user's words stay out, so "try again" resends them cleanly).
     async fn run_chat(&mut self, undo: Checkpoint) -> Result<PartyTurn> {
-        let outcome = self.chat_rounds().await;
+        let (feature, group) = (self.spend_feature(), self.spend_group.clone());
+        let outcome = usage::track(feature, Some(&group), self.chat_rounds()).await;
         if outcome.is_err() {
             self.messages.truncate(undo.messages);
             self.user_turns = undo.user_turns;
@@ -292,7 +305,8 @@ impl PartySession {
         deadline: Duration,
     ) -> Result<PartyBuilt> {
         let lang = self.lang;
-        let result = tokio::time::timeout(deadline, self.build_inner(ctx, progress))
+        let work = tokio::time::timeout(deadline, self.build_inner(ctx, progress));
+        let result = usage::track(self.spend_feature(), Some(&self.spend_group), work)
             .await
             .unwrap_or_else(|_| Err(concert_words::problem(lang, ConcertProblem::TooSlow)))?;
         self.config.model = result.model;
@@ -614,7 +628,7 @@ fn chat_system_prompt(brief: &Brief, lang: Lang) -> String {
 
 fn build_system_prompt(brief: &Brief) -> String {
     let describe = brief.describe();
-    let rule = format!("{ORIGINAL_TITLES_RULE} {DATA_RULE}");
+    let rule = format!("{PLACE_RULE} {ORIGINAL_TITLES_RULE} {DATA_RULE}");
     match brief {
         Brief::Party(_) => format!(
             "You are an expert party DJ. Pick the songs of a playlist for these answers:\n{describe}\n\nCall \

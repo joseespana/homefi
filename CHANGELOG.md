@@ -7,6 +7,70 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Added
+- Exercise: ride with no internet. "Download for offline" on the ride's plan and on each ride in My rides puts
+  the ride's TIDAL songs on your phone or computer (only the ones you don't have yet, in the download queue under
+  the ride's name). The button shows "Downloading 3 of 12" while they come and "Ready offline" once every song is
+  there; then riding it again needs no internet. A new setting, Settings → Exercise → "Download each new ride's
+  songs automatically" (off by default), does it by itself for every new ride and for songs you swap in.
+- AI spending, in Settings → AI on the phone, the TV and the computer: what the AI has cost you this month, what
+  each kind of action costs ("Party playlists: $0.12 in 4 times · ≈$0.03 each") and a history of every AI action
+  (date, what it was, model, cost or tokens), with "Clear history". With OpenRouter the cost is the exact one it
+  reports, and "Check balance" shows what's left on the account; with other services it is an estimate (≈) from the
+  model's list price, or "Cost unknown" when the model doesn't publish one. Only what it was, when, the model, tokens
+  and cost are kept, never your words or songs.
+- "Ask before spending" (off by default): ask before every AI action, or only when it usually costs more than an
+  amount, with what it usually costs and what you've spent this month. A monthly limit can stop AI actions once it is
+  reached ("You reached this month's limit…"), on every device and every AI call.
+- Rides, and on the phone also playlists: a TIDAL song you download after adding it now plays from its file
+  (it is found by its recording code), so it no longer needs the internet.
+- Saved Tidal answers, in Settings → Tidal on the phone, the TV and the computer: choose how much space HomeFi may
+  use to keep Tidal's answers so pages open faster (Off, 50 MB to 1 GB; 200 MB by default), see how much they take
+  now and clear them. The CLI has the same `cache_size_mb` key in `config.toml`.
+
+### Fixed
+- Android 8 to 12: opening a shared ride or DJ file no longer closes the app (it used a call that only exists on
+  Android 13 and later).
+- Phone now-playing menu and TV settings follow changes while open (the song for "Playlist like this", the version
+  of a new update), instead of what they showed when they opened.
+- Saved Tidal answers no longer pile up on disk forever: answers older than a week, then the oldest ones, are
+  deleted in the background to stay under the chosen size, and very big answers (over 4 MB) are not kept. Only
+  that folder is touched; your downloads and library never are.
+- AI songs from a place or a language: "polish music", "música mexicana" or "J-pop" in a ride, a party or a chat
+  playlist now means artists from there or songs in that language (local stars included), not hits that are merely
+  popular there. Concert setlists are also searched in the artist's own language and on local sites, for any country.
+- Phone: the Lyrics button (and karaoke inside it) is back on the player's top bar. On some phones it was pushed off
+  the edge; it now comes first and the bar uses its whole width.
+- Exercise: a ride with your own words (like "polish music"), decades and genres is far more likely to be built.
+  Your words now stay in the extra Tidal searches when the first one comes back thin, names with letters like
+  "ł" (Łzy, Czesław) match the catalog spelling, and if the AI was not used HomeFi says the decades could not be
+  applied. On the phone, a problem reading the AI key while starting a ride now shows a message instead of
+  leaving the button doing nothing. When no songs are found the message suggests fewer decades or other words.
+- Concerts: "Get ready for a concert" now finds setlists far more often (it failed for Korn on OpenRouter). The
+  search question is short and aimed at setlist pages, OpenRouter returns 10 pages instead of 5, and when the first
+  try finds fewer than two shows it tries again with a broader search and may use shows older than 12 months. If
+  it still can't, the message now suggests a model that searches the web well (Gemini or Claude) instead of just
+  saying nothing was found.
+
+### Changed
+- Exercise: the ride plan's song card shows the full song name (up to two lines), with the artist and the beat
+  under it, on the phone.
+
+### Security
+- Ride on a TV: only a TV you gave the ride to can play its music. The address the phone sends a paired TV, and the
+  one shown to type, now ends in a private key that changes every ride (for example `192.168.1.20:47801/K7M2QXPA4B`);
+  a TV that only finds the ride on the network shows it, and the music stays on the phone, with a note on the TV
+  saying how to bring it there. The ride page no longer allows other websites to read it.
+- Sharing: at most 16 people per session (the next one is told the session is full), and what guests ask the host's
+  catalog is capped: one search per guest (a newer one replaces it), two pages opening at a time, eight for everyone
+  together ("The host is busy… try again in a moment"), and all of it stops when the guest leaves or is removed.
+- Sign-in: the saved Tidal sign-in is written through its own temporary file, flushed to the disk and private to you
+  from the first byte; two saves at once can't mix and a power cut leaves the previous sign-in.
+- Audio: the sound queue library (`ringbuf`) is updated to 0.5 for a published memory-safety fix (it didn't affect
+  HomeFi's audio, which only queues numbers, but there is no reason to keep it).
+- Releases: a version is published only if every test, lint and dependency audit passes on its exact commit; the build
+  tools are pinned to exact versions and only the publishing step may write to the repository.
+
 ## [1.5.18] - 2026-11-14
 
 ### Added

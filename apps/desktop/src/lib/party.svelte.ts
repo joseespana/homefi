@@ -4,6 +4,7 @@
 // `conversations` list for the whole app session: leaving the screen does not stop one, the AI
 // chats menu brings you back. The rules (clamping, the AI prompts, matching songs, the energy
 // arc, the chat limit) are in homefi-core; this holds state and sends intents.
+import { spendOk } from "./spend";
 import { api, DEFAULT_PLAYLIST_SETTINGS, errorText, type ChatBrief, type PartyBrief, type PartyBuilt, type PartyProgress, type PartyTurn, type SongSeed } from "./api";
 import { evictable, isWorking, tooManyChatsText, type ChatStatus } from "./conversations";
 import { uiLanguage } from "./eq.svelte";
@@ -216,6 +217,7 @@ export class Conversation {
   /** "Talk it over with the AI first". */
   async talk() {
     if (!this.opened || this.thinking || this.building) return;
+    if (!(await this.#spendOk())) return;
     this.chatting = true;
     this.messages = [];
     this.quickReplies = [];
@@ -225,6 +227,7 @@ export class Conversation {
   async send(text: string) {
     const t = text.trim();
     if (!t || !this.opened || this.thinking || this.building || this.chatClosed) return;
+    if (!(await this.#spendOk())) return;
     this.messages = [...this.messages, { fromUser: true, text: t }];
     this.quickReplies = [];
     const answered = await this.#turn(() => api.partyReply(this.id, t));
@@ -233,6 +236,15 @@ export class Conversation {
       this.messages = this.messages.slice(0, -1);
       this.retryText = t;
     }
+  }
+
+  /** "Ask before spending", once per conversation: its turns and builds are one item of the history. */
+  #spendAsked = false;
+  async #spendOk(): Promise<boolean> {
+    if (this.#spendAsked) return true;
+    const ok = await spendOk(this.mode === "chat" ? "chat_playlist" : "party_playlist");
+    this.#spendAsked = ok;
+    return ok;
   }
 
   /** One chat turn; false when the AI couldn't answer (the error says why). */
@@ -263,6 +275,7 @@ export class Conversation {
   /** Builds the playlist (again: it replaces the draft). The build goes on if the screen is left. */
   async build() {
     if (!this.opened || this.building || this.thinking) return;
+    if (!(await this.#spendOk())) return;
     this.building = true;
     this.#cancelling = false;
     this.error = null;

@@ -328,7 +328,8 @@ private enum class SettingsPage(val title: Int, val icon: ImageVector, val secti
         listOf(
             R.string.settings_logout, R.string.login_connect, R.string.settings_lazy_lists, R.string.settings_album_versions,
             R.string.settings_album_group, R.string.settings_album_explicit, R.string.settings_album_spatial, R.string.settings_album_edition,
-            R.string.settings_album_keywords,
+            R.string.settings_album_keywords, R.string.api_cache_title, R.string.api_cache_size, R.string.api_cache_clear_title,
+            R.string.api_cache_keywords,
         ),
     ),
     ABOUT(
@@ -488,7 +489,10 @@ private fun PageBody(
         SettingsPage.PLAYLISTS -> PlaylistsSettings()
         SettingsPage.DJ -> DjSettingsPage()
         SettingsPage.EXERCISE -> ExerciseSettingsPage()
-        SettingsPage.AI -> AiSettingsSection()
+        SettingsPage.AI -> {
+            AiSettingsSection()
+            AiSpendingSection()
+        }
         SettingsPage.SHARING -> ShareSettingsSection()
         SettingsPage.ABOUT -> AboutSettings()
     }
@@ -746,6 +750,8 @@ private fun AccountSettings(loggedIn: Boolean, onLogin: () -> Unit, onLoggedOut:
             hint = stringResource(R.string.settings_lazy_lists_hint),
         ) { v -> app.settings.update { it.copy(lazyLists = v) } }
     }
+
+    ApiCacheSettings()
 
     // the same four options as the desktop's Settings → Tidal → Album versions
     SettingsGroup(title = stringResource(R.string.settings_album_versions)) {

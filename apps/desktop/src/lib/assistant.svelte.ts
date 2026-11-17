@@ -1,6 +1,7 @@
 // The AI assistant's conversation (or the guided wizard), shared by the full
 // "Set up my sound" page and the inline "Ask the AI" panel on the Sound screen:
 // one session, one list of messages, whichever screen draws it.
+import { spendOk } from "./spend";
 import { tick } from "svelte";
 import { api, errorText, type AiProviderId, type AiProviderInfo, type AssistantTurn, type EqProfile, type EqProposal, type TasteChange, type TasteRule } from "./api";
 import { eq, uiLanguage } from "./eq.svelte";
@@ -135,7 +136,8 @@ class AssistantStore {
   }
 
   /** Starts a conversation; `notes` is what the user already said, `focus` a sound to refine. */
-  start(asGuided: boolean, notes: string = this.notes) {
+  async start(asGuided: boolean, notes: string = this.notes) {
+    if (!asGuided && !(await spendOk("sound_assistant"))) return;
     this.reset(asGuided);
     const f = asGuided ? null : this.focus;
     this.focus = null;
@@ -147,12 +149,18 @@ class AssistantStore {
     const t = text.trim();
     if (!t || this.thinking) return;
     if (this.phase !== "chat" || this.done) {
-      this.notes = t;
-      this.reset(false);
-      this.push({ from: "me", text: t });
-      return this.run(() => api.eqAssistantStart(false, this.lang, t, null));
+      return this.askFirst(t);
     }
     return this.send(t);
+  }
+
+  /** The first words of the inline panel open an AI conversation, after "ask before spending". */
+  private async askFirst(t: string) {
+    if (!(await spendOk("sound_assistant"))) return;
+    this.notes = t;
+    this.reset(false);
+    this.push({ from: "me", text: t });
+    return this.run(() => api.eqAssistantStart(false, this.lang, t, null));
   }
 
   send(reply: string) {

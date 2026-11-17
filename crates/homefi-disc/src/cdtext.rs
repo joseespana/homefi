@@ -80,16 +80,16 @@ fn latin1(bytes: &[u8]) -> String {
 /// `None` when the data holds no usable text. Text in double-byte charsets (MS-JIS) is not
 /// decoded: such discs yield `None`.
 pub fn parse_cd_text(raw: &[u8]) -> Option<CdText> {
-    let body = if raw.len() >= HEADER_BYTES && (raw.len() - HEADER_BYTES) % PACK_BYTES == 0 {
+    let body = if raw.len() >= HEADER_BYTES && (raw.len() - HEADER_BYTES).is_multiple_of(PACK_BYTES) {
         &raw[HEADER_BYTES..]
-    } else if raw.len() % PACK_BYTES == 0 {
+    } else if raw.len().is_multiple_of(PACK_BYTES) {
         raw
     } else {
         // A truncated last pack is dropped.
         let body = if raw.len() >= HEADER_BYTES { &raw[HEADER_BYTES..] } else { return None };
         &body[..body.len() / PACK_BYTES * PACK_BYTES]
     };
-    let packs: Vec<&[u8]> = body.chunks_exact(PACK_BYTES).collect();
+    let packs: Vec<&[u8]> = body.as_chunks::<PACK_BYTES>().0.iter().map(|p| p.as_slice()).collect();
     if packs.is_empty() {
         return None;
     }

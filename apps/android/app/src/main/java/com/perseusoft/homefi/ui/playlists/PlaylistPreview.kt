@@ -170,7 +170,7 @@ private fun PreviewHeader(playlist: HomePlaylist, fallbackNote: String?, aiName:
     val haptics = haptics()
     val settings by app.settings.playlists.collectAsStateWithLifecycle()
     val library by app.library.state.collectAsStateWithLifecycle()
-    val find = app.library::find
+    val find: LocalCopy = app.library::localCopy
     var sourcesOpen by rememberSaveable { mutableStateOf(false) }
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
     val tidalAll by app.playlists.tidal.collectAsStateWithLifecycle()
@@ -351,14 +351,14 @@ private fun EntryRow(playlist: HomePlaylist, index: Int, modifier: Modifier) {
     val app = LocalContext.current.homefi
     val haptics = haptics()
     val entry: PlaylistEntry = playlist.entries[index]
-    val localTrack = entry.localPath?.let(app.library::find)
+    val localTrack = app.library.localCopy(entry)
     val playable = localTrack != null || entry.tidalId != null
     ListItem(
         modifier = modifier
             .alpha(if (playable) 1f else DIMMED_ALPHA)
             .clickable(enabled = playable) {
                 haptics.press()
-                app.player.playPlaylist(playlist, app.library::find, entryIndex = index)
+                app.player.playPlaylist(playlist, app.library::localCopy, entryIndex = index)
             },
         colors = skinRowColors(index, current = false),
         leadingContent = {

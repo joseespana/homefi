@@ -133,6 +133,7 @@ pub(crate) async fn chat(
     for round in 0..=PAUSE_RETRIES {
         let req = request(config, http().post(&url)).timeout(CHAT_TIMEOUT).json(&payload);
         let answer = send(config, req, false).await?;
+        super::usage::note(config, Api::Anthropic, &answer, search.is_some());
         let paused = search.is_some() && answer["stop_reason"] == "pause_turn";
         if answer["stop_reason"] == "max_tokens" {
             return Err(AiError::truncated(config));

@@ -22,11 +22,24 @@ const VERSION_WORDS: [&str; 12] = [
 /// Separator between a title and its version suffix ("Blind - Live").
 const SUFFIX_SEPARATOR: &str = " - ";
 
+/// Letters that Unicode does not decompose into a base letter and a mark, as catalogs spell them without
+/// the stroke (Polish ł, Croatian đ, Danish ø).
+fn unaccented_letter(c: char) -> char {
+    match c {
+        'ł' => 'l',
+        'đ' => 'd',
+        'ø' => 'o',
+        'ħ' => 'h',
+        other => other,
+    }
+}
+
 /// Lower case, no accents, letters and digits only.
 pub fn fold(s: &str) -> String {
     s.nfkd()
         .filter(|c| !unicode_normalization::char::is_combining_mark(*c))
         .flat_map(char::to_lowercase)
+        .map(unaccented_letter)
         .filter(|c| c.is_alphanumeric())
         .collect()
 }

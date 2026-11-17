@@ -177,6 +177,17 @@ pub(crate) fn no_ai_note(lang: Lang) -> String {
     )
 }
 
+/// The decades are a request to the AI: Tidal's plain search cannot filter by year.
+pub(crate) fn eras_without_ai_note(lang: Lang) -> String {
+    say(
+        lang,
+        "The decades you picked only guide the AI, and the AI did not choose these songs: they may be from any year."
+            .into(),
+        "Las décadas que elegiste solo guían a la IA, y la IA no eligió estas canciones: pueden ser de cualquier año."
+            .into(),
+    )
+}
+
 pub(crate) fn ai_failed_note(lang: Lang, message: &str) -> String {
     say(
         lang,
@@ -220,8 +231,8 @@ pub(crate) fn problem(lang: Lang, p: Problem) -> Error {
         ),
         Problem::NoSongs => say(
             lang,
-            "HomeFi found no songs for this ride. Try other genres.".into(),
-            "HomeFi no encontró canciones para este paseo. Prueba otros géneros.".into(),
+            "HomeFi found no songs for this ride. Try other genres, fewer decades or other words.".into(),
+            "HomeFi no encontró canciones para este paseo. Prueba otros géneros, menos décadas u otras palabras.".into(),
         ),
         Problem::TooSlow => say(
             lang,

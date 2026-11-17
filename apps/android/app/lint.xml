@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Android lint runs in CI (lintDebug). Each exception below says why it is safe. -->
+<lint>
+    <!-- UniFFI's generated bindings check at run time that java.lang.ref.Cleaner exists (Android 13+) and fall
+         back to JNA's cleaner on older phones; the call lint sees is never reached there. -->
+    <issue id="NewApi">
+        <ignore path="build/generated/**" />
+    </issue>
+    <!-- Voice search from a car reaches the media session (PlaybackService.onSearch / onSetMediaItems), not an
+         activity; an intent filter would route "play X" to a screen that can't handle it. -->
+    <issue id="MissingIntentFilterForMediaSearch" severity="ignore" />
+</lint>

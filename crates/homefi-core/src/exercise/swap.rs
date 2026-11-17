@@ -60,7 +60,8 @@ pub async fn swap_song(
     progress: Progress<'_>,
     memory: Option<BuildMemory>,
 ) -> Result<(Swapped, BuildMemory)> {
-    tokio::time::timeout(SWAP_DEADLINE, swap_inner(req, request, ctx, progress, memory))
+    let work = tokio::time::timeout(SWAP_DEADLINE, swap_inner(req, request, ctx, progress, memory));
+    crate::ai::usage::track(crate::ai::AiFeature::RideSwap, None, work)
         .await
         .unwrap_or_else(|_| Err(words::problem(ctx.lang, Problem::TooSlow)))
 }

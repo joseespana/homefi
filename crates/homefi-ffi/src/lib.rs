@@ -22,6 +22,7 @@ use homefi_core::stream_cache;
 uniffi::setup_scaffolding!();
 
 mod ai;
+mod cache;
 mod dj;
 mod eq;
 mod exercise;
@@ -29,6 +30,7 @@ mod party;
 mod playlists;
 mod runtime;
 mod share;
+mod spending;
 mod update;
 mod versions;
 
@@ -651,6 +653,8 @@ impl HomefiEngine {
         let app_dir = PathBuf::from(app_dir);
         std::fs::create_dir_all(&app_dir).map_err(homefi_core::Error::from)?;
         let config = Config::load(&app_dir.join(homefi_core::paths::CONFIG_FILENAME))?;
+        // what the AI costs is recorded from the first call
+        homefi_core::ai::usage::open(&app_dir);
         // answered before any download asks (no ffmpeg on phones: quick)
         homefi_core::ffmpeg::warm_up();
         Ok(Arc::new(Self {

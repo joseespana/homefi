@@ -245,16 +245,16 @@ impl AuthStore {
         }
     }
 
+    /// Saves through a uniquely named temporary file (mode `0600` on Unix from the moment it exists), flushed to
+    /// the disk, then renamed over the old file: concurrent saves never share a temporary file, a crash leaves the
+    /// previous sign-in, and the tokens are never readable by other users, not even for an instant.
     pub fn save(&self, data: &AuthData) -> Result<()> {
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent)?;
             set_mode(parent, 0o700);
         }
-        let tmp = self.path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec(data)?)?;
-        set_mode(&tmp, 0o600);
-        std::fs::rename(&tmp, &self.path)?;
-        Ok(())
+        crate::paths::write_durable(&self.path, &serde_json::to_vec(data)?)?;
+        ensure_private(&self.path)
     }
 
     pub fn clear(&self) -> Result<()> {
@@ -272,6 +272,24 @@ pub(crate) fn set_mode(path: &Path, mode: u32) {
 
 #[cfg(not(unix))]
 pub(crate) fn set_mode(_path: &Path, _mode: u32) {}
+
+/// The saved sign-in must be readable only by its owner; if that can't be guaranteed the save is an error, not
+/// a warning. On Windows the file inherits the per-user profile folder's access list.
+#[cfg(unix)]
+fn ensure_private(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = std::fs::metadata(path)?.permissions().mode() & 0o777;
+    if mode & 0o077 == 0 {
+        return Ok(());
+    }
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn ensure_private(_path: &Path) -> Result<()> {
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
@@ -299,6 +317,37 @@ mod tests {
         };
         store.save(&data).unwrap();
         assert_eq!(store.load().unwrap(), data);
+    }
+
+    #[test]
+    fn concurrent_saves_leave_one_whole_file_and_no_temporaries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.json");
+        std::thread::scope(|s| {
+            for i in 0..16i64 {
+                let store = AuthStore::new(path.clone());
+                s.spawn(move || {
+                    let data = AuthData { token: Some(format!("t{i}")), expires_at: i, ..AuthData::default() };
+                    store.save(&data).unwrap();
+                });
+            }
+        });
+        let saved = AuthStore::new(path).load().unwrap();
+        assert_eq!(saved.token, Some(format!("t{}", saved.expires_at)), "a mix of two saves");
+        let names: Vec<_> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("auth.json")], "leftover temporary files");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saved_sign_in_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.json");
+        std::fs::write(&path, "{}").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        AuthStore::new(path.clone()).save(&AuthData::default()).unwrap();
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
     }
 
     #[test]

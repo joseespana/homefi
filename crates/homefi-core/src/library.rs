@@ -191,7 +191,7 @@ pub fn read_track(path: &Path) -> Result<TrackInfo> {
         bitrate_kbps: props.audio_bitrate().or(props.overall_bitrate()).filter(|b| *b > 0),
         lossless,
         size_bytes: std::fs::metadata(path).map(|m| m.len()).unwrap_or(0),
-        isrc: tag.and_then(|t| t.get_string(&ItemKey::Isrc)).map(|s| s.trim().to_uppercase()).filter(|s| !s.is_empty()),
+        isrc: tag.and_then(|t| t.get_string(&ItemKey::Isrc)).and_then(crate::playlist::isrc_key),
         bpm: tag.and_then(tag_bpm),
     })
 }
@@ -270,9 +270,33 @@ struct Cache {
 
 const CACHE_VERSION: u32 = 2;
 
+/// Borrowed view of the index to write: same JSON as [`Cache`], without copying any entry.
+struct CacheView<'a> {
+    entries: &'a [CacheEntry],
+    offline: &'a [CacheEntry],
+}
+
+impl Serialize for CacheView<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        struct Entries<'a>(&'a CacheView<'a>);
+        impl Serialize for Entries<'_> {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+                let all = self.0.entries.iter().chain(self.0.offline);
+                serializer.collect_map(all.map(|e| (&e.info.path, e)))
+            }
+        }
+        let mut s = serializer.serialize_struct("Cache", 2)?;
+        s.serialize_field("version", &CACHE_VERSION)?;
+        s.serialize_field("entries", &Entries(self))?;
+        s.end()
+    }
+}
+
 fn load_cache(path: Option<&Path>) -> Cache {
-    path.and_then(|p| std::fs::read(p).ok())
-        .and_then(|raw| serde_json::from_slice::<Cache>(&raw).ok())
+    // streamed from disk: the raw JSON (tens of MB on big libraries) is never held next to the parsed index
+    path.and_then(|p| File::open(p).ok())
+        .and_then(|f| serde_json::from_reader::<_, Cache>(std::io::BufReader::with_capacity(64 * 1024, f)).ok())
         .filter(|c| c.version == CACHE_VERSION)
         .unwrap_or_default()
 }
@@ -315,7 +339,7 @@ fn missing_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
 
 /// Playable files below `dir` (hidden files and folders are skipped,
 /// symlinks are not followed).
-fn collect_files(dir: &Path, out: &mut Vec<(PathBuf, std::fs::Metadata)>) {
+fn collect_files(dir: &Path, out: &mut Vec<(PathBuf, u64, i64)>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         if entry.file_name().to_string_lossy().starts_with('.') {
@@ -327,7 +351,7 @@ fn collect_files(dir: &Path, out: &mut Vec<(PathBuf, std::fs::Metadata)>) {
             collect_files(&path, out);
         } else if file_type.is_file() && is_playable(&path) {
             if let Ok(meta) = entry.metadata() {
-                out.push((path, meta));
+                out.push((path, meta.len(), modified_secs(&meta)));
             }
         }
     }
@@ -344,12 +368,13 @@ pub fn scan(roots: &[PathBuf], cache: Option<&Path>) -> Vec<TrackInfo> {
         collect_files(&root, &mut files);
     }
 
+    let loaded = cache.is_some_and(Path::is_file);
     let mut old = load_cache(cache);
+    let had_entries = !old.entries.is_empty();
     let mut tracks = Vec::with_capacity(files.len());
     let mut pending = Vec::new();
 
-    for (path, meta) in files {
-        let (size, modified) = (meta.len(), modified_secs(&meta));
+    for (path, size, modified) in files {
         match old.entries.remove(&path) {
             Some(entry) if entry.size == size && entry.modified == modified && entry.bpm_read => tracks.push(entry),
             _ => pending.push((path, size, modified)),
@@ -378,12 +403,16 @@ pub fn scan(roots: &[PathBuf], cache: Option<&Path>) -> Vec<TrackInfo> {
             .collect();
         handles.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
     });
+    let pending_was_empty = parsed.is_empty();
     tracks.extend(parsed);
 
     // what is left of the old cache: stale files of present roots are dropped, files of missing roots are kept
     let missing = missing_roots(roots);
+    let before_prune = old.entries.len();
     let kept_offline: Vec<CacheEntry> =
         old.entries.into_values().filter(|e| missing.iter().any(|root| e.info.path.starts_with(root))).collect();
+    // nothing new, nothing changed, nothing gone: the index on disk is already exactly this state
+    let unchanged = loaded && had_entries && pending_was_empty && kept_offline.len() == before_prune;
 
     // untagged files go last; keys are lowercased once per track, not per comparison
     tracks.sort_by_cached_key(|t| {
@@ -398,15 +427,13 @@ pub fn scan(roots: &[PathBuf], cache: Option<&Path>) -> Vec<TrackInfo> {
         )
     });
 
-    if let Some(cache_path) = cache {
-        let new_cache = Cache {
-            version: CACHE_VERSION,
-            entries: tracks.iter().chain(&kept_offline).map(|e| (e.info.path.clone(), e.clone())).collect(),
-        };
-        // atomic: a scan killed mid-write (app swiped away) keeps the old cache
-        let write = serde_json::to_vec(&new_cache)
-            .map_err(std::io::Error::from)
-            .and_then(|raw| crate::paths::write_atomic(cache_path, &raw));
+    if let Some(cache_path) = cache.filter(|_| !unchanged) {
+        // streamed (no second copy of the index, no JSON buffer) and atomic: a scan killed mid-write
+        // (app swiped away) keeps the old cache
+        let write = crate::paths::write_atomic_with(cache_path, |out| {
+            let view = CacheView { entries: &tracks, offline: &kept_offline };
+            serde_json::to_writer(out, &view).map_err(std::io::Error::from)
+        });
         if let Err(e) = write {
             tracing::warn!("could not write library cache {}: {e}", cache_path.display());
         }
@@ -522,6 +549,86 @@ mod tests {
         scan(&[work.path().join("Music")], Some(&cache));
         let saved: Cache = serde_json::from_slice(&std::fs::read(&cache).unwrap()).unwrap();
         assert!(saved.entries.is_empty());
+    }
+
+    /// A tiny music folder with `n` unreadable-as-audio `.flac` files (they fall back to basic entries).
+    fn music_folder(n: usize) -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let work = tempfile::tempdir().unwrap();
+        let music = work.path().join("Music");
+        std::fs::create_dir(&music).unwrap();
+        for i in 0..n {
+            std::fs::write(music.join(format!("song{i}.flac")), b"not really flac").unwrap();
+        }
+        let cache = work.path().join("cache.json");
+        (work, music, cache)
+    }
+
+    fn mtime(path: &Path) -> std::time::SystemTime {
+        std::fs::metadata(path).unwrap().modified().unwrap()
+    }
+
+    #[test]
+    fn an_unchanged_scan_does_not_rewrite_the_index() {
+        let (_work, music, cache) = music_folder(3);
+        let first = scan(std::slice::from_ref(&music), Some(&cache));
+        assert_eq!(first.len(), 3);
+        let written = std::fs::read(&cache).unwrap();
+        let stamp = mtime(&cache);
+
+        // a rewrite would change the mtime (and, with a replaced file, the inode)
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        let second = scan(&[music], Some(&cache));
+        assert_eq!(second, first);
+        assert_eq!(std::fs::read(&cache).unwrap(), written);
+        assert_eq!(mtime(&cache), stamp, "nothing changed: the index must not be written again");
+    }
+
+    #[test]
+    fn the_index_follows_added_removed_and_modified_files() {
+        let (_work, music, cache) = music_folder(2);
+        scan(std::slice::from_ref(&music), Some(&cache));
+        let keys = |cache: &Path| -> Vec<PathBuf> {
+            let saved: Cache = serde_json::from_slice(&std::fs::read(cache).unwrap()).unwrap();
+            let mut k: Vec<_> = saved.entries.into_keys().collect();
+            k.sort();
+            k
+        };
+        assert_eq!(keys(&cache).len(), 2);
+
+        // added
+        std::fs::write(music.join("new.flac"), b"x").unwrap();
+        assert_eq!(scan(std::slice::from_ref(&music), Some(&cache)).len(), 3);
+        assert_eq!(keys(&cache).len(), 3);
+
+        // modified (size changes): re-read, index rewritten with the new size
+        std::fs::write(music.join("new.flac"), b"longer content").unwrap();
+        let listed = scan(std::slice::from_ref(&music), Some(&cache));
+        assert_eq!(listed.iter().find(|t| t.title == "new").unwrap().size_bytes, 14);
+        let saved: Cache = serde_json::from_slice(&std::fs::read(&cache).unwrap()).unwrap();
+        let entry = saved.entries.values().find(|e| e.info.title == "new").unwrap();
+        assert_eq!(entry.size, 14);
+
+        // removed
+        std::fs::remove_file(music.join("song0.flac")).unwrap();
+        assert_eq!(scan(std::slice::from_ref(&music), Some(&cache)).len(), 2);
+        let after = keys(&cache);
+        assert_eq!(after.len(), 2);
+        assert!(after.iter().all(|p| !p.ends_with("song0.flac")));
+
+        // and then it settles again
+        let stamp = mtime(&cache);
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        scan(&[music], Some(&cache));
+        assert_eq!(mtime(&cache), stamp);
+    }
+
+    #[test]
+    fn a_missing_or_broken_index_is_written() {
+        let (_work, music, cache) = music_folder(1);
+        std::fs::write(&cache, b"{broken").unwrap();
+        assert_eq!(scan(&[music], Some(&cache)).len(), 1);
+        let saved: Cache = serde_json::from_slice(&std::fs::read(&cache).unwrap()).unwrap();
+        assert_eq!((saved.version, saved.entries.len()), (CACHE_VERSION, 1));
     }
 
     #[test]

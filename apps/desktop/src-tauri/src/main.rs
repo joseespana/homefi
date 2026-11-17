@@ -15,6 +15,7 @@ mod playlists;
 mod settings;
 mod share;
 mod sound;
+mod spending;
 mod stream;
 mod transfer;
 mod updater;
@@ -62,6 +63,8 @@ fn main() {
         commands::start_login,
         commands::poll_login,
         commands::logout,
+        commands::api_cache_usage,
+        commands::clear_api_cache,
         commands::search,
         commands::tidal_library_page,
         commands::tidal_detail,
@@ -153,6 +156,11 @@ fn main() {
         ai::ai_list_models,
         ai::ai_test_key,
         ai::ai_default_model,
+        spending::ai_spending_summary,
+        spending::ai_spend_check,
+        spending::ai_spending_set_guard,
+        spending::ai_spending_clear,
+        spending::ai_balance,
         ai::eq_assistant_start,
         ai::eq_assistant_reply,
         ai::eq_assistant_close,
@@ -231,6 +239,8 @@ fn main() {
         exercise::exercise_tv_window,
         exercise::exercise_cue_wav,
         exercise::exercise_rides,
+        exercise::exercise_rides_offline,
+        exercise::exercise_offline,
         exercise::exercise_ride_load,
         exercise::exercise_ride_keep,
         exercise::exercise_ride_rename,
@@ -282,11 +292,15 @@ fn main() {
             let app_dir = paths::app_dir();
             std::fs::create_dir_all(&app_dir)?;
             let config = Config::load(&app_dir.join(paths::CONFIG_FILENAME)).unwrap_or_default();
+            // what the AI costs is recorded from the first call
+            homefi_core::ai::usage::open(&app_dir);
             let session = Session::new(app_dir.clone(), config);
             let settings_path = app_dir.join("desktop.json");
             // before `load`: an existing file means an update (or an older HomeFi's run)
             let upgraded = settings_path.is_file();
             let settings = DesktopSettings::load(&settings_path);
+            // the saved Tidal answers keep to the settings' budget (the first write prunes)
+            session.cache().set_max_mb(settings.api_cache_mb);
 
             // The engine thread only hands its snapshot over (it must never wait
             // on a lock or the disk, or the audio stutters); a task looks up the

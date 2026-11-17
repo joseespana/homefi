@@ -656,7 +656,7 @@ mod tests {
             })
             .collect();
         m.map(&fast, &mut out);
-        let lfe_peak = out.chunks_exact(8).skip(1000).map(|f| f[3].abs()).fold(0f32, f32::max);
+        let lfe_peak = out.as_chunks::<8>().0.iter().skip(1000).map(|f| f[3].abs()).fold(0f32, f32::max);
         assert!(lfe_peak < 0.01, "5 kHz stays out of the subwoofer: {lfe_peak}");
         // mono upmix: the center carries it at -3 dB
         let mono = mapped(1, 8, SurroundMode::Upmix, &[0.4]);

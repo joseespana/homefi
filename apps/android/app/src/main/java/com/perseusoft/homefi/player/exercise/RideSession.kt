@@ -4,6 +4,7 @@ import android.os.SystemClock
 import androidx.media3.common.Player
 import com.perseusoft.homefi.HomefiApplication
 import com.perseusoft.homefi.R
+import com.perseusoft.homefi.core.AiFeature
 import com.perseusoft.homefi.core.ExerciseRide
 import com.perseusoft.homefi.core.ExerciseSession
 import com.perseusoft.homefi.core.ExerciseSettings
@@ -36,6 +37,7 @@ import com.perseusoft.homefi.core.exerciseListenPermissions
 import com.perseusoft.homefi.core.exerciseRideToken
 import com.perseusoft.homefi.data.DeviceForm
 import com.perseusoft.homefi.data.refs
+import com.perseusoft.homefi.data.source
 import com.perseusoft.homefi.data.userMessage
 import com.perseusoft.homefi.share.RideHubTerms
 import com.perseusoft.homefi.share.net.ShareNetworkMode
@@ -233,6 +235,8 @@ class RideSession(private val app: HomefiApplication) {
     /** The queue item whose next song was already buffered for the fade: one per item. */
     private var preparedItem = NO_ITEM
     private var chatSession: ExerciseSession? = null
+    /** "Ask before spending" was answered yes for this chat. */
+    private var chatSpendAsked = false
     private var nextLineId = 0
     private var ownsHub = false
     private var lastClick = NO_CLICK
@@ -325,6 +329,7 @@ class RideSession(private val app: HomefiApplication) {
         val ready = app.ai.ready() ?: return
         val session = ExerciseSession(ready.config, ready.key, _form.value.toRequest(settings.taste), languageTag())
         chatSession = session
+        chatSpendAsked = false
         _chat.value = RideChat(thinking = true)
         scope.launch {
             val turn = session.start()
@@ -336,8 +341,14 @@ class RideSession(private val app: HomefiApplication) {
         val session = chatSession ?: return
         val clean = text.trim()
         if (clean.isEmpty() || _chat.value.thinking) return
-        _chat.update { it.copy(lines = it.lines + ChatLine(nextLineId++, true, clean), replies = emptyList(), thinking = true, error = null) }
         scope.launch {
+            // "ask before spending", once per conversation (its turns are one history item)
+            if (!chatSpendAsked) {
+                if (!app.spend.allow(AiFeature.RIDE_CHAT)) return@launch
+                chatSpendAsked = true
+            }
+            if (chatSession !== session || _chat.value.thinking) return@launch
+            _chat.update { it.copy(lines = it.lines + ChatLine(nextLineId++, true, clean), replies = emptyList(), thinking = true, error = null) }
             try {
                 showTurn(session.reply(clean), applyRequest = true)
             } catch (e: CancellationException) {
@@ -383,17 +394,21 @@ class RideSession(private val app: HomefiApplication) {
         buildJob = scope.launch {
             val form = _form.value
             val request = form.toRequest(settings.taste)
-            val ready = if (form.useAi) withContext(Dispatchers.IO) { app.ai.ready() } else null
-            val building = RideUi.Building(null, ready?.info?.name)
             val previous = _ui.value as? RideUi.Preview
-            _ui.value = if (inPlace && previous != null) previous.copy(rebuilding = building, rebuildError = null) else building
+            // every step is inside the try: whatever fails (even reading the AI key) ends on a worded error
             try {
+                val ready = if (form.useAi) withContext(Dispatchers.IO) { app.ai.ready() } else null
+                // "ask before spending": a no leaves the screen as it was
+                if (ready != null && !app.spend.allow(AiFeature.RIDE_BUILD)) return@launch
+                val building = RideUi.Building(null, ready?.info?.name)
+                _ui.value = if (inPlace && previous != null) previous.copy(rebuilding = building, rebuildError = null) else building
                 val built = app.engine.exerciseBuild(
                     request, settings, ready?.config, ready?.key, languageTag(), libraryRefs(), listener,
                 )
                 // every successful build is kept in "My rides" so a good one can be ridden again without the AI
                 val saved = app.rides.autoSave(request, built, languageTag(), settings.rideHistoryMax)
                 _ui.value = RideUi.Preview(built, saved)
+                autoDownload(saved?.id ?: built.playlist.id, saved?.name ?: built.playlist.name, built.plan)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -483,7 +498,7 @@ class RideSession(private val app: HomefiApplication) {
                 _ui.value = RideUi.Failed(app.getString(R.string.ex_busy_sharing))
                 return@launch
             }
-            val items = built.playlist.queue(app.library::find)
+            val items = built.playlist.queue(app.library::localCopy)
             if (items.items.isEmpty()) {
                 _ui.value = RideUi.Failed(app.getString(R.string.ex_no_playable))
                 return@launch
@@ -710,7 +725,7 @@ class RideSession(private val app: HomefiApplication) {
             return
         }
         val song = shown.built.plan.songs.getOrNull(songIndex) ?: return
-        val item = entryMediaItem(song.entry, app.library::find)?.withSource(shown.built.playlist.source())
+        val item = entryMediaItem(song.entry, app.library::localCopy)?.withSource(shown.built.playlist.source())
         val player = app.player.player
         if (item == null || player == null) {
             app.notes.post(app.getString(R.string.ex_preview_failed))
@@ -768,6 +783,8 @@ class RideSession(private val app: HomefiApplication) {
         val riding = shown is RideUi.Riding
         if (!riding && shown !is RideUi.Preview) return
         swapJob = scope.launch {
+            // "ask before spending" when the swap may ask the AI; a no keeps the song
+            if (settings.swapUsesAi && !app.spend.allow(AiFeature.RIDE_SWAP)) return@launch
             _swapping.value = segmentIndex
             try {
                 if (shown is RideUi.Preview) swapInPreview(shown, segmentIndex) else swapWhileRiding(segmentIndex, current)
@@ -787,6 +804,7 @@ class RideSession(private val app: HomefiApplication) {
         // the plan on screen may have been replaced (a rebuild, back to the setup) while the song was searched
         _ui.update { if (it is RideUi.Preview && it.built === preview.built) it.copy(built = swapped) else it }
         preview.saved?.let { app.rides.replacePlan(it.id, swapped.plan, null) }
+        autoDownload(preview.saved?.id ?: swapped.playlist.id, preview.saved?.name ?: swapped.playlist.name, swapped.plan)
     }
 
     private suspend fun swapWhileRiding(segmentIndex: Int, current: Boolean) {
@@ -812,7 +830,7 @@ class RideSession(private val app: HomefiApplication) {
         val nowPlaying = now.currentMediaItemIndex
         if (plan !== ridden || (live && nowPlaying != itemIndex) || (!live && nowPlaying >= itemIndex)) return
         val entry = swapped.plan.songs.getOrNull(segmentIndex)?.entry ?: return
-        val mediaItem = entryMediaItem(entry, app.library::find)?.withSource(swapped.playlist.source())
+        val mediaItem = entryMediaItem(entry, app.library::localCopy)?.withSource(swapped.playlist.source())
         if (mediaItem == null) {
             app.notes.post(app.getString(R.string.ex_no_playable))
             return
@@ -822,6 +840,16 @@ class RideSession(private val app: HomefiApplication) {
         now.replaceMediaItem(itemIndex, mediaItem)
         withContext(Dispatchers.IO) { app.playlists.save(swapped.playlist) }
         ridingSavedId?.let { app.rides.replacePlan(it, newPlan, swapped.playlist.id) }
+        // the new song streams now; with the setting on it is downloaded for the next ride too
+        autoDownload(ridingSavedId ?: swapped.playlist.id, swapped.playlist.name, newPlan)
+    }
+
+    /** "Download each new ride's songs automatically": queues the plan's TIDAL songs that are not on the phone. */
+    private fun autoDownload(key: String, name: String, plan: RidePlan) {
+        if (!settings.autoDownloadRides) return
+        // a failed queueing never costs the user the plan already on screen; the button can try again
+        runCatching { app.rideDownloads.download(key, name, plan.songs.map { it.source() }) }
+            .onFailure { android.util.Log.w("RideSession", "auto download not queued", it) }
     }
 
     /** Core call off the main thread's way: the AI only when the setting lets the swap ask it. */
@@ -854,7 +882,7 @@ class RideSession(private val app: HomefiApplication) {
         ride = ExerciseRide(newPlan, settings.bike)
         _ui.update { if (it is RideUi.Riding) RideUi.Riding(newPlan) else it }
         preparedItem = NO_ITEM
-        val newId = entryMediaItem(entry ?: return, app.library::find)?.mediaId ?: return
+        val newId = entryMediaItem(entry ?: return, app.library::localCopy)?.mediaId ?: return
         rideMediaIds[itemIndex] = newId
         if (live) {
             if (old != null && old != newId) retiredMediaIds[itemIndex] = old

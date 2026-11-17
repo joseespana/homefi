@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Saved Tidal answers (the core's API cache): Settings → Tidal account on the phone, Settings → Tidal on the TV. -->
+    <string name="api_cache_title">Saved Tidal answers</string>
+    <string name="api_cache_size">Space for saved answers</string>
+    <string name="api_cache_size_hint">HomeFi keeps what Tidal answers (lists, albums, artists, searches) for a while, so pages open faster and Tidal is asked less. The oldest ones are deleted by themselves to stay under this size. Off keeps none. Your downloads and library are never touched.</string>
+    <string name="api_cache_off">Off</string>
+    <string name="api_cache_step_mb">%1$d MB</string>
+    <string name="api_cache_step_gb">%1$d GB</string>
+    <string name="api_cache_used">Saved now</string>
+    <string name="api_cache_nothing">Nothing saved</string>
+    <string name="api_cache_checking">Checking…</string>
+    <string name="api_cache_clear">Clear</string>
+    <string name="api_cache_clear_title">Clear saved answers</string>
+    <string name="api_cache_clear_hint">Clearing only makes the next pages ask Tidal again.</string>
+    <string name="api_cache_clear_failed">Couldn\'t clear the saved answers. Try again.</string>
+    <string name="api_cache_keywords">cache storage space disk free up faster</string>
+</resources>

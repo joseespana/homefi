@@ -183,6 +183,8 @@ pub struct ExerciseSettings {
     /// Big messages in the middle of the ride: the sprint's "3, 2, 1" on the beeps, cheers while sprinting and
     /// the ride's last words.
     pub ride_callouts: bool,
+    /// Every new ride's TIDAL songs are downloaded by themselves, so it can be ridden with no internet.
+    pub auto_download_rides: bool,
 }
 
 impl Default for ExerciseSettings {
@@ -230,6 +232,7 @@ impl Default for ExerciseSettings {
             ride_karaoke: false,
             ride_fullscreen: false,
             ride_callouts: true,
+            auto_download_rides: false,
         }
     }
 }
@@ -304,6 +307,10 @@ mod tests {
         assert!(s.tv_lyrics, "lyrics on the TV are on by default");
         assert!(!s.ride_karaoke, "the ride shows the mountain until the rider asks for the lyrics");
         assert!(s.ride_callouts, "the sprint countdown and cheers show by default");
+        assert!(
+            !s.auto_download_rides,
+            "a ride's songs are downloaded only when asked, unless the rider turns this on"
+        );
         assert_eq!((s.course_look, s.course_summits), (CourseLook::Ribbon, false));
         assert_eq!(s.ride_history_max, 30);
         assert_eq!(s.taste.popularity, Popularity::Hits, "big hits unless the rider asks otherwise");

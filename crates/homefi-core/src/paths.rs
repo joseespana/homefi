@@ -41,6 +41,36 @@ pub fn expand_tilde(path: &Path) -> PathBuf {
 /// file and a crash mid-write leaves the old one. Parent folders are created.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
+    write_atomic_with(path, |out| out.write_all(bytes))
+}
+
+/// Like [`write_atomic`], but `fill` streams the content into a buffered writer, so a big document
+/// (the library index) never has to exist in memory as one buffer.
+pub fn write_atomic_with(
+    path: &Path,
+    fill: impl FnOnce(&mut std::io::BufWriter<&mut std::fs::File>) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    use std::io::Write;
+    let dir = match path.parent() {
+        Some(d) if !d.as_os_str().is_empty() => d,
+        _ => Path::new("."),
+    };
+    std::fs::create_dir_all(dir)?;
+    let mut tmp = tempfile::Builder::new().prefix(".homefi-").suffix(".tmp").tempfile_in(dir)?;
+    {
+        let mut out = std::io::BufWriter::with_capacity(64 * 1024, tmp.as_file_mut());
+        fill(&mut out)?;
+        out.flush()?;
+    }
+    tmp.persist(path).map_err(|e| e.error)?;
+    Ok(())
+}
+
+/// [`write_atomic`] that also flushes the bytes to the disk before the rename, so a power cut can't leave an
+/// empty file in its place. Each writer gets its own temporary file, so two saves at once never mix. For small
+/// files that must survive (the sign-in), not for caches.
+pub fn write_durable(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
     let dir = match path.parent() {
         Some(d) if !d.as_os_str().is_empty() => d,
         _ => Path::new("."),
@@ -48,6 +78,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     let mut tmp = tempfile::Builder::new().prefix(".homefi-").suffix(".tmp").tempfile_in(dir)?;
     tmp.write_all(bytes)?;
+    tmp.as_file().sync_all()?;
     tmp.persist(path).map_err(|e| e.error)?;
     Ok(())
 }

@@ -242,6 +242,8 @@ pub struct EqAssistant {
     config: AiConfig,
     state: AssistantState,
     autoeq: Arc<AutoEq>,
+    /// Ties this conversation's turns into one item of the AI spending history.
+    spend_group: String,
 }
 
 impl EqAssistant {
@@ -253,7 +255,12 @@ impl EqAssistant {
 
     /// Continues a conversation saved with [`state`](Self::state).
     pub fn resume(config: AiConfig, state: AssistantState) -> Self {
-        Self { config, state, autoeq: Arc::new(AutoEq::new(crate::paths::app_dir().join("autoeq"))) }
+        Self {
+            config,
+            state,
+            autoeq: Arc::new(AutoEq::new(crate::paths::app_dir().join("autoeq"))),
+            spend_group: super::usage::new_group(),
+        }
     }
 
     pub fn with_autoeq(mut self, autoeq: Arc<AutoEq>) -> Self {
@@ -327,6 +334,11 @@ impl EqAssistant {
     }
 
     async fn run(&mut self) -> Result<AssistantTurn> {
+        let group = self.spend_group.clone();
+        super::usage::track(super::AiFeature::SoundAssistant, Some(&group), self.run_turn()).await
+    }
+
+    async fn run_turn(&mut self) -> Result<AssistantTurn> {
         if self.config.model.trim().is_empty() {
             self.config.model = resolve_model(&self.config).await?;
         }

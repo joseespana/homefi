@@ -190,6 +190,7 @@
     <string name="ex_tv_open_saved">Open %1$s</string>
     <string name="ex_tv_address_hint">On the phone: Connect the TV → Another smart TV shows what to type.</string>
     <string name="ex_tv_address_bad">That doesn\'t look right. Type it exactly as the phone shows it.</string>
+    <string name="ex_tv_music_needs_address">The music plays on the phone or computer. To hear it on this TV, connect this TV from the phone (Connect the TV), or go back and type the full address it shows.</string>
     <string name="ex_tv_open">Open</string>
     <string name="ex_tv_cancel">Cancel</string>
     <string name="ex_mountain_cd">Course profile, %1$s</string>

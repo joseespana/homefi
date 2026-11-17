@@ -57,6 +57,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.perseusoft.homefi.BuildConfig
 import com.perseusoft.homefi.R
+import com.perseusoft.homefi.ui.settings.apiCacheUsedText
 import com.perseusoft.homefi.data.AppSettings
 import com.perseusoft.homefi.data.Storage
 import com.perseusoft.homefi.data.UpdateStatus
@@ -178,6 +179,8 @@ private fun SettingRows(category: TvSettingsCategory, firstRow: FocusRequester, 
     val app = context.homefi
     val signingOut = rememberLoadingTask()
     val loadingNotes = rememberLoadingTask()
+    val clearingCache = rememberLoadingTask()
+    val cacheBytes by app.apiCache.usedBytes.collectAsStateWithLifecycle()
     val settings by app.settings.settings.collectAsStateWithLifecycle()
     val account by app.account.account.collectAsStateWithLifecycle()
     val update by app.updates.state.collectAsStateWithLifecycle()
@@ -190,6 +193,7 @@ private fun SettingRows(category: TvSettingsCategory, firstRow: FocusRequester, 
     var usbGuide by remember { mutableStateOf(false) }
     // the page changes: back to its top
     LaunchedEffect(category) { state.scrollToItem(0) }
+    LaunchedEffect(category) { if (category == TvSettingsCategory.TIDAL) app.apiCache.refresh() }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -240,7 +244,7 @@ private fun SettingRows(category: TvSettingsCategory, firstRow: FocusRequester, 
                     )
                 }
                 is TvSettingRow.Action -> {
-                    val shown = actionValue(row, settings, account != null, update.status)
+                    val shown = if (row.action == TvSettingAction.CLEAR_API_CACHE) apiCacheUsedText(cacheBytes) else actionValue(row, settings, account != null, update.status, update.release?.version)
                     SettingLine(
                         row, enabled, rowModifier,
                         onFocused = rowFocus,
@@ -248,6 +252,7 @@ private fun SettingRows(category: TvSettingsCategory, firstRow: FocusRequester, 
                             TvSettingAction.SIGN_OUT -> signingOut.active
                             TvSettingAction.CHECK_UPDATES -> update.status == UpdateStatus.CHECKING
                             TvSettingAction.WHATS_NEW -> loadingNotes.active
+                            TvSettingAction.CLEAR_API_CACHE -> clearingCache.active
                             else -> false
                         },
                         onClick = {
@@ -260,6 +265,7 @@ private fun SettingRows(category: TvSettingsCategory, firstRow: FocusRequester, 
                                 }
                                 TvSettingAction.CHECK_UPDATES -> if (app.updates.enabled) app.updates.check(manual = true)
                                 TvSettingAction.WHATS_NEW -> loadingNotes.run { app.whatsNew.latest()?.let { app.whatsNew.show(listOf(it)) } }
+                                TvSettingAction.CLEAR_API_CACHE -> if (cacheBytes != 0L) clearingCache.run { app.apiCache.clear() }
                             }
                         },
                         value = { focused -> if (shown != null) ValueText(shown, focused, arrows = false) else Icon(Icons.Rounded.ChevronRight, null, tint = if (focused) LocalTvLook.current.onFocus else LocalTvLook.current.ink2, modifier = Modifier.size(20.dp)) },
@@ -313,7 +319,7 @@ private fun SettingRows(category: TvSettingsCategory, firstRow: FocusRequester, 
 
 /** What an action row shows on its right: the account, the drive access, the update state, the version. */
 @Composable
-private fun actionValue(row: TvSettingRow.Action, settings: AppSettings, signedIn: Boolean, update: UpdateStatus): String? {
+private fun actionValue(row: TvSettingRow.Action, settings: AppSettings, signedIn: Boolean, update: UpdateStatus, newVersion: String?): String? {
     val context = LocalContext.current
     return when (row.action) {
         TvSettingAction.SIGN_OUT -> stringResource(if (signedIn) R.string.settings_logout else R.string.login_connect)
@@ -323,10 +329,12 @@ private fun actionValue(row: TvSettingRow.Action, settings: AppSettings, signedI
             !context.homefi.updates.enabled -> stringResource(R.string.tv_set_updates_off)
             update == UpdateStatus.CHECKING -> stringResource(R.string.update_checking)
             update == UpdateStatus.UP_TO_DATE -> stringResource(R.string.update_up_to_date, BuildConfig.VERSION_NAME)
-            update == UpdateStatus.AVAILABLE -> stringResource(R.string.update_available, context.homefi.updates.state.value.release?.version.orEmpty())
+            update == UpdateStatus.AVAILABLE -> stringResource(R.string.update_available, newVersion.orEmpty())
             else -> "HomeFi ${BuildConfig.VERSION_NAME}"
         }
         TvSettingAction.WHATS_NEW -> BuildConfig.VERSION_NAME
+        // shown from the app's ApiCache by the row itself
+        TvSettingAction.CLEAR_API_CACHE -> null
     }
 }
 

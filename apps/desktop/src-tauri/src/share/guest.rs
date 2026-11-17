@@ -344,7 +344,7 @@ async fn party_loop(app: AppHandle, session: Arc<GuestSession>) {
             play_along && hub_state.audio.is_some() && hub_state.playing && session.party.lock().unwrap().playing();
         session.playing_here.store(here, Ordering::SeqCst);
         // the room's clock and position, now and then (and at once when this changes)
-        if here != was_here || ticks % 4 == 0 {
+        if here != was_here || ticks.is_multiple_of(4) {
             was_here = here;
             emit_guest(&app);
         }

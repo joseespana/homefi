@@ -14,8 +14,9 @@ pub const MAX_WEB_SEARCHES: u8 = 10;
 
 /// Anthropic's server-side search tool.
 pub(crate) const ANTHROPIC_WEB_SEARCH_TOOL: &str = "web_search_20250305";
-/// How many results OpenRouter's web plugin attaches.
-pub(crate) const OPENROUTER_WEB_RESULTS: u8 = 5;
+/// How many results OpenRouter's web plugin attaches. Exa's price includes up to 10, and setlist
+/// pages are easily lost among five.
+pub(crate) const OPENROUTER_WEB_RESULTS: u8 = 10;
 
 /// The provider's own web search, asked for on one call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -199,6 +200,13 @@ mod tests {
         xai_request(&mut xai);
         assert!(xai.get("include").is_none() && xai.get("max_tool_calls").is_none());
         assert_eq!(xai["tools"], json!([{ "type": "web_search" }]));
+    }
+
+    #[test]
+    fn openrouter_asks_for_the_web_plugin_with_ten_results() {
+        let mut b = json!({ "model": "x" });
+        openrouter_request(&mut b);
+        assert_eq!(b["plugins"], json!([{ "id": "web", "max_results": 10 }]));
     }
 
     #[test]

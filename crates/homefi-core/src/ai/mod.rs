@@ -21,6 +21,7 @@ mod openai;
 pub(crate) mod prompt;
 pub mod reactions;
 pub(crate) mod replies;
+pub mod usage;
 mod web_search;
 
 use std::fmt;
@@ -42,6 +43,7 @@ pub use eq_assistant::{
 pub use error::{AiError, AiErrorKind};
 pub use guided::{GuidedEq, GuidedState, GuidedStep};
 pub use reactions::{react, react_guided, ReactionContext, ReactionResult, SoundReaction, SoundSnapshot, UndoStack};
+pub use usage::{AiFeature, AskMode, CostKind, Ledger, SpendDecision, SpendGuard, SpendPrompt, SpendSummary};
 pub use web_search::{Source, WebSearch, MAX_WEB_SEARCHES};
 
 /// Who answers. Every provider but Anthropic and Gemini speaks the OpenAI API.
@@ -515,6 +517,16 @@ pub async fn test_key(config: &AiConfig) -> crate::Result<()> {
         // its model list is public: ask about the key itself
         AiProvider::OpenRouter => openai::check_openrouter_key(config).await,
         _ => list_models(config).await.map(drop),
+    }
+}
+
+/// What's left to spend on the account, in USD, for providers that say it (OpenRouter); `None`
+/// for the others. Read-only, spends nothing.
+pub async fn balance(config: &AiConfig) -> crate::Result<Option<f64>> {
+    config.check()?;
+    match config.provider {
+        AiProvider::OpenRouter => openai::openrouter_balance(config).await,
+        _ => Ok(None),
     }
 }
 

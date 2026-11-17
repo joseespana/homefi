@@ -363,7 +363,7 @@ pub fn read_track(
             reader.read_window(lo as u32, (hi - lo) as u16, dst)?;
         }
 
-        for (pair, sample) in reader.window[..window_bytes].chunks_exact(2).zip(samples.iter_mut()) {
+        for (pair, sample) in reader.window[..window_bytes].as_chunks::<2>().0.iter().zip(samples.iter_mut()) {
             *sample = i16::from_le_bytes([pair[0], pair[1]]);
         }
         let frames_here = usize::from(count) * FRAMES_PER_SECTOR;

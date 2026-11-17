@@ -38,6 +38,8 @@ pub struct Session {
     config: Config,
     store: AuthStore,
     auth: AuthClient,
+    /// Shared by every clone, so a new budget reaches the running API client.
+    cache: DiskCache,
     omit_cache: bool,
     debug: bool,
     api: Arc<Mutex<Option<CachedApi>>>,
@@ -54,6 +56,7 @@ impl Session {
         let app_dir = app_dir.into();
         Self {
             store: AuthStore::new(app_dir.join(paths::AUTH_FILENAME)),
+            cache: DiskCache::new(app_dir.join(paths::CACHE_DIRNAME)).with_max_mb(config.cache_size_mb),
             omit_cache: !config.enable_cache,
             debug: config.debug,
             app_dir,
@@ -101,8 +104,9 @@ impl Session {
         &mut self.config
     }
 
-    pub fn cache(&self) -> DiskCache {
-        DiskCache::new(self.app_dir.join(paths::CACHE_DIRNAME))
+    /// The API response cache (its budget can change at any time: [`DiskCache::set_max_mb`]).
+    pub fn cache(&self) -> &DiskCache {
+        &self.cache
     }
 
     pub fn auth_store(&self) -> &AuthStore {
@@ -215,7 +219,8 @@ impl Session {
             .boxed()
         });
 
-        let mut client = TidalClient::new(token).with_refresher(refresher).with_cache(self.cache(), self.omit_cache);
+        let mut client =
+            TidalClient::new(token).with_refresher(refresher).with_cache(self.cache.clone(), self.omit_cache);
         if self.debug {
             client = client.with_debug_dir(Some(self.app_dir.join(paths::DEBUG_DIRNAME)));
         }

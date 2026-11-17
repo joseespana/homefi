@@ -2,6 +2,7 @@
 // sounds (with a toast and Undo), Try / Keep, the reactions and the words the
 // screens use for sounds. The rules themselves belong to the backend: this
 // store only asks for changes and refreshes from the `settings` event.
+import { spendOk } from "./spend";
 import {
   api,
   errorText,
@@ -306,6 +307,9 @@ class SoundStore {
   /** One tap: the rule is saved and applied by the backend; a toast says what changed, with Undo. */
   async react(reaction: SoundReaction, scope: TasteScope | null = null, language: string = uiLanguage()) {
     if (this.busy) return;
+    // "perfect" and the loudness taps never call the AI (core `SoundReaction::uses_ai`)
+    const usesAi = reaction !== "perfect" && reaction !== "tooQuiet" && reaction !== "tooLoud";
+    if (usesAi && !(await spendOk("sound_reaction"))) return;
     this.busy = reaction;
     try {
       const r = await api.soundReact(reaction, scope, language);

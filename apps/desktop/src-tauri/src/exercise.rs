@@ -16,6 +16,7 @@
 //! second window on the TV's screen, and, with `tv_audio = tv`, a listen-only share hub for the
 //! ride whose join code is a one-ride token.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -29,7 +30,9 @@ use homefi_core::exercise::{
 };
 use homefi_core::export::ExportKind;
 use homefi_core::humane::{self, Lang};
-use homefi_core::playlist::{new_id, HomePlaylist, LibraryIndex, PlaylistEntry, PlaylistOrigin, RideOrigin};
+use homefi_core::playlist::{
+    new_id, HomePlaylist, LibraryIndex, LocalCopies, OfflineStatus, PlaylistEntry, PlaylistOrigin, RideOrigin,
+};
 use homefi_player::{RepeatMode, Snapshot, Status};
 use serde::Serialize;
 use tauri::ipc::{Channel, Response};
@@ -624,7 +627,9 @@ pub async fn exercise_rides(app: AppHandle) -> Vec<RideSummary> {
 /// Refused while a ride is on or being built.
 #[tauri::command]
 pub async fn exercise_ride_load(app: AppHandle, id: String) -> CmdResult<RideLoaded> {
-    let ride = with_store(&app, move |store| store.get(&id)).await.map_err(|_| ride_not_found())?;
+    let mut ride = with_store(&app, move |store| store.get(&id)).await.map_err(|_| ride_not_found())?;
+    // songs downloaded since the ride was saved show and play from their files
+    local_copies(&app).relink(ride.plan.songs.iter_mut().map(|s| &mut s.entry), has_file);
     let playlist = playlist_of(&ride.plan, ride.playlist_id.clone());
     let built = RideBuilt { plan: ride.plan.clone(), playlist: playlist.clone() };
     {
@@ -769,6 +774,42 @@ fn stream_item(e: &PlaylistEntry, source: &homefi_core::dsp::SourceContext) -> O
     })
 }
 
+/// The library's files by ISRC, so a TIDAL song of a plan that was downloaded later plays from its file.
+fn local_copies(app: &AppHandle) -> LocalCopies {
+    let state = app.state::<AppState>();
+    let library = lock(&state.library);
+    LocalCopies::new(library.iter().map(|t| (t.path.as_str(), t.isrc.as_deref())))
+}
+
+/// A plan's own file counts while it is on disk (the library may not have scanned its folder).
+fn has_file(path: &str) -> bool {
+    Path::new(path).is_file()
+}
+
+/// How ready these songs (a plan on screen) are to play with no internet, and the TIDAL songs to
+/// download for the rest (`download` with `track/<id>` links).
+#[tauri::command]
+pub async fn exercise_offline(app: AppHandle, entries: Vec<PlaylistEntry>) -> CmdResult<OfflineStatus> {
+    let copies = local_copies(&app);
+    tauri::async_runtime::spawn_blocking(move || copies.status(&entries, has_file)).await.map_err(err)
+}
+
+/// [`exercise_offline`] of every saved ride, by ride id (one look at the library for all of them).
+#[tauri::command]
+pub async fn exercise_rides_offline(app: AppHandle) -> CmdResult<HashMap<String, OfflineStatus>> {
+    let copies = local_copies(&app);
+    let store = app.state::<Rides>().store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store
+            .list()
+            .iter()
+            .map(|ride| (ride.id.clone(), copies.status(ride.plan.songs.iter().map(|s| &s.entry), has_file)))
+            .collect()
+    })
+    .await
+    .map_err(err)
+}
+
 /// Which song of the plan plays: a library file by its path, a Tidal song by its id in the stream
 /// cache's file name. Among repeats, the first at or after `from`.
 fn song_index(plan: &RidePlan, path: &Path, stream_cache: &Path, from: usize) -> Option<usize> {
@@ -827,10 +868,20 @@ pub async fn exercise_start(app: AppHandle, plan: RidePlan) -> CmdResult<Exercis
     if matches!(lock(&exercise.ride).stage, Stage::Riding | Stage::Finished) {
         end_ride(&app).await;
     }
+    // songs downloaded since the plan was made play from their files: no internet needed for them
+    let copies = local_copies(&app);
+    let mut plan = plan;
     let (playlist, ridden_id) = {
-        let ride = lock(&exercise.ride);
+        let mut ride = lock(&exercise.ride);
         let same_ride = ride.built.as_ref().is_some_and(|b| b.plan.workout.id == plan.workout.id);
-        (playlist_for(&plan, ride.built.as_ref()), ride.saved_id.clone().filter(|_| same_ride))
+        let mut playlist = playlist_for(&plan, ride.built.as_ref());
+        let relinked = copies.relink(playlist.entries.iter_mut(), has_file)
+            + copies.relink(plan.songs.iter_mut().map(|s| &mut s.entry), has_file);
+        if relinked > 0 && same_ride {
+            // the ride's build follows, so a swap mid-ride still finds the same playlist
+            ride.built = Some(RideBuilt { plan: plan.clone(), playlist: playlist.clone() });
+        }
+        (playlist, ride.saved_id.clone().filter(|_| same_ride))
     };
     let items = stream_items(&playlist);
     if items.is_empty() {
@@ -925,6 +976,7 @@ pub async fn exercise_preview(app: AppHandle, song_index: usize) -> CmdResult<u6
         return Err(preview_sharing_text());
     }
     let exercise = app.state::<Exercise>();
+    let copies = local_copies(&app);
     let (item, window) = {
         let ride = lock(&exercise.ride);
         if matches!(ride.stage, Stage::Riding | Stage::Finished) {
@@ -932,7 +984,9 @@ pub async fn exercise_preview(app: AppHandle, song_index: usize) -> CmdResult<u6
         }
         let built = ride.built.as_ref().ok_or_else(nothing_to_play_text)?;
         let song = built.plan.songs.get(song_index).ok_or_else(nothing_to_play_text)?;
-        let item = stream_item(&song.entry, &built.playlist.source_context()).ok_or_else(nothing_to_play_text)?;
+        let mut entry = song.entry.clone();
+        copies.relink(std::iter::once(&mut entry), has_file);
+        let item = stream_item(&entry, &built.playlist.source_context()).ok_or_else(nothing_to_play_text)?;
         (item, ex::preview_window(song.entry.duration_ms))
     };
     let generation = crate::stream::preview(&app, &item, window.from_ms).await?;
@@ -1784,6 +1838,29 @@ mod tests {
         assert_eq!(song_index(&p, Path::new("/app/stream-cache/123.flac"), cache, 0), Some(1));
         assert_eq!(song_index(&p, Path::new("/elsewhere/123.flac"), cache, 0), None, "only the cache's files count");
         assert_eq!(song_index(&p, Path::new("/m/other.flac"), cache, 0), None);
+    }
+
+    #[test]
+    fn a_tidal_song_downloaded_later_plays_from_its_file_and_is_still_found_in_the_plan() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("downloaded.flac");
+        std::fs::write(&file, b"x").unwrap();
+        let file = file.to_string_lossy().into_owned();
+        let copies = LocalCopies::new([(file.as_str(), Some("USAAA0000001"))]);
+        let mut song = entry("A", None, Some("9"));
+        song.isrc = Some("USAAA0000001".into());
+        let mut ride = plan(vec![song, entry("B", None, Some("10"))]);
+        let mut playlist = playlist_for(&ride, None);
+        assert_eq!(copies.status(&playlist.entries, has_file).to_download, ["10"], "the downloaded one counts as here");
+        assert_eq!(stream_items(&playlist)[0].local, None, "before relinking it would stream");
+
+        copies.relink(playlist.entries.iter_mut(), has_file);
+        copies.relink(ride.songs.iter_mut().map(|s| &mut s.entry), has_file);
+        let items = stream_items(&playlist);
+        assert_eq!(items[0].local.as_deref(), Some(file.as_str()), "no internet needed for it");
+        assert_eq!(items[1].local, None, "the other still streams");
+        let cache = tmp.path().join("cache");
+        assert_eq!(song_index(&ride, Path::new(&file), &cache, 0), Some(0), "the ride clock knows which song plays");
     }
 
     #[test]

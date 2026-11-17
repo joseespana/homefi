@@ -12,7 +12,7 @@ authors.workspace = true
 # `share::GuestClient`). The protocol, permissions and fair queue are always
 # built. Off by default so the CLI does not carry an HTTP server.
 decode = ["dep:symphonia"]
-share = ["dep:axum", "dep:mdns-sd", "dep:tokio-tungstenite", "dep:tower", "dep:tower-http", "tokio/net"]
+share = ["dep:axum", "dep:getrandom", "dep:mdns-sd", "dep:tokio-tungstenite", "dep:tower", "dep:tower-http", "tokio/net"]
 
 [dependencies]
 axum = { workspace = true, optional = true }
@@ -20,6 +20,7 @@ base64.workspace = true
 chrono.workspace = true
 dirs.workspace = true
 futures.workspace = true
+getrandom = { workspace = true, optional = true }
 lofty.workspace = true
 mdns-sd = { workspace = true, optional = true }
 regex.workspace = true

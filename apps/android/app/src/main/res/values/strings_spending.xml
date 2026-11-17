@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- AI spending: what each AI action cost, "ask before spending" and the monthly limit -->
+    <string name="spend_title">Spending</string>
+    <string name="spend_intro">What the AI has cost you, counted on this device. Amounts with ≈ are estimates from the model\'s list price; your AI service\'s bill is what counts.</string>
+    <string name="spend_month">This month</string>
+    <plurals name="spend_month_actions">
+        <item quantity="one">%1$d AI action</item>
+        <item quantity="other">%1$d AI actions</item>
+    </plurals>
+    <plurals name="spend_month_unknown">
+        <item quantity="one">%1$d without a known price, not counted</item>
+        <item quantity="other">%1$d without a known price, not counted</item>
+    </plurals>
+    <string name="spend_nothing">Nothing yet</string>
+    <string name="spend_nothing_hint">Every AI action (a ride, a concert, a party playlist, the sound assistant…) shows up here with what it cost.</string>
+    <string name="spend_balance">Left on OpenRouter</string>
+    <string name="spend_balance_check">Check balance</string>
+    <string name="spend_balance_checking">Checking…</string>
+    <string name="spend_balance_hint">Asks OpenRouter; spends nothing</string>
+    <string name="spend_balance_left">%1$s left</string>
+    <string name="spend_balance_unknown">OpenRouter didn\'t say</string>
+    <string name="spend_guard_title">Ask before spending</string>
+    <string name="spend_guard_intro">So the AI never uses up your balance by surprise. The monthly limit is checked on every AI call.</string>
+    <string name="spend_ask">Ask before an AI action</string>
+    <string name="spend_ask_never">Don\'t ask</string>
+    <string name="spend_ask_always">Always</string>
+    <string name="spend_ask_above">Above an amount</string>
+    <string name="spend_ask_never_hint">AI actions start right away.</string>
+    <string name="spend_ask_always_hint">You\'ll see what it usually costs and confirm before every AI action.</string>
+    <string name="spend_ask_above_hint">Asks only when it usually costs more than the amount, or nobody knows yet.</string>
+    <string name="spend_ask_above_amount">Ask when it costs more than %1$s</string>
+    <string name="spend_limit">Monthly limit</string>
+    <string name="spend_limit_hint">Stops AI actions once this month\'s spending reaches it. Starts again on the 1st.</string>
+    <string name="spend_limit_amount">Limit per month: %1$s</string>
+    <string name="spend_limit_off">No limit</string>
+    <string name="spend_history">Spending history</string>
+    <string name="spend_history_empty">No AI actions yet</string>
+    <string name="spend_more">Show %1$d more</string>
+    <string name="spend_clear">Clear history</string>
+    <string name="spend_clear_hint">Only the list on this device</string>
+    <string name="spend_clear_title">Clear the AI spending history?</string>
+    <string name="spend_clear_text">The list and the totals start again from zero. What you spent at the AI service doesn\'t change, and your limit stays.</string>
+    <string name="spend_continue">Continue</string>
+    <string name="spend_ok">OK</string>
+</resources>

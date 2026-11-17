@@ -74,6 +74,7 @@ import com.perseusoft.homefi.ui.playlists.ChatRequest
 import com.perseusoft.homefi.ui.playlists.chatSummary
 import com.perseusoft.homefi.ui.playlists.enqueuePlaylist
 import com.perseusoft.homefi.ui.playlists.playPlaylist
+import com.perseusoft.homefi.ui.playlists.LocalCopy
 import com.perseusoft.homefi.ui.theme.LocalMotion
 import com.perseusoft.homefi.ui.tidal.Collection
 import com.perseusoft.homefi.ui.tidal.TidalViewModel
@@ -278,7 +279,7 @@ private fun HomefiGrid(
             is HomeCard.Made -> {
                 val playlist = card.playlist
                 TvCoverCard(
-                    cover = remember(playlist, library.tracks) { playlistCover(playlist, app.library::find) },
+                    cover = remember(playlist, library.tracks) { playlistCover(playlist, app.library::localCopy) },
                     title = playlist.name,
                     subtitle = playlistSubtitle(playlist),
                     icon = Icons.AutoMirrored.Rounded.QueueMusic,
@@ -301,9 +302,9 @@ private fun playlistSubtitle(playlist: HomePlaylist): String =
     stringResource(R.string.pl_count, playlist.entries.size, formatDuration(playlist.entries.sumOf { it.durationMs.toLong() }))
 
 /** The first entry's cover: the file's own artwork when it is in the library, else TIDAL's. */
-private fun playlistCover(playlist: HomePlaylist, find: (String) -> com.perseusoft.homefi.core.LibraryTrack?): Any? {
+private fun playlistCover(playlist: HomePlaylist, find: LocalCopy): Any? {
     val first = playlist.entries.firstOrNull { it.localPath != null || it.coverUrl != null } ?: return null
-    return first.localPath?.let(find)?.let { EmbeddedCover(it.path) } ?: first.coverUrl
+    return find(first)?.let { EmbeddedCover(it.path) } ?: first.coverUrl
 }
 
 /** Play, shuffle, queue, Sound and delete: what a long OK on a playlist offers (and the page's "more"). */
@@ -311,7 +312,7 @@ private fun playlistCover(playlist: HomePlaylist, find: (String) -> com.perseuso
 private fun playlistActions(playlist: HomePlaylist, onDelete: () -> Unit, onKeepChatting: (() -> Unit)? = null): List<TvAction> {
     val app = LocalContext.current.homefi
     val nav = LocalTvNav.current
-    val find = app.library::find
+    val find: LocalCopy = app.library::localCopy
     return buildList {
         add(TvAction(Icons.Rounded.PlayArrow, stringResource(R.string.player_play)) { app.player.playPlaylist(playlist, find); nav.openPlayer() })
         add(TvAction(Icons.Rounded.Shuffle, stringResource(R.string.library_shuffle)) { app.player.playPlaylist(playlist, find, shuffle = true); nav.openPlayer() })
@@ -362,8 +363,8 @@ private fun TvHomePlaylistPage(playlist: HomePlaylist, signedIn: Boolean, onDele
     val player by app.player.state.collectAsStateWithLifecycle()
     val tidalAll by app.playlists.tidal.collectAsStateWithLifecycle()
     val tidal = tidalAll?.takeIf { it.id == playlist.id }
-    val find = app.library::find
-    val playable = remember(playlist, library.tracks) { playlist.entries.any { it.tidalId != null || it.localPath?.let(find) != null } }
+    val find: LocalCopy = app.library::localCopy
+    val playable = remember(playlist, library.tracks) { playlist.entries.any { it.tidalId != null || find(it) != null } }
     val onTidal = playlist.tidalUuid != null
     val first = remember { FocusRequester() }
     val rowsEntry = remember { FocusRequester() }
@@ -408,7 +409,7 @@ private fun TvHomePlaylistPage(playlist: HomePlaylist, signedIn: Boolean, onDele
         ) {
             item(key = "tidal-state") { TidalState(tidal, onTidal, signedIn) }
             itemsIndexed(playlist.entries, key = { i, e -> "e$i-" + (e.tidalId ?: e.localPath ?: e.title) }) { index, entry ->
-                val local = entry.localPath?.let(find)
+                val local = find(entry)
                 val canPlay = local != null || entry.tidalId != null
                 val current = player.current?.mediaId?.let { it == local?.path || it == entry.tidalId?.let { id -> "tidal:$id" } } == true
                 TvRow(
@@ -596,8 +597,8 @@ private fun androidx.compose.foundation.layout.ColumnScope.BuiltPane(state: Part
     val look = LocalTvLook.current
     val library by app.library.state.collectAsStateWithLifecycle()
     val playlist = state.built.playlist
-    val find = app.library::find
-    val playable = remember(playlist, library.tracks) { playlist.entries.any { it.tidalId != null || it.localPath?.let(find) != null } }
+    val find: LocalCopy = app.library::localCopy
+    val playable = remember(playlist, library.tracks) { playlist.entries.any { it.tidalId != null || find(it) != null } }
     Text(playlist.name, style = TvType.section, color = look.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
     Text(stringResource(R.string.pl_count, playlist.entries.size, formatDuration(playlist.entries.sumOf { it.durationMs.toLong() })), style = TvType.secondary, color = look.ink2)
     state.built.note?.let { Text(it, style = TvType.secondary.copy(fontSize = 13.sp), color = look.ink2, maxLines = 3, overflow = TextOverflow.Ellipsis) }
@@ -616,7 +617,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.BuiltPane(state: Part
     if (state.saved) TvTag(stringResource(R.string.pl_saved), tone = look.ok)
     LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         itemsIndexed(playlist.entries, key = { i, e -> "b$i-" + (e.tidalId ?: e.localPath ?: e.title) }) { index, entry ->
-            val local = entry.localPath?.let(find)
+            val local = find(entry)
             val canPlay = local != null || entry.tidalId != null
             TvRow(
                 title = entry.title,

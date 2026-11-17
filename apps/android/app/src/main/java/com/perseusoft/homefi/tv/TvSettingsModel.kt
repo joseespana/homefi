@@ -23,6 +23,7 @@ import com.perseusoft.homefi.core.ShareEditMode
 import com.perseusoft.homefi.core.ShareQueueOrder
 import com.perseusoft.homefi.core.ShareSkipMode
 import com.perseusoft.homefi.data.AmbientStyle
+import com.perseusoft.homefi.data.ApiCacheDefaults
 import com.perseusoft.homefi.data.AppSettings
 import com.perseusoft.homefi.data.DownloadTarget
 import com.perseusoft.homefi.data.LyricsMode
@@ -52,7 +53,7 @@ sealed interface TvLabel {
 }
 
 /** What an action row does when OK is pressed; the screen decides how (a dialog, an intent). */
-enum class TvSettingAction { SIGN_OUT, USB_ACCESS, FORGET_DRIVES, CHECK_UPDATES, WHATS_NEW }
+enum class TvSettingAction { SIGN_OUT, USB_ACCESS, FORGET_DRIVES, CHECK_UPDATES, WHATS_NEW, CLEAR_API_CACHE }
 
 /** One line of the right pane. [enabled] greys a row out while another setting makes it pointless. */
 sealed interface TvSettingRow {
@@ -317,6 +318,13 @@ private const val TEMPLATE_LENGTH = 160
 private val tidalRows = listOf(
     TvSettingRow.Action("account", R.string.tv_set_account, null, TvSettingAction.SIGN_OUT),
     switchRow("lazyLists", R.string.settings_lazy_lists, { it.lazyLists }, { s, v -> s.copy(lazyLists = v) }, R.string.settings_lazy_lists_hint),
+    numberRow(
+        "apiCacheMb", R.string.api_cache_size, ApiCacheDefaults.STEPS_MB,
+        { if (it == 0) res(R.string.api_cache_off) else megabytes(it) },
+        { it.apiCacheMb }, { s, v -> s.copy(apiCacheMb = v) }, R.string.api_cache_size_hint,
+    ),
+    // its value (what the answers take now) comes from the app's ApiCache, not from the settings
+    TvSettingRow.Action("apiCacheClear", R.string.api_cache_clear_title, R.string.api_cache_clear_hint, TvSettingAction.CLEAR_API_CACHE),
     switchRow("albumVersionsGroup", R.string.settings_album_group, { it.albumVersionsGroup }, { s, v -> s.copy(albumVersionsGroup = v) }, R.string.settings_album_group_hint),
     enumRow(
         "albumExplicit", R.string.settings_album_explicit, AlbumExplicitPref.entries,

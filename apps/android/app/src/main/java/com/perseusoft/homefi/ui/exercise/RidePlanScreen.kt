@@ -46,6 +46,7 @@ import com.perseusoft.homefi.core.BikeProfile
 import com.perseusoft.homefi.core.exerciseHotPoints
 import com.perseusoft.homefi.core.exerciseShownTarget
 import com.perseusoft.homefi.homefi
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.perseusoft.homefi.R
@@ -54,6 +55,7 @@ import com.perseusoft.homefi.core.PlannedSong
 import com.perseusoft.homefi.core.RideProgress
 import com.perseusoft.homefi.core.RideSegment
 import com.perseusoft.homefi.core.SavedRideSummary
+import com.perseusoft.homefi.data.source
 import com.perseusoft.homefi.ui.NameDialog
 import com.perseusoft.homefi.library.EmbeddedCover
 import com.perseusoft.homefi.ui.library.CoverArt
@@ -183,6 +185,9 @@ fun RidePreview(state: RideUi.Preview, session: RideSession) {
         if (rebuilding != null) RebuildCard(rebuilding, session::cancelBuild)
         state.rebuildError?.let { error -> RideProblem("${stringResource(R.string.ex_rebuild_failed)} $error") }
         if (saved != null) SavedLine(saved, onKeep = session::keepSaved, onRename = { renaming = true })
+        // the ride's songs on the phone, to ride it with no internet
+        val songSources = remember(plan) { plan.songs.map { it.source() } }
+        RideOfflineButton(key = saved?.id ?: built.playlist.id, name = saved?.name ?: built.playlist.name, songs = songSources)
         plan.notes.forEach { note ->
             Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -254,6 +259,7 @@ private fun SegmentRow(
     previewing: RidePreviewing?,
     onPreview: (Int) -> Unit,
 ) {
+    val app = LocalContext.current.homefi
     val zone = segment.kind.zoneColor()
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -268,15 +274,21 @@ private fun SegmentRow(
             }
             songs.forEach { (index, song) ->
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    CoverArt(song.entry.localPath?.let { EmbeddedCover(it) } ?: song.entry.coverUrl, COVER_SIZE, radius = 8.dp)
-                    Column(Modifier.weight(1f)) {
-                        Text(song.entry.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                    // a song downloaded since the plan was made shows its file's cover (no internet needed)
+                    val localPath = app.library.localCopy(song.entry)?.path
+                    CoverArt(localPath?.let { EmbeddedCover(it) } ?: song.entry.coverUrl, COVER_SIZE, radius = 8.dp)
+                    // the song gets the row's width: title (two lines), artist, then the beat pill under them
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            song.entry.title, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold,
+                        )
                         Text(
                             song.entry.artist, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        BpmFit(song, Modifier.padding(top = 4.dp))
                     }
-                    BpmFit(song)
                     PreviewButton(song.entry.title, previewing?.takeIf { it.song == index }) { onPreview(index) }
                     if (swappable) {
                         // one swap at a time: the song being replaced shows a spinner, the others wait
@@ -329,7 +341,7 @@ private fun shownRange(segment: RideSegment, bike: BikeProfile): String {
 
 /** "128 BPM · 1:1 → 128", warning-coloured when the song is outside the cadence range. */
 @Composable
-private fun BpmFit(song: PlannedSong) {
+private fun BpmFit(song: PlannedSong, modifier: Modifier = Modifier) {
     val bpm = song.bpm
     val fit = song.fit
     val text = when {
@@ -340,7 +352,7 @@ private fun BpmFit(song: PlannedSong) {
     }
     val off = fit != null && fit.errorRpm > 0f
     // green when the song's beat fits the cadence, amber when it is off or only the metronome is left
-    TintedPill(text, if (off || fit == null) FIT_OFF else FIT_OK)
+    TintedPill(text, if (off || fit == null) FIT_OFF else FIT_OK, modifier)
 }
 
 private fun BeatRatio.labelRes(): Int = when (this) {

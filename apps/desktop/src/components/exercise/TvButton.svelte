@@ -44,7 +44,7 @@
       <button type="button" role="menuitem" aria-expanded={smart} aria-busy={exercise.working === "tv-smart"} onclick={showSmart}>{#if exercise.working === "tv-smart"}<Spinner size={16} />{:else}<Icon name="external" size={16} />{/if}Smart TV</button>
       {#if smart}
         <div class="smart">
-          <p><b>Google TV or Android TV:</b> open HomeFi on the TV and go to Train. The ride shows up there by itself.</p>
+          <p><b>Google TV or Android TV:</b> open HomeFi on the TV and go to Train. The ride shows up there by itself.{#if exercise.settings.tv_audio === "tv"} For the music on the TV too, choose "Type what the phone shows" there and type the address below, all of it.{/if}</p>
           <p><b>Another smart TV:</b> in its web browser, type</p>
           {#if typed}<button type="button" class="addr" title="Copy" onclick={copy}>{typed}</button>{:else}<p>Getting it ready…</p>{/if}
         </div>

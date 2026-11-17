@@ -152,7 +152,9 @@ pub(crate) async fn chat(
         web_search::gemini_request(&mut payload);
     }
     let req = request(config, http().post(url)).timeout(CHAT_TIMEOUT).json(&payload);
-    parse(config, send(config, req, false).await?)
+    let answer = send(config, req, false).await?;
+    super::usage::note(config, Api::Gemini, &answer, search.is_some());
+    parse(config, answer)
 }
 
 /// A quick task: Gemini's thinking models think little, so the thinking does not use up the answer's tokens.

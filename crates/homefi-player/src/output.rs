@@ -364,7 +364,7 @@ pub(crate) fn peaks(samples: &[f32], channels: usize) -> (f32, f32) {
             right = left;
         }
         2 => {
-            for frame in samples.chunks_exact(2) {
+            for frame in samples.as_chunks::<2>().0 {
                 left = left.max(frame[0].abs());
                 right = right.max(frame[1].abs());
             }

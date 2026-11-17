@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.perseusoft.homefi.player
 
 import android.net.Uri
@@ -38,7 +40,7 @@ class CarLibrary(private val app: HomefiApplication) {
             parentId == ROOT -> sections(settings)
             parentId == RECENT -> app.player.recents.items.value.take(MAX_ITEMS).map { recentItem(it) }
             parentId == PLAYLISTS -> app.playlists.list.value.map { p ->
-                val cover = p.entries.firstNotNullOfOrNull { e -> e.localPath?.let(app.library::find)?.path }
+                val cover = p.entries.firstNotNullOfOrNull { e -> app.library.localCopy(e)?.path }
                 folder(PLAYLIST + p.id, p.name, subtitle = p.description, coverPath = cover, remoteCover = p.entries.firstNotNullOfOrNull { it.coverUrl })
             }
             parentId == ALBUMS -> tracks().albums().take(MAX_ITEMS).map { folder(ALBUM + it.key, it.title, subtitle = it.artist, coverPath = it.tracks.first().path) }
@@ -90,7 +92,7 @@ class CarLibrary(private val app: HomefiApplication) {
         }
         parentId.startsWith(PLAYLIST) -> {
             val playlist = app.playlists.list.value.firstOrNull { it.id == parentId.removePrefix(PLAYLIST) } ?: return null
-            playlist.mediaItems(app.library::find).map { it.withSource(playlist.source()) }
+            playlist.mediaItems(app.library::localCopy).map { it.withSource(playlist.source()) }
         }
         else -> null
     }

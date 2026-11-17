@@ -301,6 +301,18 @@ pub async fn logout(state: State<'_, AppState>) -> CmdResult<()> {
     Ok(())
 }
 
+/// Bytes the saved Tidal answers (the API cache) take on disk now.
+#[tauri::command]
+pub async fn api_cache_usage(state: State<'_, AppState>) -> CmdResult<u64> {
+    Ok(state.session.cache().usage_async().await)
+}
+
+/// Deletes every saved Tidal answer (only the API cache's folder).
+#[tauri::command]
+pub async fn clear_api_cache(state: State<'_, AppState>) -> CmdResult<()> {
+    state.session.cache().clear_async().await.map_err(err)
+}
+
 #[tauri::command]
 pub async fn search(state: State<'_, AppState>, query: String) -> CmdResult<SearchResults> {
     let api = state.api().map_err(err)?;
@@ -1500,7 +1512,13 @@ pub async fn set_settings(app: AppHandle, settings: DesktopSettings) -> CmdResul
         s.taste = s.taste.clamped();
         s.playlists = s.playlists.clamped();
         s.disc = s.disc.clone().sanitized();
+        s.api_cache_mb = s.api_cache_mb.min(homefi_core::api::MAX_CACHE_MB);
     })?;
+    if before.api_cache_mb != saved.api_cache_mb {
+        // a smaller budget (or off) frees the space before the page asks how much is used
+        state.session.cache().set_max_mb(saved.api_cache_mb);
+        state.session.cache().prune_async().await;
+    }
     crate::share::on_settings(&app, &before, &saved);
     crate::dj::on_settings(&app, &before.dj, &saved.dj);
     if before.eq != saved.eq {

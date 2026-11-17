@@ -536,3 +536,180 @@ async fn a_slow_guest_app_misses_levels_but_not_messages() {
     assert_eq!(text, "still here");
     assert!(levels < 500, "levels were dropped, not queued ({levels})");
 }
+
+// ------------------------------------------------------------ catalog work a guest can make the host do
+
+/// A host whose catalog is slow: every search or browse waits [`SLOW`] unless its query starts with "fast".
+/// `running` counts the host requests in flight; one stops counting when the hub drops (aborts) it.
+#[derive(Default)]
+struct SlowHost {
+    running: std::sync::atomic::AtomicUsize,
+}
+
+const SLOW: Duration = Duration::from_secs(60);
+
+/// Counts one host request while alive.
+struct InFlight<'a>(&'a std::sync::atomic::AtomicUsize);
+
+impl<'a> InFlight<'a> {
+    fn new(counter: &'a std::sync::atomic::AtomicUsize) -> Self {
+        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Self(counter)
+    }
+}
+
+impl Drop for InFlight<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl SlowHost {
+    fn running(&self) -> usize {
+        self.running.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl HubHost for SlowHost {
+    fn search(&self, q: String) -> BoxFuture<'_, homefi_core::Result<SearchResults>> {
+        async move {
+            let _in_flight = InFlight::new(&self.running);
+            if !q.starts_with("fast") {
+                tokio::time::sleep(SLOW).await;
+            }
+            Ok(SearchResults { tracks: vec![track(&q)], ..Default::default() })
+        }
+        .boxed()
+    }
+
+    fn browse(&self, kind: BrowseKind, id: String) -> BoxFuture<'_, homefi_core::Result<Page>> {
+        async move {
+            let _in_flight = InFlight::new(&self.running);
+            if !id.starts_with("fast") {
+                tokio::time::sleep(SLOW).await;
+            }
+            Ok(Page { header: Collection { kind, id, ..Default::default() }, tracks: Vec::new() })
+        }
+        .boxed()
+    }
+
+    fn cover(&self, _id: String) -> BoxFuture<'_, Option<CoverImage>> {
+        async { None }.boxed()
+    }
+
+    fn command(&self, _command: HostCommand) {}
+}
+
+async fn start_slow() -> (Hub, Arc<SlowHost>) {
+    let host = Arc::new(SlowHost::default());
+    let mut config = HubConfig::new("Música de <José>", "José");
+    config.bind = SocketAddr::from(([127, 0, 0, 1], 0));
+    config.code = "4821".into();
+    let hub = Hub::start(config, host.clone()).await.unwrap();
+    (hub, host)
+}
+
+/// `cond` holds now and still holds a moment later (nothing more was started meanwhile).
+async fn settles(cond: impl Fn() -> bool) {
+    until(&cond).await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(cond(), "it did not stay that way");
+}
+
+fn browse(id: &str) -> GuestMessage {
+    GuestMessage::Browse { kind: BrowseKind::Album, id: id.into() }
+}
+
+#[tokio::test]
+async fn a_guest_has_one_search_and_two_pages_in_flight_and_they_stop_when_it_is_kicked() {
+    let (hub, host) = start_slow().await;
+    let (ana, mut rx) = join(&hub, "Ana").await;
+
+    // typing fast: every new search replaces the one still running
+    for i in 0..10 {
+        ana.send(GuestMessage::Search { q: format!("slow {i}") }).unwrap();
+    }
+    settles(|| host.running() == 1).await;
+    // opening pages fast: two at most, a newer one replaces the oldest
+    for i in 0..6 {
+        ana.send(browse(&format!("slow {i}"))).unwrap();
+    }
+    settles(|| host.running() == 3).await;
+
+    // the latest search wins: it answers, and the slow one it replaced is gone
+    ana.send(GuestMessage::Search { q: "fast queen".into() }).unwrap();
+    let results = expect(&mut rx, |ev| match ev {
+        GuestEvent::Message(HubMessage::Results(r)) => Some(r.clone()),
+        _ => None,
+    })
+    .await;
+    assert_eq!(results.q, "fast queen");
+    settles(|| host.running() == 2).await;
+
+    // kicked: what it left running stops at once
+    assert!(hub.kick(ana.guest_id(), false));
+    settles(|| host.running() == 0).await;
+    hub.stop().await;
+}
+
+#[tokio::test]
+async fn catalog_work_is_capped_for_the_whole_hub_and_freed_when_a_guest_leaves() {
+    let (hub, host) = start_slow().await;
+    let mut guests = Vec::new();
+    for name in ["Ana", "Ben", "Cris", "Dani"] {
+        guests.push(join(&hub, name).await);
+    }
+    // Ana and Ben fill three slots each
+    for (n, (guest, _)) in guests.iter().take(2).enumerate() {
+        guest.send(GuestMessage::Search { q: "slow".into() }).unwrap();
+        guest.send(browse("slow a")).unwrap();
+        guest.send(browse("slow b")).unwrap();
+        settles(|| host.running() == 3 * (n + 1)).await;
+    }
+    // Cris gets the last two; the next request is turned away, not queued
+    let (cris, cris_rx) = &mut guests[2];
+    cris.send(browse("slow a")).unwrap();
+    cris.send(browse("slow b")).unwrap();
+    settles(|| host.running() == 8).await;
+    cris.send(GuestMessage::Search { q: "slow".into() }).unwrap();
+    assert!(notice(cris_rx).await.contains("busy"));
+    // a guest that replaces its own request still fits: it frees the slot it takes
+    cris.send(browse("slow c")).unwrap();
+    settles(|| host.running() == 8).await;
+    let (dani, dani_rx) = &mut guests[3];
+    dani.send(GuestMessage::Search { q: "fast".into() }).unwrap();
+    assert!(notice(dani_rx).await.contains("busy"));
+
+    // Ana leaves: her three requests stop, and Dani's search now goes through
+    guests[0].0.close();
+    settles(|| host.running() == 5).await;
+    let (dani, dani_rx) = &mut guests[3];
+    dani.send(GuestMessage::Search { q: "fast".into() }).unwrap();
+    let results = expect(dani_rx, |ev| match ev {
+        GuestEvent::Message(HubMessage::Results(r)) => Some(r.q.clone()),
+        _ => None,
+    })
+    .await;
+    assert_eq!(results, "fast");
+
+    // stopping the hub stops everything still running
+    hub.stop().await;
+    settles(|| host.running() == 0).await;
+}
+
+#[tokio::test]
+async fn a_full_session_turns_the_next_guest_away_kindly() {
+    let (hub, _host) = start_slow().await;
+    let port = hub.local_addr().port();
+    let mut guests = Vec::new();
+    for i in 0..homefi_core::share::MAX_GUESTS {
+        guests.push(join(&hub, &format!("Guest {i}")).await);
+    }
+    let err = GuestClient::connect("127.0.0.1", port, "One more", "", "4821").await.err().unwrap();
+    assert!(err.to_string().contains("full"), "{err}");
+    // someone leaves: there is room again
+    guests.pop().unwrap().0.close();
+    until(|| hub.guests().len() < homefi_core::share::MAX_GUESTS).await;
+    assert!(GuestClient::connect("127.0.0.1", port, "One more", "", "4821").await.is_ok());
+    hub.stop().await;
+}

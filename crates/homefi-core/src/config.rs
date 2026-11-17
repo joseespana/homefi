@@ -72,6 +72,8 @@ impl_from_str!(AudioFormat { "original" => AudioFormat::Original, "flac" => Audi
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub enable_cache: bool,
+    /// Disk budget of the API response cache in MB (0 keeps no responses).
+    pub cache_size_mb: u32,
     pub debug: bool,
     /// The CLI says (at most once a day, on stderr) when a newer HomeFi is out.
     /// It never installs anything. `HOMEFI_NO_UPDATE_CHECK=1` turns it off too.
@@ -87,6 +89,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             enable_cache: true,
+            cache_size_mb: crate::api::DEFAULT_CACHE_MB,
             debug: false,
             update_check: true,
             metadata: MetadataConfig::default(),

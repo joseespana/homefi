@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="api_cache_title">Respuestas de Tidal guardadas</string>
+    <string name="api_cache_size">Espacio para respuestas guardadas</string>
+    <string name="api_cache_size_hint">HomeFi guarda un tiempo lo que responde Tidal (listas, álbumes, artistas, búsquedas) para que las páginas abran más rápido y se le pregunte menos a Tidal. Las más viejas se borran solas para no pasar de este tamaño. Desactivado no guarda ninguna. Tus descargas y tu biblioteca nunca se tocan.</string>
+    <string name="api_cache_off">Desactivado</string>
+    <string name="api_cache_step_mb">%1$d MB</string>
+    <string name="api_cache_step_gb">%1$d GB</string>
+    <string name="api_cache_used">Guardado ahora</string>
+    <string name="api_cache_nothing">Nada guardado</string>
+    <string name="api_cache_checking">Revisando…</string>
+    <string name="api_cache_clear">Borrar</string>
+    <string name="api_cache_clear_title">Borrar respuestas guardadas</string>
+    <string name="api_cache_clear_hint">Borrarlas solo hace que las próximas páginas le pregunten de nuevo a Tidal.</string>
+    <string name="api_cache_clear_failed">No se pudieron borrar las respuestas guardadas. Inténtalo de nuevo.</string>
+    <string name="api_cache_keywords">caché almacenamiento espacio disco liberar más rápido</string>
+</resources>

@@ -1593,7 +1593,7 @@ fn fade_frames(seconds: f32, music_frames: usize, rate: u32) -> Option<usize> {
 }
 
 fn pick_rate(supported: &[u32], source: u32) -> Option<u32> {
-    let family = |r: u32| r % 11_025 == 0;
+    let family = |r: u32| r.is_multiple_of(11_025);
     supported
         .iter()
         .copied()

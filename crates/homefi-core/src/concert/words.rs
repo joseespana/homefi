@@ -103,11 +103,14 @@ pub(crate) fn fallback_note(lang: Lang, fallback: Fallback<'_>, artist: &str) ->
         Fallback::FewShows => say(
             lang,
             format!(
-                "Your AI didn't find enough recent setlists for {artist}, so these are their most played songs on Tidal."
+                "Your AI didn't find enough recent setlists for {artist}, so these are their most played songs on \
+                 Tidal. If it keeps happening, a model that searches the web well (a Gemini or Claude one) may do \
+                 better: you can change it in Settings → AI."
             ),
             format!(
                 "Tu IA no encontró suficientes setlists recientes de {artist}, así que estas son sus canciones más \
-                 escuchadas en Tidal."
+                 escuchadas en Tidal. Si sigue pasando, un modelo que busque bien en la web (uno de Gemini o de Claude) puede \
+                 funcionar mejor: puedes cambiarlo en Ajustes → IA."
             ),
         ),
         Fallback::AiFailed { message } => say(

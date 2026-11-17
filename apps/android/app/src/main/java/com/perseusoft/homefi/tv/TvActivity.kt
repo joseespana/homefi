@@ -85,6 +85,8 @@ class TvActivity : ComponentActivity() {
     }
 
     /** Ambient mode swallows the key that wakes it; every other key just restarts the idle timer. */
+    // overriding the public Activity method is fine; lint confuses it with androidx.core's restricted helper
+    @android.annotation.SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (idle.onKey(event.keyCode, event.action == KeyEvent.ACTION_DOWN)) return true
         return super.dispatchKeyEvent(event)

@@ -5,6 +5,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import com.perseusoft.homefi.HomefiApplication
 import com.perseusoft.homefi.R
+import com.perseusoft.homefi.core.AiFeature
+import com.perseusoft.homefi.core.soundReactionUsesAi
 import com.perseusoft.homefi.core.AssistantContext
 import com.perseusoft.homefi.core.AssistantTurn
 import com.perseusoft.homefi.core.EqAssistantSession
@@ -414,7 +416,8 @@ class SoundLayers(
         _busy.value = reaction
         scope.launch {
             try {
-                val ready = app.ai.ready()
+                // "ask before spending": a no (or the month's limit) answers with the fixed steps, which cost nothing
+                val ready = app.ai.ready()?.takeIf { !soundReactionUsesAi(reaction) || app.spend.allow(AiFeature.SOUND_REACTION) }
                 val r = soundReact(
                     reaction,
                     ReactionContext(

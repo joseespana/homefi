@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -29,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
@@ -108,7 +110,7 @@ private fun AddressDialog(initial: String, onDismiss: () -> Unit, onOpen: (Strin
                     singleLine = true,
                     isError = bad,
                     supportingText = { if (bad) Text(stringResource(R.string.ex_tv_address_bad)) },
-                    placeholder = { Text("192.168.1.20:47801") },
+                    placeholder = { Text("192.168.1.20:47801/K7M2QXPA4B") },
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                         keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri,
                         imeAction = androidx.compose.ui.text.input.ImeAction.Go,
@@ -178,8 +180,27 @@ private fun RideRow(name: String, modifier: Modifier, onClick: () -> Unit) {
 @Composable
 private fun RideWeb(state: TvClientUi.Watching, client: RideTvClient) {
     BackHandler(onBack = client::stopWatching)
-    RideWebView(state.endpoint.pageUrl, state.listening, client::songPositionMs)
+    Box(Modifier.fillMaxSize()) {
+        RideWebView(state.endpoint.pageUrl, state.listening, client::songPositionMs)
+        // found on the network, not given by the rider: the picture only, and how to bring the music here
+        if (state.musicLocked) {
+            Text(
+                stringResource(R.string.ex_tv_music_needs_address),
+                fontSize = 18.sp,
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp)
+                    .widthIn(max = 880.dp)
+                    .background(Color(LOCKED_HINT_BACKGROUND), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+            )
+        }
+    }
 }
+
+/** Dark enough to read over any part of the ride page. */
+private const val LOCKED_HINT_BACKGROUND = 0xCC000000
 
 /**
  * The WebView on the core's ride page at [pageUrl]. With [followSong] the page asks [songPositionMs] (this

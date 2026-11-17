@@ -203,6 +203,7 @@ pub async fn chat_system(
     if config.model.trim().is_empty() {
         return Err(AiError::new(config, AiErrorKind::ModelNotFound, "no model chosen").into());
     }
+    super::usage::ensure_allowed(config)?;
     let search = options.web_search.as_ref();
     let api = match search {
         None => config.provider.api(),

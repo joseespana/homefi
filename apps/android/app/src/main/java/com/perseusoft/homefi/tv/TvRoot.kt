@@ -304,6 +304,8 @@ fun TvRoot(idle: TvIdle, train: TvTrainController, openPlayer: Flow<Unit>, openS
                     onClose = app.whatsNew::dismiss,
                 )
             }
+            // "Ask before spending" before an AI action, over every section
+            TvSpendGate()
         }
     }
 }

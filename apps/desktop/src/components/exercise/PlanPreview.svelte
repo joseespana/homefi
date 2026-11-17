@@ -9,6 +9,7 @@
   import Icon from "../Icon.svelte";
   import Spinner from "../Spinner.svelte";
   import Mountain from "./Mountain.svelte";
+  import OfflineButton from "./OfflineButton.svelte";
   import WhereToWatch from "./WhereToWatch.svelte";
   import ZoneKey from "./ZoneKey.svelte";
 
@@ -140,7 +141,11 @@
         <button type="button" class="btn tonal" onclick={startRename}>Rename</button>
         <button type="button" class="icon-btn star" class:on={ride.favorite} aria-pressed={ride.favorite} aria-label="Favorite" title={ride.favorite ? "Remove from favorites" : "Favorite"} onclick={() => exercise.favoriteRide(ride.id, !ride.favorite)}><Icon name={ride.favorite ? "starFill" : "star"} size={18} /></button>
       {/if}
+      <!-- the ride's songs on this computer, to ride it with no internet -->
+      <OfflineButton name={ride.name} status={exercise.planOffline} />
     </section>
+  {:else}
+    <div class="offline"><OfflineButton name={saved?.name ?? plan.workout.name} status={exercise.planOffline} /></div>
   {/if}
 
   <section class="card">
@@ -291,6 +296,10 @@
   }
   .kept .star.on {
     color: var(--warn);
+  }
+  .offline {
+    display: flex;
+    justify-content: flex-end;
   }
   .legend {
     display: flex;

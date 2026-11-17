@@ -81,4 +81,16 @@
     <string name="djs_imported">Se añadió el setup \"%1$s\".</string>
     <string name="djs_set_layout_hint">Orden de la pantalla del DJ, qué partes se ven y el sonido de los pads.</string>
     <string name="djs_set_setups_hint">Guarda, aplica, exporta e importa setups con nombre.</string>
+    <!-- las canciones de un recorrido en el teléfono, para pedalear sin internet -->
+    <string name="rides_offline_get">Bajar para usar sin internet</string>
+    <string name="rides_offline_waiting">Esperando para bajar…</string>
+    <string name="rides_offline_progress">Bajando %1$d de %2$d</string>
+    <string name="rides_offline_ready">Listo sin internet</string>
+    <string name="rides_offline_ready_desc">Todas las canciones de este recorrido están en tu teléfono: puedes pedalearlo sin internet.</string>
+    <plurals name="rides_offline_missing">
+        <item quantity="one">1 canción todavía necesita internet</item>
+        <item quantity="other">%d canciones todavía necesitan internet</item>
+    </plurals>
+    <string name="rides_set_auto_download">Bajar solas las canciones de cada recorrido nuevo</string>
+    <string name="rides_set_auto_download_hint">Así puedes pedalearlo sin internet. Las canciones que ya tienes no se bajan otra vez.</string>
 </resources>

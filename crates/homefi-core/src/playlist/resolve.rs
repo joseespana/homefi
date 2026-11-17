@@ -9,6 +9,7 @@ use std::time::Duration;
 use futures::StreamExt;
 
 use super::model::{EntryTag, PlaylistEntry, SongCandidate};
+use super::offline::isrc_key;
 use crate::api::TidalApi;
 use crate::models::Track;
 use crate::text::{fold, song_key};
@@ -81,8 +82,8 @@ impl LibraryIndex {
         let mut by_isrc = HashMap::with_capacity(tracks.len());
         let mut by_song = HashMap::with_capacity(tracks.len());
         for (i, t) in tracks.iter().enumerate() {
-            if let Some(isrc) = t.isrc.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-                by_isrc.entry(isrc.to_uppercase()).or_insert(i);
+            if let Some(key) = t.isrc.as_deref().and_then(isrc_key) {
+                by_isrc.entry(key).or_insert(i);
             }
             by_song.entry((artist_key(&t.artist), song_key(&t.title))).or_insert(i);
         }
@@ -90,7 +91,7 @@ impl LibraryIndex {
     }
 
     pub fn by_isrc(&self, isrc: &str) -> Option<&LibraryRef> {
-        self.by_isrc.get(&isrc.trim().to_uppercase()).map(|&i| &self.tracks[i])
+        self.by_isrc.get(&isrc_key(isrc)?).map(|&i| &self.tracks[i])
     }
 
     pub fn find(&self, artist: &str, title: &str) -> Option<&LibraryRef> {
@@ -175,7 +176,7 @@ pub fn entry_from_track(
     note: String,
 ) -> PlaylistEntry {
     let artist = track.artist.as_ref().or(track.artists.first()).map(|a| a.name.clone()).unwrap_or_default();
-    let isrc = track.isrc.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_uppercase);
+    let isrc = track.isrc.as_deref().and_then(isrc_key);
     let local_path = prefer_library
         .then(|| {
             isrc.as_deref()
@@ -204,7 +205,7 @@ pub(crate) fn entry_from_library(lib: &LibraryRef, tag: EntryTag, note: String) 
         title: lib.title.clone(),
         artist: lib.artist.clone(),
         album: lib.album.clone(),
-        isrc: lib.isrc.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_uppercase),
+        isrc: lib.isrc.as_deref().and_then(isrc_key),
         local_path: Some(lib.path.clone()),
         duration_ms: lib.duration_ms,
         tag,

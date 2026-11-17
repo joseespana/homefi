@@ -52,6 +52,9 @@ class HomefiApplication : Application(), SingletonImageLoader.Factory {
         private set
     lateinit var settings: SettingsStore
         private set
+    /** The saved Tidal answers (API cache): its budget follows the settings; the settings screens show its size. */
+    lateinit var apiCache: com.perseusoft.homefi.data.ApiCache
+        private set
     lateinit var downloads: DownloadRepository
         private set
     /** Mounted storage volumes (internal, USB, SD) and their free space. */
@@ -79,6 +82,9 @@ class HomefiApplication : Application(), SingletonImageLoader.Factory {
     /** Bring-your-own-key AI (keys in the Android Keystore). */
     lateinit var ai: AiSetup
         private set
+    /** "Ask before spending": every AI action asks it first; the phone and TV roots show its questions. */
+    lateinit var spend: com.perseusoft.homefi.data.SpendGate
+        private set
     /** Taste layers, loudness and "How does it sound?" on top of the equalizer. */
     lateinit var sound: SoundLayers
         private set
@@ -101,6 +107,8 @@ class HomefiApplication : Application(), SingletonImageLoader.Factory {
     /** Rides saved by themselves after each build, kept, favorited, exported. */
     lateinit var rides: SavedRides
         private set
+    /** "Download for offline" of rides: their TIDAL songs queued, and where each ride's download stands. */
+    val rideDownloads: com.perseusoft.homefi.data.RideDownloads by lazy { com.perseusoft.homefi.data.RideDownloads(downloads, library) }
     /** Named DJ setups (options + screen layout). */
     lateinit var djSetups: DjSetupsStore
         private set
@@ -143,6 +151,7 @@ class HomefiApplication : Application(), SingletonImageLoader.Factory {
         engine = HomefiEngine(filesDir.resolve("homefi").absolutePath)
         account = AccountStore(engine, appScope)
         settings = SettingsStore(this)
+        apiCache = com.perseusoft.homefi.data.ApiCache(engine, settings, appScope)
         deviceForm = DeviceForm.detect(this, settings.current.tv.uiForm)
         // album lists come grouped from the core, as the settings say (and in the phone's language)
         engine.setAlbumVersions(settings.current.albumVersions, java.util.Locale.getDefault().toLanguageTag())
@@ -158,6 +167,7 @@ class HomefiApplication : Application(), SingletonImageLoader.Factory {
         conversations = AiConversations(this, appScope, settings.playlists, notes, chatRequests)
         equalizer = Equalizer(settings, outputs, appScope)
         ai = AiSetup(settings, KeyVault(this))
+        spend = com.perseusoft.homefi.data.SpendGate(ai)
         sound = SoundLayers(this, equalizer, outputs, appScope)
         player = PlayerController(this) { mediaId -> library.find(mediaId) }
         dj = DjSession(this)

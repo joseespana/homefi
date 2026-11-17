@@ -24,12 +24,15 @@ class PlaylistQueue(
     fun entryOfItem(itemIndex: Int): Int? = itemIndexOfEntry.indexOf(itemIndex).takeIf { it >= 0 }
 }
 
+/** The library file an entry plays, or null (`LibraryRepository.localCopy`: its own file, else the file with its ISRC). */
+typealias LocalCopy = (PlaylistEntry) -> LibraryTrack?
+
 /**
- * What one playlist entry plays: the library copy first (when the file is still there), else the Tidal
- * track, else null (nothing to play). [find] looks a file up by path.
+ * What one playlist entry plays: the library copy first (its file, or a download of the same song), else the
+ * Tidal track, else null (nothing to play).
  */
-fun entryMediaItem(entry: PlaylistEntry, find: (String) -> LibraryTrack?): MediaItem? {
-    val local = entry.localPath?.let(find)
+fun entryMediaItem(entry: PlaylistEntry, localCopy: LocalCopy): MediaItem? {
+    val local = localCopy(entry)
     val tidalId = entry.tidalId
     return when {
         local != null -> local.toMediaItem()
@@ -39,11 +42,11 @@ fun entryMediaItem(entry: PlaylistEntry, find: (String) -> LibraryTrack?): Media
 }
 
 /** The playlist's entries in order, each through [entryMediaItem]; entries that can't play are skipped. */
-fun HomePlaylist.queue(find: (String) -> LibraryTrack?): PlaylistQueue {
+fun HomePlaylist.queue(localCopy: LocalCopy): PlaylistQueue {
     val items = ArrayList<MediaItem>(entries.size)
     val map = IntArray(entries.size) { -1 }
     entries.forEachIndexed { index, entry ->
-        val item = entryMediaItem(entry, find)
+        val item = entryMediaItem(entry, localCopy)
         if (item != null) {
             map[index] = items.size
             items += item
@@ -52,24 +55,24 @@ fun HomePlaylist.queue(find: (String) -> LibraryTrack?): PlaylistQueue {
     return PlaylistQueue(items, map)
 }
 
-fun HomePlaylist.mediaItems(find: (String) -> LibraryTrack?): List<MediaItem> = queue(find).items
+fun HomePlaylist.mediaItems(localCopy: LocalCopy): List<MediaItem> = queue(localCopy).items
 
 fun HomePlaylist.source(): SourceContext = Sources.playlist(id, name)
 
 /** Plays [playlist] from entry [entryIndex] (the first that can play when null), tagged so the user's Sounds apply. */
 fun PlayerController.playPlaylist(
     playlist: HomePlaylist,
-    find: (String) -> LibraryTrack?,
+    localCopy: LocalCopy,
     entryIndex: Int = 0,
     shuffle: Boolean = false,
 ) {
-    val queue = playlist.queue(find)
+    val queue = playlist.queue(localCopy)
     if (queue.items.isEmpty()) return
     playItems(queue.items, queue.startOf(entryIndex) ?: 0, shuffle, playlist.source())
 }
 
 /** Adds the playlist after the current song ([next]) or at the end of the queue. */
-fun PlayerController.enqueuePlaylist(playlist: HomePlaylist, find: (String) -> LibraryTrack?, next: Boolean) {
+fun PlayerController.enqueuePlaylist(playlist: HomePlaylist, localCopy: LocalCopy, next: Boolean) {
     val source = playlist.source()
-    enqueue(playlist.mediaItems(find).map { it.withSource(source) }, next)
+    enqueue(playlist.mediaItems(localCopy).map { it.withSource(source) }, next)
 }

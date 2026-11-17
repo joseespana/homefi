@@ -9,7 +9,7 @@
 // Pure geometry (`layoutCourse`, `tickStep`, `summitsOf`...) is exported separately from the canvas class so it
 // can be tested without a DOM.
 
-import { HOMEFITO_HEIGHT, HOMEFITO_REAR_X, paintHomefito, strainOf } from "./homefito-rider";
+import { HOMEFITO_HEIGHT, HOMEFITO_REAR_X, paintHomefito, strainOf } from "./homefito-rider.ts";
 
 export type CourseLook = "ribbon" | "alpine" | "stage";
 

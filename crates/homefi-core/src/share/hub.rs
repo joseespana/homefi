@@ -27,7 +27,7 @@ use futures::future::BoxFuture;
 use futures::stream::SplitStream;
 use futures::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio::task::JoinHandle;
+use tokio::task::{AbortHandle, JoinHandle};
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
@@ -61,6 +61,16 @@ const MAX_NAME_CHARS: usize = 32;
 /// once half of it is in use; anything else finding it full means the guest
 /// stopped reading, and it is disconnected.
 const GUEST_QUEUE: usize = 64;
+/// People in one session at most: enough for a party or a car, and a cap on the sockets, queues and catalog work
+/// guests can make the host carry.
+pub const MAX_GUESTS: usize = 16;
+/// Catalog requests (search, browse) one guest may have running. A newer search replaces the one still running
+/// (only the latest answer matters while typing); a third page replaces the oldest one still opening.
+const MAX_SEARCHES_PER_GUEST: usize = 1;
+const MAX_BROWSES_PER_GUEST: usize = 2;
+/// Catalog requests running for all guests together, so a busy party never floods the host's sources (Tidal limits
+/// how fast an account may ask). Past it a guest is told to try again: nothing waits in line.
+const MAX_CATALOG_JOBS: usize = 8;
 
 /// Image bytes for `GET /cover/<id>`.
 #[derive(Debug, Clone)]
@@ -188,6 +198,7 @@ impl Hub {
             next_audio: None,
             previous_audio: None,
             audio_key: format!("{:016x}", RandomState::new().build_hasher().finish()),
+            next_job: 1,
         };
         let shared = Arc::new(Shared { host, inner: Mutex::new(inner), started: Instant::now() });
 
@@ -658,6 +669,95 @@ struct Guest {
     tx: GuestTx,
     /// Last song this guest said it is ready to start (`GuestMessage::Ready`).
     ready: Option<u64>,
+    /// Its catalog requests still running, oldest first. They stop with the guest (dropping one aborts it).
+    jobs: Vec<CatalogJob>,
+}
+
+impl Guest {
+    /// Makes room for one more `kind` request when `running` requests run for everyone: past this guest's own
+    /// limit the oldest of that kind is replaced (aborted); past the hub's limit it is refused, in words for
+    /// the guest.
+    fn make_room(&mut self, kind: JobKind, running: usize) -> Result<(), String> {
+        let oldest = self.jobs.iter().position(|j| j.kind == kind);
+        let replaces = self.jobs.iter().filter(|j| j.kind == kind).count() >= kind.per_guest();
+        if running.saturating_sub(usize::from(replaces)) >= MAX_CATALOG_JOBS {
+            return Err("The host is busy with other requests. Try again in a moment.".into());
+        }
+        if let Some(oldest) = oldest.filter(|_| replaces) {
+            self.jobs.remove(oldest);
+        }
+        Ok(())
+    }
+}
+
+/// A guest's catalog request.
+#[derive(Debug)]
+enum CatalogRequest {
+    Search { q: String },
+    Browse { kind: BrowseKind, id: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JobKind {
+    Search,
+    Browse,
+}
+
+impl JobKind {
+    /// How many of this kind one guest may have running.
+    fn per_guest(self) -> usize {
+        match self {
+            JobKind::Search => MAX_SEARCHES_PER_GUEST,
+            JobKind::Browse => MAX_BROWSES_PER_GUEST,
+        }
+    }
+}
+
+impl CatalogRequest {
+    fn kind(&self) -> JobKind {
+        match self {
+            CatalogRequest::Search { .. } => JobKind::Search,
+            CatalogRequest::Browse { .. } => JobKind::Browse,
+        }
+    }
+
+    /// Asks the host and turns the answer (or its failure, in plain words) into the guest's message.
+    async fn answer(self, host: &dyn HubHost) -> HubMessage {
+        match self {
+            CatalogRequest::Search { q } => match host.search(q.clone()).await {
+                Ok(mut results) => {
+                    results.q = q;
+                    HubMessage::Results(results)
+                }
+                Err(e) => {
+                    tracing::debug!("share: search failed: {e}");
+                    HubMessage::Notice { text: e.humane() }
+                }
+            },
+            CatalogRequest::Browse { kind, id } => match host.browse(kind, id).await {
+                Ok(page) => HubMessage::Page(page),
+                Err(e) => {
+                    tracing::debug!("share: browse failed: {e}");
+                    HubMessage::Notice { text: e.humane() }
+                }
+            },
+        }
+    }
+}
+
+/// A running catalog task. Dropping it aborts the task (and the host's request with it); a task that already
+/// finished ignores the abort.
+#[derive(Debug)]
+struct CatalogJob {
+    id: u64,
+    kind: JobKind,
+    task: AbortHandle,
+}
+
+impl Drop for CatalogJob {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
 }
 
 struct Inner {
@@ -685,6 +785,8 @@ struct Inner {
     previous_audio: Option<AudioFile>,
     /// Part of the audio URLs, so only guests who joined can fetch the songs.
     audio_key: String,
+    /// Id of the next [`CatalogJob`].
+    next_job: u64,
 }
 
 /// Host calls collected under the lock and made after releasing it.
@@ -792,6 +894,9 @@ impl Inner {
             return Err("That code isn't right.".into());
         }
         self.failures.remove(&ip);
+        if self.guests.len() >= MAX_GUESTS {
+            return Err(format!("This session is full ({MAX_GUESTS} people). Try again when someone leaves."));
+        }
 
         let n = self.next_guest;
         self.next_guest += 1;
@@ -801,7 +906,7 @@ impl Inner {
             name: if name.is_empty() { format!("Guest {n}") } else { name },
             color: hello.color.trim().chars().take(16).collect(),
         };
-        self.guests.push(Guest { member: member.clone(), ip, tx: tx.clone(), ready: None });
+        self.guests.push(Guest { member: member.clone(), ip, tx: tx.clone(), ready: None, jobs: Vec::new() });
         // Welcome first, so the guest never sees a state before it (the
         // writer sends the first queued message before anything else).
         tx.send(&HubMessage::Welcome {
@@ -811,6 +916,18 @@ impl Inner {
             state: self.state(),
         });
         Ok(member)
+    }
+
+    /// Catalog requests running for everyone.
+    fn catalog_jobs(&self) -> usize {
+        self.guests.iter().map(|g| g.jobs.len()).sum()
+    }
+
+    /// A catalog task finished: its slot is free.
+    fn finish_job(&mut self, guest_id: &str, job_id: u64) {
+        if let Some(guest) = self.guests.iter_mut().find(|g| g.member.guest_id == guest_id) {
+            guest.jobs.retain(|j| j.id != job_id);
+        }
     }
 
     fn handle(&mut self, who: &Member, msg: GuestMessage, fx: &mut Effects) {
@@ -976,6 +1093,32 @@ impl Shared {
         })
     }
 
+    /// Answers a guest's search or browse in its own task, within the per-guest and hub limits (see
+    /// [`Guest::make_room`]). The task is registered under the lock it was spawned in, so it can never
+    /// finish before it is counted; it is aborted when replaced, or when the guest leaves or is kicked.
+    fn run_catalog(self: &Arc<Self>, who: &Member, request: CatalogRequest) {
+        let kind = request.kind();
+        let mut inner = self.lock();
+        let running = inner.catalog_jobs();
+        let id = inner.next_job;
+        // a kicked guest's last messages are ignored
+        let Some(guest) = inner.guests.iter_mut().find(|g| g.member.guest_id == who.guest_id) else { return };
+        if let Err(text) = guest.make_room(kind, running) {
+            guest.tx.send(&HubMessage::Notice { text });
+            return;
+        }
+        let tx = guest.tx.clone();
+        let shared = Arc::clone(self);
+        let guest_id = who.guest_id.clone();
+        let task = tokio::spawn(async move {
+            let reply = request.answer(shared.host.as_ref()).await;
+            tx.send(&reply);
+            shared.lock().finish_job(&guest_id, id);
+        });
+        guest.jobs.push(CatalogJob { id, kind, task: task.abort_handle() });
+        inner.next_job += 1;
+    }
+
     /// The guest's sender, `None` once it was kicked / left.
     fn sender(&self, guest_id: &str) -> Option<GuestTx> {
         self.lock().guests.iter().find(|g| g.member.guest_id == guest_id).map(|g| g.tx.clone())
@@ -989,37 +1132,8 @@ impl Shared {
                     tx.send(&HubMessage::Clock { t0, hub_ms: self.now_ms() });
                 }
             }
-            GuestMessage::Search { q } => {
-                let Some(tx) = self.sender(&who.guest_id) else { return };
-                let host = self.host.clone();
-                tokio::spawn(async move {
-                    let reply = match host.search(q.clone()).await {
-                        Ok(mut results) => {
-                            results.q = q;
-                            HubMessage::Results(results)
-                        }
-                        Err(e) => {
-                            tracing::debug!("share: search failed: {e}");
-                            HubMessage::Notice { text: e.humane() }
-                        }
-                    };
-                    tx.send(&reply);
-                });
-            }
-            GuestMessage::Browse { kind, id } => {
-                let Some(tx) = self.sender(&who.guest_id) else { return };
-                let host = self.host.clone();
-                tokio::spawn(async move {
-                    let reply = match host.browse(kind, id).await {
-                        Ok(page) => HubMessage::Page(page),
-                        Err(e) => {
-                            tracing::debug!("share: browse failed: {e}");
-                            HubMessage::Notice { text: e.humane() }
-                        }
-                    };
-                    tx.send(&reply);
-                });
-            }
+            GuestMessage::Search { q } => self.run_catalog(who, CatalogRequest::Search { q }),
+            GuestMessage::Browse { kind, id } => self.run_catalog(who, CatalogRequest::Browse { kind, id }),
             msg => self.update(|inner, fx| {
                 // Ignore what a kicked guest still had in flight.
                 if inner.guests.iter().any(|g| g.member.guest_id == who.guest_id) {

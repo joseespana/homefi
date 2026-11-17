@@ -339,8 +339,10 @@ los visuales. Probado en la Mac con jack a 96 kHz y Bluetooth a 44.1.
 `auth`, `download` (flags de tiddl), `config`, `devices`, `play`, búsqueda.
 
 ### CI / releases
-- `ci.yml`: Rust en Linux/macOS/Windows + frontend; **todavía compila un APK
-  debug** (José no ha dicho si quitarlo).
+- `ci.yml`: Rust en Linux/macOS/Windows + frontend (`pnpm check`, `pnpm test`), Android
+  (APK debug, tests unitarios y lint) y auditoría de dependencias (`cargo audit`, `pnpm audit`).
+  También es reutilizable: `release.yml` lo corre en el commit del tag y no publica si falla.
+  Acciones fijadas a SHA (Dependabot mensual), Rust fijo en `rust-toolchain.toml`, Node en `.nvmrc`.
 - `release.yml`: en push a main, tags `v*` y manual. Instaladores de escritorio
   (dmg arm64/x64, Windows x64/arm64, Linux deb/rpm/AppImage x64/arm64) y CLI para
   6 targets; job de Android comentado; subida opcional a Cloudflare R2.
@@ -563,6 +565,23 @@ cargo run -p homefi-cli -- auth login    # sesión de Tidal (~/.homefi/auth.json
 - [ ] Sonido 1.5.1: escuchar el Try, "Escuchar sin" y la precedencia en la app
       real con audífonos, y la búsqueda de Tidal con sesión. Decidir si apagar el
       interruptor también debe quitar el loudness (hoy sí: bit-perfect).
+- [ ] **Del análisis técnico (2026-11-17), lo que quedó fuera de la v1.5.19:**
+  - Transporte LAN cifrado y autenticado para fiestas y TV (hoy HTTP/WS en claro; el código
+    de entrada no cifra). Definir modelo de amenaza primero.
+  - Ride en TV desde la compu con música en la TV: hoy hay que escribir la dirección completa
+    con la llave del ride. Mostrar un QR en la compu (o emparejar la TV como en el teléfono).
+  - Probar en dispositivos reales: TV emparejada recibiendo la llave y uniéndose a la música;
+    el aviso nuevo en la TV; límites de invitados con carga real de Tidal; ajustes de caché.
+  - Biblioteca: el escaneo sin cambios sigue costando ~400 ms con 50 mil canciones (recorrer
+    carpetas + leer el índice JSON de 34 MB). Índice binario o revisión por carpeta si molesta.
+    Medidor: `crates/homefi-core/examples/scan_bench.rs`. Cancelación y progreso del escaneo
+    necesitan UI.
+  - Advertencia futura de Rust por `block` 0.1.6 (vía `souvlaki`, sin arreglo ni en 0.9).
+  - CSP de escritorio: `img-src http:` sigue por las portadas del anfitrión cuando la compu es
+    invitada; cerrarlo exige pasar esas portadas por el protocolo `cover:`.
+  - `network_security_config.xml` permite cleartext global (IPs LAN dinámicas).
+  - Avisos "unmaintained" de `cargo audit` (21, transitivos, ninguno vulnerable).
+  - Revisión aparte de iOS y del parche `third_party/cpal`.
 
 ---
 

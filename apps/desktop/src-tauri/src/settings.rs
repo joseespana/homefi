@@ -386,6 +386,9 @@ pub struct DesktopSettings {
     /// Tidal lists show their first page right away and load more while
     /// scrolling; off loads each list whole before showing it.
     pub lazy_lists: bool,
+    /// Disk space for saved Tidal answers (the API cache), in MB; 0 keeps none.
+    /// Same meaning as Android's `api_cache_mb`.
+    pub api_cache_mb: u32,
     pub share: ShareSettings,
     /// Version of the personal-use notice the user accepted before connecting
     /// Tidal; 0 = never. Asked again when the notice's version goes up.
@@ -483,6 +486,7 @@ impl Default for DesktopSettings {
             progress_thickness: "medium".into(),
             progress_animated: true,
             lazy_lists: true,
+            api_cache_mb: homefi_core::api::DEFAULT_CACHE_MB,
             share: ShareSettings::default(),
             tidal_terms_accepted: 0,
             tidal_terms_accepted_at: None,

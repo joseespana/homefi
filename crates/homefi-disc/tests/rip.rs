@@ -234,8 +234,12 @@ fn flac_decoded_by_another_decoder_matches_the_wav_of_the_same_rip() {
         buffer.copy_interleaved_ref(decoded);
         pcm.extend_from_slice(buffer.samples());
     }
-    let expected: Vec<i16> =
-        image_bytes(track_start(2), TRACKS[2]).chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect();
+    let expected: Vec<i16> = image_bytes(track_start(2), TRACKS[2])
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|b| i16::from_le_bytes([b[0], b[1]]))
+        .collect();
     assert_eq!(pcm, expected);
 }
 

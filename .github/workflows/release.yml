@@ -14,8 +14,9 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# read-only by default; only the job that publishes the release may write
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -25,13 +26,19 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # The full CI (tests, lint, audit) on this exact commit. A tag is published only if it passes,
+  # even when every installer builds. Pushes to main already run CI on their own.
+  checks:
+    if: github.ref_type == 'tag'
+    uses: ./.github/workflows/ci.yml
+
   version:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
       label: ${{ steps.v.outputs.label }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - id: v
         name: Version (tag must match Cargo.toml)
         run: |
@@ -67,7 +74,7 @@ jobs:
           - { name: Linux x64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, bundles: "deb,rpm,appimage" }
           - { name: Linux arm64, os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, bundles: "deb,rpm,appimage" }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Linux build dependencies
         if: runner.os == 'Linux'
@@ -76,10 +83,11 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
             libasound2-dev libssl-dev xdg-utils file
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # master; the version comes from rust-toolchain.toml
         with:
+          toolchain: "1.98.1"
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: desktop-${{ matrix.target }}
       # ring needs clang to cross-compile for Windows on ARM (LLVM ships with the runner image)
@@ -88,12 +96,12 @@ jobs:
         shell: bash
         run: echo "C:\Program Files\LLVM\bin" >> "$GITHUB_PATH"
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           package_json_file: apps/desktop/package.json
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: pnpm
           cache-dependency-path: apps/desktop/pnpm-lock.yaml
       - name: Install frontend dependencies
@@ -182,7 +190,7 @@ jobs:
           done
           ls -la pkg
           [[ -n "$(ls pkg)" ]] || { echo "::error::no installers were produced"; exit 1; }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: desktop-${{ matrix.target }}
           path: pkg/*
@@ -204,11 +212,12 @@ jobs:
           - { target: x86_64-pc-windows-msvc, os: windows-latest }
           - { target: aarch64-pc-windows-msvc, os: windows-latest }
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # master; the version comes from rust-toolchain.toml
         with:
+          toolchain: "1.98.1"
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: cli-${{ matrix.target }}
       - name: clang for ARM64
@@ -233,7 +242,7 @@ jobs:
           else
             tar -czf "$name.tar.gz" "$name"
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: cli-${{ matrix.target }}
           path: pkg/*.*z*
@@ -246,26 +255,27 @@ jobs:
     needs: version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: 17
       # the default package list asks for "tools", which newer SDK command-line tools no longer have
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           packages: platform-tools
       - run: sdkmanager "ndk;29.0.14206865"
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # master; the version comes from rust-toolchain.toml
         with:
+          toolchain: "1.98.1"
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: android
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2
         with:
           tool: cargo-ndk
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
       - name: Decode signing key
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -292,7 +302,7 @@ jobs:
           mkdir -p pkg
           /bin/cp apps/android/app/build/outputs/apk/release/homefi-*-release.apk \
             "pkg/HomeFi-${{ needs.version.outputs.label }}-android.apk"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android
           path: pkg/*.apk
@@ -301,12 +311,14 @@ jobs:
   # One bundle with everything + checksums; on a tag, also the GitHub Release.
   # With the R2 secrets set, everything is also uploaded to Cloudflare R2 (see docs/releasing.md).
   collect:
-    needs: [version, desktop, cli, android]
+    needs: [version, desktop, cli, android, checks]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: pkg
           merge-multiple: true
@@ -404,7 +416,7 @@ jobs:
             echo "| --- | --- |"
             for f in pkg/*; do echo "| $(basename "$f") | $(du -h "$f" | cut -f1) |"; done
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: HomeFi-${{ needs.version.outputs.label }}
           path: pkg/*
@@ -415,6 +427,8 @@ jobs:
       #   main/<label>/...         every push to main main/latest/...  last build of main
       # Each folder has a manifest.json (files, sizes, sha256 and URLs when R2_PUBLIC_URL is set).
       - name: Upload to Cloudflare R2
+        # a tag goes out only after its checks passed
+        if: github.ref_type != 'tag' || needs.checks.result == 'success'
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -474,8 +488,8 @@ jobs:
             aws s3 cp manifest.json "s3://$R2_BUCKET/$latest/manifest.json" --endpoint-url "$endpoint" --content-type application/json --only-show-errors
           fi
           echo "Uploaded to r2://$R2_BUCKET/$dir${latest:+ and $latest}" >> "$GITHUB_STEP_SUMMARY"
-      - uses: softprops/action-gh-release@v2
-        if: github.ref_type == 'tag' && needs.desktop.result == 'success' && needs.android.result == 'success'
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        if: github.ref_type == 'tag' && needs.checks.result == 'success' && needs.desktop.result == 'success' && needs.android.result == 'success'
         with:
           name: HomeFi ${{ needs.version.outputs.version }}
           body_path: notes.md

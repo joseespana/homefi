@@ -81,4 +81,16 @@
     <string name="djs_imported">Added setup \"%1$s\".</string>
     <string name="djs_set_layout_hint">Order of the DJ screen, which parts show and the pad sounds.</string>
     <string name="djs_set_setups_hint">Save, apply, export and import named setups.</string>
+    <!-- a ride's songs on the phone, so it can be ridden with no internet -->
+    <string name="rides_offline_get">Download for offline</string>
+    <string name="rides_offline_waiting">Waiting to download…</string>
+    <string name="rides_offline_progress">Downloading %1$d of %2$d</string>
+    <string name="rides_offline_ready">Ready offline</string>
+    <string name="rides_offline_ready_desc">Every song of this ride is on your phone: you can ride it with no internet.</string>
+    <plurals name="rides_offline_missing">
+        <item quantity="one">1 song still needs the internet</item>
+        <item quantity="other">%d songs still need the internet</item>
+    </plurals>
+    <string name="rides_set_auto_download">Download each new ride\'s songs automatically</string>
+    <string name="rides_set_auto_download_hint">So you can ride it with no internet. Songs you already have are not downloaded again.</string>
 </resources>

@@ -190,7 +190,8 @@ pub struct RideTvView {
     pub playing: bool,
     pub title: String,
     pub audio: TvAudio,
-    /// Only for audio `tv`, and only to devices on the local network.
+    /// Only for audio `tv`, and only to a client that asked at the ride's own address (the key the rider gave
+    /// it) from the local network: see the server's two doors.
     pub listen: Option<RideListen>,
     /// The course profile (elevation 0..1 against seconds).
     pub profile: Vec<ProfilePoint>,
@@ -246,8 +247,8 @@ impl Default for RideTvView {
 }
 
 impl RideTvView {
-    /// The answer for a request at `now_ms`. `listen` is withheld when `share_listen` is false (the peer
-    /// is not on the local network) or the audio stays on the phone.
+    /// The answer for a request at `now_ms`. `listen` is withheld when `share_listen` is false (the client did
+    /// not bring the ride key, or is not on the local network) or the audio stays on the phone.
     pub fn build(session: &TvSession, frame: Option<&TvFrame>, now_ms: u64, lang: Lang, share_listen: bool) -> Self {
         let listen = session.listen.clone().filter(|_| share_listen && session.audio == TvAudio::Tv);
         let base = Self {

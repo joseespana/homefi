@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, type AlbumVersionPrefs, type Settings } from "../../../lib/api";
+  import { api, errorText, type AlbumVersionPrefs, type Settings } from "../../../lib/api";
   import { app } from "../../../lib/state.svelte";
   import { useSettings } from "../model.svelte";
   import ActionRow from "../ActionRow.svelte";
@@ -31,6 +31,58 @@
     { id: "original", label: "Original" },
     { id: "remaster", label: "Latest remaster" },
   ] as const;
+
+  // Saved Tidal answers (the API cache): its size, what it takes now, and emptying it.
+  const DEFAULT_CACHE_MB = 200;
+  const CACHE_SIZES = [
+    { id: "0", label: "Off" },
+    { id: "50", label: "50 MB" },
+    { id: "100", label: "100 MB" },
+    { id: "200", label: "200 MB" },
+    { id: "500", label: "500 MB" },
+    { id: "1024", label: "1 GB" },
+  ] as const;
+  type CacheSize = (typeof CACHE_SIZES)[number]["id"];
+  const BYTES_PER_MB = 1_048_576;
+  const cacheMb = $derived(settings.api_cache_mb ?? DEFAULT_CACHE_MB);
+  let cacheBytes = $state<number | null>(null);
+  let clearingCache = $state(false);
+
+  function sizeText(bytes: number): string {
+    if (bytes === 0) return "Nothing saved";
+    const mb = bytes / BYTES_PER_MB;
+    return mb < 1 ? "Less than 1 MB" : `${mb.toFixed(mb < 10 ? 1 : 0)} MB`;
+  }
+
+  async function readCacheUsage() {
+    try {
+      cacheBytes = await api.apiCacheUsage();
+    } catch {
+      cacheBytes = null;
+    }
+  }
+  $effect(() => {
+    void readCacheUsage();
+  });
+
+  async function saveCacheSize(id: CacheSize) {
+    // the backend frees what no longer fits before answering
+    await m.save({ api_cache_mb: Number(id) });
+    await readCacheUsage();
+  }
+
+  async function clearCache() {
+    if (clearingCache) return;
+    clearingCache = true;
+    try {
+      await api.clearApiCache();
+    } catch (e) {
+      m.error = errorText(e);
+    } finally {
+      await readCacheUsage();
+      clearingCache = false;
+    }
+  }
 
   let signingOut = $state(false);
 
@@ -71,6 +123,19 @@
     checked={settings.lazy_lists ?? true}
     onchange={(on) => m.save({ lazy_lists: on })}
   />
+</SettingsGroup>
+
+<SettingsGroup title="Saved Tidal answers">
+  <SegmentedRow
+    label="Space for saved answers"
+    hint="HomeFi keeps what Tidal answers (lists, albums, artists, searches) for a while, so pages open faster and Tidal is asked less. The oldest ones are deleted by themselves to stay under this size. Off keeps none. Your downloads and library are never touched."
+    options={CACHE_SIZES}
+    value={String(cacheMb) as CacheSize}
+    onchange={saveCacheSize}
+  />
+  <ActionRow label="Saved now" hint={cacheBytes === null ? "Checking…" : `${sizeText(cacheBytes)}. Clearing only makes the next pages ask Tidal again.`}>
+    <button type="button" class="btn tonal" disabled={clearingCache || cacheBytes === 0} aria-busy={clearingCache} onclick={clearCache}>{#if clearingCache}<Spinner size={16} /> Clearing…{:else}Clear{/if}</button>
+  </ActionRow>
 </SettingsGroup>
 
 <SettingsGroup title="Album versions">

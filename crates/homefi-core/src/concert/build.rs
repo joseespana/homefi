@@ -67,7 +67,8 @@ pub(crate) async fn build_within(
     progress: Progress<'_>,
     deadline: Duration,
 ) -> Result<ConcertBuilt> {
-    tokio::time::timeout(deadline, build_inner(request, ctx, progress))
+    let work = tokio::time::timeout(deadline, build_inner(request, ctx, progress));
+    crate::ai::usage::track(crate::ai::AiFeature::Concert, None, work)
         .await
         .unwrap_or_else(|_| Err(words::problem(ctx.lang, Problem::TooSlow)))
 }

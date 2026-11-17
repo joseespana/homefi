@@ -392,10 +392,11 @@ private fun TopBar(
         if (onMaximize != null) {
             IconButton(onClick = onMaximize) { Icon(Icons.Rounded.OpenInFull, stringResource(R.string.player_maximize)) }
         }
-        Spacer(Modifier.weight(1f))
-        // a narrow side player scrolls its buttons rather than squeezing them
+        // the buttons take all the room left (not half of it), pushed to the end; only a narrow side player,
+        // where they truly don't fit, scrolls them rather than squeezing them
         Row(
-            Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()),
+            Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically,
             content = actions,
         )
@@ -417,6 +418,14 @@ private fun PlayerActions(
     onLyrics: () -> Unit,
 ) {
     if (showSound) SoundButton(remote = playerCapabilities().remoteName != null)
+    // lyrics (and karaoke inside them) first: the most used, never the one a narrow bar hides
+    IconButton(onClick = onLyrics) {
+        Icon(
+            Icons.Rounded.Lyrics,
+            stringResource(if (lyricsOpen) R.string.lyrics_close else R.string.lyrics_show),
+            tint = if (lyricsOpen) com.perseusoft.homefi.ui.theme.lyricsPalette(layout).fill else LocalContentColor.current,
+        )
+    }
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.Dashboard, stringResource(R.string.layout_title)) }
@@ -456,7 +465,7 @@ private fun PlayerActions(
                 )
             }
             // "Playlist like this" is for the song of this phone's own player
-            val song = app.player.state.value.current
+            val song = app.player.state.collectAsStateWithLifecycle().value.current
             val seed = song?.let { current -> songSeedAction { current.toSeed(app.library) } }
             if (seed != null && playerCapabilities().remoteName == null) {
                 DropdownMenuItem(
@@ -517,14 +526,6 @@ private fun PlayerActions(
         }
     }
     IconButton(onClick = onOutputs) { Icon(currentOutputKind().icon(), stringResource(R.string.output_title)) }
-    // lyrics, lit while they're showing
-    IconButton(onClick = onLyrics) {
-        Icon(
-            Icons.Rounded.Lyrics,
-            stringResource(if (lyricsOpen) R.string.lyrics_close else R.string.lyrics_show),
-            tint = if (lyricsOpen) com.perseusoft.homefi.ui.theme.lyricsPalette(layout).fill else LocalContentColor.current,
-        )
-    }
     if (onQueue != null) {
         IconButton(onClick = onQueue, enabled = hasQueue) {
             Icon(Icons.AutoMirrored.Rounded.QueueMusic, stringResource(R.string.player_queue))

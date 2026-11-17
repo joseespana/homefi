@@ -407,6 +407,9 @@ pub struct ExerciseSettings {
     /// Big messages in the middle of the ride (sprint countdown, cheers, the ride's last words).
     #[uniffi(default = true)]
     pub ride_callouts: bool,
+    /// Every new ride's TIDAL songs are downloaded by themselves (to ride with no internet).
+    #[uniffi(default = false)]
+    pub auto_download_rides: bool,
 }
 
 impl From<ex::ExerciseSettings> for ExerciseSettings {
@@ -454,6 +457,7 @@ impl From<ex::ExerciseSettings> for ExerciseSettings {
             ride_karaoke: s.ride_karaoke,
             ride_fullscreen: s.ride_fullscreen,
             ride_callouts: s.ride_callouts,
+            auto_download_rides: s.auto_download_rides,
         }
     }
 }
@@ -503,6 +507,7 @@ impl From<ExerciseSettings> for ex::ExerciseSettings {
             ride_karaoke: s.ride_karaoke,
             ride_fullscreen: s.ride_fullscreen,
             ride_callouts: s.ride_callouts,
+            auto_download_rides: s.auto_download_rides,
         }
     }
 }
@@ -1799,6 +1804,23 @@ pub struct SavedRideSummary {
     /// Saved by itself after a build (it may be pruned); `false` once kept.
     pub auto: bool,
     pub profile: Vec<ProfilePoint>,
+    /// Where each song of the ride plays from, in order: what "ready with no internet" is worked out from
+    /// (and what "download for offline" queues) without loading the whole ride.
+    pub song_sources: Vec<RideSongSource>,
+}
+
+/// Where one song of a saved ride can play from: its file, the ISRC that finds a file downloaded later, its TIDAL id.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct RideSongSource {
+    pub tidal_id: Option<String>,
+    pub isrc: Option<String>,
+    pub local_path: Option<String>,
+}
+
+impl From<&pl::PlaylistEntry> for RideSongSource {
+    fn from(e: &pl::PlaylistEntry) -> Self {
+        Self { tidal_id: e.tidal_id.clone(), isrc: e.isrc.clone(), local_path: e.local_path.clone() }
+    }
 }
 
 impl From<&ex::SavedRide> for SavedRideSummary {
@@ -1817,6 +1839,7 @@ impl From<&ex::SavedRide> for SavedRideSummary {
             favorite: s.favorite,
             auto: s.auto,
             profile: s.profile.into_iter().map(Into::into).collect(),
+            song_sources: r.plan.songs.iter().map(|song| (&song.entry).into()).collect(),
         }
     }
 }
@@ -1952,6 +1975,11 @@ mod tests {
         let saved = rides.auto_save(request, plan.into(), None, "en".into(), 30).unwrap();
         assert!(saved.auto && saved.minutes == 30);
         assert_eq!(rides.list().len(), 1);
+        assert_eq!(
+            saved.song_sources,
+            [RideSongSource { tidal_id: Some("1".into()), isrc: None, local_path: None }],
+            "the summary says where each song plays from"
+        );
         assert!(!rides.keep(saved.id.clone(), Some("Mine".into())).unwrap().auto);
         assert!(rides.set_favorite(saved.id.clone(), true).unwrap().favorite);
         assert_eq!(rides.mark_ridden(saved.id.clone()).unwrap().times_ridden, 1);
@@ -1973,12 +2001,13 @@ mod tests {
             ride_swap: false,
             swap_uses_ai: false,
             ride_karaoke: true,
+            auto_download_rides: true,
             ..exercise_default_settings()
         };
         let core = ex::ExerciseSettings::from(custom.clone());
         assert_eq!((core.climb_steps, core.crossfade_seconds, core.course_rider), (2, 5.0, ex::CourseRider::Dot));
         assert_eq!((core.ride_big_controls, core.ride_swap, core.swap_uses_ai), (true, false, false));
-        assert!(core.ride_karaoke);
+        assert!(core.ride_karaoke && core.auto_download_rides);
         assert_eq!(core.bike.console, ex::ConsoleUnit::Kph);
         assert_eq!(ExerciseSettings::from(core), custom, "nothing is lost on the way");
         // the defaults are the core's, so a Kotlin copy of them keeps the product's choices

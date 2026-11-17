@@ -8,6 +8,7 @@
   import Icon from "../Icon.svelte";
   import Spinner from "../Spinner.svelte";
   import MiniProfile from "./MiniProfile.svelte";
+  import OfflineButton from "./OfflineButton.svelte";
 
   const rides = $derived(exercise.rides);
   const history = $derived(exercise.settings.ride_history_max);
@@ -97,6 +98,7 @@
           {:else}
             <div class="actions">
               <button type="button" class="ride" disabled={busy || !!exercise.working} aria-busy={exercise.working === `load:${r.id}`} onclick={() => exercise.loadRide(r.id)}>{#if exercise.working === `load:${r.id}`}<Spinner size={15} />Loading…{:else}<Icon name="play" size={15} />Ride again{/if}</button>
+              <OfflineButton name={r.name} status={exercise.offline[r.id]} />
               <button type="button" class="icon-btn star" class:on={r.favorite} aria-pressed={r.favorite} aria-label="Favorite" title={r.favorite ? "Remove from favorites" : "Favorite: kept and listed first"} onclick={() => exercise.favoriteRide(r.id, !r.favorite)}><Icon name={r.favorite ? "starFill" : "star"} size={18} /></button>
               {#if r.auto}<button type="button" class="icon-btn" aria-label="Keep this ride" title="Keep it: it is never removed automatically" disabled={!!exercise.working} aria-busy={exercise.working === `keep:${r.id}`} onclick={() => exercise.keepRide(r.id)}>{#if exercise.working === `keep:${r.id}`}<Spinner size={18} />{:else}<Icon name="save" size={18} />{/if}</button>{:else}<span class="slot" aria-hidden="true"></span>{/if}
               <button type="button" class="icon-btn" aria-label="Rename" title="Rename" onclick={() => startRename(r)}><Icon name="edit" size={18} /></button>

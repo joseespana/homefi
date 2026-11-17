@@ -7,6 +7,7 @@
   import { app } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
   import ActionRow from "./settings/ActionRow.svelte";
+  import AiSpending from "./settings/AiSpending.svelte";
   import FieldRow from "./settings/FieldRow.svelte";
   import OptionGallery from "./settings/OptionGallery.svelte";
   import SettingRow from "./settings/SettingRow.svelte";
@@ -242,6 +243,8 @@
     {/if}
   </SettingsGroup>
 {/if}
+
+<AiSpending provider={ai.provider} />
 
 <SettingsGroup title="Privacy">
   <SettingsNote>Your key stays safely stored on this computer. Only what the conversation needs is sent to the AI service, never your music files or your Tidal account.</SettingsNote>

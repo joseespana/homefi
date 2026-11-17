@@ -248,7 +248,11 @@ async fn too_few_shows_fall_back_to_the_most_played() {
     let built = run(&fx, &request(), Some(&config), Some(&api)).await.unwrap();
     assert_eq!(
         built.fallback_note.as_deref(),
-        Some("Your AI didn't find enough recent setlists for Korn, so these are their most played songs on Tidal.")
+        Some(
+            "Your AI didn't find enough recent setlists for Korn, so these are their most played songs on Tidal. \
+             If it keeps happening, a model that searches the web well (a Gemini or Claude one) may do better: \
+             you can change it in Settings → AI."
+        )
     );
     assert_eq!(origin(&built.playlist).source, SetlistSource::TidalPopular);
     assert!(origin(&built.playlist).shows.is_empty());

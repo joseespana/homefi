@@ -68,6 +68,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -115,6 +116,7 @@ private val COVER_SIZE = 300.dp
 @Composable
 fun TvNowPlaying(onClose: () -> Unit, onSound: () -> Unit = {}) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val app = context.homefi
     val player = app.player
     val state by player.state.collectAsStateWithLifecycle()
@@ -172,7 +174,7 @@ fun TvNowPlaying(onClose: () -> Unit, onSound: () -> Unit = {}) {
     fun seek(seconds: Int) {
         val s = stateNow
         player.seekTo(seekTarget(s.positionMs, s.durationMs, seconds))
-        seekBadge = if (seconds > 0) context.getString(R.string.tv_np_seek_forward, seconds) else context.getString(R.string.tv_np_seek_back, -seconds)
+        seekBadge = if (seconds > 0) resources.getString(R.string.tv_np_seek_forward, seconds) else resources.getString(R.string.tv_np_seek_back, -seconds)
         badgeTick++
     }
 
