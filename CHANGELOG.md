@@ -7,8 +7,7 @@ the core library and the Android app.
 
 ## [Unreleased]
 
-## [1.5.19] - 2026-11-17
-
+## [1.5.20] - 2026-11-17
 
 ### Added
 - Exercise: ride with no internet. "Download for offline" on the ride's plan and on each ride in My rides puts
