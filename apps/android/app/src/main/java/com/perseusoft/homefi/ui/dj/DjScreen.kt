@@ -183,6 +183,7 @@ fun DjScreen(onClose: () -> Unit) {
             resetTempo = { session.resetTempo(i) },
             hotCue = { session.hotCue(i, it) },
             clearHotCue = { session.clearHotCue(i, it) },
+            clearMarks = { session.clearMarks(i) },
             loop = { session.toggleLoop(i, it) },
             keyLock = { v -> app.settings.update { it.copy(djKeyLock = v) } },
         )

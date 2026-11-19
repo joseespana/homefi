@@ -86,3 +86,20 @@ HOMEFI_EVAL_PROVIDER=openrouter HOMEFI_EVAL_KEY=... HOMEFI_EVAL_MODEL=google/gem
 
 OpenRouter blocks web searches (402 `in_flight_budget_exhausted`) when the account balance is low, even when a
 plain chat still works: concerts then fall back to Tidal's most played.
+
+## Results: which model is the "Automatic" one (2026-11-19)
+
+Run through OpenRouter. `ai_eval` three times per model (Sonnet and Gemini once, to stay within the key's
+budget), `music_eval` once (Luna twice). Costs are what OpenRouter charged for the whole run.
+
+| Model | EQ assistant (of 99) | Cost per EQ run | Ride "polish music" | Concerts (Korn, Dawid Podsiadło) | Cost per songs run |
+| --- | --- | --- | --- | --- | --- |
+| `anthropic/claude-sonnet-5.5` | 99 | $1.86 | not run | not run | - |
+| `openai/gpt-5.6-luna` | 99, 99, 99 | $0.06-0.18 | Polish rock and pop, both runs | both, from setlist.fm, both runs | $0.08 |
+| `deepseek/deepseek-v4.1-flash` | 99, 98, 98 | $0.06-0.08 | not Polish | Korn ok; Dawid ran out of room | $0.08 |
+| `anthropic/claude-haiku-5.5` | 97, 97, 96 | $0.09-0.11 | not Polish | Korn ok; Dawid ran out of room | $0.26 |
+| `google/gemini-3.8-flash` | 89 | $0.47 | Polish | both timed out | $0.18 |
+
+GPT-5.6 Luna is the only cheap model that passed everything, so it is now the "Automatic" choice for
+OpenRouter and OpenAI keys (`pick_model`). Anthropic keys keep Sonnet: Haiku fails the song prompts.
+

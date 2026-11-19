@@ -33,6 +33,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
@@ -86,6 +87,7 @@ class DeckActions(
     val resetTempo: () -> Unit,
     val hotCue: (Int) -> Unit,
     val clearHotCue: (Int) -> Unit,
+    val clearMarks: () -> Unit,
     val loop: (Int) -> Unit,
     val keyLock: (Boolean) -> Unit,
 )
@@ -296,6 +298,13 @@ private fun TempoRow(deck: DjDeckUi, rangePct: Float, keyLock: Boolean, actions:
 @Composable
 private fun HotCues(deck: DjDeckUi, accent: Color, actions: DeckActions) {
     val haptics = haptics()
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(stringResource(R.string.dj_hot_cues), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+        TextButton(
+            onClick = { haptics.tick(); actions.clearMarks() },
+            enabled = deck.loaded && (deck.hotCues.any { it != null } || deck.loopBeats != null),
+        ) { Text(stringResource(R.string.dj_clear_marks)) }
+    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PAD_GAP)) {
         repeat(DJ_HOT_CUES) { i ->
             val saved = deck.hotCues.getOrNull(i)

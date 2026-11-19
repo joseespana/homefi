@@ -578,12 +578,15 @@ fn can_chat(id: &str) -> bool {
 /// ids that change every few months: a preferred family for the job (fast
 /// models that are good at tools), stable over preview, newest version first.
 pub fn pick_model(provider: &AiProvider, models: &[ModelInfo]) -> Option<String> {
-    // families in order of preference; later entries are fallbacks
+    // families in order of preference; later entries are fallbacks. GPT Luna first: in docs/ai-eval.md it
+    // scored like Sonnet on the EQ assistant, rides and concerts at about a tenth of the price.
     let families: &[&str] = match provider {
         AiProvider::Anthropic => &["sonnet", "haiku", "opus"],
-        AiProvider::OpenAi => &["gpt-mini", "gpt", "o"],
+        AiProvider::OpenAi => &["gpt-luna", "gpt-mini", "gpt", "o"],
         AiProvider::Gemini => &["gemini-flash", "gemini-pro", "gemini"],
-        AiProvider::OpenRouter => &["anthropic/claude-sonnet", "openai/gpt-mini", "google/gemini-flash", "openai/gpt"],
+        AiProvider::OpenRouter => {
+            &["openai/gpt-luna", "anthropic/claude-sonnet", "openai/gpt-mini", "google/gemini-flash", "openai/gpt"]
+        }
         AiProvider::Mistral => &["mistral-medium", "mistral-large", "mistral-small"],
         AiProvider::Groq => &["gpt-oss", "llama", "qwen", "kimi"],
         AiProvider::XAi => &["grok-fast", "grok-mini", "grok"],
@@ -715,6 +718,20 @@ mod tests {
             "gpt-5.6-codex",
         ]);
         assert_eq!(pick_model(&AiProvider::OpenAi, &openai).as_deref(), Some("gpt-5.6-mini"));
+        // Luna when it's there: Sonnet's results for a tenth of the price
+        let mut with_luna = openai.clone();
+        with_luna.extend(models(&["gpt-5.6-luna-pro", "gpt-5.6-luna", "gpt-5.6-sol"]));
+        assert_eq!(pick_model(&AiProvider::OpenAi, &with_luna).as_deref(), Some("gpt-5.6-luna"));
+        let router = models(&[
+            "anthropic/claude-sonnet-5.5",
+            "openai/gpt-5.6-luna:batch",
+            "openai/gpt-5.6-luna-pro",
+            "openai/gpt-5.6-luna",
+            "google/gemini-3.8-flash",
+        ]);
+        assert_eq!(pick_model(&AiProvider::OpenRouter, &router).as_deref(), Some("openai/gpt-5.6-luna"));
+        let no_luna = models(&["anthropic/claude-sonnet-5.5", "google/gemini-3.8-flash"]);
+        assert_eq!(pick_model(&AiProvider::OpenRouter, &no_luna).as_deref(), Some("anthropic/claude-sonnet-5.5"));
         let gemini = models(&[
             "gemini-3.8-pro",
             "gemini-3.8-flash-preview",

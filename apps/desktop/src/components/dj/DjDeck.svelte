@@ -44,6 +44,14 @@
     dj.dragging = null;
   }
 
+  const anyMarks = $derived(!!s && (s.hot_cues.some((c) => c !== null) || !!s.loop_ms));
+  /** Wipes what was pressed on this deck: every saved hot cue and the loop. */
+  function cleanMarks() {
+    if (!s) return;
+    s.hot_cues.forEach((c, index) => c !== null && dj.send({ type: "clear_hot_cue", deck, index }));
+    if (s.loop_ms) dj.send({ type: "loop_exit", deck });
+  }
+
   function hotCue(e: MouseEvent, n: number) {
     if (!ready || !s) return;
     const set = s.hot_cues[n] !== null;
@@ -169,10 +177,14 @@
 
       {#if !simple}
         <div class="pro">
-          <span class="cap-t">Hot cues</span>
+          <div class="cap-row">
+            <span class="cap-t">Hot cues</span>
+            <button class="clean" type="button" disabled={!ready || !anyMarks} title="Delete this deck's saved hot cues and leave the loop" onclick={cleanMarks}>Clear</button>
+          </div>
           <div class="pads" role="group" aria-label="Hot cues, deck {letter}">
             {#each { length: DJ_HOT_CUES } as _, n (n)}
               {@const set = s?.hot_cues[n] != null}
+              {@const key = keyHint(`hot_cue_${n + 1}`) && dj.keyFor(`deck_${deck}.hot_cue_${n + 1}`)}
               <button
                 class="hc"
                 class:set
@@ -180,9 +192,9 @@
                 style:--h={HOT_CUE_COLORS[n]}
                 disabled={!ready}
                 aria-label="Hot cue {n + 1}, deck {letter}{set ? '' : ', empty'}"
-                title={ready ? (set ? "Jump to this saved spot. Shift-click or right-click to delete it." : "Empty: click to save the current spot.") : needsSong}
+                title={ready ? (set ? `Jump to this saved spot. Shift-click or right-click to delete it.${keyHint(`hot_cue_${n + 1}`)}` : `Empty: click to save the current spot.${keyHint(`hot_cue_${n + 1}`)}`) : needsSong}
                 onclick={(e) => hotCue(e, n)}
-                oncontextmenu={(e) => hotCue(e, n)}><i>{n + 1}</i>{set ? "" : "+"}</button
+                oncontextmenu={(e) => hotCue(e, n)}><i>{n + 1}</i>{set ? "" : "+"}{#if key}<small class="k">{key}</small>{/if}</button
               >
             {/each}
           </div>
@@ -565,6 +577,25 @@
     flex-direction: column;
     gap: 8px;
   }
+  .cap-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .clean {
+    padding: 2px 8px;
+    border-radius: var(--r-xs);
+    border: 1px solid var(--border);
+    background: none;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .clean:hover:not(:disabled) {
+    color: var(--text);
+  }
+  .clean:disabled {
+    opacity: 0.4;
+  }
   .cap-t {
     font-size: 10px;
     color: var(--faint);
@@ -595,6 +626,14 @@
     font-style: normal;
     font-weight: 500;
     font-size: 11px;
+    color: var(--faint);
+  }
+  .hc .k {
+    position: absolute;
+    top: 3px;
+    right: 6px;
+    font-size: 10px;
+    font-weight: 500;
     color: var(--faint);
   }
   .hc.set {

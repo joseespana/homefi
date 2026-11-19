@@ -418,6 +418,9 @@ class DjSession(private val app: HomefiApplication) {
     fun clearHotCue(deck: Int, index: Int) =
         updateDeck(deck) { it.copy(hotCues = it.hotCues.toMutableList().also { cues -> cues[index] = null }) }
 
+    /** Wipes what was pressed on [deck]: every saved hot cue and the loop. */
+    fun clearMarks(deck: Int) = updateDeck(deck) { it.copy(hotCues = List(DJ_HOT_CUES) { null }, loopBeats = null) }
+
     /** Repeats the next [beats] beats from the nearest beat; the same button again leaves the loop. */
     fun toggleLoop(deck: Int, beats: Int) {
         val player = players.getOrNull(deck) ?: return

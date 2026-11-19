@@ -34,6 +34,7 @@
     <string name="dj_hot_cue">Punto guardado %1$d</string>
     <string name="dj_hot_cue_set">Punto guardado %1$d. Toca para saltar, mantén para borrar.</string>
     <string name="dj_hot_cue_empty">Punto guardado %1$d, vacío. Toca para guardar el momento actual.</string>
+    <string name="dj_clear_marks">Limpiar</string>
     <string name="dj_loop">Bucle</string>
     <string name="dj_loop_n">Bucle de %1$d tiempos</string>
     <string name="dj_loop_exit">Salir del bucle</string>

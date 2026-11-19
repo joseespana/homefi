@@ -7,6 +7,20 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+### Changed
+
+- AI: with an OpenRouter or OpenAI key, "Automatic" now picks GPT-5.6 Luna instead of Claude Sonnet. It matched Sonnet on the EQ assistant, rides and concert playlists in our tests, for about a tenth of the price. A model you picked yourself is kept.
+
+### Added
+
+- DJ mode on desktop and Android: a Clear button next to each deck's hot cues deletes that deck's saved hot cues and leaves its loop.
+
+### Fixed
+
+- Desktop mini player: the volume slider's coloured part now ends right under the dot.
+- Desktop DJ: dragging a song from the crate onto a deck works again. The window was keeping drags for itself to catch dropped files.
+- Desktop DJ: each hot cue pad now shows its key. Deck B's hot cues use 7, 8, 9 and 0 (Shift for 5 to 8), not 1 to 4, which belong to deck A.
+
 ## [1.5.20] - 2026-11-17
 
 ### Added

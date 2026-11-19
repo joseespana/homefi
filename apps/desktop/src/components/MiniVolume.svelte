@@ -68,7 +68,7 @@
     aria-label="Volume"
     aria-valuetext="{Math.round(volume * 100)}%"
     tabindex={open ? 0 : -1}
-    style:--fill="{(app.muted ? 0 : volume) * 100}%"
+    style:--v={app.muted ? 0 : volume}
     oninput={(e) => set(Number(e.currentTarget.value))}
   />
 </div>
@@ -92,6 +92,9 @@
     margin: 0;
     opacity: 0;
     border-radius: var(--r-pill);
+    /* the thumb's centre only travels between half a thumb from each end, so the fill stops there too */
+    --thumb: 11px;
+    --fill: calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--v));
     background: linear-gradient(to right, var(--m-fill) var(--fill), var(--m-groove) var(--fill));
     transition:
       width 0.18s ease,
@@ -106,8 +109,8 @@
   }
   input::-webkit-slider-thumb {
     appearance: none;
-    width: 11px;
-    height: 11px;
+    width: var(--thumb);
+    height: var(--thumb);
     border-radius: 50%;
     background: var(--m-text);
     box-shadow: 0 0 6px color-mix(in srgb, var(--room-accent) 60%, transparent);
