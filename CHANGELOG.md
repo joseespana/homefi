@@ -7,6 +7,9 @@ the core library and the Android app.
 
 ## [Unreleased]
 
+## [1.5.21] - 2026-11-19
+
+
 ### Changed
 
 - AI: with an OpenRouter or OpenAI key, "Automatic" now picks GPT-5.6 Luna instead of Claude Sonnet. It matched Sonnet on the EQ assistant, rides and concert playlists in our tests, for about a tenth of the price. A model you picked yourself is kept.
